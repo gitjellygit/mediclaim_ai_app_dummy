@@ -38,7 +38,7 @@ export default function DocumentIntelligence() {
   async function loadDocuments() {
     try {
       setLoading(true);
-      const docs = await api("/documents");
+      const docs = await api("/api/claims/documents");
       setDocuments(docs || []);
     } catch (error) {
       console.error("Failed to load documents:", error);
@@ -137,7 +137,7 @@ export default function DocumentIntelligence() {
       formData.append('claimId', 'temp-claim'); // TODO: Get actual claim ID
       
       // Upload to backend for proper processing
-      const response = await api("/documents", {
+      const response = await api("/api/claims/documents", {
         method: "POST",
         body: formData
       });
