@@ -65,15 +65,24 @@ const extractPatterns = {
 // Enhanced field extraction function
 function extractFields(text) {
   const t = text || "";
+  if (!t || typeof t !== 'string') {
+    console.log("Invalid text for field extraction:", text);
+    return {};
+  }
+  
   const extracted = {};
 
   Object.keys(extractPatterns).forEach(field => {
     const patterns = extractPatterns[field];
     for (const pattern of patterns) {
-      const match = t.match(pattern);
-      if (match && match[1]) {
-        extracted[field] = match[1].trim();
-        break; // Use first match found
+      try {
+        const match = t.match(pattern);
+        if (match && match[1]) {
+          extracted[field] = match[1].trim();
+          break; // Use first match found
+        }
+      } catch (error) {
+        console.error(`Error matching pattern for ${field}:`, error);
       }
     }
   });
@@ -163,17 +172,25 @@ export async function analyzeDocument({ fileName, mimeType, path }) {
   }
 
   // Enhanced field extraction
-  const extracted = extractFields(finalText);
+  const extracted = extractFields(finalText || "");
 
   // Calculate extraction confidence based on fields found
   const fieldsFound = Object.keys(extracted).length;
   const extractionConfidence = Math.min(95, 50 + (fieldsFound * 10));
 
+  console.log("Document analysis results:", {
+    suggestedType,
+    confidence,
+    extracted,
+    extractionSource,
+    textLength: finalText?.length || 0
+  });
+
   return { 
     suggestedType, 
     confidence, 
     extracted,
-    rawExtractedText: finalText,
+    rawExtractedText: finalText || "",
     extractionConfidence,
     extractionSource
   };
