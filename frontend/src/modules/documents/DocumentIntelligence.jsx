@@ -134,7 +134,7 @@ export default function DocumentIntelligence() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('type', extractDocumentType(file.name));
-      formData.append('claimId', 'temp-claim'); // TODO: Get actual claim ID
+      // formData.append('claimId', null); // Don't send claimId for now
       
       // Upload to backend for proper processing
       const response = await api("/api/claims/documents", {

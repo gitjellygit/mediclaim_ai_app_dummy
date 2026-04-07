@@ -145,7 +145,7 @@ router.post("/documents", upload.single("file"), async (req, res) => {
 
     const doc = await prisma.document.create({
       data: {
-        claimId,
+        claimId: claimId || null, // Make claimId optional
         type,
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
