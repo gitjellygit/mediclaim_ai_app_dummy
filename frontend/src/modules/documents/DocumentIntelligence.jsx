@@ -38,7 +38,7 @@ export default function DocumentIntelligence() {
   async function loadDocuments() {
     try {
       setLoading(true);
-      const docs = await api("/api/claims/documents");
+      const docs = await api("/api/documents/list");
       setDocuments(docs || []);
     } catch (error) {
       console.error("Failed to load documents:", error);
@@ -137,7 +137,7 @@ export default function DocumentIntelligence() {
       // formData.append('claimId', null); // Don't send claimId for now
       
       // Upload to backend for proper processing
-      const response = await api("/api/claims/documents", {
+      const response = await api("/api/documents/upload", {
         method: "POST",
         body: formData
       });

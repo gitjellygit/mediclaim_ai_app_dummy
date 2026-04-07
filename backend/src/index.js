@@ -6,6 +6,7 @@ import { PrismaClient } from "@prisma/client";
 import claimsRouter from "./routes/claims.js";
 import rulesRouter from "./routes/rules.js";
 import { authRouter } from "./routes/auth.js";
+import { documentsRouter } from "./routes/documents.js";
 import { requireAuth, requireRoles } from "./middleware/auth.js";
 
 dotenv.config();
@@ -83,6 +84,12 @@ app.post("/api/auth/logout-all", requireAuth, async (req, res) => {
  * claimsRouter IS ALREADY A ROUTER → DO NOT CALL IT
  */
 app.use("/api/claims", requireAuth, claimsRouter);
+
+/**
+ * DOCUMENT ROUTES
+ * documentsRouter IS A FUNCTION → must be CALLED
+ */
+app.use("/api/documents", requireAuth, documentsRouter(prisma, "uploads"));
 
 /**
  * RULE ROUTES (ADMIN ONLY)

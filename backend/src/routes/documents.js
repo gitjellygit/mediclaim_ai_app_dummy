@@ -26,21 +26,31 @@ export function documentsRouter(prisma, uploadDir) {
   // Upload document
   router.post("/upload", upload.single("file"), async (req, res) => {
     const { claimId, type } = req.body;
-    if (!claimId || !type) {
-      return res.status(400).json({ error: "claimId and type are required" });
-    }
+    
     if (!req.file) {
       return res.status(400).json({ error: "file is required" });
     }
 
+    // Call AI analysis service
+    const { analyzeDocument } = await import("../services/docIntel.js");
+    const intel = await analyzeDocument({
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      path: req.file.filename
+    });
+
     const doc = await prisma.document.create({
       data: {
-        claimId,
-        type,
+        claimId: claimId || null, // Make claimId optional
+        type: type || intel.suggestedType,
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
         sizeBytes: req.file.size,
-        path: req.file.filename
+        path: req.file.filename,
+        suggestedType: intel.suggestedType,
+        confidence: intel.confidence,
+        extracted: intel.extracted,
+        status: "PROCESSED"
       }
     });
 
