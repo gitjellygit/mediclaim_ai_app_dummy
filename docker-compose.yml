@@ -1,0 +1,15 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16
+    container_name: claim_ai_db
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: claim_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - claim_ai_pg:/var/lib/postgresql/data
+volumes:
+  claim_ai_pg:

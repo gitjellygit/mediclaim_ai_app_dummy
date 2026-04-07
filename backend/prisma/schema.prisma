@@ -1,0 +1,178 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum AdmissionType {
+  PLANNED
+  EMERGENCY
+}
+
+enum ClaimType {
+  CASHLESS
+  REIMBURSEMENT
+}
+
+enum ClaimStage {
+  INITIAL
+  ENHANCEMENT
+  FINAL
+}
+
+enum RoomCategory {
+  GENERAL
+  SEMI_PRIVATE
+  PRIVATE
+  ICU
+}
+
+enum UserRole {
+  ADMIN
+  CASHIER
+  RECEPTIONIST
+}
+
+model Claim {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  patientName String
+  payerName   String
+  policyNo    String?
+  amount      Int
+  status      String   @default("DRAFT")
+
+  patientAge    Int?
+  patientGender Gender?
+  uhid          String?
+  patientMobile String?
+
+  hospitalName    String?
+  hospitalAddress String?
+  hospitalRegNo   String?
+  doctorName      String?
+  doctorRegNo     String?
+
+  admissionDate  DateTime?
+  dischargeDate  DateTime?
+  admissionType  AdmissionType?
+  diagnosisText  String?
+  icd10Codes     String[] @default([])
+  procedureText  String?
+  procedureDate  DateTime?
+
+  tpaName           String?
+  policyStartDate   DateTime?
+  policyEndDate     DateTime?
+  productType       String?
+  sumInsured        Int?
+  balanceSumInsured Int?
+
+  claimType         ClaimType  @default(REIMBURSEMENT)
+  claimStage        ClaimStage @default(INITIAL)
+  totalBilledAmount Int?
+  approvedAmount    Int?
+  deductionAmount   Int?
+  copayAmount       Int?
+  roomCategory      RoomCategory?
+  icuDays           Int?
+
+  tpaReferenceNo      String?
+  insurerClaimNo      String?
+  authorizationNo     String?
+  claimSubmissionDate DateTime?
+
+  documents Document[]
+  checks    Check[]
+}
+
+model Document {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  claimId String
+  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  type       String
+  fileName   String
+  mimeType   String
+  sizeBytes  Int
+  path       String
+
+  isMandatory Boolean @default(false)
+  verified    Boolean @default(false)
+
+  // ✅ Document Intelligence (AI)
+  suggestedType String?
+  confidence    Int?    // 0..100
+  extracted     Json?   // { patientName?, amount?, dates?, ... }
+  status        String @default("PENDING") // PENDING, PROCESSED, FAILED
+}
+
+model Check {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  claimId String
+  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  score  Int
+  issues Json
+
+    // ✅ Rejection Risk Prediction (AI)
+  riskScore   Float?
+  riskLevel   String? // LOW | MED | HIGH
+  riskFactors Json?   // ["Missing discharge summary", ...]
+  aiSummary   Json?   // any extra AI outputs if you want later
+}
+
+model Rule {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  code     String  @unique
+  name     String
+  severity String  @default("WARN")
+  enabled  Boolean @default(true)
+}
+
+model User {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(RECEPTIONIST)
+  
+  // Security fields
+  failedLoginAttempts Int      @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  @@index([token])
+  @@index([userId])
+}
