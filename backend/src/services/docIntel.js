@@ -1,5 +1,7 @@
 import fs from "fs";
-import pdf from "pdf-parse"; // Add PDF parsing library
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const pdf = require("pdf-parse"); // Add PDF parsing library
 
 const DOC_TYPES = [
   "DISCHARGE_SUMMARY",
@@ -119,7 +121,7 @@ export async function analyzeDocument({ fileName, mimeType, path }) {
       extractionSource = "ocr";
     }
   }
-  // Handle text files
+  // Handle text files (only actual text files, not PDFs)
   else if (mt.includes("text/") || name.endsWith(".txt") || name.endsWith(".md")) {
     try {
       const raw = fs.readFileSync(path, "utf8");
