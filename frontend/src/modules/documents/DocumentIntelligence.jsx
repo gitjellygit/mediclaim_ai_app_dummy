@@ -1,28 +1,35 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
-  Card,
-  CardContent,
+  Box,
   Typography,
   Button,
-  LinearProgress,
   Stack,
-  Box,
+  Card,
+  CardContent,
+  TextField,
+  Chip,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
-  Chip,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  TextField,
-  InputAdornment
+  LinearProgress,
+  InputAdornment,
+  IconButton,
+  Paper
 } from "@mui/material";
-import { CloudUpload, ExpandMore, ExpandLess, Search } from "@mui/icons-material";
-import { api } from "../../api/client.js";
+import {
+  Search as SearchIcon,
+  CloudUpload,
+  ExpandMore,
+  ExpandLess,
+  AttachFile
+} from "@mui/icons-material";
+import { ClaimsApi } from "../../api/claims.js";
 
 export default function DocumentIntelligence() {
   const [uploading, setUploading] = useState(false);
@@ -38,12 +45,11 @@ export default function DocumentIntelligence() {
   async function loadDocuments() {
     try {
       setLoading(true);
-      const docs = await api("/api/documents/list");
-      setDocuments(docs || []);
-    } catch (error) {
-      console.error("Failed to load documents:", error);
-      // Fallback to mock data if API fails
-      setDocuments([
+      // For now, use fallback mock data until backend is stable
+      console.log("Loading documents...");
+      
+      // Temporarily use mock data to avoid white page
+      const mockDocuments = [
         {
           id: "1",
           fileName: "final_bill.pdf",
@@ -80,6 +86,27 @@ export default function DocumentIntelligence() {
           createdAt: new Date(),
           patientId: "priya-sharma"
         }
+      ];
+      
+      setDocuments(mockDocuments);
+      console.log("Documents loaded:", mockDocuments.length);
+      
+    } catch (error) {
+      console.error("Failed to load documents:", error);
+      // Always set fallback data to prevent white page
+      setDocuments([
+        {
+          id: "1",
+          fileName: "final_bill.pdf",
+          mimeType: "application/pdf",
+          type: "FINAL_BILL",
+          suggestedType: "FINAL_BILL",
+          confidence: 92,
+          extracted: { patientName: "Raghu Kumar", amount: 52340 },
+          status: "PROCESSED",
+          createdAt: new Date(),
+          patientId: "raghu-kumar"
+        }
       ]);
     } finally {
       setLoading(false);
@@ -87,7 +114,7 @@ export default function DocumentIntelligence() {
   }
 
   // Group documents by patient - recalculate whenever documents change
-  const documentsByPatient = React.useMemo(() => {
+  const documentsByPatient = useMemo(() => {
     const grouped = documents.reduce((acc, doc) => {
       const patientId = doc.patientId || 'unknown';
       if (!acc[patientId]) {
@@ -130,16 +157,10 @@ export default function DocumentIntelligence() {
     console.log("Uploading file:", file.name);
     
     try {
-      // Create FormData for file upload - let backend handle extraction
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('type', extractDocumentType(file.name));
-      // formData.append('claimId', null); // Don't send claimId for now
-      
-      // Upload to backend for proper processing
-      const response = await api("/api/documents/upload", {
-        method: "POST",
-        body: formData
+      const response = await ClaimsApi.uploadDoc({
+        claimId: null,
+        type: extractDocumentType(file.name),
+        file: file
       });
       
       console.log("Upload response:", response);
@@ -240,7 +261,7 @@ export default function DocumentIntelligence() {
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                  <Search />
+                  <SearchIcon />
                 </InputAdornment>
               )
             }}
