@@ -1,10 +1,14 @@
 import React from "react";
 import {
   Box, Card, CardContent, Typography, Button, Chip, Stack,
-  Table, TableHead, TableRow, TableCell, TableBody,
-  LinearProgress, Divider, TextField
+  Table, TableHead, TableRow, TableCell, TableBody, TableContainer, TablePagination,
+  LinearProgress, Divider, TextField, Paper, Checkbox, IconButton, Tooltip,
+  Collapse, Alert, Snackbar
 } from "@mui/material";
-import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
+import {
+  DeleteForever, ExpandMore, ExpandLess, Visibility, Download, 
+  SelectAll, DeselectAll, DeleteSweep, FolderOpen
+} from "@mui/icons-material";
 import { useParams, useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 import { AuthApi } from "../../api/auth.js";
@@ -57,6 +61,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [editMode, setEditMode] = React.useState(false);
   const [savingEdit, setSavingEdit] = React.useState(false);
   const [editForm, setEditForm] = React.useState(null);
+  
+  // Table state
+  const [selectedDocs, setSelectedDocs] = React.useState(new Set());
+  const [expandedRows, setExpandedRows] = React.useState(new Set());
+  const [page, setPage] = React.useState(0);
+  const [rowsPerPage, setRowsPerPage] = React.useState(10);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = React.useState(false);
 
   async function load() {
     if (!id) {
@@ -207,6 +218,96 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
   }
 
+  // Table management functions
+  function handleSelectDoc(docId) {
+    const newSelected = new Set(selectedDocs);
+    if (newSelected.has(docId)) {
+      newSelected.delete(docId);
+    } else {
+      newSelected.add(docId);
+    }
+    setSelectedDocs(newSelected);
+  }
+
+  function handleSelectAll() {
+    if (!claim?.documents) return;
+    
+    if (selectedDocs.size === claim.documents.length) {
+      setSelectedDocs(new Set());
+    } else {
+      setSelectedDocs(new Set(claim.documents.map(doc => doc.id)));
+    }
+  }
+
+  function handleToggleExpand(docId) {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(docId)) {
+      newExpanded.delete(docId);
+    } else {
+      newExpanded.add(docId);
+    }
+    setExpandedRows(newExpanded);
+  }
+
+  async function handleBulkDelete() {
+    if (selectedDocs.size === 0) {
+      showToast("Please select documents to delete", "warning");
+      return;
+    }
+
+    if (!canDeleteDoc) return showToast("Only CASHIER/ADMIN can delete documents", "error");
+    
+    if (!confirm(`Delete ${selectedDocs.size} selected document(s)? This cannot be undone.`)) return;
+
+    try {
+      setBulkDeleteLoading(true);
+      const deletePromises = Array.from(selectedDocs).map(docId => ClaimsApi.deleteDoc(docId));
+      await Promise.all(deletePromises);
+      
+      showToast(`${selectedDocs.size} document(s) deleted successfully`, "success");
+      setSelectedDocs(new Set());
+      await load();
+    } catch (e) {
+      showToast(e.message || "Failed to delete documents", "error");
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  }
+
+  async function handlePreview(doc) {
+    try {
+      const response = await fetch(`/api/documents/${doc.id}/preview`);
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        window.open(url, '_blank');
+      }
+    } catch (e) {
+      showToast("Failed to preview document", "error");
+    }
+  }
+
+  async function handleDownload(doc) {
+    try {
+      const response = await fetch(`/api/documents/${doc.id}/download`);
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = doc.fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (e) {
+      showToast("Failed to download document", "error");
+    }
+  }
+
+  const paginatedDocs = claim?.documents?.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage) || [];
+
   if (!id) {
     return (
       <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
@@ -249,7 +350,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         <Button onClick={onBack}>← Back to list</Button>
 
         {isAdmin && (
-          <Button color="error" startIcon={<DeleteForeverIcon />} onClick={deleteClaim}>
+          <Button color="error" startIcon={<DeleteForever />} onClick={deleteClaim}>
             Delete Claim
           </Button>
         )}
@@ -372,105 +473,300 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Typography variant="h6">Documents</Typography>
-
-          <Stack direction="row" spacing={2} sx={{ my: 2, alignItems: "center" }}>
-            <select value={docType} onChange={(e) => setDocType(e.target.value)}>
-              {DOC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-
-            <input
-              type="file"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-
-                try {
-                  await ClaimsApi.uploadDoc({ claimId: id, type: docType, file });
-                  showToast("Document uploaded (AI analyzed)", "success");
-                  await load();
-                } catch (err) {
-                  showToast(err.message || "Upload failed", "error");
-                }
-
-                e.target.value = "";
-              }}
-            />
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+              Documents ({claim.documents.length})
+            </Typography>
+            
+            {selectedDocs.size > 0 && (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" color="text.secondary">
+                  {selectedDocs.size} selected
+                </Typography>
+                <Tooltip title="Delete Selected">
+                  <IconButton 
+                    color="error" 
+                    onClick={handleBulkDelete}
+                    disabled={bulkDeleteLoading || !canDeleteDoc}
+                    size="small"
+                  >
+                    <DeleteSweep />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            )}
           </Stack>
 
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Type</TableCell>
-                <TableCell>File</TableCell>
-                <TableCell>AI Suggestion</TableCell>
-                <TableCell width={140}>Action</TableCell>
-              </TableRow>
-            </TableHead>
-
-            <TableBody>
-              {claim.documents.map((d) => (
-                <TableRow key={d.id}>
-                  <TableCell>{d.type}</TableCell>
-                  <TableCell>{d.fileName}</TableCell>
-
-                  <TableCell>
-                    {d.suggestedType ? (
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          color="primary"
-                          label={`${d.suggestedType} (${d.confidence ?? 0}%)`}
-                        />
-                        {d.suggestedType !== d.type && (
-                          <Button
-                            size="small"
-                            disabled={!canDeleteDoc}
-                            onClick={() => applyDocSuggestion(d)}
-                          >
-                            Apply
-                          </Button>
-                        )}
-                      </Stack>
-                    ) : (
-                      <Typography color="text.secondary">—</Typography>
-                    )}
-                  </TableCell>
-
-                  <TableCell>
-                    <Button
-                      color="error"
-                      size="small"
-                      disabled={!canDeleteDoc}
-                      onClick={async () => {
-                        if (!canDeleteDoc) return showToast("Only CASHIER/ADMIN can delete documents", "error");
-                        if (!confirm("Delete this document?")) return;
-
-                        try {
-                          await ClaimsApi.deleteDoc(d.id);
-                          showToast("Document deleted", "warning");
-                          await load();
-                        } catch (err) {
-                          showToast(err.message || "Delete failed", "error");
-                        }
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  </TableCell>
-                </TableRow>
+          <Stack direction="row" spacing={2} sx={{ mb: 3, alignItems: "center" }}>
+            <TextField
+              select
+              label="Document Type"
+              value={docType}
+              onChange={(e) => setDocType(e.target.value)}
+              size="small"
+              sx={{ minWidth: 180 }}
+            >
+              {DOC_TYPES.map((t) => (
+                <option key={t} value={t}>{t.replace('_', ' ')}</option>
               ))}
+            </TextField>
 
-              {!claim.documents.length && (
-                <TableRow>
-                  <TableCell colSpan={4}>
-                    <Typography color="text.secondary">No documents uploaded yet</Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+            <Button
+              variant="contained"
+              component="label"
+              startIcon={<FolderOpen />}
+              size="small"
+            >
+              Upload Document
+              <input
+                type="file"
+                hidden
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+
+                  try {
+                    await ClaimsApi.uploadDoc({ claimId: id, type: docType, file });
+                    showToast("Document uploaded (AI analyzed)", "success");
+                    await load();
+                  } catch (err) {
+                    showToast(err.message || "Upload failed", "error");
+                  }
+
+                  e.target.value = "";
+                }}
+              />
+            </Button>
+
+            {claim?.documents?.length > 0 && (
+              <Stack direction="row" spacing={1}>
+                <Tooltip title={selectedDocs.size === claim?.documents?.length ? "Deselect All" : "Select All"}>
+                  <IconButton 
+                    size="small"
+                    onClick={handleSelectAll}
+                    color={selectedDocs.size === claim?.documents?.length ? "primary" : "default"}
+                  >
+                    {selectedDocs.size === claim?.documents?.length ? <DeselectAll /> : <SelectAll />}
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            )}
+          </Stack>
+
+          {claim?.documents?.length > 0 ? (
+            <>
+              <TableContainer component={Paper} sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                <Table stickyHeader aria-label="documents table">
+                  <TableHead>
+                    <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                      <TableCell padding="checkbox" sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold' }}>
+                        <Checkbox
+                          indeterminate={selectedDocs.size > 0 && selectedDocs.size < claim?.documents?.length}
+                          checked={claim?.documents?.length > 0 && selectedDocs.size === claim?.documents?.length}
+                          onChange={handleSelectAll}
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 120 }}>
+                        Type
+                      </TableCell>
+                      <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 200 }}>
+                        File Name
+                      </TableCell>
+                      <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 150 }}>
+                        AI Suggestion
+                      </TableCell>
+                      <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 100 }}>
+                        Confidence
+                      </TableCell>
+                      <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 180 }}>
+                        Actions
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {paginatedDocs.map((doc) => (
+                      <React.Fragment key={doc.id}>
+                        <TableRow 
+                          hover
+                          selected={selectedDocs.has(doc.id)}
+                          sx={{ '&:hover': { backgroundColor: '#f9f9f9' } }}
+                        >
+                          <TableCell padding="checkbox" sx={{ borderBottom: '1px solid #e0e0e0' }}>
+                            <Checkbox
+                              checked={selectedDocs.has(doc.id)}
+                              onChange={() => handleSelectDoc(doc.id)}
+                              size="small"
+                            />
+                          </TableCell>
+                          <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
+                            <Chip
+                              label={doc.type.replace('_', ' ')}
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                            />
+                          </TableCell>
+                          <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
+                            <Stack direction="row" alignItems="center" spacing={1}>
+                              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                                {doc.fileName}
+                              </Typography>
+                              <Tooltip title="Expand Details">
+                                <IconButton 
+                                  size="small"
+                                  onClick={() => handleToggleExpand(doc.id)}
+                                  sx={{ p: 0.5 }}
+                                >
+                                  {expandedRows.has(doc.id) ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
+                          </TableCell>
+                          <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
+                            {doc.suggestedType ? (
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  color="primary"
+                                  label={`${doc.suggestedType.replace('_', ' ')}`}
+                                />
+                                {doc.suggestedType !== doc.type && canDeleteDoc && (
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => applyDocSuggestion(doc)}
+                                    sx={{ fontSize: '0.7rem', py: 0.25, px: 1 }}
+                                  >
+                                    Apply
+                                  </Button>
+                                )}
+                              </Stack>
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">
+                                No suggestion
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
+                            {doc.confidence ? (
+                              <Chip
+                                label={`${doc.confidence}%`}
+                                size="small"
+                                color={doc.confidence >= 85 ? 'success' : doc.confidence >= 70 ? 'warning' : 'error'}
+                              />
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">-</Typography>
+                            )}
+                          </TableCell>
+                          <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
+                            <Stack direction="row" spacing={0.5}>
+                              <Tooltip title="Preview">
+                                <IconButton 
+                                  size="small"
+                                  onClick={() => handlePreview(doc)}
+                                  sx={{ color: 'primary.main' }}
+                                >
+                                  <Visibility fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Download">
+                                <IconButton 
+                                  size="small"
+                                  onClick={() => handleDownload(doc)}
+                                  sx={{ color: 'primary.main' }}
+                                >
+                                  <Download fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              {canDeleteDoc && (
+                                <Tooltip title="Delete">
+                                  <IconButton 
+                                    size="small"
+                                    onClick={async () => {
+                                      if (!confirm("Delete this document?")) return;
+                                      try {
+                                        await ClaimsApi.deleteDoc(doc.id);
+                                        showToast("Document deleted", "warning");
+                                        await load();
+                                      } catch (err) {
+                                        showToast(err.message || "Delete failed", "error");
+                                      }
+                                    }}
+                                    sx={{ color: 'error.main' }}
+                                  >
+                                    <DeleteForever fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={6} sx={{ p: 0, borderBottom: '1px solid #e0e0e0' }}>
+                            <Collapse in={expandedRows.has(doc.id)} timeout="auto" unmountOnExit>
+                              <Box sx={{ p: 2, backgroundColor: '#fafafa' }}>
+                                <Stack spacing={1}>
+                                  <Typography variant="subtitle2" fontWeight="bold">
+                                    Document Details
+                                  </Typography>
+                                  <Stack direction="row" spacing={2} flexWrap="wrap">
+                                    <Typography variant="body2">
+                                      <strong>Size:</strong> {doc.sizeBytes ? `${(doc.sizeBytes / 1024).toFixed(1)} KB` : 'Unknown'}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                      <strong>MIME Type:</strong> {doc.mimeType || 'Unknown'}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                      <strong>Uploaded:</strong> {doc.createdAt ? new Date(doc.createdAt).toLocaleString() : 'Unknown'}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                      <strong>Status:</strong> {doc.status || 'PENDING'}
+                                    </Typography>
+                                  </Stack>
+                                  {doc.extracted && Object.keys(doc.extracted).length > 0 && (
+                                    <Box sx={{ mt: 1 }}>
+                                      <Typography variant="subtitle2" fontWeight="bold">
+                                        Extracted Data
+                                      </Typography>
+                                      {Object.entries(doc.extracted).map(([key, value]) => (
+                                        <Typography key={key} variant="body2" sx={{ pl: 2 }}>
+                                          <strong>{key}:</strong> {value}
+                                        </Typography>
+                                      ))}
+                                    </Box>
+                                  )}
+                                </Stack>
+                              </Box>
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                      </React.Fragment>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              
+              <TablePagination
+                rowsPerPageOptions={[5, 10, 25, 50]}
+                component="div"
+                count={claim?.documents?.length || 0}
+                rowsPerPage={rowsPerPage}
+                page={page}
+                onPageChange={(e, newPage) => setPage(newPage)}
+                onRowsPerPageChange={(e) => {
+                  setRowsPerPage(parseInt(e.target.value, 10));
+                  setPage(0);
+                }}
+                sx={{ border: '1px solid #e0e0e0', borderTop: 'none', borderRadius: '0 0 8px 8px' }}
+              />
+            </>
+          ) : (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              No documents uploaded yet. Upload documents to get started with AI analysis.
+            </Alert>
+          )}
         </CardContent>
       </Card>
 

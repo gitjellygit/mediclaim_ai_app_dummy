@@ -8,11 +8,76 @@ const router = express.Router();
 const prisma = new PrismaClient();
 const upload = multer({ dest: "uploads/" });
 
+// Debug endpoint to check database (no auth required)
+router.get("/debug", async (req, res) => {
+  try {
+    console.log("=== DATABASE DEBUG ===");
+    
+    const claims = await prisma.claim.findMany();
+    console.log("All claims:", claims.length);
+    
+    const documents = await prisma.document.findMany();
+    console.log("All documents:", documents.length);
+    
+    const documentsWithClaimId = await prisma.document.findMany({
+      where: { claimId: { not: null } }
+    });
+    console.log("Documents with claimId:", documentsWithClaimId.length);
+    
+    // Check specific claim
+    if (claims.length > 0) {
+      const firstClaim = await prisma.claim.findUnique({
+        where: { id: claims[0].id },
+        include: { documents: true }
+      });
+      console.log("First claim with documents:", firstClaim.documents.length);
+    }
+    
+    res.json({
+      claims: claims.length,
+      documents: documents.length,
+      documentsWithClaimId: documentsWithClaimId.length,
+      sampleClaim: claims[0],
+      sampleDocument: documents[0]
+    });
+  } catch (error) {
+    console.error("Debug error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get("/", async (req, res) => {
-  const claims = await prisma.claim.findMany({
-    orderBy: { createdAt: "desc" }
-  });
-  res.json(claims);
+  try {
+    console.log("=== CLAIMS GET DEBUG ===");
+    
+    const claims = await prisma.claim.findMany({
+      include: {
+        documents: {
+          orderBy: { createdAt: "desc" }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+    
+    console.log("Raw claims from DB:", claims.length);
+    
+    // Log each claim with documents
+    claims.forEach((claim, index) => {
+      console.log(`Claim ${index + 1}:`, {
+        id: claim.id,
+        patientName: claim.patientName,
+        documentsCount: claim.documents?.length || 0,
+        documents: claim.documents
+      });
+    });
+    
+    console.log("=== END DEBUG ===");
+    
+    res.json(claims);
+  } catch (error) {
+    console.error("Error fetching claims:", error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 router.get("/:id", async (req, res) => {
@@ -136,6 +201,29 @@ router.delete("/:id", async (req, res) => {
 router.post("/documents", upload.single("file"), async (req, res) => {
   try {
     const { claimId, type } = req.body;
+    
+    console.log("=== DOCUMENT UPLOAD DEBUG ===");
+    console.log("req.body:", req.body);
+    console.log("req.body.claimId:", req.body.claimId);
+    console.log("claimId variable:", claimId);
+    console.log("typeof claimId:", typeof claimId);
+    console.log("type:", type);
+    console.log("file:", req.file?.originalname);
+
+    // Validate claim exists
+    const claim = await prisma.claim.findUnique({
+      where: { id: claimId }
+    });
+    
+    console.log("Found claim:", claim);
+    
+    if (!claim) {
+      console.log("ERROR: Claim not found!");
+      return res.status(400).json({ 
+        error: "Invalid claimId",
+        message: `Claim with ID ${claimId} does not exist`
+      });
+    }
 
     const intel = await analyzeDocument({
       fileName: req.file.originalname,
@@ -143,9 +231,12 @@ router.post("/documents", upload.single("file"), async (req, res) => {
       path: req.file.path
     });
 
+    console.log("Analysis result:", intel);
+
+    // Create document linked to claim
     const doc = await prisma.document.create({
       data: {
-        claimId: claimId || null, // Make claimId optional
+        claimId: claimId,  // Ensure claimId is properly passed
         type,
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
@@ -157,13 +248,19 @@ router.post("/documents", upload.single("file"), async (req, res) => {
       }
     });
 
+    console.log("Created document with claimId:", doc.claimId);
+    console.log("Full document object:", doc);
+    console.log("=== END DEBUG ===");
+    
     res.json(doc);
   } catch (e) {
+    console.error("Document upload error:", e);
     res.status(400).json({ error: e.message });
   }
 });
 
-router.post("/documents/:id/apply-suggestion", async (req, res) => {
+// Preview document
+router.get("/:id/preview", async (req, res) => {
   try {
     const doc = await prisma.document.findUnique({
       where: { id: req.params.id }
@@ -173,18 +270,52 @@ router.post("/documents/:id/apply-suggestion", async (req, res) => {
       return res.status(404).json({ error: "Document not found" });
     }
 
-    if (!doc.suggestedType) {
-      return res.status(400).json({ error: "No suggested type available" });
+    // Check if file exists and send it for preview
+    const fs = require('fs');
+    const filePath = doc.path;
+    
+    if (fs.existsSync(filePath)) {
+      res.setHeader('Content-Type', doc.mimeType);
+      res.setHeader('Content-Disposition', `inline; filename="${doc.fileName}"`);
+      
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+    } else {
+      res.status(404).json({ error: "File not found on server" });
     }
+  } catch (error) {
+    console.error("Preview error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    const updated = await prisma.document.update({
-      where: { id: doc.id },
-      data: { type: doc.suggestedType }
+// Download document
+router.get("/:id/download", async (req, res) => {
+  try {
+    const doc = await prisma.document.findUnique({
+      where: { id: req.params.id }
     });
 
-    res.json(updated);
-  } catch (e) {
-    res.status(400).json({ error: e.message });
+    if (!doc) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    // Check if file exists and send it for download
+    const fs = require('fs');
+    const filePath = doc.path;
+    
+    if (fs.existsSync(filePath)) {
+      res.setHeader('Content-Type', doc.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${doc.fileName}"`);
+      
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+    } else {
+      res.status(404).json({ error: "File not found on server" });
+    }
+  } catch (error) {
+    console.error("Download error:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -20,6 +20,7 @@ import {
   LinearProgress,
   InputAdornment,
   IconButton,
+  Modal,
   Paper
 } from "@mui/material";
 import {
@@ -27,7 +28,8 @@ import {
   CloudUpload,
   ExpandMore,
   ExpandLess,
-  AttachFile
+  AttachFile,
+  Visibility
 } from "@mui/icons-material";
 import { ClaimsApi } from "../../api/claims.js";
 
@@ -36,8 +38,10 @@ export default function DocumentIntelligence() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // Load documents from backend API
+  const [previewDoc, setPreviewDoc] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+
   useEffect(() => {
     loadDocuments();
   }, []);
@@ -45,364 +49,180 @@ export default function DocumentIntelligence() {
   async function loadDocuments() {
     try {
       setLoading(true);
-      // For now, use fallback mock data until backend is stable
-      console.log("Loading documents...");
-      
-      // Temporarily use mock data to avoid white page
-      const mockDocuments = [
-        {
-          id: "1",
-          fileName: "final_bill.pdf",
-          mimeType: "application/pdf",
-          type: "FINAL_BILL",
-          suggestedType: "FINAL_BILL",
-          confidence: 92,
-          extracted: { patientName: "Raghu Kumar", amount: 52340 },
-          status: "PROCESSED",
-          createdAt: new Date(),
-          patientId: "raghu-kumar"
-        },
-        {
-          id: "2", 
-          fileName: "discharge_summary.pdf",
-          mimeType: "application/pdf",
-          type: "DISCHARGE_SUMMARY",
-          suggestedType: "DISCHARGE_SUMMARY",
-          confidence: 85,
-          extracted: { patientName: "Raghu Kumar", hospitalName: "B Hospital" },
-          status: "PROCESSED",
-          createdAt: new Date(),
-          patientId: "raghu-kumar"
-        },
-        {
-          id: "3",
-          fileName: "lab_report.pdf", 
-          mimeType: "application/pdf",
-          type: "LAB_REPORT",
-          suggestedType: "LAB_REPORT",
-          confidence: 78,
-          extracted: { patientName: "Priya Sharma", amount: 15000 },
-          status: "PROCESSED",
-          createdAt: new Date(),
-          patientId: "priya-sharma"
-        }
-      ];
-      
-      setDocuments(mockDocuments);
-      console.log("Documents loaded:", mockDocuments.length);
-      
-    } catch (error) {
-      console.error("Failed to load documents:", error);
-      // Always set fallback data to prevent white page
-      setDocuments([
-        {
-          id: "1",
-          fileName: "final_bill.pdf",
-          mimeType: "application/pdf",
-          type: "FINAL_BILL",
-          suggestedType: "FINAL_BILL",
-          confidence: 92,
-          extracted: { patientName: "Raghu Kumar", amount: 52340 },
-          status: "PROCESSED",
-          createdAt: new Date(),
-          patientId: "raghu-kumar"
-        }
-      ]);
+      const claims = await ClaimsApi.list();
+
+      const allDocs = claims.flatMap(c =>
+        (c.documents || []).map(d => ({
+          ...d,
+          claimId: c.id,
+          patientName: c.patientName || "Unknown Patient"
+        }))
+      );
+
+      setDocuments(allDocs);
+    } catch (err) {
+      console.error(err);
+      setDocuments([]);
     } finally {
       setLoading(false);
     }
   }
 
-  // Group documents by patient - recalculate whenever documents change
   const documentsByPatient = useMemo(() => {
-    const grouped = documents.reduce((acc, doc) => {
-      const patientId = doc.patientId || 'unknown';
-      if (!acc[patientId]) {
-        acc[patientId] = [];
-      }
-      acc[patientId].push(doc);
+    return documents.reduce((acc, doc) => {
+      const name = doc.patientName || "Unknown Patient";
+      if (!acc[name]) acc[name] = [];
+      acc[name].push(doc);
       return acc;
     }, {});
-    return grouped;
   }, [documents]);
 
-  const [expandedPatients, setExpandedPatients] = useState({});
-  const [selectedPatient, setSelectedPatient] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-
-  // Filter patients based on search
-  const filteredPatients = Object.keys(documentsByPatient).filter(patientId => {
-    const patientName = documentsByPatient[patientId]?.[0]?.extracted?.patientName || 'Unknown Patient';
-    return patientName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-           patientId.toLowerCase().includes(searchTerm.toLowerCase());
-  });
-
-  function togglePatient(patientId) {
-    setExpandedPatients(prev => ({
-      ...prev,
-      [patientId]: !prev[patientId]
-    }));
-  }
-
-  function selectPatient(patientId) {
-    setSelectedPatient(patientId === selectedPatient ? null : patientId);
-  }
-
-  async function handleFileUpload(event) {
-    const file = event.target.files[0];
+  async function handleFileUpload(e) {
+    const file = e.target.files[0];
     if (!file) return;
-    
+
     setUploading(true);
     setSelectedFile(file);
-    console.log("Uploading file:", file.name);
-    
+
     try {
-      const response = await ClaimsApi.uploadDoc({
-        claimId: null,
-        type: extractDocumentType(file.name),
-        file: file
+      const claim = await ClaimsApi.create({
+        patientName: "Unknown Patient",
+        payerName: "Insurance",
+        amount: 1
       });
-      
-      console.log("Upload response:", response);
-      
-      // Reload documents from backend to show extracted data
+
+      await ClaimsApi.uploadDoc({
+        claimId: claim.id,
+        type: "OTHER",
+        file
+      });
+
       await loadDocuments();
-      
-    } catch (error) {
-      console.error("Upload failed:", error);
+    } catch (err) {
+      console.error(err);
     } finally {
       setUploading(false);
       setSelectedFile(null);
     }
   }
 
-  // Extract document type from filename (keep this simple logic)
-  function extractDocumentType(fileName) {
-    const nameWithoutExt = fileName.replace(/\.[^/.]+$/, "").toLowerCase();
-    
-    if (nameWithoutExt.includes('bill') || nameWithoutExt.includes('invoice')) return 'FINAL_BILL';
-    if (nameWithoutExt.includes('discharge') || nameWithoutExt.includes('summary')) return 'DISCHARGE_SUMMARY';
-    if (nameWithoutExt.includes('lab') || nameWithoutExt.includes('test') || nameWithoutExt.includes('report')) return 'LAB_REPORT';
-    if (nameWithoutExt.includes('prescription') || nameWithoutExt.includes('medicine')) return 'PRESCRIPTION';
-    if (nameWithoutExt.includes('id') || nameWithoutExt.includes('identity') || nameWithoutExt.includes('card')) return 'ID_PROOF';
-    
-    return 'OTHER';
+  function handlePreview(doc) {
+    setPreviewDoc(doc);
+    setPreviewOpen(true);
   }
 
-  function getConfidenceColor(confidence) {
-    if (confidence >= 85) return "success";
-    if (confidence >= 70) return "warning";
-    return "error";
+  function handleClosePreview() {
+    setPreviewOpen(false);
+    setPreviewDoc(null);
   }
 
-  function getStatusColor(status) {
-    switch (status) {
-      case "PROCESSED": return "primary";
-      case "PENDING": return "warning";
-      case "FAILED": return "error";
-      default: return "default";
-    }
+  async function handleDownload(doc) {
+    const res = await fetch(`/api/documents/${doc.id}/download`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = doc.fileName;
+    a.click();
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant="h4">
-          🧠 Document Intelligence
-        </Typography>
-        <Button
-          variant="contained"
-          component="label"
-          startIcon={<CloudUpload />}
-          disabled={uploading}
-        >
-          <input
-            type="file"
-            hidden
-            accept=".pdf,.jpg,.jpeg,.png,.txt"
-            onChange={handleFileUpload}
-            disabled={uploading}
-          />
-          Upload a new document
-        </Button>
-      </Stack>
-      <Typography variant="body2" color="text.secondary" gutterBottom>
-        AI-powered document processing, classification, and data extraction
-      </Typography>
+    <>
+      <Box sx={{ p: 3 }}>
+        <Stack direction="row" justifyContent="space-between" mb={2}>
+          <Typography variant="h4">🧠 Document Intelligence</Typography>
 
-      {selectedFile && (
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="body2" color="text.secondary">
-            Selected file: {selectedFile.name}
-          </Typography>
-        </Box>
-      )}
+          <Button component="label" variant="contained" startIcon={<CloudUpload />}>
+            <input type="file" hidden onChange={handleFileUpload} />
+            Upload
+          </Button>
+        </Stack>
 
-      {uploading && (
-        <Box sx={{ mb: 2 }}>
-          <LinearProgress />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            Uploading document...
-          </Typography>
-        </Box>
-      )}
+        {uploading && <LinearProgress />}
 
-      {/* Search Section */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            🔍 Search Patients
-          </Typography>
-          
-          <TextField
-            placeholder="Search patients by name..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              )
-            }}
-            sx={{ width: '100%' }}
-          />
-        </CardContent>
-      </Card>
+        <Card sx={{ mb: 2 }}>
+          <CardContent>
+            <TextField
+              fullWidth
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                )
+              }}
+            />
+          </CardContent>
+        </Card>
 
-      {/* Documents Table - Grouped by Patient */}
-      <Card>
-        <CardContent>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography variant="h6">
-              📄 Processed Documents ({documents.length}) - Grouped by Patient
-            </Typography>
-          </Stack>
+        {Object.entries(documentsByPatient).map(([patient, docs]) => (
+          <Accordion key={patient}>
+            <AccordionSummary expandIcon={<ExpandMore />}>
+              <Typography>👤 {patient}</Typography>
+            </AccordionSummary>
 
-          {Object.entries(documentsByPatient).map(([patientId, patientDocs]) => (
-            <Accordion key={patientId} sx={{ mb: 2 }}>
-              <AccordionSummary 
-                expandIcon={expandedPatients[patientId] ? <ExpandLess /> : <ExpandMore />}
-                onClick={() => selectPatient(patientId)}
-                sx={{ 
-                  backgroundColor: selectedPatient === patientId ? 'primary.light' : 'grey.50',
-                  '&:hover': {
-                    backgroundColor: selectedPatient === patientId ? 'primary.main' : 'grey.100'
-                  }
-                }}
-              >
-                <Stack direction="row" alignItems="center" spacing={2}>
-                  <Typography variant="h6" sx={{ fontWeight: 'bold', color: selectedPatient === patientId ? 'primary.contrastText' : 'inherit' }}>
-                    👤 {documentsByPatient[patientId]?.[0]?.extracted?.patientName || 'Unknown Patient'}
-                  </Typography>
-                  <Chip 
-                    label={`${patientDocs.length} docs`}
-                    size="small"
-                    color={selectedPatient === patientId ? "primary" : "default"}
-                    sx={{ ml: 2 }}
-                  />
-                  <Stack direction="row" spacing={1}>
-                    {patientDocs.filter(doc => doc.confidence >= 85).length > 0 && (
-                      <Chip label="✅ High Confidence" size="small" color="success" sx={{ fontSize: '0.7rem' }} />
-                    )}
-                    {patientDocs.filter(doc => doc.confidence < 85 && doc.confidence >= 70).length > 0 && (
-                      <Chip label="⚠️ Medium Confidence" size="small" color="warning" sx={{ fontSize: '0.7rem' }} />
-                    )}
-                    {patientDocs.filter(doc => doc.confidence < 70).length > 0 && (
-                      <Chip label="❌ Low Confidence" size="small" color="error" sx={{ fontSize: '0.7rem' }} />
-                    )}
-                  </Stack>
-                </Stack>
-              </AccordionSummary>
-              
-              <AccordionDetails>
-                <TableContainer component={Paper} sx={{ mt: 2 }}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 'bold', width: '30%' }}>Document</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Type</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>AI Suggestion</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Status</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Extracted Data</TableCell>
+            <AccordionDetails>
+              <TableContainer component={Paper}>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>File</TableCell>
+                      <TableCell>Type</TableCell>
+                      <TableCell>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+
+                  <TableBody>
+                    {docs.map(doc => (
+                      <TableRow key={doc.id}>
+                        <TableCell>{doc.fileName}</TableCell>
+                        <TableCell>{doc.type}</TableCell>
+
+                        <TableCell>
+                          <IconButton onClick={() => handlePreview(doc)}>
+                            <Visibility />
+                          </IconButton>
+
+                          <IconButton onClick={() => handleDownload(doc)}>
+                            <AttachFile />
+                          </IconButton>
+                        </TableCell>
                       </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {patientDocs.map((doc) => (
-                        <TableRow key={doc.id} hover>
-                          <TableCell sx={{ verticalAlign: 'top', py: 1.5 }}>
-                            <Stack direction="row" alignItems="center" spacing={1}>
-                              <Typography variant="body2" sx={{ fontSize: '0.9rem', lineHeight: 1.2 }}>{doc.fileName}</Typography>
-                              <Chip 
-                                label={doc.mimeType?.includes("pdf") ? "PDF" : "Image"} 
-                                size="small" 
-                                variant="outlined" 
-                                sx={{ ml: 1, fontSize: '0.8rem' }}
-                              />
-                            </Stack>
-                          </TableCell>
-                          <TableCell sx={{ verticalAlign: 'top', py: 1.5 }}>
-                            <Chip 
-                              label={doc.type} 
-                              size="small" 
-                              color={doc.type === "OTHER" ? "default" : "primary"}
-                              sx={{ fontSize: '0.85rem' }}
-                            />
-                          </TableCell>
-                          <TableCell sx={{ verticalAlign: 'top', py: 1.5 }}>
-                            <Stack direction="row" alignItems="center" spacing={1}>
-                              <Chip
-                                label={`${doc.confidence || 0}%`}
-                                size="small"
-                                color={getConfidenceColor(doc.confidence)}
-                                sx={{ fontSize: '0.8rem' }}
-                              />
-                              <Typography variant="caption" sx={{ ml: 1, fontSize: '0.75rem', color: 'text.secondary' }}>
-                                AI Score
-                              </Typography>
-                            </Stack>
-                          </TableCell>
-                          <TableCell sx={{ verticalAlign: 'top', py: 1.5 }}>
-                            <Chip
-                              label={doc.status || "PENDING"}
-                              size="small"
-                              color={getStatusColor(doc.status)}
-                              sx={{ fontSize: '0.85rem' }}
-                            />
-                          </TableCell>
-                          <TableCell sx={{ verticalAlign: 'top', py: 1.5, pr: 1 }}>
-                            {doc.extracted && Object.keys(doc.extracted).length > 0 ? (
-                              <Stack spacing={0.5}>
-                                {Object.entries(doc.extracted).map(([key, value]) => (
-                                  <Typography key={key} variant="body2" sx={{ fontSize: '0.85rem', lineHeight: 1.3 }}>
-                                    <strong>{key}:</strong> {value}
-                                  </Typography>
-                                ))}
-                              </Stack>
-                            ) : (
-                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
-                              No data extracted
-                            </Typography>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </AccordionDetails>
-            </Accordion>
-          ))}
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </AccordionDetails>
+          </Accordion>
+        ))}
+      </Box>
 
-          {filteredPatients.length === 0 && (
-            <Box sx={{ textAlign: "center", py: 4 }}>
-              <Typography color="text.secondary">
-                {searchTerm ? `No patients found matching "${searchTerm}"` : "No documents uploaded yet. Upload some documents to get started."}
-              </Typography>
-            </Box>
+      {/* Modal */}
+      <Modal open={previewOpen} onClose={handleClosePreview}>
+        <Paper sx={{ p: 3, maxWidth: 800, mx: "auto", mt: 5 }}>
+          <Typography variant="h6">
+            {previewDoc?.fileName}
+          </Typography>
+
+          {previewDoc?.mimeType?.includes("pdf") ? (
+            <iframe
+              src={`/api/documents/${previewDoc?.id}/preview`}
+              width="100%"
+              height="500px"
+            />
+          ) : (
+            <Typography>No preview</Typography>
           )}
-        </CardContent>
-      </Card>
-    </Box>
+
+          <Stack direction="row" spacing={2} mt={2}>
+            <Button onClick={handleClosePreview}>Close</Button>
+            <Button onClick={() => handleDownload(previewDoc)}>Download</Button>
+          </Stack>
+        </Paper>
+      </Modal>
+    </>
   );
 }
