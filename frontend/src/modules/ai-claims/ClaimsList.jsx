@@ -376,17 +376,23 @@ export default function ClaimsList() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 1, sm: 2, lg: 3 } }}>
       <Typography variant="h4" fontWeight={700} mb={3}>
         AI Claims ({filteredClaims.length})
       </Typography>
 
-      <Stack direction="row" spacing={2} alignItems="center" mb={3}>
+      <Stack
+        direction="row"
+        spacing={1.5}
+        alignItems="center"
+        mb={3}
+        sx={{ flexWrap: "wrap", rowGap: 1.5 }}
+      >
         <TextField
           placeholder="Search claims..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          sx={{ width: 320 }}
+          sx={{ width: { xs: "100%", sm: 320 } }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -431,8 +437,8 @@ export default function ClaimsList() {
         )}
       </Stack>
 
-      <Paper>
-        <Table>
+      <Paper sx={{ overflowX: "auto" }}>
+        <Table sx={{ minWidth: 760 }}>
           <TableHead>
             <TableRow>
               <TableCell padding="checkbox">
