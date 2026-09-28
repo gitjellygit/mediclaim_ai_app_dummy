@@ -291,24 +291,47 @@ export default function ClaimsList() {
 
     for (const file of aiFiles) {
       try {
-        const result = await ClaimsApi.smartUploadDoc(file);
+        // The first document establishes the target claim. Every later
+        // document is attached to that exact claim through the stricter
+        // identity-validation endpoint. This prevents one batch from silently
+        // creating/combining Alice and John as separate patients.
+        const result = claimId
+          ? await ClaimsApi.uploadDoc({
+              claimId,
+              file
+            })
+          : await ClaimsApi.smartUploadDoc(file);
 
         claimId = result?.claim?.id || claimId;
 
         results.push({
           fileName: file.name,
           ok: true,
-          matchStatus: result?.matchStatus || "NEW",
+          matchStatus:
+            result?.matchStatus ||
+            (result?.identityValidation?.status === "MATCH"
+              ? "MERGED"
+              : result?.identityValidation?.status === "UNVERIFIED"
+              ? "REVIEW"
+              : "NEW"),
           message: result?.message || "Document processed",
-          confidence: result?.document?.confidence ?? null,
-          type: result?.document?.suggestedType || result?.document?.type || "OTHER",
-          claimId: result?.claim?.id || ""
+          confidence:
+            result?.document?.confidence ??
+            result?.confidence ??
+            null,
+          type:
+            result?.document?.suggestedType ||
+            result?.document?.type ||
+            result?.suggestedType ||
+            result?.type ||
+            "OTHER",
+          claimId: result?.claim?.id || claimId
         });
       } catch (error) {
         console.error("AI claim creation document failed:", {
           fileName: file.name,
           status: error?.status,
-          message: error?.message
+          code: error?.code || null
         });
 
         results.push({
@@ -316,6 +339,13 @@ export default function ClaimsList() {
           ok: false,
           message: error?.message || "Document could not be processed"
         });
+
+        // A patient mismatch is a high-signal safety issue. Continue to show
+        // the remainder of the queue only if the user intentionally retries
+        // after reviewing the mismatch; do not attach later files blindly.
+        if (error?.code === "DOCUMENT_PATIENT_MISMATCH") {
+          break;
+        }
       }
     }
 
