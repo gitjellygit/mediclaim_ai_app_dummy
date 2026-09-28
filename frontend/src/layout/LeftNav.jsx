@@ -7,6 +7,7 @@ import BarChartIcon from "@mui/icons-material/BarChart";
 import SettingsIcon from "@mui/icons-material/Settings";
 import LogoutIcon from "@mui/icons-material/Logout";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -55,6 +56,12 @@ export default function LeftNav({ width = 240 }) {
           label="Claim Journey"
           path="/journey"
           isActive={isActivePath("/journey")}
+        />
+        <NavItem
+          icon={<ReportProblemIcon />}
+          label="Denial Intelligence"
+          path="/denials"
+          isActive={isActivePath("/denials")}
         />
         <NavItem 
           icon={<VerifiedIcon />} 
