@@ -83,8 +83,15 @@ export default function DocumentIntelligence() {
 
       setDocuments(allDocs);
     } catch (err) {
-      console.error(err);
+      console.error("Failed to load documents:", err);
       setDocuments([]);
+      showDialog(
+        err?.message || "Documents could not be loaded. Please try again.",
+        {
+          title: "Unable to load documents",
+          severity: "error"
+        }
+      );
     } finally {
       setLoading(false);
     }
