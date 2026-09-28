@@ -191,10 +191,14 @@ export default function ApprovalIntelligence() {
     ).length;
 
     const ready = enriched.filter(
-      (claim) => claim.status === "READY" || claim.status === "SUBMITTED"
+      (claim) => claim.status === "READY"
     ).length;
 
-    return { totalClaimed, projected, highRisk, ready };
+    const submitted = enriched.filter(
+      (claim) => claim.status === "SUBMITTED"
+    ).length;
+
+    return { totalClaimed, projected, highRisk, ready, submitted };
   }, [enriched]);
 
   return (
@@ -237,7 +241,7 @@ export default function ApprovalIntelligence() {
           gridTemplateColumns: {
             xs: "1fr",
             sm: "1fr 1fr",
-            lg: "repeat(4, 1fr)"
+            lg: "repeat(5, 1fr)"
           },
           gap: 2,
           mb: 3
@@ -246,7 +250,7 @@ export default function ApprovalIntelligence() {
         <Card>
           <CardContent>
             <Typography color="text.secondary" variant="body2">
-              Claims in Review
+              Total Claims
             </Typography>
             <Typography variant="h4" fontWeight={700}>
               {enriched.length}
@@ -257,10 +261,21 @@ export default function ApprovalIntelligence() {
         <Card>
           <CardContent>
             <Typography color="text.secondary" variant="body2">
-              Ready / Submitted
+              Ready
             </Typography>
             <Typography variant="h4" fontWeight={700}>
               {metrics.ready}
+            </Typography>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent>
+            <Typography color="text.secondary" variant="body2">
+              Submitted
+            </Typography>
+            <Typography variant="h4" fontWeight={700}>
+              {metrics.submitted}
             </Typography>
           </CardContent>
         </Card>
