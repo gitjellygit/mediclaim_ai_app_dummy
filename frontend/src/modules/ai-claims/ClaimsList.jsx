@@ -214,7 +214,7 @@ export default function ClaimsList() {
                 </TableCell>
 
                 <TableCell>
-                  ${claim.amount || 0}
+                  {claim.amount == null ? "—" : `${claim.amount}`}
                 </TableCell>
 
                 <TableCell>
