@@ -111,6 +111,16 @@ export const ClaimsApi = {
     });
   },
 
+  searchClaims(query = "", limit = 20) {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    params.set("limit", String(limit));
+
+    return withReadRetry(() =>
+      api(`${BASE}/search?${params.toString()}`)
+    );
+  },
+
   getJourney(id) {
     return withReadRetry(() => api(`${BASE}/${id}/journey`));
   },
