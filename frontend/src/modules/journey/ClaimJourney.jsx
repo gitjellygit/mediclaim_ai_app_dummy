@@ -1,6 +1,7 @@
 import React from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -21,6 +22,7 @@ import {
   CheckCircle,
   Lock,
   Refresh,
+  Search,
   Visibility
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
@@ -93,9 +95,12 @@ export default function ClaimJourney() {
   const { showToast } = useToast();
 
   const [claims, setClaims] = React.useState([]);
+  const [selectedClaim, setSelectedClaim] = React.useState(null);
   const [claimId, setClaimId] = React.useState("");
+  const [searchText, setSearchText] = React.useState("");
   const [journey, setJourney] = React.useState(null);
   const [loadingClaims, setLoadingClaims] = React.useState(true);
+  const searchRequestRef = React.useRef(0);
   const [loadingJourney, setLoadingJourney] = React.useState(false);
   const [pageError, setPageError] = React.useState("");
   const [action, setAction] = React.useState("");
@@ -110,18 +115,35 @@ export default function ClaimJourney() {
   const [paidAmount, setPaidAmount] = React.useState("");
   const [paymentReference, setPaymentReference] = React.useState("");
 
-  const loadClaims = React.useCallback(async () => {
+  /**
+   * Search claims on the server so this selector stays fast with tens of
+   * thousands of records. Empty search shows recent claims; typed search is
+   * debounced and capped at 20 results.
+   */
+  const loadClaims = React.useCallback(async (query = "", selectFirst = false) => {
+    const requestId = ++searchRequestRef.current;
     setLoadingClaims(true);
-    setPageError("");
+
     try {
-      const data = await ClaimsApi.list();
-      const list = Array.isArray(data) ? data : [];
+      const data = await ClaimsApi.searchClaims(query, query ? 20 : 10);
+
+      // Ignore a slower response from an older search request.
+      if (requestId !== searchRequestRef.current) return;
+
+      const list = Array.isArray(data?.items) ? data.items : [];
       setClaims(list);
-      if (!claimId && list.length > 0) setClaimId(list[0].id);
+
+      if (selectFirst && !claimId && list.length > 0) {
+        setSelectedClaim(list[0]);
+        setClaimId(list[0].id);
+      }
     } catch (error) {
-      setPageError(error.message || "Unable to load claims");
+      if (requestId !== searchRequestRef.current) return;
+      setPageError(error.message || "Unable to search claims");
     } finally {
-      setLoadingClaims(false);
+      if (requestId === searchRequestRef.current) {
+        setLoadingClaims(false);
+      }
     }
   }, [claimId]);
 
@@ -166,8 +188,22 @@ export default function ClaimJourney() {
   }, []);
 
   React.useEffect(() => {
-    loadClaims();
+    loadClaims("", true);
   }, [loadClaims]);
+
+  React.useEffect(() => {
+    const query = searchText.trim();
+
+    // One-character searches are intentionally held back to avoid broad,
+    // expensive database queries and noisy results.
+    if (query.length === 1) return;
+
+    const timer = setTimeout(() => {
+      loadClaims(query.length >= 2 ? query : "");
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [searchText, loadClaims]);
 
   React.useEffect(() => {
     if (claimId) loadJourney(claimId);
@@ -214,7 +250,8 @@ export default function ClaimJourney() {
           variant="outlined"
           startIcon={<Refresh />}
           onClick={() => {
-            loadClaims();
+            const query = searchText.trim();
+            loadClaims(query.length >= 2 ? query : "");
             if (claimId) loadJourney(claimId);
           }}
           disabled={loadingClaims || loadingJourney}
@@ -224,20 +261,86 @@ export default function ClaimJourney() {
       </Stack>
 
       <Paper sx={{ p: 2, mb: 3 }}>
-        <FormControl fullWidth size="small" disabled={loadingClaims}>
-          <InputLabel>Select Claim</InputLabel>
-          <Select
-            label="Select Claim"
-            value={claimId}
-            onChange={(e) => setClaimId(e.target.value)}
-          >
-            {claims.map((item) => (
-              <MenuItem key={item.id} value={item.id}>
-                {item.patientName || "Unknown Patient"} — {item.payerName || "No payer"} — {item.policyNo || "No policy"}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <Autocomplete
+          fullWidth
+          options={claims}
+          value={selectedClaim}
+          loading={loadingClaims}
+          filterOptions={(options) => options}
+          isOptionEqualToValue={(option, value) => option.id === value.id}
+          getOptionLabel={(option) =>
+            [
+              option.patientName || "Unknown Patient",
+              option.memberId ? `Member ${option.memberId}` : null,
+              option.payerName || null,
+              option.policyNo ? `Policy ${option.policyNo}` : null
+            ]
+              .filter(Boolean)
+              .join(" — ")
+          }
+          onInputChange={(_event, value, reason) => {
+            if (reason === "input" || reason === "clear") {
+              setSearchText(value);
+            }
+          }}
+          onChange={(_event, value) => {
+            setSelectedClaim(value);
+            setClaimId(value?.id || "");
+            if (!value) setJourney(null);
+          }}
+          noOptionsText={
+            searchText.trim().length === 1
+              ? "Type one more character to search"
+              : "No matching claims found"
+          }
+          renderOption={(props, option) => (
+            <Box component="li" {...props} key={option.id}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body2" fontWeight={600}>
+                  {option.patientName || "Unknown Patient"}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {[
+                    option.memberId ? `Member ${option.memberId}` : null,
+                    option.policyNo ? `Policy ${option.policyNo}` : null,
+                    option.payerName || null,
+                    option.status || null
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
+                </Typography>
+              </Box>
+            </Box>
+          )}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              size="small"
+              label="Find Claim"
+              placeholder="Search patient, member ID, policy, payer, claim or authorization no."
+              helperText={
+                searchText.trim()
+                  ? "Showing the best matching claims"
+                  : "Recent claims are shown until you start typing"
+              }
+              InputProps={{
+                ...params.InputProps,
+                startAdornment: (
+                  <>
+                    <Search fontSize="small" sx={{ ml: 1, mr: 0.5, color: "text.secondary" }} />
+                    {params.InputProps.startAdornment}
+                  </>
+                ),
+                endAdornment: (
+                  <>
+                    {loadingClaims ? <CircularProgress size={18} /> : null}
+                    {params.InputProps.endAdornment}
+                  </>
+                )
+              }}
+            />
+          )}
+        />
       </Paper>
 
       {pageError && (
@@ -517,8 +620,10 @@ export default function ClaimJourney() {
         </>
       )}
 
-      {!loadingJourney && !claim && !pageError && claims.length === 0 && (
-        <Alert severity="info">No claims are available yet.</Alert>
+      {!loadingJourney && !claim && !pageError && !loadingClaims && (
+        <Alert severity="info">
+          Select a recent claim or search by patient, member ID, policy, payer, claim number, or authorization number.
+        </Alert>
       )}
     </Box>
   );
