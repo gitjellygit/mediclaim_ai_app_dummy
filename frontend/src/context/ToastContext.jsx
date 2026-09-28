@@ -47,11 +47,31 @@ export function ToastProvider({ children }) {
   };
 
   const success = (message) => show(message, "success");
-  const error = (message) => show(message, "error");
   const warning = (message) => show(message, "warning");
 
+  /**
+   * Errors are persistent dialogs by default so users can read, acknowledge,
+   * and screenshot the reason. Success/info feedback stays lightweight.
+   */
+  const error = (message) =>
+    showDialog(message, {
+      title: "Action could not be completed",
+      severity: "error"
+    });
+
   // showToast(message, severity) kept for compatibility with existing modules.
-  const showToast = (message, severity = "success") => show(message, severity);
+  // Existing error calls across the app automatically receive the modal UX.
+  const showToast = (message, severity = "success") => {
+    if (severity === "error") {
+      showDialog(message, {
+        title: "Action could not be completed",
+        severity: "error"
+      });
+      return;
+    }
+
+    show(message, severity);
+  };
 
   function showDialog(
     message,
