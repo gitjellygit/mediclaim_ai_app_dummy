@@ -73,7 +73,7 @@ export const ClaimsApi = {
   uploadDoc({ claimId, type, file }) {
     const fd = new FormData();
     fd.append("claimId", claimId);
-    fd.append("type", type);
+    if (type) fd.append("type", type);
     fd.append("file", file);
 
     return api(`${BASE}/documents`, {
