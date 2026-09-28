@@ -49,7 +49,7 @@ model Claim {
   patientName String
   payerName   String
   policyNo    String?
-  amount      Int
+  amount      Int?
   status      String  @default("DRAFT")
 
   patientAge    Int?
