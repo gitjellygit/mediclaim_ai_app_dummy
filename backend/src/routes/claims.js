@@ -36,6 +36,121 @@ function getExtractedAmount(extracted) {
   return Number.isFinite(amount) && amount > 0 ? Math.round(amount) : null;
 }
 
+function normalizeIdentityText(value) {
+  return cleanValue(value)
+    ?.toLowerCase()
+    .replace(/[^a-z0-9]/g, "") || null;
+}
+
+function normalizeDateOnly(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function getExtractedIdentity(extracted = {}) {
+  return {
+    patientName: getExtractedPatientName(extracted),
+    memberId:
+      cleanValue(extracted?.memberId) ||
+      cleanValue(extracted?.member_id),
+    policyNo:
+      cleanValue(extracted?.policyNo) ||
+      cleanValue(extracted?.policy_number) ||
+      cleanValue(extracted?.policyNumber),
+    patientDob:
+      extracted?.dateOfBirth ||
+      extracted?.patientDob ||
+      extracted?.dob ||
+      null
+  };
+}
+
+/**
+ * Validates that a document being attached to an existing claim belongs to
+ * the same patient/member. Strong conflicting identifiers always block.
+ * Patient-name conflicts block only when both names are available and clearly
+ * different. Documents with no extractable identity can still be attached,
+ * but the response is marked UNVERIFIED so the UI can warn the user.
+ */
+function validateDocumentIdentityAgainstClaim(claim, extracted = {}) {
+  const identity = getExtractedIdentity(extracted);
+  const conflicts = [];
+  const matches = [];
+
+  const claimMember = normalizeIdentityText(claim.memberId);
+  const docMember = normalizeIdentityText(identity.memberId);
+  if (claimMember && docMember) {
+    if (claimMember === docMember) matches.push("memberId");
+    else conflicts.push("memberId");
+  }
+
+  const claimPolicy = normalizeIdentityText(claim.policyNo);
+  const docPolicy = normalizeIdentityText(identity.policyNo);
+  if (claimPolicy && docPolicy) {
+    if (claimPolicy === docPolicy) matches.push("policyNo");
+    else conflicts.push("policyNo");
+  }
+
+  const claimDob = normalizeDateOnly(claim.patientDob);
+  const docDob = normalizeDateOnly(identity.patientDob);
+  if (claimDob && docDob) {
+    if (claimDob === docDob) matches.push("patientDob");
+    else conflicts.push("patientDob");
+  }
+
+  const claimName = normalizeIdentityText(claim.patientName);
+  const docName = normalizeIdentityText(identity.patientName);
+  const claimNameIsKnown =
+    claimName &&
+    claimName !== "unknownpatient" &&
+    claimName !== "unknown";
+  const docNameIsKnown =
+    docName &&
+    docName !== "unknownpatient" &&
+    docName !== "unknown";
+
+  if (claimNameIsKnown && docNameIsKnown) {
+    if (claimName === docName) {
+      matches.push("patientName");
+    } else {
+      // Allow common middle-name / suffix variations, but block clearly
+      // different patients such as Alice Johnson vs John Smith.
+      const samePersonVariation =
+        claimName.includes(docName) || docName.includes(claimName);
+
+      if (samePersonVariation) matches.push("patientName");
+      else conflicts.push("patientName");
+    }
+  }
+
+  if (conflicts.length > 0) {
+    return {
+      status: "MISMATCH",
+      conflicts,
+      matches,
+      extractedPatientName: identity.patientName || null
+    };
+  }
+
+  if (matches.length > 0) {
+    return {
+      status: "MATCH",
+      conflicts: [],
+      matches,
+      extractedPatientName: identity.patientName || null
+    };
+  }
+
+  return {
+    status: "UNVERIFIED",
+    conflicts: [],
+    matches: [],
+    extractedPatientName: identity.patientName || null
+  };
+}
+
 async function invalidateClaimReadiness(claimId) {
   await prisma.$transaction([
     prisma.check.deleteMany({ where: { claimId } }),
@@ -768,6 +883,34 @@ router.post("/documents", upload.single("file"), async (req, res) => {
       path: req.file.path
     });
 
+    // Validate patient/member identity BEFORE persisting the document.
+    // This prevents a John Smith document from being attached to Alice's claim.
+    const identityValidation = validateDocumentIdentityAgainstClaim(
+      claim,
+      intel.extracted
+    );
+
+    if (identityValidation.status === "MISMATCH") {
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+
+      console.warn("[claim-document] identity mismatch blocked", {
+        claimId,
+        conflictFields: identityValidation.conflicts
+      });
+
+      return res.status(409).json({
+        error: "Patient mismatch",
+        message:
+          identityValidation.extractedPatientName
+            ? `This document appears to belong to ${identityValidation.extractedPatientName}, but the current claim is for ${claim.patientName}. The document was not uploaded.`
+            : "The document identity does not match the current claim. The document was not uploaded.",
+        code: "DOCUMENT_PATIENT_MISMATCH",
+        identityValidation
+      });
+    }
+
     const doc = await prisma.document.create({
       data: {
         claimId,
@@ -830,11 +973,31 @@ router.post("/documents", upload.single("file"), async (req, res) => {
 
     res.json({
       ...doc,
-      claim: updatedClaim
+      claim: updatedClaim,
+      identityValidation,
+      message:
+        identityValidation.status === "UNVERIFIED"
+          ? "Document uploaded, but patient identity could not be verified from the extracted document data."
+          : "Document uploaded and patient identity matched the current claim."
     });
   } catch (e) {
-    console.error("Document upload error:", e);
-    res.status(400).json({ error: e.message });
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // Best-effort cleanup; do not expose filesystem details to the client.
+      }
+    }
+
+    console.error("[claim-document] upload failed", {
+      claimId: req.body?.claimId || null,
+      name: e?.name || "Error",
+      message: e?.message || "Unknown error"
+    });
+
+    res.status(400).json({
+      error: e?.message || "Document upload failed"
+    });
   }
 });
 
