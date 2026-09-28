@@ -25,7 +25,7 @@ import {
   Search,
   Visibility
 } from "@mui/icons-material";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 import { useToast } from "../../context/ToastContext.jsx";
 
@@ -68,7 +68,13 @@ function StageCard({ title, status, actionable, blockedReason, children }) {
   return (
     <Card sx={{ height: "100%", opacity: actionable ? 1 : 0.72 }}>
       <CardContent>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="flex-start"
+          spacing={1}
+          sx={{ flexWrap: "wrap", rowGap: 1 }}
+        >
           <Typography variant="h6" fontWeight={700}>{title}</Typography>
           <Chip
             size="small"
@@ -92,6 +98,8 @@ function StageCard({ title, status, actionable, blockedReason, children }) {
 
 export default function ClaimJourney() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { showToast } = useToast();
 
   const [claims, setClaims] = React.useState([]);
@@ -102,6 +110,7 @@ export default function ClaimJourney() {
   const [loadingClaims, setLoadingClaims] = React.useState(true);
   const searchRequestRef = React.useRef(0);
   const searchInitializedRef = React.useRef(false);
+  const routeInitializedRef = React.useRef(false);
   const [loadingJourney, setLoadingJourney] = React.useState(false);
   const [pageError, setPageError] = React.useState("");
   const [action, setAction] = React.useState("");
@@ -113,6 +122,7 @@ export default function ClaimJourney() {
   const [remittanceStatus, setRemittanceStatus] = React.useState("AWAITING");
   const [allowedAmount, setAllowedAmount] = React.useState("");
   const [patientResponsibility, setPatientResponsibility] = React.useState("");
+  const [patientResponsibilityManual, setPatientResponsibilityManual] = React.useState(false);
   const [paidAmount, setPaidAmount] = React.useState("");
   const [paymentReference, setPaymentReference] = React.useState("");
 
@@ -177,8 +187,29 @@ export default function ClaimJourney() {
           : "AWAITING"
       );
       setAllowedAmount(claim.allowedAmount ?? "");
-      setPatientResponsibility(claim.patientResponsibility ?? "");
       setPaidAmount(claim.paidAmount ?? "");
+
+      const currentAllowed = Number(claim.allowedAmount);
+      const currentPaid = Number(claim.paidAmount);
+      const derivedPatientResponsibility =
+        Number.isFinite(currentAllowed) && Number.isFinite(currentPaid)
+          ? Math.max(0, currentAllowed - currentPaid)
+          : null;
+      const recordedPatientResponsibility =
+        claim.patientResponsibility == null
+          ? null
+          : Number(claim.patientResponsibility);
+
+      setPatientResponsibility(
+        recordedPatientResponsibility ??
+          derivedPatientResponsibility ??
+          ""
+      );
+      setPatientResponsibilityManual(
+        recordedPatientResponsibility != null &&
+          derivedPatientResponsibility != null &&
+          recordedPatientResponsibility !== derivedPatientResponsibility
+      );
       setPaymentReference(claim.paymentReference || "");
     } catch (error) {
       setJourney(null);
@@ -189,8 +220,24 @@ export default function ClaimJourney() {
   }, []);
 
   React.useEffect(() => {
-    loadClaims("", true);
-  }, [loadClaims]);
+    if (routeInitializedRef.current) return;
+    routeInitializedRef.current = true;
+
+    const initialClaimId = searchParams.get("claimId");
+
+    loadClaims("", !initialClaimId);
+
+    if (initialClaimId) {
+      ClaimsApi.get(initialClaimId)
+        .then((claim) => {
+          setSelectedClaim(claim);
+          setClaimId(claim.id);
+        })
+        .catch((error) => {
+          setPageError(error.message || "Unable to restore selected claim");
+        });
+    }
+  }, [loadClaims, searchParams]);
 
   React.useEffect(() => {
     // Initial recent claims are loaded by the mount effect above. Skip the
@@ -221,13 +268,21 @@ export default function ClaimJourney() {
     setAction(name);
     setPageError("");
     try {
-      await fn();
+      const result = await fn();
       await loadJourney(claimId);
-      showToast(successMessage, "success");
+
+      // Idempotent backend responses deliberately produce no duplicate
+      // "updated" toast when nothing changed.
+      if (!result?.unchanged) {
+        showToast(successMessage, "success");
+      }
+
+      return result;
     } catch (error) {
       const message = error.message || "Action failed";
       setPageError(message);
       showToast(message, "error");
+      return null;
     } finally {
       setAction("");
     }
@@ -236,8 +291,58 @@ export default function ClaimJourney() {
   const claim = journey?.claim;
   const stages = journey?.stages;
 
+  const eligibilityComplete = stages?.eligibility?.status === "VERIFIED";
+
+  const authFormMatchesSaved = Boolean(claim) &&
+    (claim.priorAuthRequired == null
+      ? authRequired === ""
+      : (claim.priorAuthRequired ? "YES" : "NO") === authRequired) &&
+    (claim.authorizationNo || "") === authorizationNo &&
+    (claim.priorAuthExpiry
+      ? new Date(claim.priorAuthExpiry).toISOString().slice(0, 10)
+      : "") === authExpiry;
+
+  const payerStatusUnchanged = Boolean(claim) &&
+    (claim.payerClaimStatus || "ACKNOWLEDGED") === payerStatus;
+
+  function asNullableNumber(value) {
+    if (value == null || value === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  const remittanceDirty = Boolean(claim) && (
+    (claim.remittanceStatus || "AWAITING") !== remittanceStatus ||
+    (claim.allowedAmount ?? null) !== asNullableNumber(allowedAmount) ||
+    (claim.patientResponsibility ?? null) !== asNullableNumber(patientResponsibility) ||
+    (claim.paidAmount ?? null) !== asNullableNumber(paidAmount) ||
+    (claim.paymentReference || "") !== paymentReference.trim()
+  );
+
+  React.useEffect(() => {
+    if (patientResponsibilityManual) return;
+
+    const allowed = asNullableNumber(allowedAmount);
+    const paid = asNullableNumber(paidAmount);
+
+    if (allowed == null || paid == null) {
+      setPatientResponsibility("");
+      return;
+    }
+
+    setPatientResponsibility(String(Math.max(0, allowed - paid)));
+  }, [allowedAmount, paidAmount, patientResponsibilityManual]);
+
+  function claimReturnState() {
+    const from = `/journey?claimId=${claim?.id || ""}`;
+    return {
+      from,
+      backLabel: "Back to Claim Journey"
+    };
+  }
+
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 1, sm: 2, lg: 3 } }}>
       <Stack
         direction={{ xs: "column", md: "row" }}
         justifyContent="space-between"
@@ -294,7 +399,13 @@ export default function ClaimJourney() {
           onChange={(_event, value) => {
             setSelectedClaim(value);
             setClaimId(value?.id || "");
-            if (!value) setJourney(null);
+
+            if (value?.id) {
+              setSearchParams({ claimId: value.id }, { replace: true });
+            } else {
+              setSearchParams({}, { replace: true });
+              setJourney(null);
+            }
           }}
           noOptionsText={
             searchText.trim().length === 1
@@ -395,7 +506,11 @@ export default function ClaimJourney() {
                   <Button
                     size="small"
                     startIcon={<Visibility />}
-                    onClick={() => navigate(`/claims/${claim.id}`)}
+                    onClick={() =>
+                      navigate(`/claims/${claim.id}`, {
+                        state: claimReturnState()
+                      })
+                    }
                   >
                     Claim Detail
                   </Button>
@@ -414,8 +529,13 @@ export default function ClaimJourney() {
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", lg: "repeat(5, minmax(0, 1fr))" },
-              gap: 2,
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, minmax(0, 1fr))",
+                lg: "repeat(3, minmax(0, 1fr))",
+                xl: "repeat(5, minmax(0, 1fr))"
+              },
+              gap: { xs: 1.5, md: 2 },
               alignItems: "stretch"
             }}
           >
@@ -435,7 +555,7 @@ export default function ClaimJourney() {
                 <Button
                   variant="contained"
                   size="small"
-                  disabled={action === "eligibility"}
+                  disabled={action === "eligibility" || eligibilityComplete}
                   onClick={() =>
                     runAction(
                       "eligibility",
@@ -444,7 +564,11 @@ export default function ClaimJourney() {
                     )
                   }
                 >
-                  {action === "eligibility" ? "Checking..." : "Run Pre-check"}
+                  {action === "eligibility"
+                    ? "Checking..."
+                    : eligibilityComplete
+                    ? "Verified"
+                    : "Run Pre-check"}
                 </Button>
               </Stack>
             </StageCard>
@@ -487,7 +611,12 @@ export default function ClaimJourney() {
                 <Button
                   variant="contained"
                   size="small"
-                  disabled={!stages.priorAuth.actionable || action === "auth" || authRequired === ""}
+                  disabled={
+                    !stages.priorAuth.actionable ||
+                    action === "auth" ||
+                    authRequired === "" ||
+                    authFormMatchesSaved
+                  }
                   onClick={() =>
                     runAction(
                       "auth",
@@ -501,7 +630,12 @@ export default function ClaimJourney() {
                     )
                   }
                 >
-                  {action === "auth" ? "Saving..." : "Evaluate"}
+                  {action === "auth"
+                    ? "Saving..."
+                    : authFormMatchesSaved &&
+                      ["APPROVED", "NOT_REQUIRED"].includes(stages.priorAuth.status)
+                    ? "Up to date"
+                    : "Evaluate"}
                 </Button>
               </Stack>
             </StageCard>
@@ -523,7 +657,11 @@ export default function ClaimJourney() {
                   variant="outlined"
                   size="small"
                   disabled={!stages.claim.actionable}
-                  onClick={() => navigate(`/claims/${claim.id}`)}
+                  onClick={() =>
+                    navigate(`/claims/${claim.id}`, {
+                      state: claimReturnState()
+                    })
+                  }
                 >
                   Open Claim
                 </Button>
@@ -558,7 +696,11 @@ export default function ClaimJourney() {
                 <Button
                   variant="contained"
                   size="small"
-                  disabled={!stages.claimStatus.actionable || action === "status"}
+                  disabled={
+                    !stages.claimStatus.actionable ||
+                    action === "status" ||
+                    payerStatusUnchanged
+                  }
                   onClick={() =>
                     runAction(
                       "status",
@@ -567,7 +709,11 @@ export default function ClaimJourney() {
                     )
                   }
                 >
-                  {action === "status" ? "Saving..." : "Record Status"}
+                  {action === "status"
+                    ? "Saving..."
+                    : payerStatusUnchanged
+                    ? "Status up to date"
+                    : "Record Status"}
                 </Button>
               </Stack>
             </StageCard>
@@ -591,14 +737,66 @@ export default function ClaimJourney() {
                     <MenuItem value="POSTED">Posted</MenuItem>
                   </Select>
                 </FormControl>
-                <TextField size="small" type="number" label="Allowed Amount" value={allowedAmount} onChange={(e) => setAllowedAmount(e.target.value)} disabled={!stages.remittance.actionable} />
-                <TextField size="small" type="number" label="Patient Responsibility" value={patientResponsibility} onChange={(e) => setPatientResponsibility(e.target.value)} disabled={!stages.remittance.actionable} />
-                <TextField size="small" type="number" label="Paid Amount" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} disabled={!stages.remittance.actionable} />
-                <TextField size="small" label="Payment Reference" value={paymentReference} onChange={(e) => setPaymentReference(e.target.value)} disabled={!stages.remittance.actionable} />
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Allowed Amount"
+                  value={allowedAmount}
+                  onChange={(e) => setAllowedAmount(e.target.value)}
+                  disabled={!stages.remittance.actionable}
+                />
+                <TextField
+                  size="small"
+                  type="number"
+                  label={
+                    patientResponsibilityManual
+                      ? "Patient Responsibility"
+                      : "Patient Responsibility (estimated)"
+                  }
+                  value={patientResponsibility}
+                  onChange={(e) => {
+                    setPatientResponsibility(e.target.value);
+                    setPatientResponsibilityManual(true);
+                  }}
+                  disabled={!stages.remittance.actionable}
+                  helperText={
+                    patientResponsibilityManual
+                      ? "Using entered/remittance value"
+                      : "Auto = Allowed Amount − Paid Amount; override if ERA/EOB specifies another amount"
+                  }
+                />
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Paid Amount"
+                  value={paidAmount}
+                  onChange={(e) => setPaidAmount(e.target.value)}
+                  disabled={!stages.remittance.actionable}
+                />
+                {patientResponsibilityManual && stages.remittance.actionable && (
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => setPatientResponsibilityManual(false)}
+                  >
+                    Recalculate patient responsibility
+                  </Button>
+                )}
+                <TextField
+                  size="small"
+                  label="Payment Reference"
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                  disabled={!stages.remittance.actionable}
+                />
                 <Button
                   variant="contained"
                   size="small"
-                  disabled={!stages.remittance.actionable || action === "remittance"}
+                  disabled={
+                    !stages.remittance.actionable ||
+                    action === "remittance" ||
+                    !remittanceDirty
+                  }
                   onClick={() =>
                     runAction(
                       "remittance",
@@ -614,7 +812,11 @@ export default function ClaimJourney() {
                     )
                   }
                 >
-                  {action === "remittance" ? "Saving..." : "Record Remittance"}
+                  {action === "remittance"
+                    ? "Saving..."
+                    : !remittanceDirty
+                    ? "Remittance up to date"
+                    : "Record Remittance"}
                 </Button>
               </Stack>
             </StageCard>
