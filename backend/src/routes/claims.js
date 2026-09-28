@@ -153,6 +153,64 @@ router.get("/", async (req, res) => {
  * workflow decisions. They do not claim to be live payer responses. A payer/clearinghouse
  * connector can replace these calls later without changing the UI workflow.
  */
+/**
+ * Server-side claim search for production-scale selectors.
+ * Empty query returns recent claims; non-empty query searches common operational identifiers.
+ * Results are intentionally capped so the browser never needs to load the full claim table.
+ */
+router.get("/search", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    const requestedLimit = Number(req.query.limit || 20);
+    const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 20, 50));
+
+    const where = q
+      ? {
+          OR: [
+            { id: { equals: q } },
+            { patientName: { contains: q, mode: "insensitive" } },
+            { payerName: { contains: q, mode: "insensitive" } },
+            { policyNo: { contains: q, mode: "insensitive" } },
+            { memberId: { contains: q, mode: "insensitive" } },
+            { insurerClaimNo: { contains: q, mode: "insensitive" } },
+            { authorizationNo: { contains: q, mode: "insensitive" } }
+          ]
+        }
+      : {};
+
+    const claims = await prisma.claim.findMany({
+      where,
+      select: {
+        id: true,
+        patientName: true,
+        payerName: true,
+        policyNo: true,
+        memberId: true,
+        insurerClaimNo: true,
+        authorizationNo: true,
+        status: true,
+        createdAt: true
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit
+    });
+
+    res.json({
+      items: claims,
+      query: q,
+      limit,
+      recent: !q
+    });
+  } catch (error) {
+    console.error("[claim-search] failed", {
+      message: error.message
+    });
+    res.status(500).json({
+      error: "Unable to search claims"
+    });
+  }
+});
+
 router.get("/:id/journey", async (req, res) => {
   try {
     const claim = await prisma.claim.findUnique({
