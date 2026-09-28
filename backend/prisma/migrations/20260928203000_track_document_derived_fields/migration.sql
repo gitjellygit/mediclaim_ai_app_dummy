@@ -1,0 +1,2 @@
+ALTER TABLE "Claim"
+ADD COLUMN "documentDerivedFields" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
