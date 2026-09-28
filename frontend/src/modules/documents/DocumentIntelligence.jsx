@@ -41,10 +41,12 @@ import {
   DeleteSweep
 } from "@mui/icons-material";
 import { ClaimsApi } from "../../api/claims.js";
+import { useToast } from "../../context/ToastContext.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 export default function DocumentIntelligence() {
+  const { showToast, showDialog, confirmDialog } = useToast();
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -99,11 +101,13 @@ export default function DocumentIntelligence() {
       const result = await ClaimsApi.smartUploadDoc(file);
 
       if (result.status === 409) {
-        setSnackbar({
-          open: true,
-          message: "This exact document has already been uploaded.",
-          severity: "warning"
-        });
+        showDialog(
+          "This exact document has already been uploaded. No duplicate document was created.",
+          {
+            title: "Duplicate document",
+            severity: "warning"
+          }
+        );
       } else {
         const { message, matchStatus } = result;
         setSnackbar({
@@ -115,12 +119,14 @@ export default function DocumentIntelligence() {
 
       await loadDocuments();
     } catch (err) {
-      console.error(err);
-      setSnackbar({
-        open: true,
-        message: err.message || "Document upload failed",
-        severity: "error"
-      });
+      console.error("Document upload failed:", err);
+      showDialog(
+        err.message || "Document upload failed. Please try again.",
+        {
+          title: "Document upload failed",
+          severity: "error"
+        }
+      );
     } finally {
       setUploading(false);
       setSelectedFile(null);
@@ -171,11 +177,26 @@ export default function DocumentIntelligence() {
   // ✅ FIXED BULK DELETE
   async function handleBulkDelete() {
     if (selectedDocs.size === 0) {
-      alert("Please select documents to delete");
+      showDialog(
+        "Select at least one document before using bulk delete.",
+        {
+          title: "No documents selected",
+          severity: "warning"
+        }
+      );
       return;
     }
 
-    if (!confirm(`Delete ${selectedDocs.size} selected document(s)?`)) return;
+    const confirmed = await confirmDialog(
+      `Delete ${selectedDocs.size} selected document${selectedDocs.size === 1 ? "" : "s"}? This action cannot be undone. Submitted-claim documents are protected and will not be deleted.`,
+      {
+        title: "Delete selected documents?",
+        severity: "warning",
+        confirmLabel: "Delete",
+        cancelLabel: "Cancel"
+      }
+    );
+    if (!confirmed) return;
 
     try {
       setBulkDeleteLoading(true);
@@ -186,8 +207,17 @@ export default function DocumentIntelligence() {
       await loadDocuments();
       setSelectedDocs(new Set());
     } catch (e) {
-      console.error("Bulk delete failed:", e);
-      alert("Failed to delete documents");
+      console.error("Bulk document delete failed:", {
+        status: e?.status,
+        message: e?.message
+      });
+      showDialog(
+        e?.message || "The selected documents could not be deleted.",
+        {
+          title: "Documents could not be deleted",
+          severity: "error"
+        }
+      );
     } finally {
       setBulkDeleteLoading(false);
     }
@@ -226,11 +256,13 @@ export default function DocumentIntelligence() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Download error:", err);
-      setSnackbar({
-        open: true,
-        message: "Failed to download document",
-        severity: "error"
-      });
+      showDialog(
+        err?.message || "The document could not be downloaded. Please try again.",
+        {
+          title: "Document download failed",
+          severity: "error"
+        }
+      );
     }
   }
 
