@@ -48,6 +48,7 @@ function formatDate(value) {
 }
 
 function formatMoney(value) {
+  if (value == null || value === "") return "—";
   const amount = Number(value);
   if (!Number.isFinite(amount)) return "—";
   return new Intl.NumberFormat("en-US", {
@@ -149,6 +150,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   async function saveEdit() {
     if (!editForm) return;
+    if (claim?.status === "SUBMITTED") {
+      return showToast("Submitted claims are locked. Reopen or amend before editing.", "error");
+    }
 
     const payload = {
       patientName: editForm.patientName?.trim(),
@@ -202,6 +206,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   async function runAICheck() {
     if (!canRunAI) return showToast("Only CASHIER/ADMIN can run AI check", "error");
+    if (claim?.status === "SUBMITTED") {
+      return showToast("Submitted claims are locked. Reopen the claim before running a new AI check.", "error");
+    }
 
     try {
       setAiRunning(true);
@@ -479,8 +486,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Typography variant="h6">Patient & Policy</Typography>
 
-            {canEditClaim && !editMode && (
+            {canEditClaim && claim.status !== "SUBMITTED" && !editMode && (
               <Button size="small" onClick={() => setEditMode(true)}>Edit</Button>
+            )}
+            {claim.status === "SUBMITTED" && (
+              <Chip size="small" label="Locked after submission" variant="outlined" />
             )}
 
             {canEditClaim && editMode && (
@@ -637,7 +647,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               Documents ({claim.documents.length})
             </Typography>
             
-            {selectedDocs.size > 0 && (
+            {selectedDocs.size > 0 && claim.status !== "SUBMITTED" && (
               <Stack direction="row" spacing={1} alignItems="center">
                 <Typography variant="body2" color="text.secondary">
                   {selectedDocs.size} selected
@@ -675,6 +685,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               component="label"
               startIcon={<FolderOpen />}
               size="small"
+              disabled={claim.status === "SUBMITTED"}
             >
               Upload Document
               <input
@@ -839,7 +850,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                                   <Download fontSize="small" />
                                 </IconButton>
                               </Tooltip>
-                              {canDeleteDoc && (
+                              {canDeleteDoc && claim.status !== "SUBMITTED" && (
                                 <Tooltip title="Delete">
                                   <IconButton 
                                     size="small"
@@ -938,25 +949,31 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <Button
                 variant="contained"
                 onClick={runAICheck}
-                disabled={aiRunning || !canRunAI}
+                disabled={aiRunning || !canRunAI || claim.status === "SUBMITTED"}
               >
                 Run AI Check
               </Button>
 
               <Button
-                variant="contained"
-                color="success"
+                variant={claim.status === "SUBMITTED" ? "outlined" : "contained"}
+                color={claim.status === "SUBMITTED" ? "inherit" : "success"}
                 onClick={submitClaim}
-                disabled={!canSubmit || submittingClaim}
+                disabled={!canSubmit || submittingClaim || claim.status === "SUBMITTED"}
               >
                 {claim.status === "SUBMITTED"
-                  ? "Already Submitted"
+                  ? "Submitted"
                   : submittingClaim
                   ? "Submitting..."
                   : "Submit Claim"}
               </Button>
             </Stack>
           </Stack>
+
+          {claim.status === "SUBMITTED" && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              Claim submitted{claim.claimSubmissionDate ? ` on ${formatDate(claim.claimSubmissionDate)}` : ""}. Claim data and documents are locked.
+            </Alert>
+          )}
 
           {check && (
             <>
