@@ -2,7 +2,8 @@
   "name": "claim-ai-backend",
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "node --test --test-reporter=spec tests/*.test.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1038.0",
