@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Typography,
   Chip,
   Table,
@@ -38,8 +43,27 @@ export default function ClaimsList() {
   const [claims, setClaims] = useState([]);
   const [selected, setSelected] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [messageDialog, setMessageDialog] = useState({
+    open: false,
+    title: "",
+    message: "",
+    severity: "info"
+  });
   const navigate = useNavigate();
   const { showToast } = useToast();
+
+  function showMessageDialog(title, message, severity = "info") {
+    setMessageDialog({
+      open: true,
+      title,
+      message,
+      severity
+    });
+  }
+
+  function closeMessageDialog() {
+    setMessageDialog((current) => ({ ...current, open: false }));
+  }
 
   useEffect(() => {
     loadClaims();
@@ -106,7 +130,8 @@ export default function ClaimsList() {
       await loadClaims();
     } catch (error) {
       console.error("Delete claim failed:", error);
-      showToast(
+      showMessageDialog(
+        "Claim could not be deleted",
         error?.message || "Unable to delete claim. Please try again.",
         "error"
       );
@@ -162,7 +187,8 @@ export default function ClaimsList() {
     }
 
     if (deleted.length === 0 && failed.length === 1) {
-      showToast(
+      showMessageDialog(
+        "Claim could not be deleted",
         `${failed[0].name}: ${failed[0].message}`,
         "error"
       );
@@ -174,7 +200,10 @@ export default function ClaimsList() {
       .map((item) => `${item.name}: ${item.message}`)
       .join(" | ");
 
-    showToast(
+    showMessageDialog(
+      deleted.length > 0
+        ? "Bulk delete completed with warnings"
+        : "Claims could not be deleted",
       `${deleted.length} deleted, ${failed.length} not deleted. ${protectedSummary}${
         failed.length > 3 ? ` | +${failed.length - 3} more` : ""
       }`,
@@ -312,6 +341,33 @@ export default function ClaimsList() {
           </TableBody>
         </Table>
       </Paper>
+
+      <Dialog
+        open={messageDialog.open}
+        onClose={closeMessageDialog}
+        fullWidth
+        maxWidth="sm"
+        aria-labelledby="claim-message-dialog-title"
+      >
+        <DialogTitle id="claim-message-dialog-title">
+          {messageDialog.title}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText
+            sx={{
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word"
+            }}
+          >
+            {messageDialog.message}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeMessageDialog} autoFocus>
+            OK
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
