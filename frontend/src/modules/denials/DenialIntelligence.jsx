@@ -31,7 +31,7 @@ import {
   Search as SearchIcon,
   Visibility
 } from "@mui/icons-material";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { DenialsApi } from "../../api/denials.js";
 import { useToast } from "../../context/ToastContext.jsx";
 
@@ -82,6 +82,7 @@ const CASE_STATUSES = [
 
 export default function DenialIntelligence() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { showToast, showDialog } = useToast();
 
   const [rows, setRows] = React.useState([]);
@@ -870,7 +871,14 @@ export default function DenialIntelligence() {
 
             <Button
               startIcon={<Visibility />}
-              onClick={() => navigate(`/claims/${detail.claimId}`)}
+              onClick={() =>
+                navigate(`/claims/${detail.claimId}`, {
+                  state: {
+                    from: location.pathname + location.search,
+                    backLabel: "Back to Denial Intelligence"
+                  }
+                })
+              }
             >
               Open Claim Detail
             </Button>
