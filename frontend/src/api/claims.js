@@ -72,5 +72,15 @@ export const ClaimsApi = {
       method: "POST",
       body: JSON.stringify({ ids })
     });
+  },
+
+  smartUploadDoc(file) {
+    const fd = new FormData();
+    fd.append("file", file);
+
+    return api("/api/documents/smart-upload", {
+      method: "POST",
+      body: fd
+    });
   }
 };

@@ -50,12 +50,14 @@ model Claim {
   payerName   String
   policyNo    String?
   amount      Int
-  status      String   @default("DRAFT")
+  status      String  @default("DRAFT")
 
   patientAge    Int?
   patientGender Gender?
+  patientDob    DateTime?
   uhid          String?
   patientMobile String?
+  memberId      String?
 
   hospitalName    String?
   hospitalAddress String?
@@ -63,13 +65,14 @@ model Claim {
   doctorName      String?
   doctorRegNo     String?
 
-  admissionDate  DateTime?
-  dischargeDate  DateTime?
-  admissionType  AdmissionType?
-  diagnosisText  String?
-  icd10Codes     String[] @default([])
-  procedureText  String?
-  procedureDate  DateTime?
+  admissionDate DateTime?
+  dischargeDate DateTime?
+  admissionType AdmissionType?
+  diagnosisText String?
+  icd10Codes    String[]       @default([])
+  procedureText String?
+  procedureDate DateTime?
+  dateOfService DateTime?
 
   tpaName           String?
   policyStartDate   DateTime?
@@ -78,8 +81,8 @@ model Claim {
   sumInsured        Int?
   balanceSumInsured Int?
 
-  claimType         ClaimType  @default(REIMBURSEMENT)
-  claimStage        ClaimStage @default(INITIAL)
+  claimType         ClaimType     @default(REIMBURSEMENT)
+  claimStage        ClaimStage    @default(INITIAL)
   totalBilledAmount Int?
   approvedAmount    Int?
   deductionAmount   Int?
@@ -101,26 +104,26 @@ model Document {
   createdAt DateTime @default(now())
 
   claimId String
-  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
-  type       String
-  fileName   String
-  mimeType   String
-  sizeBytes  Int
-  path       String
+  type      String
+  fileName  String
+  mimeType  String
+  sizeBytes Int
+  path      String
 
-  fileHash      String? @unique
-rawText       String?
-ocrProvider   String?
+  fileHash    String? @unique
+  rawText     String?
+  ocrProvider String?
 
   isMandatory Boolean @default(false)
   verified    Boolean @default(false)
 
   // ✅ Document Intelligence (AI)
   suggestedType String?
-  confidence    Int?    // 0..100
-  extracted     Json?   // { patientName?, amount?, dates?, ... }
-  status        String @default("PENDING") // PENDING, PROCESSED, FAILED
+  confidence    Int? // 0..100
+  extracted     Json? // { patientName?, amount?, dates?, ... }
+  status        String  @default("PENDING") // PENDING, PROCESSED, FAILED
 }
 
 model Check {
@@ -128,16 +131,16 @@ model Check {
   createdAt DateTime @default(now())
 
   claimId String
-  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
   score  Int
   issues Json
 
-    // ✅ Rejection Risk Prediction (AI)
+  // ✅ Rejection Risk Prediction (AI)
   riskScore   Float?
   riskLevel   String? // LOW | MED | HIGH
-  riskFactors Json?   // ["Missing discharge summary", ...]
-  aiSummary   Json?   // any extra AI outputs if you want later
+  riskFactors Json? // ["Missing discharge summary", ...]
+  aiSummary   Json? // any extra AI outputs if you want later
 }
 
 model Rule {
@@ -151,34 +154,32 @@ model Rule {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   email        String   @unique
   passwordHash String
   role         UserRole @default(RECEPTIONIST)
-  
+
   // Security fields
-  failedLoginAttempts Int      @default(0)
+  failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
   lastLoginAt         DateTime?
-  
+
   refreshTokens RefreshToken[]
 }
 
 model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
+  id        String    @id @default(cuid())
+  token     String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
-  revoked   Boolean  @default(false)
-  createdAt DateTime @default(now())
+  revoked   Boolean   @default(false)
+  createdAt DateTime  @default(now())
   revokedAt DateTime?
 
   @@index([token])
   @@index([userId])
 }
-
-

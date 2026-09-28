@@ -26,7 +26,8 @@ import {
   Checkbox,
   Tooltip,
   Collapse,
-  Alert
+  Alert,
+  Snackbar
 } from "@mui/material";
 import {
   Search as SearchIcon,
@@ -51,6 +52,7 @@ export default function DocumentIntelligence() {
   const [previewDoc, setPreviewDoc] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "info" });
 
   // ✅ selection (already used correctly)
   const [selectedDocs, setSelectedDocs] = useState(new Set());
@@ -94,24 +96,36 @@ export default function DocumentIntelligence() {
     setSelectedFile(file);
 
     try {
-      const claim = await ClaimsApi.create({
-        patientName: "Unknown Patient",
-        payerName: "Insurance",
-        amount: 1
-      });
+      const result = await ClaimsApi.smartUploadDoc(file);
 
-      await ClaimsApi.uploadDoc({
-        claimId: claim.id,
-        type: "OTHER",
-        file
-      });
+      if (result.status === 409) {
+        setSnackbar({
+          open: true,
+          message: "This exact document has already been uploaded.",
+          severity: "warning"
+        });
+      } else {
+        const { message, matchStatus } = result;
+        setSnackbar({
+          open: true,
+          message: message || "Document processed successfully",
+          severity: matchStatus === "REVIEW" ? "warning" : "success"
+        });
+      }
 
       await loadDocuments();
     } catch (err) {
       console.error(err);
+      setSnackbar({
+        open: true,
+        message: err.message || "Document upload failed",
+        severity: "error"
+      });
     } finally {
       setUploading(false);
       setSelectedFile(null);
+      // Reset file input
+      e.target.value = "";
     }
   }
 
@@ -133,10 +147,17 @@ export default function DocumentIntelligence() {
   }
 
   function handleSelectAll() {
-    if (selectedDocs.size === documents.length) {
-      setSelectedDocs(new Set());
+    const filteredIds = filteredDocuments.map(doc => doc.id);
+    const allFilteredSelected = filteredIds.every(id => selectedDocs.has(id));
+    
+    if (allFilteredSelected) {
+      const newSelected = new Set(selectedDocs);
+      filteredIds.forEach(id => newSelected.delete(id));
+      setSelectedDocs(newSelected);
     } else {
-      setSelectedDocs(new Set(documents.map(doc => doc.id)));
+      const newSelected = new Set(selectedDocs);
+      filteredIds.forEach(id => newSelected.add(id));
+      setSelectedDocs(newSelected);
     }
   }
 
@@ -186,14 +207,31 @@ export default function DocumentIntelligence() {
   );
 
   async function handleDownload(doc) {
-    const res = await fetch(`${API_BASE}/api/documents/${doc.id}/download`);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
+    try {
+      const res = await fetch(`${API_BASE}/api/documents/${doc.id}/download`);
+      
+      if (!res.ok) {
+        throw new Error("Download failed");
+      }
+      
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
 
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = doc.fileName;
-    a.click();
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Download error:", err);
+      setSnackbar({
+        open: true,
+        message: "Failed to download document",
+        severity: "error"
+      });
+    }
   }
 
   return (
@@ -253,11 +291,11 @@ export default function DocumentIntelligence() {
                       <Checkbox
                         checked={
                           filteredDocuments.length > 0 &&
-                          selectedDocs.size === filteredDocuments.length
+                          filteredDocuments.every(doc => selectedDocs.has(doc.id))
                         }
                         indeterminate={
-                          selectedDocs.size > 0 &&
-                          selectedDocs.size < filteredDocuments.length
+                          filteredDocuments.some(doc => selectedDocs.has(doc.id)) &&
+                          !filteredDocuments.every(doc => selectedDocs.has(doc.id))
                         }
                         onChange={handleSelectAll}
                       />
@@ -343,6 +381,16 @@ export default function DocumentIntelligence() {
           </Stack>
         </Paper>
       </Modal>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+      >
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </>
   );
 }

@@ -7,6 +7,59 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function calculateMatchScore(extracted, existingClaim) {
+  let score = 0;
+  
+  const memberId = extracted.memberId || null;
+  const policyNo = extracted.policyNo || null;
+  const dateOfBirth = extracted.dateOfBirth || null;
+  const patientName = extracted.patientName || null;
+  const dateOfService = extracted.dateOfService || null;
+  const admissionDate = extracted.admissionDate || null;
+  const dischargeDate = extracted.dischargeDate || null;
+  const hospitalName = extracted.hospitalName || null;
+  
+  if (memberId && existingClaim.memberId && memberId === existingClaim.memberId) {
+    score += 40;
+  }
+  
+  if (policyNo && existingClaim.policyNo && policyNo === existingClaim.policyNo) {
+    score += 35;
+  }
+  
+  if (dateOfBirth && existingClaim.patientDob && dateOfBirth === existingClaim.patientDob) {
+    score += 25;
+  }
+  
+  if (patientName && existingClaim.patientName) {
+    const normalizedName1 = patientName.toLowerCase().replace(/\s+/g, '');
+    const normalizedName2 = existingClaim.patientName.toLowerCase().replace(/\s+/g, '');
+    if (normalizedName1 === normalizedName2) {
+      score += 10;
+    }
+  }
+  
+  const docDate = dateOfService || admissionDate;
+  if (docDate && existingClaim.dateOfService) {
+    const daysDiff = Math.abs(new Date(docDate) - new Date(existingClaim.dateOfService)) / (1000 * 60 * 60 * 24);
+    if (daysDiff <= 3) {
+      score += 15;
+    } else if (daysDiff <= 7) {
+      score += 10;
+    }
+  }
+  
+  if (hospitalName && existingClaim.hospitalName) {
+    const normalizedHospital1 = hospitalName.toLowerCase().replace(/\s+/g, '');
+    const normalizedHospital2 = existingClaim.hospitalName.toLowerCase().replace(/\s+/g, '');
+    if (normalizedHospital1 === normalizedHospital2) {
+      score += 5;
+    }
+  }
+  
+  return Math.min(100, score);
+}
+
 export function documentsRouter(prisma, uploadDir) {
   const router = express.Router();
 
@@ -33,61 +86,93 @@ export function documentsRouter(prisma, uploadDir) {
   const upload = multer({ storage });
 
   router.post("/smart-upload", upload.single("file"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "file is required" });
-    }
+    let uploadedFilePath = null;
+    
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "file is required" });
+      }
 
-    const { analyzeDocument, getFileHash } = await import("../services/docIntel.js");
+      uploadedFilePath = req.file.path;
+      
+      if (!fs.existsSync(uploadedFilePath)) {
+        return res.status(400).json({ 
+          error: "File not found",
+          message: "Uploaded file could not be located on server"
+        });
+      }
 
-    const fullPath = path.join(uploadDir, doc.path);
-    const fileHash = getFileHash(fullPath);
+      const { analyzeDocument, getFileHash } = await import("../services/docIntel.js");
 
-    const duplicate = await prisma.document.findFirst({
-      where: { fileHash },
-      include: { claim: true }
-    });
+      const fileHash = getFileHash(uploadedFilePath);
 
-    if (duplicate) {
-      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-
-      return res.status(409).json({
-        error: "Duplicate document",
-        message: "This same document is already uploaded.",
-        existingDocumentId: duplicate.id,
-        existingClaimId: duplicate.claimId,
-        patientName: duplicate.claim?.patientName
+      const duplicate = await prisma.document.findFirst({
+        where: { fileHash },
+        include: { claim: true }
       });
-    }
 
-    const intel = await analyzeDocument({
-      fileName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      path: fullPath
-    });
+      if (duplicate) {
+        if (fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
 
-    const extracted = intel.extracted || {};
-    const patientName = extracted.patientName || "Unknown Patient";
-    const amount = Number(extracted.amount || 1);
-    const payerName = extracted.payerName || "Insurance";
+        return res.status(409).json({
+          error: "Duplicate document",
+          message: "This same document is already uploaded.",
+          existingDocumentId: duplicate.id,
+          existingClaimId: duplicate.claimId,
+          patientName: duplicate.claim?.patientName
+        });
+      }
 
-    let claim = null;
+      const intel = await analyzeDocument({
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        path: uploadedFilePath
+      });
 
-    if (patientName && patientName !== "Unknown Patient") {
-      claim = await prisma.claim.findFirst({
+      const extracted = intel.extracted || {};
+      const patientName = extracted.patientName || "Unknown Patient";
+      const amount = Number(extracted.amount || 1);
+      const payerName = extracted.payerName || "Insurance";
+
+      let claim = null;
+      let matchStatus = "NEW";
+      let matchScore = 0;
+      let candidateClaim = null;
+
+      const recentClaims = await prisma.claim.findMany({
         where: {
           patientName: {
             equals: patientName,
             mode: "insensitive"
           }
         },
-        orderBy: { createdAt: "desc" }
+        orderBy: { createdAt: "desc" },
+        take: 10
       });
-    }
 
-    if (!claim) {
-      claim = await prisma.claim.create({
-        data: {
+      let bestMatch = null;
+      let bestScore = 0;
+
+      for (const existingClaim of recentClaims) {
+        const score = calculateMatchScore(extracted, existingClaim);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = existingClaim;
+        }
+      }
+
+      if (bestMatch && bestScore >= 90) {
+        claim = bestMatch;
+        matchStatus = "MERGED";
+        matchScore = bestScore;
+      } else if (bestMatch && bestScore >= 70) {
+        candidateClaim = bestMatch;
+        matchStatus = "REVIEW";
+        matchScore = bestScore;
+      }
+
+      if (!claim) {
+        const claimData = {
           patientName,
           payerName,
           amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
@@ -96,82 +181,202 @@ export function documentsRouter(prisma, uploadDir) {
           hospitalName: extracted.hospitalName || null,
           doctorName: extracted.doctorName || null,
           diagnosisText: extracted.diagnosisText || null,
+          memberId: extracted.memberId || null,
           status: "DRAFT"
+        };
+
+        if (extracted.dateOfBirth) {
+          try {
+            claimData.patientDob = new Date(extracted.dateOfBirth);
+          } catch (e) {
+            // Invalid date, skip
+          }
+        }
+
+        if (extracted.dateOfService) {
+          try {
+            claimData.dateOfService = new Date(extracted.dateOfService);
+          } catch (e) {
+            // Invalid date, skip
+          }
+        }
+
+        if (extracted.admissionDate) {
+          try {
+            claimData.admissionDate = new Date(extracted.admissionDate);
+          } catch (e) {
+            // Invalid date, skip
+          }
+        }
+
+        if (extracted.dischargeDate) {
+          try {
+            claimData.dischargeDate = new Date(extracted.dischargeDate);
+          } catch (e) {
+            // Invalid date, skip
+          }
+        }
+
+        if (extracted.authorizationNo) {
+          claimData.authorizationNo = extracted.authorizationNo;
+        }
+
+        if (extracted.icd10Codes && extracted.icd10Codes.length > 0) {
+          claimData.icd10Codes = extracted.icd10Codes;
+        }
+
+        claim = await prisma.claim.create({
+          data: claimData
+        });
+      } else {
+        const updatePayload = {};
+
+        if (intel.suggestedType === "FINAL_BILL") {
+          if ((!claim.amount || claim.amount === 1) && amount > 1) {
+            updatePayload.amount = amount;
+            updatePayload.totalBilledAmount = amount;
+          }
+        }
+
+        if (!claim.policyNo && extracted.policyNo) {
+          updatePayload.policyNo = extracted.policyNo;
+        }
+
+        if (!claim.memberId && extracted.memberId) {
+          updatePayload.memberId = extracted.memberId;
+        }
+
+        if (!claim.hospitalName && extracted.hospitalName) {
+          updatePayload.hospitalName = extracted.hospitalName;
+        }
+
+        if (!claim.doctorName && extracted.doctorName) {
+          updatePayload.doctorName = extracted.doctorName;
+        }
+
+        if (!claim.diagnosisText && extracted.diagnosisText) {
+          updatePayload.diagnosisText = extracted.diagnosisText;
+        }
+
+        if (!claim.authorizationNo && extracted.authorizationNo) {
+          updatePayload.authorizationNo = extracted.authorizationNo;
+        }
+
+        if (!claim.patientDob && extracted.dateOfBirth) {
+          try {
+            updatePayload.patientDob = new Date(extracted.dateOfBirth);
+          } catch (e) {
+            // Invalid date, skip
+          }
+        }
+
+        if (!claim.dateOfService && extracted.dateOfService) {
+          try {
+            updatePayload.dateOfService = new Date(extracted.dateOfService);
+          } catch (e) {
+            // Invalid date, skip
+          }
+        }
+
+        if (!claim.admissionDate && extracted.admissionDate) {
+          try {
+            updatePayload.admissionDate = new Date(extracted.admissionDate);
+          } catch (e) {
+            // Invalid date, skip
+          }
+        }
+
+        if (!claim.dischargeDate && extracted.dischargeDate) {
+          try {
+            updatePayload.dischargeDate = new Date(extracted.dischargeDate);
+          } catch (e) {
+            // Invalid date, skip
+          }
+        }
+
+        if (extracted.icd10Codes && extracted.icd10Codes.length > 0 && (!claim.icd10Codes || claim.icd10Codes.length === 0)) {
+          updatePayload.icd10Codes = extracted.icd10Codes;
+        }
+
+        if (Object.keys(updatePayload).length > 0) {
+          claim = await prisma.claim.update({
+            where: { id: claim.id },
+            data: updatePayload
+          });
+        }
+      }
+
+      const doc = await prisma.document.create({
+        data: {
+          claimId: claim.id,
+          type: intel.suggestedType || "OTHER",
+          fileName: req.file.originalname,
+          mimeType: req.file.mimetype,
+          sizeBytes: req.file.size,
+          path: req.file.filename,
+          fileHash,
+          suggestedType: intel.suggestedType,
+          confidence: intel.confidence,
+          extracted,
+          rawText: intel.rawExtractedText || null,
+          ocrProvider: intel.ocrProvider || intel.extractionSource || null,
+          status: "PROCESSED"
         }
       });
-    } else {
-      const updatePayload = {};
 
-      if ((!claim.amount || claim.amount === 1) && amount > 1) {
-        updatePayload.amount = amount;
-        updatePayload.totalBilledAmount = amount;
+      const updatedClaim = await prisma.claim.findUnique({
+        where: { id: claim.id },
+        include: {
+          documents: {
+            orderBy: { createdAt: "desc" }
+          }
+        }
+      });
+
+      let message;
+      if (matchStatus === "MERGED") {
+        message = `Document processed and merged into ${patientName}'s existing claim.`;
+      } else if (matchStatus === "REVIEW") {
+        message = `Document processed. A possible matching claim was found and needs review.`;
+      } else {
+        message = `Document processed. New claim created for ${patientName}.`;
       }
 
-      if (!claim.policyNo && extracted.policyNo) {
-        updatePayload.policyNo = extracted.policyNo;
-      }
-
-      if (!claim.hospitalName && extracted.hospitalName) {
-        updatePayload.hospitalName = extracted.hospitalName;
-      }
-
-      if (!claim.doctorName && extracted.doctorName) {
-        updatePayload.doctorName = extracted.doctorName;
-      }
-
-      if (!claim.diagnosisText && extracted.diagnosisText) {
-        updatePayload.diagnosisText = extracted.diagnosisText;
-      }
-
-      if (Object.keys(updatePayload).length > 0) {
-        claim = await prisma.claim.update({
-          where: { id: claim.id },
-          data: updatePayload
+      res.status(201).json({
+        message,
+        duplicate: false,
+        matchStatus,
+        matchScore,
+        candidateClaim,
+        claim: updatedClaim,
+        document: doc
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
+          fs.unlinkSync(uploadedFilePath);
+        }
+        
+        return res.status(409).json({
+          error: "Duplicate document",
+          message: "This same document is already uploaded."
         });
       }
-    }
-
-    const doc = await prisma.document.create({
-      data: {
-        claimId: claim.id,
-        type: intel.suggestedType || "OTHER",
-        fileName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        sizeBytes: req.file.size,
-        path: req.file.filename,
-        fileHash,
-        suggestedType: intel.suggestedType,
-        confidence: intel.confidence,
-        extracted,
-        rawText: intel.rawExtractedText || null,
-        ocrProvider: intel.ocrProvider || intel.extractionSource || null,
-        status: "PROCESSED"
-      }
-    });
-
-    const updatedClaim = await prisma.claim.findUnique({
-      where: { id: claim.id },
-      include: {
-        documents: {
-          orderBy: { createdAt: "desc" }
+      
+      if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
+        try {
+          fs.unlinkSync(uploadedFilePath);
+        } catch (cleanupError) {
+          // Cleanup failed, file will be cleaned up later
         }
       }
-    });
-
-    res.status(201).json({
-      message: "Document processed successfully",
-      duplicate: false,
-      claim: updatedClaim,
-      document: doc
-    });
-  } catch (error) {
-    console.error("Smart upload error:", error);
-    res.status(500).json({
-      error: "Document processing failed",
-      message: error.message
-    });
-  }
-});
+      
+      res.status(500).json({
+        error: "Document processing failed",
+        message: error.message
+      });
+    }
+  });
 
   // Upload document
   router.post("/upload", upload.single("file"), async (req, res) => {
@@ -181,17 +386,38 @@ export function documentsRouter(prisma, uploadDir) {
       return res.status(400).json({ error: "file is required" });
     }
 
+    if (!claimId) {
+      return res.status(400).json({ error: "claimId is required" });
+    }
+
+    const claim = await prisma.claim.findUnique({
+      where: { id: claimId }
+    });
+
+    if (!claim) {
+      return res.status(404).json({ error: "Claim not found" });
+    }
+
+    const uploadedFilePath = req.file.path;
+    
+    if (!fs.existsSync(uploadedFilePath)) {
+      return res.status(400).json({ 
+        error: "File not found",
+        message: "Uploaded file could not be located on server"
+      });
+    }
+
     // Call AI analysis service
     const { analyzeDocument } = await import("../services/docIntel.js");
     const intel = await analyzeDocument({
       fileName: req.file.originalname,
       mimeType: req.file.mimetype,
-      path: req.file.filename
+      path: uploadedFilePath
     });
 
     const doc = await prisma.document.create({
       data: {
-        claimId: claimId || null, // Make claimId optional
+        claimId: claimId,
         type: type || intel.suggestedType,
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
@@ -222,8 +448,6 @@ export function documentsRouter(prisma, uploadDir) {
       const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
       if (!doc) return res.status(404).json({ error: "Doc not found" });
 
-      console.log("Document from DB:", doc);
-      
       // Safe file path resolution
       const baseUploadsPath = path.join(__dirname, "../uploads");
       const cleanPath = doc.path.includes("uploads")
@@ -231,10 +455,7 @@ export function documentsRouter(prisma, uploadDir) {
         : doc.path;
       const filePath = path.join(baseUploadsPath, cleanPath);
       
-      console.log("Resolved file path:", filePath);
-      
       if (!fs.existsSync(filePath)) {
-        console.error("File NOT found at:", filePath);
         return res.status(404).json({
           error: "File not found",
           path: filePath
@@ -243,7 +464,6 @@ export function documentsRouter(prisma, uploadDir) {
 
       return res.download(filePath, doc.fileName);
     } catch (err) {
-      console.error("Download error:", err);
       return res.status(500).json({
         error: "Failed to download document",
         details: err.message
@@ -257,8 +477,6 @@ export function documentsRouter(prisma, uploadDir) {
       const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
       if (!doc) return res.status(404).json({ error: "Doc not found" });
 
-      console.log("Document from DB:", doc);
-      
       // Safe file path resolution
       const baseUploadsPath = path.join(__dirname, "../uploads");
       const cleanPath = doc.path.includes("uploads")
@@ -266,10 +484,7 @@ export function documentsRouter(prisma, uploadDir) {
         : doc.path;
       const filePath = path.join(baseUploadsPath, cleanPath);
       
-      console.log("Resolved file path:", filePath);
-      
       if (!fs.existsSync(filePath)) {
-        console.error("File NOT found at:", filePath);
         return res.status(404).json({
           error: "File not found",
           path: filePath
@@ -284,7 +499,6 @@ export function documentsRouter(prisma, uploadDir) {
       // Use sendFile safely
       return res.sendFile(filePath);
     } catch (err) {
-      console.error("Preview error:", err);
       return res.status(500).json({
         error: "Failed to preview document",
         details: err.message
@@ -298,11 +512,8 @@ export function documentsRouter(prisma, uploadDir) {
       const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
       if (!doc) return res.status(404).json({ error: "Doc not found" });
 
-      console.log("Document from DB:", doc);
-      
       // Build correct file path - doc.path should be just filename
       const filePath = path.join(__dirname, "../uploads", doc.path);
-      console.log("Delete file path:", filePath);
       
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
@@ -312,7 +523,6 @@ export function documentsRouter(prisma, uploadDir) {
 
       res.json({ ok: true });
     } catch (err) {
-      console.error("Delete error:", err);
       return res.status(500).json({
         error: "Failed to delete document"
       });
@@ -343,14 +553,10 @@ export function documentsRouter(prisma, uploadDir) {
         return res.status(404).json({ error: "Document not found" });
       }
 
-      console.log("Document from DB:", doc);
-      
       // Build correct file path - doc.path should be just filename
       const filePath = path.join(__dirname, "../uploads", doc.path);
-      console.log("Process file path:", filePath);
       
       if (!fs.existsSync(filePath)) {
-        console.error("File not found for processing:", filePath);
         return res.status(404).json({
           error: "File not found on server",
           path: filePath
@@ -378,7 +584,6 @@ export function documentsRouter(prisma, uploadDir) {
 
       res.json(updated);
     } catch (error) {
-      console.error("Process error:", error);
       return res.status(500).json({
         error: "Failed to process document"
       });

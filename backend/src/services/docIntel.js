@@ -8,7 +8,7 @@ import {
   StartDocumentTextDetectionCommand,
   GetDocumentTextDetectionCommand
 } from "@aws-sdk/client-textract";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 const require = createRequire(import.meta.url);
 const pdf = require("pdf-parse");
@@ -28,6 +28,10 @@ export const DOC_TYPES = [
   "PRESCRIPTION",
   "ID_PROOF",
   "INSURANCE_CARD",
+  "PRIOR_AUTHORIZATION",
+  "OPERATIVE_NOTE",
+  "PROGRESS_NOTE",
+  "EOB",
   "OTHER"
 ];
 
@@ -101,57 +105,70 @@ async function uploadToS3ForTextract(filePath, fileName) {
 async function textractPdfViaS3(filePath, fileName) {
   const key = await uploadToS3ForTextract(filePath, fileName);
 
-  const start = await textract.send(
-    new StartDocumentTextDetectionCommand({
-      DocumentLocation: {
-        S3Object: {
-          Bucket: TEXTRACT_BUCKET,
-          Name: key
+  try {
+    const start = await textract.send(
+      new StartDocumentTextDetectionCommand({
+        DocumentLocation: {
+          S3Object: {
+            Bucket: TEXTRACT_BUCKET,
+            Name: key
+          }
         }
-      }
-    })
-  );
-
-  const jobId = start.JobId;
-
-  for (let i = 0; i < 30; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    const result = await textract.send(
-      new GetDocumentTextDetectionCommand({
-        JobId: jobId
       })
     );
 
-    if (result.JobStatus === "SUCCEEDED") {
-      let blocks = result.Blocks || [];
-      let nextToken = result.NextToken;
+    const jobId = start.JobId;
 
-      while (nextToken) {
-        const next = await textract.send(
-          new GetDocumentTextDetectionCommand({
-            JobId: jobId,
-            NextToken: nextToken
-          })
-        );
+    for (let i = 0; i < 30; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
-        blocks = [...blocks, ...(next.Blocks || [])];
-        nextToken = next.NextToken;
+      const result = await textract.send(
+        new GetDocumentTextDetectionCommand({
+          JobId: jobId
+        })
+      );
+
+      if (result.JobStatus === "SUCCEEDED") {
+        let blocks = result.Blocks || [];
+        let nextToken = result.NextToken;
+
+        while (nextToken) {
+          const next = await textract.send(
+            new GetDocumentTextDetectionCommand({
+              JobId: jobId,
+              NextToken: nextToken
+            })
+          );
+
+          blocks = [...blocks, ...(next.Blocks || [])];
+          nextToken = next.NextToken;
+        }
+
+        return blocks
+          .filter((block) => block.BlockType === "LINE")
+          .map((block) => block.Text)
+          .filter(Boolean)
+          .join("\n");
       }
 
-      return blocks
-        .filter((block) => block.BlockType === "LINE")
-        .map((block) => block.Text)
-        .filter(Boolean)
-        .join("\n");
+      if (result.JobStatus === "FAILED") {
+        throw new Error("Textract PDF OCR failed");
+      }
     }
 
-    if (result.JobStatus === "FAILED") {
-      throw new Error("Textract PDF OCR failed");
+    throw new Error("Textract PDF OCR timed out");
+  } finally {
+    try {
+      await s3.send(
+        new DeleteObjectCommand({
+          Bucket: TEXTRACT_BUCKET,
+          Key: key
+        })
+      );
+    } catch (cleanupError) {
+      console.error("Failed to cleanup S3 object:", cleanupError);
     }
   }
-
-  throw new Error("Textract PDF OCR timed out");
 }
 
 async function extractTextWithTextract({ filePath, fileName, mimeType }) {
@@ -193,6 +210,14 @@ function parseAmount(value) {
   return Number.isFinite(number) && number > 0 ? Math.round(number) : null;
 }
 
+function extractCodes(text, pattern) {
+  const match = text.match(pattern);
+  if (!match || !match[1]) return [];
+  
+  const codesStr = match[1];
+  return codesStr.split(/[,;\s]+/).filter(code => code.trim().length > 0);
+}
+
 function extractFields(text) {
   const t = text || "";
 
@@ -205,39 +230,92 @@ function extractFields(text) {
 
   const hospitalName = firstMatch(t, [
     /Hospital\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i,
-    /Name\s*of\s*Hospital\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i
+    /Name\s*of\s*Hospital\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i,
+    /Facility\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i,
+    /Provider\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i
   ]);
 
   const policyNo = firstMatch(t, [
-    /Policy\s*(No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
-    /Policy\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
+    /Policy\s*(?:No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Policy\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Member\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Membership\s*No\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
   const claimNo = firstMatch(t, [
-    /Claim\s*(No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
-    /Claim\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
+    /Claim\s*(?:No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Claim\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Claim\s*Reference\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
   const diagnosisText = firstMatch(t, [
     /Diagnosis\s*[:\-]?\s*([^\n\r]{3,160})/i,
-    /Final\s*Diagnosis\s*[:\-]?\s*([^\n\r]{3,160})/i
+    /Final\s*Diagnosis\s*[:\-]?\s*([^\n\r]{3,160})/i,
+    /Principal\s*Diagnosis\s*[:\-]?\s*([^\n\r]{3,160})/i
   ]);
 
   const doctorName = firstMatch(t, [
     /Doctor\s*Name\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
     /Consultant\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
-    /Dr\.?\s*([A-Za-z .]{3,80})/i
+    /Dr\.?\s*([A-Za-z .]{3,80})/i,
+    /Attending\s*Physician\s*[:\-]?\s*([A-Za-z .]{3,80})/i
   ]);
 
   const amountText = firstMatch(t, [
-    /Grand\s*Total\s*[:\-]?\s*(₹|Rs\.?|INR)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Net\s*Amount\s*[:\-]?\s*(₹|Rs\.?|INR)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Total\s*Amount\s*[:\-]?\s*(₹|Rs\.?|INR)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Total\s*[:\-]?\s*(₹|Rs\.?|INR)?\s*([0-9,]+\.?[0-9]*)/i,
-    /₹\s*([0-9,]+\.?[0-9]*)/i
+    /Grand\s*Total\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Net\s*Amount\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Total\s*Amount\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Total\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Balance\s*Due\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Amount\s*Due\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /₹\s*([0-9,]+\.?[0-9]*)/i,
+    /\$\s*([0-9,]+\.?[0-9]*)/i
   ]);
 
   const amount = parseAmount(amountText);
+
+  const memberId = firstMatch(t, [
+    /Member\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Membership\s*No\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Subscriber\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
+  ]);
+
+  const payerName = firstMatch(t, [
+    /Insurance\s*Company\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,80})/i,
+    /Payer\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,80})/i,
+    /Carrier\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,80})/i
+  ]);
+
+  const authorizationNo = firstMatch(t, [
+    /Authorization\s*(?:No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Auth\s*No\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Pre\s*Auth\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
+  ]);
+
+  const dateOfBirth = firstMatch(t, [
+    /Date\s*of\s*Birth\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
+    /DOB\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
+    /Birth\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+  ]);
+
+  const dateOfService = firstMatch(t, [
+    /Date\s*of\s*Service\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
+    /Service\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
+    /DOS\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+  ]);
+
+  const admissionDate = firstMatch(t, [
+    /Admission\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
+    /Date\s*of\s*Admission\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+  ]);
+
+  const dischargeDate = firstMatch(t, [
+    /Discharge\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
+    /Date\s*of\s*Discharge\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+  ]);
+
+  const icd10Codes = extractCodes(t, /ICD[-\s]*10\s*[:\-]?\s*([A-Z]\d{2}(?:\.\d{1,4})?(?:\s*,\s*[A-Z]\d{2}(?:\.\d{1,4})?)*)/i);
+  const cptCodes = extractCodes(t, /CPT\s*(?:Code|Codes)?\s*[:\-]?\s*(\d{5}(?:\s*,\s*\d{5})*)/i);
 
   return {
     patientName,
@@ -246,7 +324,16 @@ function extractFields(text) {
     claimNo,
     diagnosisText,
     doctorName,
-    amount
+    amount,
+    memberId,
+    payerName,
+    authorizationNo,
+    dateOfBirth,
+    dateOfService,
+    admissionDate,
+    dischargeDate,
+    icd10Codes,
+    cptCodes
   };
 }
 
@@ -296,6 +383,41 @@ function classifyDocument({ fileName, text }) {
     return { suggestedType: "ID_PROOF", confidence: 80 };
   }
 
+  if (
+    hasAny(name, ["insurance card", "id card", "member card"]) ||
+    hasAny(text, ["insurance card", "member id", "policy holder", "group number"])
+  ) {
+    return { suggestedType: "INSURANCE_CARD", confidence: 82 };
+  }
+
+  if (
+    hasAny(name, ["prior auth", "authorization", "pre-auth"]) ||
+    hasAny(text, ["prior authorization", "pre-authorization", "authorization number"])
+  ) {
+    return { suggestedType: "PRIOR_AUTHORIZATION", confidence: 80 };
+  }
+
+  if (
+    hasAny(name, ["operative note", "op note", "surgery"]) ||
+    hasAny(text, ["operative note", "procedure performed", "surgical procedure"])
+  ) {
+    return { suggestedType: "OPERATIVE_NOTE", confidence: 78 };
+  }
+
+  if (
+    hasAny(name, ["progress note", "daily note", "clinical note"]) ||
+    hasAny(text, ["progress note", "daily progress", "clinical documentation"])
+  ) {
+    return { suggestedType: "PROGRESS_NOTE", confidence: 76 };
+  }
+
+  if (
+    hasAny(name, ["eob", "explanation of benefits"]) ||
+    hasAny(text, ["explanation of benefits", "eob", "this is not a bill"])
+  ) {
+    return { suggestedType: "EOB", confidence: 85 };
+  }
+
   return { suggestedType: "OTHER", confidence: 55 };
 }
 
@@ -314,7 +436,7 @@ export async function analyzeDocument({ fileName, mimeType, path: filePath }) {
       ocrProvider = "AWS_TEXTRACT";
     }
   } catch (error) {
-    console.error("Textract failed:", error.message);
+    // Textract failed, will fallback to pdf-parse
   }
 
   if (!rawText || rawText.length < 40) {
