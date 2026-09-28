@@ -786,13 +786,44 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   if (!file) return;
 
                   try {
-                    await ClaimsApi.uploadDoc({ claimId: id, type: docType, file });
-                    showToast("Document uploaded (AI analyzed)", "success");
+                    const result = await ClaimsApi.uploadDoc({
+                      claimId: id,
+                      type: docType,
+                      file
+                    });
+
+                    if (result?.identityValidation?.status === "UNVERIFIED") {
+                      showDialog(
+                        result?.message ||
+                          "The document was uploaded, but the patient identity could not be verified from the extracted data. Please review it before relying on this document.",
+                        {
+                          title: "Document uploaded — identity not verified",
+                          severity: "warning"
+                        }
+                      );
+                    } else {
+                      showToast(
+                        result?.message ||
+                          "Document uploaded and patient identity matched the current claim.",
+                        "success"
+                      );
+                    }
+
                     await load();
                   } catch (err) {
+                    const isPatientMismatch =
+                      err?.code === "DOCUMENT_PATIENT_MISMATCH" ||
+                      /patient mismatch|appears to belong to/i.test(err?.message || "");
+
                     showDialog(
-                      err.message || "The document upload failed. Please try again.",
-                      { title: "Document upload failed", severity: "error" }
+                      err?.message ||
+                        "The document upload failed. Please try again.",
+                      {
+                        title: isPatientMismatch
+                          ? "Wrong patient document"
+                          : "Document upload failed",
+                        severity: isPatientMismatch ? "warning" : "error"
+                      }
                     );
                   }
 
