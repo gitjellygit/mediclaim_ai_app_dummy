@@ -71,6 +71,62 @@ Expected: duplicate backend protection returns clear failure/warning and creates
 ### AICREATE-028 Renamed duplicate
 Expected: SHA-256 duplicate detection still prevents duplication.
 
+## 3A. Existing-claim patient identity validation
+
+### IDVAL-001 Matching patient name
+Expected: document attaches successfully.
+
+### IDVAL-002 Clearly different patient name
+Example: Alice Johnson claim + John Smith document.
+Expected: HTTP 409 DOCUMENT_PATIENT_MISMATCH; document is not persisted or attached.
+
+### IDVAL-003 Matching Member ID
+Expected: strong identity match.
+
+### IDVAL-004 Conflicting Member ID
+Expected: upload blocked even if patient names are similar.
+
+### IDVAL-005 Matching Policy Number
+Expected: strong identity match.
+
+### IDVAL-006 Conflicting Policy Number
+Expected: upload blocked.
+
+### IDVAL-007 Matching DOB
+Expected: identity support recorded.
+
+### IDVAL-008 Conflicting DOB
+Expected: upload blocked.
+
+### IDVAL-009 Middle-name variation
+Example: John Smith vs John A Smith where normalized name containment applies.
+Expected: do not falsely block solely for the common variation.
+
+### IDVAL-010 No extractable identity
+Expected: document may attach but response is UNVERIFIED; UI shows a persistent warning asking for review.
+
+### IDVAL-011 Mismatch cleanup
+Expected: rejected uploaded file is deleted from temporary storage.
+
+### IDVAL-012 Mismatch persistence
+Expected: no Document database row is created.
+
+### IDVAL-013 Mismatch logging
+Expected: log contains claim ID + conflict field names only, not patient names/member IDs/policy numbers.
+
+### IDVAL-014 Claim Detail wrong-patient upload
+Expected: centered warning title "Wrong patient document" with clear source/target patient message.
+
+### IDVAL-015 Multi-document AI creation same patient
+Expected: first file establishes claim; later files attach to that same claim and pass identity validation.
+
+### IDVAL-016 Multi-document AI creation mixed patients
+Example: Alice first, John second.
+Expected: John upload is blocked; batch stops at mismatch; Alice claim remains intact.
+
+### IDVAL-017 Submitted claim
+Expected: existing lifecycle lock still takes precedence; no document attached.
+
 ## 4. AI visibility
 
 ### AICREATE-030 Document classification
