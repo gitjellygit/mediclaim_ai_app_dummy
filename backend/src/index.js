@@ -133,6 +133,9 @@ app.use("/api/claims", requireAuth, claimsRouter);
  */
 app.use("/api/documents", requireAuth, documentsRouter(prisma, "uploads"));
 
+// Public documents routes (for testing)
+app.use("/api/public-documents", documentsRouter(prisma, "uploads"));
+
 /**
  * RULE ROUTES (ADMIN ONLY)
  * rulesRouter IS ALREADY A ROUTER → DO NOT CALL IT

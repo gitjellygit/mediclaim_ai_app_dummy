@@ -65,5 +65,12 @@ export const ClaimsApi = {
     return api(`${BASE}/documents/${docId}`, {
       method: "DELETE"
     });
+  },
+
+  bulkDeleteDocs(ids) {
+    return api(`${BASE}/documents/bulk-delete`, {
+      method: "POST",
+      body: JSON.stringify({ ids })
+    });
   }
 };

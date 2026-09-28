@@ -7,13 +7,16 @@ import {
 } from "@mui/material";
 import {
   DeleteForever, ExpandMore, ExpandLess, Visibility, Download, 
-  SelectAll, DeselectAll, DeleteSweep, FolderOpen
+  SelectAll, CheckBox, CheckBoxOutlineBlank, DeleteSweep, FolderOpen
 } from "@mui/icons-material";
 import { useParams, useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 import { AuthApi } from "../../api/auth.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import AICheckProgress from "../../components/AICheckProgress.jsx";
+import { api } from "../../api/client.js";
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 const DOC_TYPES = [
   "DISCHARGE_SUMMARY", "FINAL_BILL", "BREAKUP_BILL", "LAB_REPORT", "RADIOLOGY",
@@ -276,33 +279,107 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   async function handlePreview(doc) {
     try {
-      const response = await fetch(`/api/documents/${doc.id}/preview`);
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        window.open(url, '_blank');
+      console.log("Previewing document:", doc.id, doc.fileName);
+      
+      // Check if we have a token
+      const token = localStorage.getItem('accessToken');
+      console.log("Token available:", !!token);
+      console.log("Token length:", token?.length || 0);
+      
+      if (!token) {
+        console.error("No authentication token found");
+        showToast("Please log in to preview documents", "error");
+        return;
       }
-    } catch (e) {
-      showToast("Failed to preview document", "error");
-    }
-  }
-
-  async function handleDownload(doc) {
-    try {
-      const response = await fetch(`/api/documents/${doc.id}/download`);
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
+      
+      // Use API_BASE for direct backend connection
+      const response = await fetch(`${API_BASE}/api/documents/${doc.id}/preview`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      console.log("Response status:", response.status);
+      console.log("Response headers:", [...response.headers.entries()]);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Preview response not ok:", response.status, response.statusText, errorText);
+        showToast(`Failed to preview: ${response.statusText}`, "error");
+        return;
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      
+      // Check if it's a PDF and open in new tab
+      if (doc.mimeType?.includes("pdf")) {
+        window.open(url, '_blank');
+      } else {
+        // For non-PDFs, try to download instead
         const a = document.createElement('a');
         a.href = url;
         a.download = doc.fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
       }
+      
+      // Clean up the URL after a delay
+      setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+      
     } catch (e) {
-      showToast("Failed to download document", "error");
+      console.error("Preview error:", e);
+      showToast("Failed to preview document. Check if backend is running.", "error");
+    }
+  }
+
+  async function handleDownload(doc) {
+    try {
+      console.log("Downloading document:", doc.id, doc.fileName);
+      
+      // Check if we have a token
+      const token = localStorage.getItem('accessToken');
+      console.log("Token available:", !!token);
+      console.log("Token length:", token?.length || 0);
+      
+      if (!token) {
+        console.error("No authentication token found");
+        showToast("Please log in to download documents", "error");
+        return;
+      }
+      
+      // Use API_BASE for direct backend connection
+      const response = await fetch(`${API_BASE}/api/documents/${doc.id}/download`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      console.log("Response status:", response.status);
+      console.log("Response headers:", [...response.headers.entries()]);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Download response not ok:", response.status, response.statusText, errorText);
+        showToast(`Failed to download: ${response.statusText}`, "error");
+        return;
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = doc.fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      showToast("Document downloaded successfully", "success");
+    } catch (e) {
+      console.error("Download error:", e);
+      showToast("Failed to download document. Check if backend is running.", "error");
     }
   }
 
@@ -453,14 +530,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
-                label="Total Billed Amount (₹)"
+                label="Total Billed Amount ($)"
                 type="number"
                 value={editForm.totalBilledAmount}
                 onChange={(e) => updateEditField("totalBilledAmount", e.target.value)}
                 fullWidth
               />
               <TextField
-                label="Total Claimed Amount (₹)"
+                label="Total Claimed Amount ($)"
                 type="number"
                 value={editForm.amount}
                 onChange={(e) => updateEditField("amount", e.target.value)}
@@ -546,7 +623,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                     onClick={handleSelectAll}
                     color={selectedDocs.size === claim?.documents?.length ? "primary" : "default"}
                   >
-                    {selectedDocs.size === claim?.documents?.length ? <DeselectAll /> : <SelectAll />}
+                    {selectedDocs.size === claim?.documents?.length ? <CheckBoxOutlineBlank /> : <SelectAll />}
                   </IconButton>
                 </Tooltip>
               </Stack>

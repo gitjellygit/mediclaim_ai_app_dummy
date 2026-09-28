@@ -1,9 +1,25 @@
 import fs from "fs";
+import crypto from "crypto";
+import path from "path";
 import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const pdf = require("pdf-parse"); // Add PDF parsing library
+import {
+  TextractClient,
+  DetectDocumentTextCommand,
+  StartDocumentTextDetectionCommand,
+  GetDocumentTextDetectionCommand
+} from "@aws-sdk/client-textract";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
-const DOC_TYPES = [
+const require = createRequire(import.meta.url);
+const pdf = require("pdf-parse");
+
+const REGION = process.env.AWS_REGION || "ap-south-1";
+const TEXTRACT_BUCKET = process.env.AWS_TEXTRACT_S3_BUCKET;
+
+const textract = new TextractClient({ region: REGION });
+const s3 = new S3Client({ region: REGION });
+
+export const DOC_TYPES = [
   "DISCHARGE_SUMMARY",
   "FINAL_BILL",
   "BREAKUP_BILL",
@@ -15,185 +31,312 @@ const DOC_TYPES = [
   "OTHER"
 ];
 
-function norm(s) {
-  return (s || "").toLowerCase();
+function norm(value) {
+  return String(value || "").toLowerCase();
+}
+
+function clean(value) {
+  if (!value) return null;
+  return String(value).replace(/\s+/g, " ").trim();
 }
 
 function hasAny(text, keywords) {
   const t = norm(text);
-  return keywords.some((k) => t.includes(k));
+  return keywords.some((keyword) => t.includes(keyword));
 }
 
-// Enhanced field extraction patterns for medical reports
-const extractPatterns = {
-  patientName: [
-    /Patient\s*Name\s*[:\-]\s*([^\n\r]+)/i,
-    /Customer\s*Name\s*[:\-]\s*([^\n\r]+)/i,
-    /Name\s*of\s*Patient\s*[:\-]\s*([^\n\r]+)/i,
-    /Patient\s*[:\-]\s*([^\n\r]+)/i,
-    /Name\s*[:\-]\s*([^\n\r]+)/i,
-  ],
-  ageGender: [
-    /Age\/Gender\s*[:\-]\s*([^\n\r]+)/i,
-    /Age\s*[:\-]\s*([^\n\r]+)/i,
-    /Gender\s*[:\-]\s*([^\n\r]+)/i,
-  ],
-  reportDate: [
-    /Report\s*Date\s*[:\-]\s*([^\n\r]+)/i,
-    /Date\s*[:\-]\s*([^\n\r]+)/i,
-    /Collected\s*Date\s*[:\-]\s*([^\n\r]+)/i,
-  ],
-  orderId: [
-    /Barcode\s*ID\/Order\s*ID\s*[:\-]\s*([^\n\r]+)/i,
-    /Order\s*ID\s*[:\-]\s*([^\n\r]+)/i,
-    /Sample\s*ID\s*[:\-]\s*([^\n\r]+)/i,
-  ],
-  sampleType: [
-    /Sample\s*Type\s*[:\-]\s*([^\n\r]+)/i,
-    /Test\s*Name\s*[:\-]\s*([^\n\r]+)/i,
-  ],
-  amount: [
-    /Total\s*Amount\s*[:\-]\s*([^\n\r]+)/i,
-    /Amount\s*[:\-]\s*([^\n\r]+)/i,
-    /Total\s*[:\-]\s*([^\n\r]+)/i,
-    /₹\s?([0-9,]{3,})/i,
-    /\brs\.?\s?([0-9,]{3,})/i,
-    /\binr\s?([0-9,]{3,})/i,
-  ]
-};
-
-// Enhanced field extraction function
-function extractFields(text) {
-  const t = text || "";
-  if (!t || typeof t !== 'string') {
-    console.log("Invalid text for field extraction:", text);
-    return {};
-  }
-  
-  const extracted = {};
-
-  Object.keys(extractPatterns).forEach(field => {
-    const patterns = extractPatterns[field];
-    for (const pattern of patterns) {
-      try {
-        const match = t.match(pattern);
-        if (match && match[1]) {
-          extracted[field] = match[1].trim();
-          break; // Use first match found
-        }
-      } catch (error) {
-        console.error(`Error matching pattern for ${field}:`, error);
-      }
-    }
-  });
-
-  return extracted;
+export function getFileHash(filePath) {
+  const buffer = fs.readFileSync(filePath);
+  return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
-// PDF text extraction with OCR fallback
 async function extractPdfText(filePath) {
   try {
-    const dataBuffer = fs.readFileSync(filePath);
-    const data = await pdf(dataBuffer);
-    return data.text;
+    const buffer = fs.readFileSync(filePath);
+    const data = await pdf(buffer);
+    return data.text || "";
   } catch (error) {
-    console.error("PDF parsing failed:", error);
+    console.error("pdf-parse failed:", error.message);
     return "";
   }
 }
 
-// OCR fallback (placeholder - would need Tesseract or similar)
-async function runOcr(filePath) {
-  // TODO: Implement OCR using Tesseract.js or similar
-  console.log("OCR fallback needed for:", filePath);
-  return "OCR extraction not implemented yet";
+async function textractImageBytes(filePath) {
+  const bytes = fs.readFileSync(filePath);
+
+  const result = await textract.send(
+    new DetectDocumentTextCommand({
+      Document: {
+        Bytes: bytes
+      }
+    })
+  );
+
+  return (result.Blocks || [])
+    .filter((block) => block.BlockType === "LINE")
+    .map((block) => block.Text)
+    .filter(Boolean)
+    .join("\n");
 }
 
-export async function analyzeDocument({ fileName, mimeType, path }) {
-  const name = norm(fileName);
+async function uploadToS3ForTextract(filePath, fileName) {
+  if (!TEXTRACT_BUCKET) {
+    throw new Error("AWS_TEXTRACT_S3_BUCKET is missing in backend .env");
+  }
+
+  const key = `textract/${Date.now()}-${fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
+  const body = fs.readFileSync(filePath);
+
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: TEXTRACT_BUCKET,
+      Key: key,
+      Body: body
+    })
+  );
+
+  return key;
+}
+
+async function textractPdfViaS3(filePath, fileName) {
+  const key = await uploadToS3ForTextract(filePath, fileName);
+
+  const start = await textract.send(
+    new StartDocumentTextDetectionCommand({
+      DocumentLocation: {
+        S3Object: {
+          Bucket: TEXTRACT_BUCKET,
+          Name: key
+        }
+      }
+    })
+  );
+
+  const jobId = start.JobId;
+
+  for (let i = 0; i < 30; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    const result = await textract.send(
+      new GetDocumentTextDetectionCommand({
+        JobId: jobId
+      })
+    );
+
+    if (result.JobStatus === "SUCCEEDED") {
+      let blocks = result.Blocks || [];
+      let nextToken = result.NextToken;
+
+      while (nextToken) {
+        const next = await textract.send(
+          new GetDocumentTextDetectionCommand({
+            JobId: jobId,
+            NextToken: nextToken
+          })
+        );
+
+        blocks = [...blocks, ...(next.Blocks || [])];
+        nextToken = next.NextToken;
+      }
+
+      return blocks
+        .filter((block) => block.BlockType === "LINE")
+        .map((block) => block.Text)
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    if (result.JobStatus === "FAILED") {
+      throw new Error("Textract PDF OCR failed");
+    }
+  }
+
+  throw new Error("Textract PDF OCR timed out");
+}
+
+async function extractTextWithTextract({ filePath, fileName, mimeType }) {
   const mt = norm(mimeType);
+  const ext = path.extname(fileName || "").toLowerCase();
 
-  let finalText = "";
-  let extractionSource = "unknown";
-
-  // Handle PDF files with proper text extraction
-  if (mt.includes("pdf") || name.endsWith(".pdf")) {
-    const pdfText = await extractPdfText(path);
-    
-    if (pdfText && pdfText.length > 80) {
-      finalText = pdfText;
-      extractionSource = "pdf-text";
-    } else {
-      // OCR fallback for scanned/image-based PDFs
-      const ocrText = await runOcr(path);
-      finalText = ocrText;
-      extractionSource = "ocr";
-    }
-  }
-  // Handle text files (only actual text files, not PDFs)
-  else if (mt.includes("text/") || name.endsWith(".txt") || name.endsWith(".md")) {
-    try {
-      const raw = fs.readFileSync(path, "utf8");
-      finalText = raw.slice(0, 20000);
-      extractionSource = "text-file";
-    } catch (error) {
-      console.error("Text file reading failed:", error);
-    }
+  if (mt.includes("pdf") || ext === ".pdf") {
+    return textractPdfViaS3(filePath, fileName);
   }
 
-  // Classification rules (enhanced)
-  let suggestedType = "OTHER";
-  let confidence = 55;
-
-  if (hasAny(name, ["discharge", "summary"]) || hasAny(finalText, ["discharge summary"])) {
-    suggestedType = "DISCHARGE_SUMMARY";
-    confidence = 85;
-  } else if (hasAny(name, ["final bill", "finalbill", "invoice", "bill"]) || hasAny(finalText, ["final bill", "total payable"])) {
-    suggestedType = "FINAL_BILL";
-    confidence = 80;
-  } else if (hasAny(name, ["breakup", "itemized", "itemised"]) || hasAny(finalText, ["itemized", "itemised", "particulars"])) {
-    suggestedType = "BREAKUP_BILL";
-    confidence = 75;
-  } else if (hasAny(name, ["lab", "pathology", "report"]) || hasAny(finalText, ["laboratory", "pathology", "report date", "sample type"])) {
-    suggestedType = "LAB_REPORT";
-    confidence = 72;
-  } else if (hasAny(name, ["xray", "ct", "mri", "radiology"]) || hasAny(finalText, ["radiology", "impression"])) {
-    suggestedType = "RADIOLOGY";
-    confidence = 70;
-  } else if (hasAny(name, ["prescription", "rx"]) || hasAny(finalText, ["prescription", "rx"])) {
-    suggestedType = "PRESCRIPTION";
-    confidence = 70;
-  } else if (hasAny(name, ["aadhar", "aadhaar", "pan", "passport", "voter"]) || hasAny(finalText, ["aadhaar", "aadhar", "pan"])) {
-    suggestedType = "ID_PROOF";
-    confidence = 78;
-  } else if (hasAny(name, ["insurance card", "e-card", "ecard"]) || hasAny(finalText, ["insurance card", "e-card"])) {
-    suggestedType = "INSURANCE_CARD";
-    confidence = 76;
+  if (
+    mt.includes("image") ||
+    [".jpg", ".jpeg", ".png", ".tif", ".tiff"].includes(ext)
+  ) {
+    return textractImageBytes(filePath);
   }
 
-  // Enhanced field extraction
-  const extracted = extractFields(finalText || "");
+  return "";
+}
 
-  // Calculate extraction confidence based on fields found
-  const fieldsFound = Object.keys(extracted).length;
-  const extractionConfidence = Math.min(95, 50 + (fieldsFound * 10));
+function firstMatch(text, patterns) {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return clean(match[1]);
+  }
 
-  console.log("Document analysis results:", {
-    suggestedType,
-    confidence,
-    extracted,
-    extractionSource,
-    textLength: finalText?.length || 0
-  });
+  return null;
+}
 
-  return { 
-    suggestedType, 
-    confidence, 
-    extracted,
-    rawExtractedText: finalText || "",
-    extractionConfidence,
-    extractionSource
+function parseAmount(value) {
+  if (!value) return null;
+
+  const number = Number(
+    String(value)
+      .replace(/,/g, "")
+      .replace(/[^0-9.]/g, "")
+  );
+
+  return Number.isFinite(number) && number > 0 ? Math.round(number) : null;
+}
+
+function extractFields(text) {
+  const t = text || "";
+
+  const patientName = firstMatch(t, [
+    /Patient\s*Name\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
+    /Name\s*of\s*Patient\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
+    /Patient\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
+    /Name\s*[:\-]?\s*([A-Za-z .]{3,80})/i
+  ]);
+
+  const hospitalName = firstMatch(t, [
+    /Hospital\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i,
+    /Name\s*of\s*Hospital\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i
+  ]);
+
+  const policyNo = firstMatch(t, [
+    /Policy\s*(No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Policy\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
+  ]);
+
+  const claimNo = firstMatch(t, [
+    /Claim\s*(No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Claim\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
+  ]);
+
+  const diagnosisText = firstMatch(t, [
+    /Diagnosis\s*[:\-]?\s*([^\n\r]{3,160})/i,
+    /Final\s*Diagnosis\s*[:\-]?\s*([^\n\r]{3,160})/i
+  ]);
+
+  const doctorName = firstMatch(t, [
+    /Doctor\s*Name\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
+    /Consultant\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
+    /Dr\.?\s*([A-Za-z .]{3,80})/i
+  ]);
+
+  const amountText = firstMatch(t, [
+    /Grand\s*Total\s*[:\-]?\s*(₹|Rs\.?|INR)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Net\s*Amount\s*[:\-]?\s*(₹|Rs\.?|INR)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Total\s*Amount\s*[:\-]?\s*(₹|Rs\.?|INR)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Total\s*[:\-]?\s*(₹|Rs\.?|INR)?\s*([0-9,]+\.?[0-9]*)/i,
+    /₹\s*([0-9,]+\.?[0-9]*)/i
+  ]);
+
+  const amount = parseAmount(amountText);
+
+  return {
+    patientName,
+    hospitalName,
+    policyNo,
+    claimNo,
+    diagnosisText,
+    doctorName,
+    amount
   };
 }
 
-export { DOC_TYPES };
+function classifyDocument({ fileName, text }) {
+  const name = norm(fileName);
+
+  if (hasAny(name, ["discharge"]) || hasAny(text, ["discharge summary"])) {
+    return { suggestedType: "DISCHARGE_SUMMARY", confidence: 88 };
+  }
+
+  if (
+    hasAny(name, ["final bill", "invoice", "bill"]) ||
+    hasAny(text, ["final bill", "grand total", "net amount", "total amount"])
+  ) {
+    return { suggestedType: "FINAL_BILL", confidence: 84 };
+  }
+
+  if (
+    hasAny(name, ["breakup", "itemized", "itemised"]) ||
+    hasAny(text, ["particulars", "itemized", "itemised"])
+  ) {
+    return { suggestedType: "BREAKUP_BILL", confidence: 78 };
+  }
+
+  if (
+    hasAny(name, ["lab", "pathology", "report"]) ||
+    hasAny(text, ["laboratory", "pathology", "sample type", "report date"])
+  ) {
+    return { suggestedType: "LAB_REPORT", confidence: 76 };
+  }
+
+  if (
+    hasAny(name, ["xray", "ct", "mri", "radiology"]) ||
+    hasAny(text, ["radiology", "impression"])
+  ) {
+    return { suggestedType: "RADIOLOGY", confidence: 74 };
+  }
+
+  if (hasAny(name, ["prescription", "rx"]) || hasAny(text, ["prescription", "rx"])) {
+    return { suggestedType: "PRESCRIPTION", confidence: 72 };
+  }
+
+  if (
+    hasAny(name, ["aadhaar", "aadhar", "pan", "passport"]) ||
+    hasAny(text, ["aadhaar", "aadhar", "permanent account number"])
+  ) {
+    return { suggestedType: "ID_PROOF", confidence: 80 };
+  }
+
+  return { suggestedType: "OTHER", confidence: 55 };
+}
+
+export async function analyzeDocument({ fileName, mimeType, path: filePath }) {
+  let rawText = "";
+  let ocrProvider = "none";
+
+  try {
+    rawText = await extractTextWithTextract({
+      filePath,
+      fileName,
+      mimeType
+    });
+
+    if (rawText?.trim()) {
+      ocrProvider = "AWS_TEXTRACT";
+    }
+  } catch (error) {
+    console.error("Textract failed:", error.message);
+  }
+
+  if (!rawText || rawText.length < 40) {
+    const pdfText = await extractPdfText(filePath);
+    if (pdfText?.trim()) {
+      rawText = pdfText;
+      ocrProvider = "PDF_PARSE";
+    }
+  }
+
+  const extracted = extractFields(rawText || "");
+  const classification = classifyDocument({ fileName, text: rawText || "" });
+
+  const fieldsFound = Object.values(extracted).filter(Boolean).length;
+  const extractionConfidence = Math.min(95, 50 + fieldsFound * 8);
+
+  return {
+    ...classification,
+    extracted,
+    rawExtractedText: rawText || "",
+    extractionConfidence,
+    extractionSource: ocrProvider,
+    ocrProvider
+  };
+}

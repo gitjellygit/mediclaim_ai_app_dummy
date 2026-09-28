@@ -109,6 +109,10 @@ model Document {
   sizeBytes  Int
   path       String
 
+  fileHash      String? @unique
+rawText       String?
+ocrProvider   String?
+
   isMandatory Boolean @default(false)
   verified    Boolean @default(false)
 
@@ -176,3 +180,5 @@ model RefreshToken {
   @@index([token])
   @@index([userId])
 }
+
+
