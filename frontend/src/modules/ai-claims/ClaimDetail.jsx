@@ -36,6 +36,27 @@ function pct(x) {
   return `${Math.round(x * 100)}%`;
 }
 
+function formatDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric"
+  }).format(date);
+}
+
+function formatMoney(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2
+  }).format(amount);
+}
+
 function riskChipColor(level) {
   if (level === "HIGH") return "error";
   if (level === "MED") return "warning";
@@ -439,9 +460,16 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           <Typography color="text.secondary">
             {claim.hospitalName || "Hospital"} • {claim.payerName}
           </Typography>
-          <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+          <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: "wrap", gap: 1 }}>
             <Chip label={claim.status} color={STATUS_COLOR[claim.status]} />
             <Chip label={claim.claimType} variant="outlined" />
+            {claim.documents?.length > 1 && (
+              <Chip
+                label={`${claim.documents.length} documents consolidated in this claim`}
+                color="success"
+                variant="outlined"
+              />
+            )}
           </Stack>
         </CardContent>
       </Card>
@@ -482,13 +510,67 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           <Divider sx={{ my: 1 }} />
 
           {!editMode && (
-            <>
-              <Typography><b>Diagnosis:</b> {claim.diagnosisText || "—"}</Typography>
-              <Typography><b>ICD-10:</b> {claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "—"}</Typography>
-              <Divider sx={{ my: 1 }} />
-              <Typography><b>Policy No:</b> {claim.policyNo || "Not provided"}</Typography>
-              <Typography><b>TPA:</b> {claim.tpaName || "—"}</Typography>
-            </>
+            <Stack spacing={2}>
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                  Clinical
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1.5 }}>
+                  <Typography><b>Diagnosis:</b> {claim.diagnosisText || "—"}</Typography>
+                  <Typography><b>ICD-10:</b> {claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "—"}</Typography>
+                  <Typography><b>Doctor:</b> {claim.doctorName || "—"}</Typography>
+                  <Typography><b>Hospital:</b> {claim.hospitalName || "—"}</Typography>
+                </Box>
+              </Box>
+
+              <Divider />
+
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                  Patient identity & coverage
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
+                  <Typography><b>Member ID:</b> {claim.memberId || "—"}</Typography>
+                  <Typography><b>DOB:</b> {formatDate(claim.patientDob)}</Typography>
+                  <Typography><b>Policy No:</b> {claim.policyNo || "—"}</Typography>
+                  <Typography><b>Payer:</b> {claim.payerName || "—"}</Typography>
+                  <Typography><b>TPA:</b> {claim.tpaName || "—"}</Typography>
+                  <Typography><b>Policy Type:</b> {claim.productType || "—"}</Typography>
+                </Box>
+              </Box>
+
+              <Divider />
+
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                  Encounter
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
+                  <Typography><b>Date of Service:</b> {formatDate(claim.dateOfService)}</Typography>
+                  <Typography><b>Admission:</b> {formatDate(claim.admissionDate)}</Typography>
+                  <Typography><b>Discharge:</b> {formatDate(claim.dischargeDate)}</Typography>
+                  <Typography><b>Admission Type:</b> {claim.admissionType || "—"}</Typography>
+                  <Typography><b>Room Category:</b> {claim.roomCategory || "—"}</Typography>
+                  <Typography><b>ICU Days:</b> {claim.icuDays ?? "—"}</Typography>
+                </Box>
+              </Box>
+
+              <Divider />
+
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                  Claim & financials
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
+                  <Typography><b>Total Billed:</b> {formatMoney(claim.totalBilledAmount)}</Typography>
+                  <Typography><b>Claimed Amount:</b> {formatMoney(claim.amount)}</Typography>
+                  <Typography><b>Approved Amount:</b> {formatMoney(claim.approvedAmount)}</Typography>
+                  <Typography><b>Insurer Claim No:</b> {claim.insurerClaimNo || "—"}</Typography>
+                  <Typography><b>Authorization No:</b> {claim.authorizationNo || "—"}</Typography>
+                  <Typography><b>Submission Date:</b> {formatDate(claim.claimSubmissionDate)}</Typography>
+                </Box>
+              </Box>
+            </Stack>
           )}
 
           {editMode && editForm && (
@@ -887,6 +969,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 value={check.score}
                 sx={{ height: 10, borderRadius: 5, my: 2 }}
               />
+
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Readiness is based on the current automated checks for policy number, ICD-10 coding,
+                supporting documents, and billed-versus-claimed amount. TPA is informational in the
+                current rule set and does not reduce the score.
+              </Alert>
 
               <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: "wrap" }}>
                 <Chip
