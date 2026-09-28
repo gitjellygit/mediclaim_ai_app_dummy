@@ -2,6 +2,33 @@ import { api } from "./client.js";
 
 const BASE = "/api/claims";
 
+/**
+ * Retry only safe/idempotent reads on transient failures.
+ * We intentionally do not auto-retry POST/PATCH mutations because that can
+ * duplicate side effects when a response is lost after the server succeeds.
+ */
+async function withReadRetry(operation, attempts = 3, baseDelayMs = 350) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.status || 0);
+      const retryable = status === 0 || status >= 500;
+
+      if (!retryable || attempt === attempts) throw error;
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, baseDelayMs * 2 ** (attempt - 1))
+      );
+    }
+  }
+
+  throw lastError;
+}
+
 export const ClaimsApi = {
   list() {
     return api(BASE);
@@ -85,7 +112,7 @@ export const ClaimsApi = {
   },
 
   getJourney(id) {
-    return api(`${BASE}/${id}/journey`);
+    return withReadRetry(() => api(`${BASE}/${id}/journey`));
   },
 
   runEligibilityPrecheck(id) {
