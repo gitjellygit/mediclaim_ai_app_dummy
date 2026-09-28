@@ -36,6 +36,16 @@ function getExtractedAmount(extracted) {
   return Number.isFinite(amount) && amount > 0 ? Math.round(amount) : null;
 }
 
+async function invalidateClaimReadiness(claimId) {
+  await prisma.$transaction([
+    prisma.check.deleteMany({ where: { claimId } }),
+    prisma.claim.update({
+      where: { id: claimId },
+      data: { status: "DRAFT" }
+    })
+  ]);
+}
+
 router.get("/debug", async (req, res) => {
   try {
     const claims = await prisma.claim.findMany();
@@ -121,6 +131,20 @@ router.post("/", async (req, res) => {
 
 router.patch("/:id", async (req, res) => {
   try {
+    const existing = await prisma.claim.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Claim not found" });
+    }
+
+    if (existing.status === "SUBMITTED") {
+      return res.status(409).json({
+        error: "Submitted claims are locked. Reopen or amend the claim before editing."
+      });
+    }
+
     const payload = {
       patientName: req.body.patientName,
       payerName: req.body.payerName,
@@ -131,7 +155,9 @@ router.patch("/:id", async (req, res) => {
       icd10Codes: Array.isArray(req.body.icd10Codes)
         ? req.body.icd10Codes
         : [],
-      amount: req.body.amount != null ? Number(req.body.amount) : undefined,
+      amount: req.body.amount != null && req.body.amount !== ""
+        ? Number(req.body.amount)
+        : null,
       totalBilledAmount:
         req.body.totalBilledAmount != null &&
         req.body.totalBilledAmount !== ""
@@ -147,15 +173,28 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json({ error: "Insurance company is required" });
     }
 
-    if (!Number.isFinite(payload.amount) || payload.amount <= 0) {
+    if (
+      payload.amount != null &&
+      (!Number.isFinite(payload.amount) || payload.amount <= 0)
+    ) {
       return res.status(400).json({
         error: "Claimed amount must be a valid number greater than 0"
       });
     }
 
-    const updated = await prisma.claim.update({
+    await prisma.$transaction([
+      prisma.check.deleteMany({ where: { claimId: req.params.id } }),
+      prisma.claim.update({
+        where: { id: req.params.id },
+        data: {
+          ...payload,
+          status: "DRAFT"
+        }
+      })
+    ]);
+
+    const updated = await prisma.claim.findUnique({
       where: { id: req.params.id },
-      data: payload,
       include: {
         documents: true,
         checks: { orderBy: { createdAt: "desc" } }
@@ -212,6 +251,15 @@ router.post("/documents", upload.single("file"), async (req, res) => {
       });
     }
 
+    if (claim.status === "SUBMITTED") {
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(409).json({
+        error: "Submitted claims are locked. Documents cannot be added."
+      });
+    }
+
     const intel = await analyzeDocument({
       fileName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -247,9 +295,11 @@ router.post("/documents", upload.single("file"), async (req, res) => {
       updatePayload.patientName = extractedPatientName;
     }
 
-    if (extractedAmount && (!claim.amount || Number(claim.amount) === 1)) {
+    if (extractedAmount && (!claim.amount || Number(claim.amount) <= 0)) {
       updatePayload.amount = extractedAmount;
-      updatePayload.totalBilledAmount = extractedAmount;
+      if ((type || intel.suggestedType) === "FINAL_BILL") {
+        updatePayload.totalBilledAmount = extractedAmount;
+      }
     }
 
     let updatedClaim = claim;
@@ -265,6 +315,16 @@ router.post("/documents", upload.single("file"), async (req, res) => {
         }
       });
     }
+
+    await invalidateClaimReadiness(claimId);
+
+    updatedClaim = await prisma.claim.findUnique({
+      where: { id: claimId },
+      include: {
+        documents: { orderBy: { createdAt: "desc" } },
+        checks: { orderBy: { createdAt: "desc" } }
+      }
+    });
 
     res.json({
       ...doc,
@@ -324,20 +384,32 @@ router.get("/:id/download", async (req, res) => {
 router.delete("/documents/:id", async (req, res) => {
   try {
     const doc = await prisma.document.findUnique({
-      where: { id: req.params.id }
+      where: { id: req.params.id },
+      include: { claim: true }
     });
 
     if (!doc) {
       return res.status(404).json({ error: "Document not found" });
     }
 
+    if (doc.claim?.status === "SUBMITTED") {
+      return res.status(409).json({
+        error: "Submitted claims are locked. Documents cannot be deleted."
+      });
+    }
+
     if (doc.path && fs.existsSync(doc.path)) {
       fs.unlinkSync(doc.path);
     }
 
-    await prisma.document.delete({
-      where: { id: req.params.id }
-    });
+    await prisma.$transaction([
+      prisma.document.delete({ where: { id: req.params.id } }),
+      prisma.check.deleteMany({ where: { claimId: doc.claimId } }),
+      prisma.claim.update({
+        where: { id: doc.claimId },
+        data: { status: "DRAFT" }
+      })
+    ]);
 
     res.json({ success: true });
   } catch (e) {
@@ -354,6 +426,12 @@ router.post("/:id/check", async (req, res) => {
 
     if (!claim) {
       return res.status(404).json({ error: "Claim not found" });
+    }
+
+    if (claim.status === "SUBMITTED") {
+      return res.status(409).json({
+        error: "Submitted claims are locked. Reopen the claim before running a new AI check."
+      });
     }
 
     const issues = [];
@@ -376,6 +454,13 @@ router.post("/:id/check", async (req, res) => {
       issues.push({
         severity: "BLOCK",
         message: "No supporting documents uploaded"
+      });
+    }
+
+    if (!claim.amount || Number(claim.amount) <= 0) {
+      issues.push({
+        severity: "BLOCK",
+        message: "Claimed amount missing or invalid"
       });
     }
 
@@ -461,10 +546,17 @@ router.post("/documents/bulk-delete", async (req, res) => {
     }
 
     const docs = await prisma.document.findMany({
-      where: { id: { in: ids } }
+      where: { id: { in: ids } },
+      include: { claim: true }
     });
 
-    const fs = await import("fs");
+    if (docs.some((doc) => doc.claim?.status === "SUBMITTED")) {
+      return res.status(409).json({
+        error: "Submitted claims are locked. Their documents cannot be deleted."
+      });
+    }
+
+    const claimIds = [...new Set(docs.map((doc) => doc.claimId))];
 
     for (const doc of docs) {
       if (doc.path && fs.existsSync(doc.path)) {
@@ -472,11 +564,16 @@ router.post("/documents/bulk-delete", async (req, res) => {
       }
     }
 
-    await prisma.document.deleteMany({
-      where: { id: { in: ids } }
-    });
+    await prisma.$transaction([
+      prisma.document.deleteMany({ where: { id: { in: ids } } }),
+      prisma.check.deleteMany({ where: { claimId: { in: claimIds } } }),
+      prisma.claim.updateMany({
+        where: { id: { in: claimIds } },
+        data: { status: "DRAFT" }
+      })
+    ]);
 
-    res.json({ success: true, deleted: ids.length });
+    res.json({ success: true, deleted: docs.length });
   } catch (e) {
     console.error("Bulk delete error:", e);
     res.status(500).json({ error: e.message });
@@ -531,7 +628,8 @@ router.post("/:id/submit", async (req, res) => {
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
-        status: "SUBMITTED"
+        status: "SUBMITTED",
+        claimSubmissionDate: new Date()
       },
       include: {
         documents: true,
