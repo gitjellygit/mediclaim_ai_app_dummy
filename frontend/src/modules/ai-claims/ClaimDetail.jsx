@@ -454,7 +454,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       <Stack direction="row" justifyContent="space-between" sx={{ mb: 2 }}>
         <Button onClick={onBack}>← Back to list</Button>
 
-        {isAdmin && (
+        {isAdmin && claim.status !== "SUBMITTED" && (
           <Button color="error" startIcon={<DeleteForever />} onClick={deleteClaim}>
             Delete Claim
           </Button>
