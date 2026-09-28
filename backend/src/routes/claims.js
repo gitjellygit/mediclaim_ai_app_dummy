@@ -4,6 +4,12 @@ import fs from "fs";
 import { PrismaClient } from "@prisma/client";
 import { analyzeDocument } from "../services/docIntel.js";
 import { predictRejectionRisk } from "../services/riskModel.js";
+import {
+  getDerivedFieldsFromDocument,
+  mergeDerivedFields,
+  removeManuallyEditedFields,
+  recomputeDerivedClaimPatch
+} from "../services/claimDocumentProvenance.js";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -788,12 +794,18 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
+    const documentDerivedFields = removeManuallyEditedFields(
+      existing.documentDerivedFields,
+      payload
+    );
+
     await prisma.$transaction([
       prisma.check.deleteMany({ where: { claimId: req.params.id } }),
       prisma.claim.update({
         where: { id: req.params.id },
         data: {
           ...payload,
+          documentDerivedFields,
           status: "DRAFT"
         }
       })
@@ -950,9 +962,18 @@ router.post("/documents", upload.single("file"), async (req, res) => {
     let updatedClaim = claim;
 
     if (Object.keys(updatePayload).length > 0) {
+      const derivedFromThisDocument = Object.keys(updatePayload);
+      const documentDerivedFields = mergeDerivedFields(
+        claim.documentDerivedFields,
+        derivedFromThisDocument
+      );
+
       updatedClaim = await prisma.claim.update({
         where: { id: claimId },
-        data: updatePayload,
+        data: {
+          ...updatePayload,
+          documentDerivedFields
+        },
         include: {
           documents: {
             orderBy: { createdAt: "desc" }
@@ -1063,20 +1084,49 @@ router.delete("/documents/:id", async (req, res) => {
       });
     }
 
-    if (doc.path && fs.existsSync(doc.path)) {
-      fs.unlinkSync(doc.path);
-    }
+    const remainingDocuments = await prisma.document.findMany({
+      where: {
+        claimId: doc.claimId,
+        id: { not: doc.id }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const derivedPatch = recomputeDerivedClaimPatch(
+      remainingDocuments,
+      doc.claim?.documentDerivedFields || []
+    );
 
     await prisma.$transaction([
       prisma.document.delete({ where: { id: req.params.id } }),
       prisma.check.deleteMany({ where: { claimId: doc.claimId } }),
       prisma.claim.update({
         where: { id: doc.claimId },
-        data: { status: "DRAFT" }
+        data: {
+          ...derivedPatch,
+          status: "DRAFT"
+        }
       })
     ]);
 
-    res.json({ success: true });
+    // Remove the physical file after the database transaction succeeds.
+    if (doc.path && fs.existsSync(doc.path)) {
+      try {
+        fs.unlinkSync(doc.path);
+      } catch (fileError) {
+        console.error("[claim-document] file cleanup failed", {
+          claimId: doc.claimId,
+          documentId: doc.id,
+          message: fileError.message
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      remainingDocuments: remainingDocuments.length,
+      recomputedFields: Object.keys(derivedPatch)
+    });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -1239,21 +1289,63 @@ router.post("/documents/bulk-delete", async (req, res) => {
     }
 
     const claimIds = [...new Set(docs.map((doc) => doc.claimId))];
+    const deletingIds = new Set(ids);
 
-    for (const doc of docs) {
-      if (doc.path && fs.existsSync(doc.path)) {
-        fs.unlinkSync(doc.path);
+    const claims = await prisma.claim.findMany({
+      where: { id: { in: claimIds } },
+      select: {
+        id: true,
+        documentDerivedFields: true
       }
+    });
+
+    const claimUpdates = [];
+    for (const claim of claims) {
+      const remainingDocuments = await prisma.document.findMany({
+        where: { claimId: claim.id },
+        orderBy: { createdAt: "desc" }
+      });
+
+      const keptDocuments = remainingDocuments.filter(
+        (document) => !deletingIds.has(document.id)
+      );
+
+      claimUpdates.push({
+        claimId: claim.id,
+        patch: recomputeDerivedClaimPatch(
+          keptDocuments,
+          claim.documentDerivedFields
+        )
+      });
     }
 
     await prisma.$transaction([
       prisma.document.deleteMany({ where: { id: { in: ids } } }),
       prisma.check.deleteMany({ where: { claimId: { in: claimIds } } }),
-      prisma.claim.updateMany({
-        where: { id: { in: claimIds } },
-        data: { status: "DRAFT" }
-      })
+      ...claimUpdates.map(({ claimId, patch }) =>
+        prisma.claim.update({
+          where: { id: claimId },
+          data: {
+            ...patch,
+            status: "DRAFT"
+          }
+        })
+      )
     ]);
+
+    for (const doc of docs) {
+      if (doc.path && fs.existsSync(doc.path)) {
+        try {
+          fs.unlinkSync(doc.path);
+        } catch (fileError) {
+          console.error("[claim-document] bulk file cleanup failed", {
+            claimId: doc.claimId,
+            documentId: doc.id,
+            message: fileError.message
+          });
+        }
+      }
+    }
 
     res.json({ success: true, deleted: docs.length });
   } catch (e) {
