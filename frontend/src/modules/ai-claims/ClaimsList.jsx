@@ -14,13 +14,24 @@ import {
   TextField,
   InputAdornment,
   IconButton,
-  Stack
+  Stack,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  LinearProgress,
+  Alert,
+  Divider
 } from "@mui/material";
 import {
   Search as SearchIcon,
   Refresh,
   Visibility,
-  Delete
+  Delete,
+  AutoAwesome,
+  CloudUpload,
+  CheckCircle,
+  ErrorOutline
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
@@ -38,6 +49,11 @@ export default function ClaimsList() {
   const [claims, setClaims] = useState([]);
   const [selected, setSelected] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [aiCreateOpen, setAiCreateOpen] = useState(false);
+  const [aiFiles, setAiFiles] = useState([]);
+  const [aiCreating, setAiCreating] = useState(false);
+  const [aiResults, setAiResults] = useState([]);
+  const [aiCreatedClaimId, setAiCreatedClaimId] = useState("");
   const navigate = useNavigate();
   const { showToast, showDialog, confirmDialog } = useToast();
 
@@ -210,6 +226,125 @@ export default function ClaimsList() {
     );
   }
 
+
+  function openAiCreate() {
+    setAiFiles([]);
+    setAiResults([]);
+    setAiCreatedClaimId("");
+    setAiCreateOpen(true);
+  }
+
+  function closeAiCreate() {
+    if (aiCreating) return;
+    setAiCreateOpen(false);
+  }
+
+  function handleAiFiles(event) {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const supported = files.filter((file) =>
+      ["application/pdf", "image/png", "image/jpeg", "image/jpg"].includes(file.type)
+    );
+
+    if (supported.length !== files.length) {
+      showDialog(
+        "Only PDF, PNG, JPG, and JPEG files are supported for AI claim creation.",
+        {
+          title: "Unsupported document type",
+          severity: "warning"
+        }
+      );
+    }
+
+    setAiFiles(supported);
+    setAiResults([]);
+    setAiCreatedClaimId("");
+    event.target.value = "";
+  }
+
+  /**
+   * Documents are processed sequentially so the first upload can create the
+   * claim and later uploads can safely match/merge into the same encounter.
+   * Mutating uploads are not auto-retried because a lost response could cause
+   * duplicate side effects; duplicate detection on the backend remains the
+   * final safety net.
+   */
+  async function createClaimFromDocuments() {
+    if (aiFiles.length === 0) {
+      showDialog(
+        "Select at least one clinical or billing document before starting AI claim creation.",
+        {
+          title: "No documents selected",
+          severity: "warning"
+        }
+      );
+      return;
+    }
+
+    setAiCreating(true);
+    setAiResults([]);
+    setAiCreatedClaimId("");
+
+    const results = [];
+    let claimId = "";
+
+    for (const file of aiFiles) {
+      try {
+        const result = await ClaimsApi.smartUploadDoc(file);
+
+        claimId = result?.claim?.id || claimId;
+
+        results.push({
+          fileName: file.name,
+          ok: true,
+          matchStatus: result?.matchStatus || "NEW",
+          message: result?.message || "Document processed",
+          confidence: result?.document?.confidence ?? null,
+          type: result?.document?.suggestedType || result?.document?.type || "OTHER",
+          claimId: result?.claim?.id || ""
+        });
+      } catch (error) {
+        console.error("AI claim creation document failed:", {
+          fileName: file.name,
+          status: error?.status,
+          message: error?.message
+        });
+
+        results.push({
+          fileName: file.name,
+          ok: false,
+          message: error?.message || "Document could not be processed"
+        });
+      }
+    }
+
+    setAiResults(results);
+    setAiCreatedClaimId(claimId);
+    setAiCreating(false);
+    await loadClaims();
+
+    const failed = results.filter((item) => !item.ok);
+    const succeeded = results.filter((item) => item.ok);
+
+    if (failed.length === 0 && succeeded.length > 0) {
+      showToast(
+        succeeded.length === 1
+          ? "AI claim creation completed."
+          : `AI processed ${succeeded.length} documents successfully.`,
+        "success"
+      );
+    } else if (failed.length > 0) {
+      showDialog(
+        `${succeeded.length} document(s) processed successfully and ${failed.length} failed. Review the per-document results before continuing.`,
+        {
+          title: "AI claim creation completed with warnings",
+          severity: "warning"
+        }
+      );
+    }
+  }
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" fontWeight={700} mb={3}>
@@ -240,10 +375,18 @@ export default function ClaimsList() {
         </Button>
 
         <Button
-          variant="contained"
+          variant="outlined"
           onClick={() => navigate("/claims/new")}
         >
           New Claim
+        </Button>
+
+        <Button
+          variant="contained"
+          startIcon={<AutoAwesome />}
+          onClick={openAiCreate}
+        >
+          Create Claim from Documents
         </Button>
 
         {/* ✅ BULK DELETE BUTTON */}
@@ -340,6 +483,164 @@ export default function ClaimsList() {
           </TableBody>
         </Table>
       </Paper>
+
+      <Dialog
+        open={aiCreateOpen}
+        onClose={closeAiCreate}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>
+          Create Claim with AI
+        </DialogTitle>
+
+        <DialogContent>
+          <Typography color="text.secondary" sx={{ mb: 2 }}>
+            Upload one or more clinical or billing documents. AI will classify the documents,
+            extract structured claim data, detect duplicates, check for an existing patient
+            encounter, and create or consolidate the claim.
+          </Typography>
+
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Processing sequence: OCR / document classification → field extraction → duplicate detection →
+            patient & encounter matching → claim creation or merge.
+          </Alert>
+
+          <Button
+            component="label"
+            variant="outlined"
+            startIcon={<CloudUpload />}
+            disabled={aiCreating}
+          >
+            Select Documents
+            <input
+              hidden
+              multiple
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+              onChange={handleAiFiles}
+            />
+          </Button>
+
+          {aiFiles.length > 0 && (
+            <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Selected documents ({aiFiles.length})
+              </Typography>
+              <Stack spacing={0.75}>
+                {aiFiles.map((file) => (
+                  <Typography key={`${file.name}-${file.size}`} variant="body2">
+                    • {file.name}
+                  </Typography>
+                ))}
+              </Stack>
+            </Paper>
+          )}
+
+          {aiCreating && (
+            <Box sx={{ mt: 3 }}>
+              <LinearProgress />
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                AI is processing documents and building the claim. Please keep this window open.
+              </Typography>
+            </Box>
+          )}
+
+          {aiResults.length > 0 && (
+            <>
+              <Divider sx={{ my: 3 }} />
+              <Typography variant="h6" sx={{ mb: 1.5 }}>
+                Processing Results
+              </Typography>
+
+              <Stack spacing={1}>
+                {aiResults.map((result) => (
+                  <Paper
+                    key={result.fileName}
+                    variant="outlined"
+                    sx={{ p: 1.5 }}
+                  >
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      justifyContent="space-between"
+                      spacing={1}
+                    >
+                      <Box>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          {result.ok ? (
+                            <CheckCircle fontSize="small" color="success" />
+                          ) : (
+                            <ErrorOutline fontSize="small" color="error" />
+                          )}
+                          <Typography variant="body2" fontWeight={600}>
+                            {result.fileName}
+                          </Typography>
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary">
+                          {result.message}
+                        </Typography>
+                      </Box>
+
+                      {result.ok && (
+                        <Stack direction="row" spacing={1} flexWrap="wrap">
+                          <Chip
+                            size="small"
+                            label={result.type}
+                            variant="outlined"
+                          />
+                          <Chip
+                            size="small"
+                            label={result.matchStatus}
+                            color={
+                              result.matchStatus === "MERGED"
+                                ? "success"
+                                : result.matchStatus === "REVIEW"
+                                ? "warning"
+                                : "info"
+                            }
+                          />
+                          {result.confidence != null && (
+                            <Chip
+                              size="small"
+                              label={`${result.confidence}% confidence`}
+                              variant="outlined"
+                            />
+                          )}
+                        </Stack>
+                      )}
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            </>
+          )}
+        </DialogContent>
+
+        <DialogActions>
+          <Button onClick={closeAiCreate} disabled={aiCreating}>
+            Close
+          </Button>
+
+          {aiCreatedClaimId && !aiCreating && (
+            <Button
+              variant="outlined"
+              startIcon={<Visibility />}
+              onClick={() => navigate(`/claims/${aiCreatedClaimId}`)}
+            >
+              Open Claim
+            </Button>
+          )}
+
+          <Button
+            variant="contained"
+            startIcon={<AutoAwesome />}
+            onClick={createClaimFromDocuments}
+            disabled={aiCreating || aiFiles.length === 0}
+          >
+            {aiCreating ? "Processing..." : "Create Claim with AI"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
     </Box>
   );
