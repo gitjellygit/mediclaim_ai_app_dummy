@@ -1128,7 +1128,18 @@ router.delete("/documents/:id", async (req, res) => {
       recomputedFields: Object.keys(derivedPatch)
     });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    console.error("[claim-document] delete failed", {
+      documentId: req.params.id,
+      name: e?.name || "Error",
+      code: e?.code || null,
+      message: e?.message || "Unknown error"
+    });
+
+    res.status(500).json({
+      error: "Document deletion failed",
+      message:
+        "The document could not be deleted safely. No claim data was changed. Please retry after refreshing the claim."
+    });
   }
 });
 
