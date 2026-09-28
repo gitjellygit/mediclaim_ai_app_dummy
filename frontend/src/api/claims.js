@@ -82,5 +82,36 @@ export const ClaimsApi = {
       method: "POST",
       body: fd
     });
+  },
+
+  getJourney(id) {
+    return api(`${BASE}/${id}/journey`);
+  },
+
+  runEligibilityPrecheck(id) {
+    return api(`${BASE}/${id}/journey/eligibility/precheck`, {
+      method: "POST"
+    });
+  },
+
+  evaluatePriorAuth(id, data) {
+    return api(`${BASE}/${id}/journey/prior-auth/evaluate`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+  },
+
+  updatePayerStatus(id, payerClaimStatus) {
+    return api(`${BASE}/${id}/journey/claim-status`, {
+      method: "PATCH",
+      body: JSON.stringify({ payerClaimStatus })
+    });
+  },
+
+  updateRemittance(id, data) {
+    return api(`${BASE}/${id}/journey/remittance`, {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
   }
 };
