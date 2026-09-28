@@ -118,19 +118,22 @@ export async function api(url, options = {}) {
   if (!res.ok) {
     const text = await res.text();
     let errorMessage = text || `Request failed: ${res.status}`;
+    let errorJson = null;
     
-    // Try to parse as JSON for better error messages
+    // Preserve structured backend errors so UI workflows can distinguish
+    // validation/lifecycle conditions without parsing human-readable text.
     try {
-      const errorJson = JSON.parse(text);
+      errorJson = JSON.parse(text);
       errorMessage = errorJson.message || errorJson.error || errorMessage;
     } catch {
-      // Not JSON, use text as-is
+      // Not JSON, use text as-is.
     }
     
-    // Create error with status code for better handling
     const error = new Error(errorMessage);
     error.status = res.status;
     error.statusText = res.statusText;
+    error.code = errorJson?.code || null;
+    error.data = errorJson;
     throw error;
   }
 
