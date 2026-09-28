@@ -10,6 +10,7 @@ import AnalyticsDashboard from "./modules/analytics/AnalyticsDashboard.jsx";
 import DocumentIntelligence from "./modules/documents/DocumentIntelligence.jsx";
 import ApprovalIntelligence from "./modules/approval/ApprovalIntelligence.jsx";
 import MedicalConsistency from "./modules/medical-ai/MedicalConsistency.jsx";
+import ClaimJourney from "./modules/journey/ClaimJourney.jsx";
 
 import MainLayout from "./layout/MainLayout.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
@@ -62,6 +63,17 @@ function AppRoutes() {
           <ProtectedRoute>
             <MainLayout>
               <ClaimDetail />
+            </MainLayout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/journey"
+        element={
+          <ProtectedRoute>
+            <MainLayout>
+              <ClaimJourney />
             </MainLayout>
           </ProtectedRoute>
         }
