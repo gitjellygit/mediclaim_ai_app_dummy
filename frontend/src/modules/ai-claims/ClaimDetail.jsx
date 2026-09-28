@@ -9,7 +9,7 @@ import {
   DeleteForever, ExpandMore, ExpandLess, Visibility, Download, 
   SelectAll, CheckBox, CheckBoxOutlineBlank, DeleteSweep, FolderOpen
 } from "@mui/icons-material";
-import { useParams, useNavigate } from "react-router-dom";
+import { useLocation, useParams, useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 import { AuthApi } from "../../api/auth.js";
 import { useToast } from "../../context/ToastContext.jsx";
@@ -68,8 +68,11 @@ function riskChipColor(level) {
 export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const { id: idParam } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const id = idProp ?? idParam;
-  const onBack = onBackProp ?? (() => navigate("/claims"));
+  const returnTo = location.state?.from || "/claims";
+  const backLabel = location.state?.backLabel || "Back to Claims";
+  const onBack = onBackProp ?? (() => navigate(returnTo));
 
   const { showToast, showDialog, confirmDialog } = useToast();
   const user = AuthApi.getUser();
@@ -498,16 +501,16 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   if (!id) {
     return (
-      <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
+      <Box sx={{ maxWidth: 1200, mx: "auto", p: { xs: 1, sm: 2, lg: 3 } }}>
         <Typography color="error">No claim selected.</Typography>
-        <Button onClick={onBack} sx={{ mt: 2 }}>← Back to list</Button>
+        <Button onClick={onBack} sx={{ mt: 2 }}>← {backLabel}</Button>
       </Box>
     );
   }
 
   if (loading) {
     return (
-      <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
+      <Box sx={{ maxWidth: 1200, mx: "auto", p: { xs: 1, sm: 2, lg: 3 } }}>
         <LinearProgress sx={{ mb: 2 }} />
         <Typography>Loading claim...</Typography>
       </Box>
@@ -516,9 +519,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   if (!claim) {
     return (
-      <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
+      <Box sx={{ maxWidth: 1200, mx: "auto", p: { xs: 1, sm: 2, lg: 3 } }}>
         <Typography color="error">Claim not found.</Typography>
-        <Button onClick={onBack} sx={{ mt: 2 }}>← Back to list</Button>
+        <Button onClick={onBack} sx={{ mt: 2 }}>← {backLabel}</Button>
       </Box>
     );
   }
@@ -540,9 +543,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     (check?.score ?? 0) >= 80;
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" sx={{ mb: 2 }}>
-        <Button onClick={onBack}>← Back to list</Button>
+    <Box sx={{ maxWidth: 1200, mx: "auto", p: { xs: 1, sm: 2, lg: 3 } }}>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        justifyContent="space-between"
+        alignItems={{ xs: "stretch", sm: "center" }}
+        spacing={1}
+        sx={{ mb: 2 }}
+      >
+        <Button onClick={onBack}>← {backLabel}</Button>
 
         {isAdmin && claim.status !== "SUBMITTED" && (
           <Button color="error" startIcon={<DeleteForever />} onClick={deleteClaim}>
