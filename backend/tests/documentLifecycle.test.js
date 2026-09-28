@@ -495,3 +495,56 @@ test("18 - document route never marks PHI preview cache as public", { concurrenc
   assert.doesNotMatch(source, /Cache-Control['"],\s*['"]public/i);
   assert.match(source, /private, no-store/);
 });
+
+test("19 - deleting last smart-created document preserves required identity but clears optional derived data", { concurrency: false }, async () => {
+  const claim = await createClaim({
+    amount: 1875,
+    totalBilledAmount: 1875,
+    documentDerivedFields: [
+      "patientName",
+      "payerName",
+      "policyNo",
+      "amount",
+      "totalBilledAmount",
+      "diagnosisText",
+      "icd10Codes"
+    ]
+  });
+
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      patientName: "Lifecycle Test Alice",
+      payerName: "Lifecycle Test Insurance",
+      policyNo: "POL-DERIVED-001",
+      diagnosisText: "Migraine",
+      icd10Codes: ["G43.009"]
+    }
+  });
+
+  const { doc } = await createDocument(claim.id, {
+    extracted: {
+      patientName: "Lifecycle Test Alice",
+      payerName: "Lifecycle Test Insurance",
+      policyNo: "POL-DERIVED-001",
+      amount: 1875,
+      diagnosisText: "Migraine",
+      icd10Codes: ["G43.009"]
+    }
+  });
+
+  const response = await authFetch(`/api/claims/documents/${doc.id}`, {
+    method: "DELETE"
+  });
+
+  assert.equal(response.status, 200);
+
+  const updated = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(updated.patientName, "Lifecycle Test Alice");
+  assert.equal(updated.payerName, "Lifecycle Test Insurance");
+  assert.equal(updated.policyNo, null);
+  assert.equal(updated.amount, null);
+  assert.equal(updated.totalBilledAmount, null);
+  assert.equal(updated.diagnosisText, null);
+  assert.deepEqual(updated.icd10Codes, []);
+});
