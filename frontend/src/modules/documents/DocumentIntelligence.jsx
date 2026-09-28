@@ -41,6 +41,7 @@ import {
   DeleteSweep
 } from "@mui/icons-material";
 import { ClaimsApi } from "../../api/claims.js";
+import { getToken } from "../../api/client.js";
 import { useToast } from "../../context/ToastContext.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -53,6 +54,8 @@ export default function DocumentIntelligence() {
   const [loading, setLoading] = useState(true);
   const [previewDoc, setPreviewDoc] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "info" });
 
@@ -142,14 +145,60 @@ export default function DocumentIntelligence() {
     }
   }
 
-  function handlePreview(doc) {
+  async function handlePreview(doc) {
+    const token = getToken();
+    if (!token) {
+      showDialog(
+        "Your session is missing or has expired. Please log in again to preview documents.",
+        {
+          title: "Sign-in required",
+          severity: "warning"
+        }
+      );
+      return;
+    }
+
     setPreviewDoc(doc);
     setPreviewOpen(true);
+    setPreviewLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/documents/${doc.id}/preview`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Preview failed: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      setPreviewUrl(url);
+    } catch (error) {
+      setPreviewOpen(false);
+      setPreviewDoc(null);
+      showDialog(
+        error?.message || "The document preview could not be loaded.",
+        {
+          title: "Document preview failed",
+          severity: "error"
+        }
+      );
+    } finally {
+      setPreviewLoading(false);
+    }
   }
 
   function handleClosePreview() {
     setPreviewOpen(false);
     setPreviewDoc(null);
+    setPreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return "";
+    });
   }
 
   function handleSelectDoc(docId) {
@@ -245,7 +294,23 @@ export default function DocumentIntelligence() {
 
   async function handleDownload(doc) {
     try {
-      const res = await fetch(`${API_BASE}/api/documents/${doc.id}/download`);
+      const token = getToken();
+      if (!token) {
+        showDialog(
+          "Your session is missing or has expired. Please log in again to download documents.",
+          {
+            title: "Sign-in required",
+            severity: "warning"
+          }
+        );
+        return;
+      }
+
+      const res = await fetch(`${API_BASE}/api/documents/${doc.id}/download`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
       
       if (!res.ok) {
         throw new Error("Download failed");
@@ -404,14 +469,29 @@ export default function DocumentIntelligence() {
         <Paper sx={{ p: 3, maxWidth: 800, mx: "auto", mt: 5 }}>
           <Typography variant="h6">{previewDoc?.fileName}</Typography>
 
-          {previewDoc?.mimeType?.includes("pdf") ? (
+          {previewLoading ? (
+            <Box sx={{ py: 6 }}>
+              <LinearProgress />
+              <Typography color="text.secondary" sx={{ mt: 1 }}>
+                Loading secure preview...
+              </Typography>
+            </Box>
+          ) : previewDoc?.mimeType?.includes("pdf") && previewUrl ? (
             <iframe
-              src={`${API_BASE}/api/documents/${previewDoc?.id}/preview`}
+              src={previewUrl}
               width="100%"
               height="500px"
+              title={previewDoc?.fileName || "Document preview"}
+            />
+          ) : previewUrl ? (
+            <Box
+              component="img"
+              src={previewUrl}
+              alt={previewDoc?.fileName || "Document preview"}
+              sx={{ maxWidth: "100%", maxHeight: 500 }}
             />
           ) : (
-            <Typography>No preview</Typography>
+            <Typography>No preview available</Typography>
           )}
 
           <Stack direction="row" spacing={2} mt={2}>
