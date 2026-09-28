@@ -119,6 +119,11 @@ model Claim {
   paidAmount              Int?
   paymentReference        String?
 
+  // Fields currently supported by uploaded documents. This lets document
+  // deletion recompute/clear only document-derived data without wiping
+  // values a user entered manually.
+  documentDerivedFields String[] @default([])
+
   documents   Document[]
   checks      Check[]
   denialCases DenialCase[]
