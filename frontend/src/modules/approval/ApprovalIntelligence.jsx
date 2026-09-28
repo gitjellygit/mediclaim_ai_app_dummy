@@ -33,6 +33,7 @@ import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 
 function money(value) {
+  if (value == null || value === "") return "—";
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
 
