@@ -2,11 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
   Typography,
   Chip,
   Table,
@@ -43,27 +38,8 @@ export default function ClaimsList() {
   const [claims, setClaims] = useState([]);
   const [selected, setSelected] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [messageDialog, setMessageDialog] = useState({
-    open: false,
-    title: "",
-    message: "",
-    severity: "info"
-  });
   const navigate = useNavigate();
-  const { showToast } = useToast();
-
-  function showMessageDialog(title, message, severity = "info") {
-    setMessageDialog({
-      open: true,
-      title,
-      message,
-      severity
-    });
-  }
-
-  function closeMessageDialog() {
-    setMessageDialog((current) => ({ ...current, open: false }));
-  }
+  const { showToast, showDialog, confirmDialog } = useToast();
 
   useEffect(() => {
     loadClaims();
@@ -122,7 +98,15 @@ export default function ClaimsList() {
   }
 
   async function handleDeleteClaim(id) {
-    const ok = window.confirm("Delete this claim?");
+    const ok = await confirmDialog(
+      "This will permanently delete the claim and its associated documents. This action cannot be undone.",
+      {
+        title: "Delete claim?",
+        severity: "warning",
+        confirmLabel: "Delete",
+        cancelLabel: "Cancel"
+      }
+    );
     if (!ok) return;
 
     try {
@@ -130,10 +114,12 @@ export default function ClaimsList() {
       await loadClaims();
     } catch (error) {
       console.error("Delete claim failed:", error);
-      showMessageDialog(
-        "Claim could not be deleted",
+      showDialog(
         error?.message || "Unable to delete claim. Please try again.",
-        "error"
+        {
+          title: "Claim could not be deleted",
+          severity: "error"
+        }
       );
     }
   }
@@ -141,7 +127,15 @@ export default function ClaimsList() {
   // Bulk deletion is intentionally sequential so each protected claim can
   // return its own lifecycle error without hiding which records were affected.
   async function handleBulkDelete() {
-    const ok = window.confirm(`Delete ${selected.length} claims?`);
+    const ok = await confirmDialog(
+      `Delete ${selected.length} selected claim${selected.length === 1 ? "" : "s"}? Protected submitted/paid claims will not be removed.`,
+      {
+        title: "Delete selected claims?",
+        severity: "warning",
+        confirmLabel: "Delete",
+        cancelLabel: "Cancel"
+      }
+    );
     if (!ok) return;
 
     const results = [];
@@ -187,10 +181,12 @@ export default function ClaimsList() {
     }
 
     if (deleted.length === 0 && failed.length === 1) {
-      showMessageDialog(
-        "Claim could not be deleted",
+      showDialog(
         `${failed[0].name}: ${failed[0].message}`,
-        "error"
+        {
+          title: "Claim could not be deleted",
+          severity: "error"
+        }
       );
       return;
     }
@@ -200,14 +196,17 @@ export default function ClaimsList() {
       .map((item) => `${item.name}: ${item.message}`)
       .join(" | ");
 
-    showMessageDialog(
-      deleted.length > 0
-        ? "Bulk delete completed with warnings"
-        : "Claims could not be deleted",
+    showDialog(
       `${deleted.length} deleted, ${failed.length} not deleted. ${protectedSummary}${
         failed.length > 3 ? ` | +${failed.length - 3} more` : ""
       }`,
-      deleted.length > 0 ? "warning" : "error"
+      {
+        title:
+          deleted.length > 0
+            ? "Bulk delete completed with warnings"
+            : "Claims could not be deleted",
+        severity: deleted.length > 0 ? "warning" : "error"
+      }
     );
   }
 
@@ -342,32 +341,6 @@ export default function ClaimsList() {
         </Table>
       </Paper>
 
-      <Dialog
-        open={messageDialog.open}
-        onClose={closeMessageDialog}
-        fullWidth
-        maxWidth="sm"
-        aria-labelledby="claim-message-dialog-title"
-      >
-        <DialogTitle id="claim-message-dialog-title">
-          {messageDialog.title}
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText
-            sx={{
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word"
-            }}
-          >
-            {messageDialog.message}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeMessageDialog} autoFocus>
-            OK
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }
