@@ -3,6 +3,11 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import {
+  getDerivedFieldsFromDocument,
+  mergeDerivedFields,
+  recomputeDerivedClaimPatch
+} from "../services/claimDocumentProvenance.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,6 +69,19 @@ export function documentsRouter(prisma, uploadDir) {
   const router = express.Router();
 
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+  const uploadsRoot = path.resolve(uploadDir);
+
+  function resolveStoredFile(storedPath) {
+    if (!storedPath) return null;
+    const filePath = path.resolve(uploadsRoot, path.basename(storedPath));
+
+    if (!filePath.startsWith(uploadsRoot + path.sep)) {
+      return null;
+    }
+
+    return filePath;
+  }
 
   // Public test route (no auth required)
   router.get("/public-test", (req, res) => {
@@ -189,6 +207,10 @@ export function documentsRouter(prisma, uploadDir) {
           doctorName: extracted.doctorName || null,
           diagnosisText: extracted.diagnosisText || null,
           memberId: extracted.memberId || null,
+          documentDerivedFields: getDerivedFieldsFromDocument(
+            extracted,
+            intel.suggestedType || "OTHER"
+          ),
           status: "DRAFT"
         };
 
@@ -310,7 +332,13 @@ export function documentsRouter(prisma, uploadDir) {
         if (Object.keys(updatePayload).length > 0) {
           claim = await prisma.claim.update({
             where: { id: claim.id },
-            data: updatePayload
+            data: {
+              ...updatePayload,
+              documentDerivedFields: mergeDerivedFields(
+                claim.documentDerivedFields,
+                Object.keys(updatePayload)
+              )
+            }
           });
         }
       }
@@ -485,20 +513,15 @@ export function documentsRouter(prisma, uploadDir) {
       const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
       if (!doc) return res.status(404).json({ error: "Doc not found" });
 
-      // Safe file path resolution
-      const baseUploadsPath = path.join(__dirname, "../uploads");
-      const cleanPath = doc.path.includes("uploads")
-        ? doc.path.replace(/^.*uploads[\\/]/, "")
-        : doc.path;
-      const filePath = path.join(baseUploadsPath, cleanPath);
-      
-      if (!fs.existsSync(filePath)) {
+      const filePath = resolveStoredFile(doc.path);
+
+      if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({
-          error: "File not found",
-          path: filePath
+          error: "File not found"
         });
       }
 
+      res.setHeader("Cache-Control", "private, no-store");
       return res.download(filePath, doc.fileName);
     } catch (err) {
       return res.status(500).json({
@@ -514,26 +537,19 @@ export function documentsRouter(prisma, uploadDir) {
       const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
       if (!doc) return res.status(404).json({ error: "Doc not found" });
 
-      // Safe file path resolution
-      const baseUploadsPath = path.join(__dirname, "../uploads");
-      const cleanPath = doc.path.includes("uploads")
-        ? doc.path.replace(/^.*uploads[\\/]/, "")
-        : doc.path;
-      const filePath = path.join(baseUploadsPath, cleanPath);
-      
-      if (!fs.existsSync(filePath)) {
+      const filePath = resolveStoredFile(doc.path);
+
+      if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({
-          error: "File not found",
-          path: filePath
+          error: "File not found"
         });
       }
 
-      // Set appropriate headers for inline preview
-      res.setHeader('Content-Type', doc.mimeType || 'application/octet-stream');
-      res.setHeader('Content-Disposition', `inline; filename="${doc.fileName}"`);
-      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
+      res.setHeader("Content-Disposition", `inline; filename="${doc.fileName}"`);
+      // PHI must not be cached by shared/public browser or proxy caches.
+      res.setHeader("Cache-Control", "private, no-store");
 
-      // Use sendFile safely
       return res.sendFile(filePath);
     } catch (err) {
       return res.status(500).json({
@@ -558,23 +574,49 @@ export function documentsRouter(prisma, uploadDir) {
         });
       }
 
-      // Build correct file path - doc.path should be just filename
-      const filePath = path.join(__dirname, "../uploads", doc.path);
-      
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+      const remainingDocuments = await prisma.document.findMany({
+        where: {
+          claimId: doc.claimId,
+          id: { not: doc.id }
+        },
+        orderBy: { createdAt: "desc" }
+      });
+
+      const derivedPatch = recomputeDerivedClaimPatch(
+        remainingDocuments,
+        doc.claim?.documentDerivedFields || []
+      );
 
       await prisma.$transaction([
         prisma.document.delete({ where: { id: doc.id } }),
         prisma.check.deleteMany({ where: { claimId: doc.claimId } }),
         prisma.claim.update({
           where: { id: doc.claimId },
-          data: { status: "DRAFT" }
+          data: {
+            ...derivedPatch,
+            status: "DRAFT"
+          }
         })
       ]);
 
-      res.json({ ok: true });
+      const filePath = resolveStoredFile(doc.path);
+      if (filePath && fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (fileError) {
+          console.error("[documents] file cleanup failed", {
+            claimId: doc.claimId,
+            documentId: doc.id,
+            message: fileError.message
+          });
+        }
+      }
+
+      res.json({
+        ok: true,
+        remainingDocuments: remainingDocuments.length,
+        recomputedFields: Object.keys(derivedPatch)
+      });
     } catch (err) {
       return res.status(500).json({
         error: "Failed to delete document"
