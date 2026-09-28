@@ -1,22 +1,56 @@
-import { Box } from "@mui/material";
+import React from "react";
+import { AppBar, Box, IconButton, Toolbar, Typography } from "@mui/material";
+import MenuIcon from "@mui/icons-material/Menu";
 import LeftNav from "./LeftNav";
 
 const SIDEBAR_WIDTH = 240;
 
 export default function MainLayout({ children }) {
-  return (
-    <Box sx={{ display: "flex", minHeight: "100vh" }}>
-      {/* Left Navigation */}
-      <LeftNav width={SIDEBAR_WIDTH} />
+  const [mobileOpen, setMobileOpen] = React.useState(false);
 
-      {/* Main Content */}
+  return (
+    <Box sx={{ minHeight: "100vh", backgroundColor: "#f5f7fb" }}>
+      <AppBar
+        position="fixed"
+        elevation={1}
+        sx={{
+          display: { xs: "block", md: "none" },
+          backgroundColor: "#114aa6",
+          zIndex: (theme) => theme.zIndex.drawer + 1
+        }}
+      >
+        <Toolbar>
+          <IconButton
+            color="inherit"
+            edge="start"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open navigation"
+            sx={{ mr: 1 }}
+          >
+            <MenuIcon />
+          </IconButton>
+          <Typography variant="h6" noWrap>
+            Hospital AI Platform
+          </Typography>
+        </Toolbar>
+      </AppBar>
+
+      <LeftNav
+        width={SIDEBAR_WIDTH}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+      />
+
       <Box
         component="main"
         sx={{
-          flexGrow: 1,
-          ml: `${SIDEBAR_WIDTH}px`,
-          p: 3,
+          minWidth: 0,
+          ml: { xs: 0, md: `${SIDEBAR_WIDTH}px` },
+          pt: { xs: 8, md: 0 },
+          px: { xs: 1, sm: 2, md: 2.5 },
+          pb: { xs: 2, md: 3 },
           backgroundColor: "#f5f7fb",
+          minHeight: "100vh"
         }}
       >
         {children}
