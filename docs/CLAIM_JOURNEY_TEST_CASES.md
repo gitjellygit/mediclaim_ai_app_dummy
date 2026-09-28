@@ -31,6 +31,74 @@ Expected: claims and selected journey refresh without duplicate side effects.
 ### CJ-007 Direct Claim Detail navigation
 Expected: Review/Open Claim opens correct claim.
 
+## 1A. Production-scale claim search
+
+### SEARCH-001 Empty search
+Expected: latest 10 recent claims returned; browser does not load the full claims table.
+
+### SEARCH-002 Search by patient name
+Expected: matching claims returned server-side.
+
+### SEARCH-003 Search by Member ID
+Expected: matching claim returned.
+
+### SEARCH-004 Search by policy number
+Expected: matching claim returned.
+
+### SEARCH-005 Search by payer
+Expected: matching claims returned.
+
+### SEARCH-006 Search by insurer claim number
+Expected: matching claim returned.
+
+### SEARCH-007 Search by authorization number
+Expected: matching claim returned.
+
+### SEARCH-008 Search by exact internal claim ID
+Expected: exact claim returned.
+
+### SEARCH-009 One-character query
+Expected: no broad server search; UI asks for one more character.
+
+### SEARCH-010 Two-character query
+Expected: debounced server search begins.
+
+### SEARCH-011 Rapid typing
+Expected: 350 ms debounce reduces calls; stale/slower responses are ignored.
+
+### SEARCH-012 More than 20 matches
+Expected: only top 20 recent matches returned to selector.
+
+### SEARCH-013 Backend requested limit > 50
+Expected: server caps results at 50.
+
+### SEARCH-014 No matches
+Expected: "No matching claims found"; no crash.
+
+### SEARCH-015 Clear typed search
+Expected: selector returns to recent claims.
+
+### SEARCH-016 Select result
+Expected: selected claim journey loads once and displays correct patient/policy/member.
+
+### SEARCH-017 Search API transient 500
+Expected: safe GET retry applies; after exhaustion, clear error displayed.
+
+### SEARCH-018 Search API 400/404
+Expected: no blind retry.
+
+### SEARCH-019 Older search finishes after newer search
+Expected: stale response is ignored and does not replace current results.
+
+### SEARCH-020 Keyboard navigation
+Expected: arrow keys and Enter can select a result through the autocomplete control.
+
+### SEARCH-021 Twenty-thousand-record dataset
+Expected: page initial load remains bounded because only 10 recent claims are fetched; each search is capped.
+
+### SEARCH-022 Sensitive search logging
+Expected: backend does not log typed patient/member/policy search terms.
+
 ## 2. Eligibility stage
 
 ### ELIG-001 Complete member/policy/payer data
