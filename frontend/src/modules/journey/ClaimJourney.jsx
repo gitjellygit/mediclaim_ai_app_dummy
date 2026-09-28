@@ -101,6 +101,7 @@ export default function ClaimJourney() {
   const [journey, setJourney] = React.useState(null);
   const [loadingClaims, setLoadingClaims] = React.useState(true);
   const searchRequestRef = React.useRef(0);
+  const searchInitializedRef = React.useRef(false);
   const [loadingJourney, setLoadingJourney] = React.useState(false);
   const [pageError, setPageError] = React.useState("");
   const [action, setAction] = React.useState("");
@@ -133,9 +134,9 @@ export default function ClaimJourney() {
       const list = Array.isArray(data?.items) ? data.items : [];
       setClaims(list);
 
-      if (selectFirst && !claimId && list.length > 0) {
-        setSelectedClaim(list[0]);
-        setClaimId(list[0].id);
+      if (selectFirst && list.length > 0) {
+        setSelectedClaim((current) => current || list[0]);
+        setClaimId((current) => current || list[0].id);
       }
     } catch (error) {
       if (requestId !== searchRequestRef.current) return;
@@ -145,7 +146,7 @@ export default function ClaimJourney() {
         setLoadingClaims(false);
       }
     }
-  }, [claimId]);
+  }, []);
 
   const loadJourney = React.useCallback(async (id) => {
     if (!id) return;
@@ -192,6 +193,13 @@ export default function ClaimJourney() {
   }, [loadClaims]);
 
   React.useEffect(() => {
+    // Initial recent claims are loaded by the mount effect above. Skip the
+    // first search effect to avoid an unnecessary duplicate request.
+    if (!searchInitializedRef.current) {
+      searchInitializedRef.current = true;
+      return;
+    }
+
     const query = searchText.trim();
 
     // One-character searches are intentionally held back to avoid broad,
