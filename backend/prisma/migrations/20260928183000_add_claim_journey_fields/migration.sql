@@ -1,0 +1,21 @@
+-- Add U.S. revenue-cycle journey fields for eligibility, prior auth,
+-- payer status tracking, and remittance/adjudication.
+ALTER TABLE "Claim"
+  ADD COLUMN "eligibilityStatus" TEXT NOT NULL DEFAULT 'NOT_CHECKED',
+  ADD COLUMN "eligibilityCheckedAt" TIMESTAMP(3),
+  ADD COLUMN "coverageStatus" TEXT,
+  ADD COLUMN "deductibleRemaining" INTEGER,
+  ADD COLUMN "coinsurancePct" INTEGER,
+  ADD COLUMN "networkStatus" TEXT,
+  ADD COLUMN "priorAuthRequired" BOOLEAN,
+  ADD COLUMN "priorAuthStatus" TEXT NOT NULL DEFAULT 'NOT_CHECKED',
+  ADD COLUMN "priorAuthCheckedAt" TIMESTAMP(3),
+  ADD COLUMN "priorAuthExpiry" TIMESTAMP(3),
+  ADD COLUMN "payerClaimStatus" TEXT,
+  ADD COLUMN "claimStatusCheckedAt" TIMESTAMP(3),
+  ADD COLUMN "remittanceStatus" TEXT NOT NULL DEFAULT 'NOT_AVAILABLE',
+  ADD COLUMN "remittanceReceivedAt" TIMESTAMP(3),
+  ADD COLUMN "allowedAmount" INTEGER,
+  ADD COLUMN "patientResponsibility" INTEGER,
+  ADD COLUMN "paidAmount" INTEGER,
+  ADD COLUMN "paymentReference" TEXT;
