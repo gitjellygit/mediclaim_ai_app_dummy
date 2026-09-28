@@ -1036,7 +1036,10 @@ router.post("/:id/submit", async (req, res) => {
       where: { id: claim.id },
       data: {
         status: "SUBMITTED",
-        claimSubmissionDate: new Date()
+        claimSubmissionDate: new Date(),
+        payerClaimStatus: "SUBMITTED",
+        claimStatusCheckedAt: new Date(),
+        remittanceStatus: "AWAITING"
       },
       include: {
         documents: true,
