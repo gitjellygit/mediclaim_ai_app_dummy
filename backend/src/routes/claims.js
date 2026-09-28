@@ -411,8 +411,77 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       }
     });
 
+    // A denial/partial approval automatically opens a denial-workflow case.
+    // Re-recording the same payer status does not create duplicate active cases.
+    let denialCase = null;
+    if (["DENIED", "PARTIALLY_APPROVED"].includes(payerClaimStatus)) {
+      denialCase = await prisma.denialCase.findFirst({
+        where: {
+          claimId: claim.id,
+          status: {
+            in: [
+              "OPEN",
+              "ANALYZED",
+              "CORRECTION_REQUIRED",
+              "APPEAL_PREPARED",
+              "APPEAL_SUBMITTED",
+              "RESUBMITTED"
+            ]
+          }
+        },
+        orderBy: { createdAt: "desc" }
+      });
+
+      if (!denialCase) {
+        const claimed = Number(claim.amount || 0);
+        const paid = Number(claim.paidAmount || 0);
+        const allowedAmount = Number(claim.allowedAmount || 0);
+        const revenueAtRisk =
+          paid > 0
+            ? Math.max(0, claimed - paid)
+            : allowedAmount > 0
+            ? Math.max(0, claimed - allowedAmount)
+            : claimed;
+
+        denialCase = await prisma.denialCase.create({
+          data: {
+            claimId: claim.id,
+            source: "PAYER_STATUS",
+            status: "OPEN",
+            denialCategory: null,
+            denialDate: new Date(),
+            revenueAtRisk
+          }
+        });
+
+        try {
+          await prisma.auditEvent.create({
+            data: {
+              claimId: claim.id,
+              actorUserId: req.user?.id || null,
+              action: "DENIAL_CASE_AUTO_CREATED",
+              entityType: "DenialCase",
+              entityId: denialCase.id,
+              outcome: "SUCCESS",
+              metadata: {
+                payerClaimStatus
+              }
+            }
+          });
+        } catch (auditError) {
+          console.error("[audit] denial auto-create audit failed", {
+            claimId: claim.id,
+            message: auditError.message
+          });
+        }
+      }
+    }
+
     logJourneyEvent(claim.id, "payer-status-recorded", payerClaimStatus);
-    res.json(updated);
+    res.json({
+      ...updated,
+      denialCase
+    });
   } catch (error) {
     console.error("[claim-journey] payer status update failed", {
       claimId: req.params.id,
