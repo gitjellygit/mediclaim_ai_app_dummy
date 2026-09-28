@@ -119,8 +119,10 @@ model Claim {
   paidAmount              Int?
   paymentReference        String?
 
-  documents Document[]
-  checks    Check[]
+  documents   Document[]
+  checks      Check[]
+  denialCases DenialCase[]
+  auditEvents AuditEvent[]
 }
 
 model Document {
@@ -206,4 +208,64 @@ model RefreshToken {
 
   @@index([token])
   @@index([userId])
+}
+
+
+model DenialCase {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  claimId String
+  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  // Payer/remittance source data. CARC/RARC fields map to standard adjustment/remark concepts.
+  source          String   @default("MANUAL")
+  status          String   @default("OPEN")
+  denialCategory  String?
+  groupCode       String?
+  carcCode        String?
+  rarcCode        String?
+  reasonText      String?
+  denialDate      DateTime?
+
+  correctable     Boolean?
+  appealEligible  Boolean?
+  appealDeadline  DateTime?
+  revenueAtRisk   Int?
+  recoveredAmount Int?
+
+  recommendedAction String?
+  requiredDocuments Json?
+
+  // Grounded AI/LLM output. Provider/model metadata makes AI use auditable.
+  aiExplanation String?
+  aiConfidence  Int?
+  aiProvider    String?
+  aiModel       String?
+  aiAnalyzedAt  DateTime?
+  aiInputVersion String? @default("denial-v1")
+
+  @@index([claimId])
+  @@index([status])
+  @@index([denialCategory])
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  claimId String?
+  claim   Claim? @relation(fields: [claimId], references: [id], onDelete: SetNull)
+
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String?
+  outcome     String
+  metadata    Json?
+
+  @@index([claimId])
+  @@index([actorUserId])
+  @@index([createdAt])
 }
