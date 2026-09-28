@@ -26,6 +26,7 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
+import { useToast } from "../../context/ToastContext.jsx";
 
 
 const severityColor = {
@@ -40,12 +41,19 @@ export default function Rules() {
   const [deleteTarget, setDeleteTarget] = React.useState(null); // { id, name }
   const [deleting, setDeleting] = React.useState(false);
   const navigate = useNavigate();
+  const { showDialog, showToast } = useToast();
 
   async function load() {
     setLoading(true);
     try {
       const data = await ClaimsApi.listRules();
       setRules(data);
+    } catch (error) {
+      console.error("Failed to load rules:", error);
+      showDialog(
+        error?.message || "Rules could not be loaded. Please try again.",
+        { title: "Unable to load rules", severity: "error" }
+      );
     } finally {
       setLoading(false);
     }
@@ -60,10 +68,13 @@ export default function Rules() {
       setDeleting(true);
       await ClaimsApi.deleteRule(id);
       await load();
+      showToast("Rule deleted successfully", "success");
     } catch (e) {
-      // optionally surface error later
-      // eslint-disable-next-line no-console
-      console.error(e);
+      console.error("Delete rule failed:", e);
+      showDialog(
+        e?.message || "The rule could not be deleted.",
+        { title: "Rule could not be deleted", severity: "error" }
+      );
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
