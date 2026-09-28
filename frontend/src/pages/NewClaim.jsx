@@ -15,6 +15,7 @@ import {
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../api/claims.js";
+import { useToast } from "../context/ToastContext.jsx";
 
 const steps = [
   "Patient & Hospital",
@@ -27,6 +28,7 @@ const steps = [
 const ICD_REGEX = /^[A-Z][0-9]{2}(\.[0-9A-Z]{1,4})?$/;
 
 export default function NewClaim() {
+  const { showDialog } = useToast();
   const navigate = useNavigate();
 
   const [activeStep, setActiveStep] = React.useState(0);
@@ -113,7 +115,10 @@ export default function NewClaim() {
   const submit = async () => {
     // HARD STOP validations (final gate)
     if (!form.patientName || !form.payerName || !form.amount) {
-      alert("Patient name, insurance company and claimed amount are required");
+      showDialog(
+        "Patient name, insurance company, and claimed amount are required before a claim can be created.",
+        { title: "Required information missing", severity: "warning" }
+      );
       return;
     }
   
@@ -123,12 +128,18 @@ export default function NewClaim() {
       : null;
   
     if (Number.isNaN(amount)) {
-      alert("Claimed amount must be a valid number");
+      showDialog(
+        "Claimed amount must be a valid number greater than zero.",
+        { title: "Invalid claimed amount", severity: "warning" }
+      );
       return;
     }
   
     if (billed !== null && Number.isNaN(billed)) {
-      alert("Billed amount must be a valid number");
+      showDialog(
+        "Billed amount must be a valid number when provided.",
+        { title: "Invalid billed amount", severity: "warning" }
+      );
       return;
     }
   
@@ -154,7 +165,10 @@ export default function NewClaim() {
       await ClaimsApi.create(payload);
       navigate("/claims");
     } catch (e) {
-      alert(e.message || "Failed to create claim");
+      showDialog(
+        e.message || "The claim could not be created. Please review the information and try again.",
+        { title: "Claim creation failed", severity: "error" }
+      );
     } finally {
       setSubmitting(false);
     }
