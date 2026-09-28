@@ -271,12 +271,12 @@ function extractFields(text) {
   ]);
 
   const amountText = firstMatch(t, [
-    /Grand\s*Total\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Net\s*Amount\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Total\s*Amount\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Total\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Balance\s*Due\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Amount\s*Due\s*[:\-]?\s*(?:₹|Rs\.?|INR|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Grand\s*Total\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Net\s*Amount\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Total\s*Amount\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Total\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Balance\s*Due\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Amount\s*Due\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
     /₹\s*([0-9,]+\.?[0-9]*)/i,
     /\$\s*([0-9,]+\.?[0-9]*)/i
   ]);
