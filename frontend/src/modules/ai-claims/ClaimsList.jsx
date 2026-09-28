@@ -24,6 +24,7 @@ import {
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
+import { useToast } from "../../context/ToastContext.jsx";
 
 const statusColor = {
   DRAFT: "default",
@@ -38,6 +39,7 @@ export default function ClaimsList() {
   const [selected, setSelected] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   useEffect(() => {
     loadClaims();
@@ -103,27 +105,81 @@ export default function ClaimsList() {
       await ClaimsApi.delete(id);
       await loadClaims();
     } catch (error) {
-      console.error(error);
-      alert("Delete failed");
+      console.error("Delete claim failed:", error);
+      showToast(
+        error?.message || "Unable to delete claim. Please try again.",
+        "error"
+      );
     }
   }
 
-  // ✅ BULK DELETE
+  // Bulk deletion is intentionally sequential so each protected claim can
+  // return its own lifecycle error without hiding which records were affected.
   async function handleBulkDelete() {
     const ok = window.confirm(`Delete ${selected.length} claims?`);
     if (!ok) return;
 
-    try {
-      for (const id of selected) {
-        await ClaimsApi.delete(id);
-      }
+    const results = [];
 
-      setSelected([]);
-      await loadClaims();
-    } catch (err) {
-      console.error(err);
-      alert("Bulk delete failed");
+    for (const id of selected) {
+      const claim = claims.find((item) => item.id === id);
+
+      try {
+        await ClaimsApi.delete(id);
+        results.push({
+          id,
+          name: claim?.patientName || "Claim",
+          deleted: true
+        });
+      } catch (error) {
+        console.error("Bulk claim delete item failed:", {
+          claimId: id,
+          status: error?.status,
+          message: error?.message
+        });
+
+        results.push({
+          id,
+          name: claim?.patientName || "Claim",
+          deleted: false,
+          message: error?.message || "Delete failed"
+        });
+      }
     }
+
+    const deleted = results.filter((item) => item.deleted);
+    const failed = results.filter((item) => !item.deleted);
+
+    setSelected([]);
+    await loadClaims();
+
+    if (failed.length === 0) {
+      showToast(
+        `${deleted.length} claim${deleted.length === 1 ? "" : "s"} deleted successfully.`,
+        "success"
+      );
+      return;
+    }
+
+    if (deleted.length === 0 && failed.length === 1) {
+      showToast(
+        `${failed[0].name}: ${failed[0].message}`,
+        "error"
+      );
+      return;
+    }
+
+    const protectedSummary = failed
+      .slice(0, 3)
+      .map((item) => `${item.name}: ${item.message}`)
+      .join(" | ");
+
+    showToast(
+      `${deleted.length} deleted, ${failed.length} not deleted. ${protectedSummary}${
+        failed.length > 3 ? ` | +${failed.length - 3} more` : ""
+      }`,
+      deleted.length > 0 ? "warning" : "error"
+    );
   }
 
   return (
