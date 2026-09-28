@@ -1,7 +1,6 @@
 import fs from "fs";
 import crypto from "crypto";
 import path from "path";
-import { createRequire } from "module";
 import {
   TextractClient,
   DetectDocumentTextCommand,
@@ -10,8 +9,7 @@ import {
 } from "@aws-sdk/client-textract";
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
-const require = createRequire(import.meta.url);
-const pdf = require("pdf-parse");
+import { PDFParse } from "pdf-parse";
 
 const REGION = process.env.AWS_REGION || "ap-south-1";
 const TEXTRACT_BUCKET = process.env.AWS_TEXTRACT_S3_BUCKET;
@@ -55,13 +53,24 @@ export function getFileHash(filePath) {
 }
 
 async function extractPdfText(filePath) {
+  let parser;
+
   try {
     const buffer = fs.readFileSync(filePath);
-    const data = await pdf(buffer);
-    return data.text || "";
+    parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    return result?.text || "";
   } catch (error) {
     console.error("pdf-parse failed:", error.message);
     return "";
+  } finally {
+    if (parser) {
+      try {
+        await parser.destroy();
+      } catch (cleanupError) {
+        console.error("pdf-parse cleanup failed:", cleanupError.message);
+      }
+    }
   }
 }
 
