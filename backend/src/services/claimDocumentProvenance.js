@@ -43,6 +43,13 @@ function safeDate(value) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+// Claim.patientName and Claim.payerName are required schema fields and are also
+// the minimum identity needed to keep an empty draft claim understandable.
+// If the last source document is deleted, we retain those two "last known"
+// identity values while clearing optional document-derived clinical/financial
+// fields. A future upload/manual edit can replace them.
+const STICKY_REQUIRED_IDENTITY_FIELDS = new Set(["patientName", "payerName"]);
+
 function extractedValue(extracted = {}, field) {
   switch (field) {
     case "patientName":
@@ -169,6 +176,13 @@ export function recomputeDerivedClaimPatch(documents = [], derivedFields = []) {
     for (const doc of documents) {
       value = extractedValue(doc.extracted || {}, field);
       if (value != null) break;
+    }
+
+    // Do not write null into required Claim identity columns. Keeping the last
+    // known patient/payer identity makes the empty draft recoverable and avoids
+    // deleting the claim merely because its final support document was removed.
+    if (value == null && STICKY_REQUIRED_IDENTITY_FIELDS.has(field)) {
+      continue;
     }
 
     patch[field] = value;
