@@ -443,8 +443,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const check = claim.checks?.[0];
   const issues = Array.isArray(check?.issues) ? check.issues : [];
   const hasBlock = issues.some((i) => i.severity === "BLOCK");
+  const eligibilityClear = claim.eligibilityStatus === "VERIFIED";
+  const priorAuthClear =
+    claim.priorAuthStatus === "APPROVED" ||
+    claim.priorAuthStatus === "NOT_REQUIRED";
+
   const canSubmit =
     claim.status !== "SUBMITTED" &&
+    eligibilityClear &&
+    priorAuthClear &&
     !!check &&
     !hasBlock &&
     (check?.score ?? 0) >= 80;
@@ -968,6 +975,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               </Button>
             </Stack>
           </Stack>
+
+          {claim.status !== "SUBMITTED" && (!eligibilityClear || !priorAuthClear) && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              Complete Claim Journey prerequisites before submission:
+              {!eligibilityClear ? " eligibility verification" : ""}
+              {!eligibilityClear && !priorAuthClear ? " and" : ""}
+              {!priorAuthClear ? " prior authorization" : ""}.
+            </Alert>
+          )}
 
           {claim.status === "SUBMITTED" && (
             <Alert severity="success" sx={{ mt: 2 }}>
