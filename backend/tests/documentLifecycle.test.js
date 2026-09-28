@@ -548,3 +548,244 @@ test("19 - deleting last smart-created document preserves required identity but 
   assert.equal(updated.diagnosisText, null);
   assert.deepEqual(updated.icd10Codes, []);
 });
+
+
+test("20 - repeated eligibility pre-check is idempotent after verification", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      eligibilityStatus: "NOT_CHECKED",
+      eligibilityCheckedAt: null,
+      memberId: "MEM-IDEMP-001",
+      policyNo: "POL-IDEMP-001"
+    }
+  });
+
+  const first = await authFetch(`/api/claims/${claim.id}/journey/eligibility/precheck`, {
+    method: "POST"
+  });
+  assert.equal(first.status, 200);
+  const firstBody = await first.json();
+  assert.equal(firstBody.status, "VERIFIED");
+
+  const afterFirst = await prisma.claim.findUnique({ where: { id: claim.id } });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const second = await authFetch(`/api/claims/${claim.id}/journey/eligibility/precheck`, {
+    method: "POST"
+  });
+  assert.equal(second.status, 200);
+  const secondBody = await second.json();
+  assert.equal(secondBody.unchanged, true);
+
+  const afterSecond = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(
+    afterSecond.eligibilityCheckedAt?.toISOString(),
+    afterFirst.eligibilityCheckedAt?.toISOString()
+  );
+});
+
+test("21 - repeated prior-auth evaluation with same values is idempotent", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      priorAuthRequired: null,
+      priorAuthStatus: "NOT_CHECKED",
+      authorizationNo: null,
+      priorAuthExpiry: null
+    }
+  });
+
+  const payload = {
+    required: true,
+    authorizationNo: "AUTH-IDEMP-001",
+    expiry: "2026-12-31"
+  };
+
+  const first = await authFetch(`/api/claims/${claim.id}/journey/prior-auth/evaluate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  assert.equal(first.status, 200);
+
+  const afterFirst = await prisma.claim.findUnique({ where: { id: claim.id } });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const second = await authFetch(`/api/claims/${claim.id}/journey/prior-auth/evaluate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  assert.equal(second.status, 200);
+  const secondBody = await second.json();
+  assert.equal(secondBody.unchanged, true);
+
+  const afterSecond = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(
+    afterSecond.priorAuthCheckedAt?.toISOString(),
+    afterFirst.priorAuthCheckedAt?.toISOString()
+  );
+});
+
+test("22 - repeated payer status write does not rewrite checked timestamp", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED" });
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      payerClaimStatus: "ACKNOWLEDGED",
+      claimStatusCheckedAt: new Date("2026-09-28T12:00:00.000Z")
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/claim-status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payerClaimStatus: "ACKNOWLEDGED" })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.unchanged, true);
+
+  const updated = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(
+    updated.claimStatusCheckedAt?.toISOString(),
+    "2026-09-28T12:00:00.000Z"
+  );
+});
+
+test("23 - remittance auto-calculates estimated patient responsibility as allowed minus paid", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED", amount: 12000, totalBilledAmount: 12000 });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      remittanceStatus: "RECEIVED",
+      allowedAmount: 12000,
+      paidAmount: 10000,
+      paymentReference: "PAY-12000"
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.patientResponsibility, 2000);
+});
+
+test("24 - claimed minus paid is not treated as patient responsibility when allowed amount is lower", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED", amount: 12000, totalBilledAmount: 12000 });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      remittanceStatus: "RECEIVED",
+      allowedAmount: 10000,
+      paidAmount: 10000,
+      paymentReference: "PAY-10000"
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.patientResponsibility, 0);
+});
+
+test("25 - explicit remittance patient responsibility overrides estimate", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED", amount: 12000, totalBilledAmount: 12000 });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      remittanceStatus: "RECEIVED",
+      allowedAmount: 12000,
+      paidAmount: 10000,
+      patientResponsibility: 750,
+      paymentReference: "PAY-OVERRIDE"
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.patientResponsibility, 750);
+});
+
+test("26 - repeated identical remittance write is idempotent", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED", amount: 12000, totalBilledAmount: 12000 });
+
+  const payload = {
+    remittanceStatus: "RECEIVED",
+    allowedAmount: 12000,
+    paidAmount: 10000,
+    patientResponsibility: 2000,
+    paymentReference: "PAY-IDEMP"
+  };
+
+  const first = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  assert.equal(first.status, 200);
+
+  const afterFirst = await prisma.claim.findUnique({ where: { id: claim.id } });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const second = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  assert.equal(second.status, 200);
+  const secondBody = await second.json();
+  assert.equal(secondBody.unchanged, true);
+
+  const afterSecond = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(
+    afterSecond.remittanceReceivedAt?.toISOString(),
+    afterFirst.remittanceReceivedAt?.toISOString()
+  );
+});
+
+test("27 - journey UI uses responsive breakpoints and contextual claim return route", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /sm:\s*"repeat\(2, minmax\(0, 1fr\)\)"/);
+  assert.match(source, /lg:\s*"repeat\(3, minmax\(0, 1fr\)\)"/);
+  assert.match(source, /backLabel:\s*"Back to Claim Journey"/);
+  assert.match(source, /claimId=/);
+});
+
+test("28 - responsive shell uses temporary mobile drawer and no fixed mobile margin", { concurrency: false }, () => {
+  const layout = fs.readFileSync(
+    path.join(frontendRoot, "src/layout/MainLayout.jsx"),
+    "utf8"
+  );
+  const nav = fs.readFileSync(
+    path.join(frontendRoot, "src/layout/LeftNav.jsx"),
+    "utf8"
+  );
+
+  assert.match(layout, /ml:\s*\{\s*xs:\s*0,\s*md:/);
+  assert.match(nav, /variant="temporary"/);
+  assert.match(nav, /display:\s*\{\s*xs:\s*"block",\s*md:\s*"none"/);
+});
+
+test("29 - claim detail supports source-aware back navigation", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /location\.state\?\.from/);
+  assert.match(source, /location\.state\?\.backLabel/);
+});
