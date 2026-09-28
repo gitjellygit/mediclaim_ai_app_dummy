@@ -7,6 +7,7 @@ import claimsRouter from "./routes/claims.js";
 import rulesRouter from "./routes/rules.js";
 import { authRouter } from "./routes/auth.js";
 import { documentsRouter } from "./routes/documents.js";
+import denialsRouter from "./routes/denials.js";
 import { requireAuth, requireRoles } from "./middleware/auth.js";
 
 dotenv.config();
@@ -79,41 +80,18 @@ app.post("/api/auth/logout-all", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/api/debug", async (req, res) => {
+app.get("/api/debug", requireAuth, requireRoles(["ADMIN"]), async (req, res) => {
   try {
     const { PrismaClient } = await import("@prisma/client");
     const prisma = new PrismaClient();
     
-    console.log("=== DATABASE DEBUG ===");
-    
-    const claims = await prisma.claim.findMany();
-    console.log("All claims:", claims.length);
-    
-    const documents = await prisma.document.findMany();
-    console.log("All documents:", documents.length);
-    
-    const documentsWithClaimId = await prisma.document.findMany({
-      where: { claimId: { not: null } }
-    });
-    console.log("Documents with claimId:", documentsWithClaimId.length);
-    
-    // Check specific claim
-    let firstClaimWithDocs = null;
-    if (claims.length > 0) {
-      firstClaimWithDocs = await prisma.claim.findUnique({
-        where: { id: claims[0].id },
-        include: { documents: true }
-      });
-      console.log("First claim with documents:", firstClaimWithDocs.documents.length);
-    }
-    
+    const claims = await prisma.claim.count();
+    const documents = await prisma.document.count();
+
+    // Operational counts only. Do not emit PHI or claim/document payloads.
     res.json({
-      claims: claims.length,
-      documents: documents.length,
-      documentsWithClaimId: documentsWithClaimId.length,
-      sampleClaim: claims[0],
-      sampleDocument: documents[0],
-      firstClaimDocuments: firstClaimWithDocs?.documents || []
+      claims,
+      documents
     });
   } catch (error) {
     console.error("Debug error:", error);
@@ -126,15 +104,13 @@ app.get("/api/debug", async (req, res) => {
  * claimsRouter IS ALREADY A ROUTER → DO NOT CALL IT
  */
 app.use("/api/claims", requireAuth, claimsRouter);
+app.use("/api/denials", requireAuth, denialsRouter);
 
 /**
  * DOCUMENT ROUTES
  * documentsRouter IS A FUNCTION → must be CALLED
  */
 app.use("/api/documents", requireAuth, documentsRouter(prisma, "uploads"));
-
-// Public documents routes (for testing)
-app.use("/api/public-documents", documentsRouter(prisma, "uploads"));
 
 /**
  * RULE ROUTES (ADMIN ONLY)
