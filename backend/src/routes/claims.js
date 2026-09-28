@@ -46,6 +46,72 @@ async function invalidateClaimReadiness(claimId) {
   ]);
 }
 
+// Journey logs intentionally avoid patient/member data so PHI is not written to logs.
+function logJourneyEvent(claimId, action, result, extra = {}) {
+  console.info("[claim-journey]", {
+    claimId,
+    action,
+    result,
+    ...extra
+  });
+}
+
+function buildJourneyState(claim) {
+  const eligibilityComplete = claim.eligibilityStatus === "VERIFIED";
+  const authComplete =
+    claim.priorAuthStatus === "APPROVED" ||
+    claim.priorAuthStatus === "NOT_REQUIRED";
+  const claimComplete = claim.status === "SUBMITTED" || claim.status === "PAID";
+  const statusAvailable = claimComplete;
+  const remittanceAvailable = claimComplete;
+
+  return {
+    eligibility: {
+      status: claim.eligibilityStatus,
+      checkedAt: claim.eligibilityCheckedAt,
+      coverageStatus: claim.coverageStatus,
+      deductibleRemaining: claim.deductibleRemaining,
+      coinsurancePct: claim.coinsurancePct,
+      networkStatus: claim.networkStatus,
+      actionable: true
+    },
+    priorAuth: {
+      status: claim.priorAuthStatus,
+      required: claim.priorAuthRequired,
+      checkedAt: claim.priorAuthCheckedAt,
+      authorizationNo: claim.authorizationNo,
+      expiry: claim.priorAuthExpiry,
+      actionable: eligibilityComplete,
+      blockedReason: eligibilityComplete ? null : "Verify eligibility first"
+    },
+    claim: {
+      status: claim.status,
+      submissionDate: claim.claimSubmissionDate,
+      actionable: eligibilityComplete && authComplete,
+      blockedReason:
+        eligibilityComplete && authComplete
+          ? null
+          : "Eligibility and prior authorization must be resolved first"
+    },
+    claimStatus: {
+      status: claim.payerClaimStatus || (claimComplete ? "SUBMITTED" : "NOT_AVAILABLE"),
+      checkedAt: claim.claimStatusCheckedAt,
+      actionable: statusAvailable,
+      blockedReason: statusAvailable ? null : "Submit the claim first"
+    },
+    remittance: {
+      status: claim.remittanceStatus,
+      receivedAt: claim.remittanceReceivedAt,
+      allowedAmount: claim.allowedAmount,
+      patientResponsibility: claim.patientResponsibility,
+      paidAmount: claim.paidAmount,
+      paymentReference: claim.paymentReference,
+      actionable: remittanceAvailable,
+      blockedReason: remittanceAvailable ? null : "Submit the claim first"
+    }
+  };
+}
+
 router.get("/debug", async (req, res) => {
   try {
     const claims = await prisma.claim.findMany();
@@ -77,6 +143,304 @@ router.get("/", async (req, res) => {
   } catch (error) {
     console.error("Error fetching claims:", error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Claim Journey endpoints
+ *
+ * Eligibility and prior-auth actions are deterministic local pre-checks / recorded
+ * workflow decisions. They do not claim to be live payer responses. A payer/clearinghouse
+ * connector can replace these calls later without changing the UI workflow.
+ */
+router.get("/:id/journey", async (req, res) => {
+  try {
+    const claim = await prisma.claim.findUnique({
+      where: { id: req.params.id },
+      include: {
+        documents: { orderBy: { createdAt: "desc" } },
+        checks: { orderBy: { createdAt: "desc" }, take: 1 }
+      }
+    });
+
+    if (!claim) {
+      return res.status(404).json({ error: "Claim not found" });
+    }
+
+    res.json({
+      claim,
+      stages: buildJourneyState(claim),
+      livePayerConnectorConfigured: false
+    });
+  } catch (error) {
+    console.error("[claim-journey] load failed", {
+      claimId: req.params.id,
+      message: error.message
+    });
+    res.status(500).json({ error: "Unable to load claim journey" });
+  }
+});
+
+router.post("/:id/journey/eligibility/precheck", async (req, res) => {
+  try {
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    const now = new Date();
+    const missing = [];
+    if (!claim.memberId) missing.push("memberId");
+    if (!claim.policyNo) missing.push("policyNo");
+    if (!claim.payerName) missing.push("payerName");
+
+    let eligibilityStatus = "VERIFIED";
+    let coverageStatus = "ACTIVE";
+
+    if (missing.length > 0) {
+      eligibilityStatus = "NEEDS_REVIEW";
+      coverageStatus = "UNKNOWN";
+    } else if (claim.policyEndDate && new Date(claim.policyEndDate) < now) {
+      eligibilityStatus = "FAILED";
+      coverageStatus = "INACTIVE";
+    } else if (claim.policyStartDate && new Date(claim.policyStartDate) > now) {
+      eligibilityStatus = "FAILED";
+      coverageStatus = "NOT_YET_ACTIVE";
+    }
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        eligibilityStatus,
+        coverageStatus,
+        eligibilityCheckedAt: now
+      }
+    });
+
+    // Journey changes invalidate an old readiness result.
+    await prisma.check.deleteMany({ where: { claimId: claim.id } });
+    if (claim.status === "READY") {
+      await prisma.claim.update({
+        where: { id: claim.id },
+        data: { status: "DRAFT" }
+      });
+    }
+
+    logJourneyEvent(claim.id, "eligibility-precheck", eligibilityStatus, {
+      missingFieldCount: missing.length
+    });
+
+    res.json({
+      message:
+        eligibilityStatus === "VERIFIED"
+          ? "Eligibility pre-check passed"
+          : "Eligibility pre-check needs attention",
+      status: eligibilityStatus,
+      coverageStatus,
+      missingFields: missing,
+      livePayerVerification: false,
+      claim: updated
+    });
+  } catch (error) {
+    console.error("[claim-journey] eligibility precheck failed", {
+      claimId: req.params.id,
+      message: error.message
+    });
+    res.status(500).json({ error: "Eligibility pre-check failed. Please retry." });
+  }
+});
+
+router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
+  try {
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    if (claim.eligibilityStatus !== "VERIFIED") {
+      return res.status(409).json({
+        error: "Eligibility must be verified before prior authorization can be evaluated"
+      });
+    }
+
+    const required =
+      typeof req.body.required === "boolean"
+        ? req.body.required
+        : claim.priorAuthRequired;
+
+    const authorizationNo =
+      typeof req.body.authorizationNo === "string"
+        ? req.body.authorizationNo.trim() || null
+        : claim.authorizationNo;
+
+    let priorAuthStatus = "NEEDS_REVIEW";
+    if (required === false) priorAuthStatus = "NOT_REQUIRED";
+    if (required === true && authorizationNo) priorAuthStatus = "APPROVED";
+    if (required === true && !authorizationNo) priorAuthStatus = "REQUIRED";
+
+    const expiry =
+      req.body.expiry != null && req.body.expiry !== ""
+        ? new Date(req.body.expiry)
+        : claim.priorAuthExpiry;
+
+    if (expiry && Number.isNaN(new Date(expiry).getTime())) {
+      return res.status(400).json({ error: "Invalid prior authorization expiry date" });
+    }
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        priorAuthRequired: required,
+        priorAuthStatus,
+        priorAuthCheckedAt: new Date(),
+        authorizationNo,
+        priorAuthExpiry: expiry || null
+      }
+    });
+
+    await prisma.check.deleteMany({ where: { claimId: claim.id } });
+    if (claim.status === "READY") {
+      await prisma.claim.update({
+        where: { id: claim.id },
+        data: { status: "DRAFT" }
+      });
+    }
+
+    logJourneyEvent(claim.id, "prior-auth-evaluate", priorAuthStatus, {
+      required: required === true
+    });
+
+    res.json({
+      message: "Prior authorization stage updated",
+      status: priorAuthStatus,
+      livePayerVerification: false,
+      claim: updated
+    });
+  } catch (error) {
+    console.error("[claim-journey] prior auth evaluation failed", {
+      claimId: req.params.id,
+      message: error.message
+    });
+    res.status(500).json({ error: "Prior authorization update failed. Please retry." });
+  }
+});
+
+router.patch("/:id/journey/claim-status", async (req, res) => {
+  try {
+    const allowed = [
+      "ACKNOWLEDGED",
+      "IN_REVIEW",
+      "APPROVED",
+      "PARTIALLY_APPROVED",
+      "DENIED",
+      "PAID"
+    ];
+    const payerClaimStatus = String(req.body.payerClaimStatus || "").toUpperCase();
+
+    if (!allowed.includes(payerClaimStatus)) {
+      return res.status(400).json({ error: "Invalid payer claim status" });
+    }
+
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    if (!["SUBMITTED", "PAID"].includes(claim.status)) {
+      return res.status(409).json({ error: "Claim must be submitted before payer status can be recorded" });
+    }
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        payerClaimStatus,
+        claimStatusCheckedAt: new Date(),
+        status: payerClaimStatus === "PAID" ? "PAID" : claim.status
+      }
+    });
+
+    logJourneyEvent(claim.id, "payer-status-recorded", payerClaimStatus);
+    res.json(updated);
+  } catch (error) {
+    console.error("[claim-journey] payer status update failed", {
+      claimId: req.params.id,
+      message: error.message
+    });
+    res.status(500).json({ error: "Unable to record payer claim status" });
+  }
+});
+
+router.patch("/:id/journey/remittance", async (req, res) => {
+  try {
+    const allowedStatuses = ["AWAITING", "RECEIVED", "POSTED"];
+    const remittanceStatus = String(req.body.remittanceStatus || "").toUpperCase();
+
+    if (!allowedStatuses.includes(remittanceStatus)) {
+      return res.status(400).json({ error: "Invalid remittance status" });
+    }
+
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    if (!["SUBMITTED", "PAID"].includes(claim.status)) {
+      return res.status(409).json({ error: "Claim must be submitted before remittance can be recorded" });
+    }
+
+    const parseOptionalMoney = (value, name) => {
+      if (value == null || value === "") return null;
+      const number = Number(value);
+      if (!Number.isFinite(number) || number < 0) {
+        const error = new Error(`${name} must be a non-negative number`);
+        error.status = 400;
+        throw error;
+      }
+      return Math.round(number);
+    };
+
+    const allowedAmount = parseOptionalMoney(req.body.allowedAmount, "Allowed amount");
+    const patientResponsibility = parseOptionalMoney(
+      req.body.patientResponsibility,
+      "Patient responsibility"
+    );
+    const paidAmount = parseOptionalMoney(req.body.paidAmount, "Paid amount");
+
+    if (
+      allowedAmount != null &&
+      paidAmount != null &&
+      paidAmount > allowedAmount
+    ) {
+      return res.status(400).json({
+        error: "Paid amount cannot exceed allowed amount"
+      });
+    }
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        remittanceStatus,
+        remittanceReceivedAt:
+          remittanceStatus === "RECEIVED" || remittanceStatus === "POSTED"
+            ? new Date()
+            : null,
+        allowedAmount,
+        patientResponsibility,
+        paidAmount,
+        paymentReference:
+          typeof req.body.paymentReference === "string"
+            ? req.body.paymentReference.trim() || null
+            : null,
+        approvedAmount: allowedAmount,
+        status:
+          remittanceStatus === "POSTED" && paidAmount != null
+            ? "PAID"
+            : claim.status
+      }
+    });
+
+    logJourneyEvent(claim.id, "remittance-recorded", remittanceStatus);
+    res.json(updated);
+  } catch (error) {
+    console.error("[claim-journey] remittance update failed", {
+      claimId: req.params.id,
+      message: error.message
+    });
+    res.status(error.status || 500).json({
+      error: error.status ? error.message : "Unable to record remittance"
+    });
   }
 });
 
@@ -475,6 +839,23 @@ router.post("/:id/check", async (req, res) => {
       });
     }
 
+    if (claim.eligibilityStatus !== "VERIFIED") {
+      issues.push({
+        severity: "BLOCK",
+        message: "Eligibility has not been verified"
+      });
+    }
+
+    if (
+      claim.priorAuthStatus !== "APPROVED" &&
+      claim.priorAuthStatus !== "NOT_REQUIRED"
+    ) {
+      issues.push({
+        severity: "BLOCK",
+        message: "Prior authorization requirement is unresolved"
+      });
+    }
+
     let riskScore = 0;
     const riskFactors = [];
 
@@ -605,6 +986,21 @@ router.post("/:id/submit", async (req, res) => {
     }
 
     const latestCheck = claim.checks?.[0];
+
+    if (claim.eligibilityStatus !== "VERIFIED") {
+      return res.status(400).json({
+        error: "Verify eligibility before submitting the claim"
+      });
+    }
+
+    if (
+      claim.priorAuthStatus !== "APPROVED" &&
+      claim.priorAuthStatus !== "NOT_REQUIRED"
+    ) {
+      return res.status(400).json({
+        error: "Resolve prior authorization before submitting the claim"
+      });
+    }
 
     if (!latestCheck) {
       return res.status(400).json({
