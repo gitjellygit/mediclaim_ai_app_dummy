@@ -211,6 +211,17 @@ router.delete("/:id", async (req, res) => {
   try {
     const id = req.params.id;
 
+    const claim = await prisma.claim.findUnique({ where: { id } });
+    if (!claim) {
+      return res.status(404).json({ error: "Claim not found" });
+    }
+
+    if (claim.status === "SUBMITTED") {
+      return res.status(409).json({
+        error: "Submitted claims are locked and cannot be permanently deleted."
+      });
+    }
+
     const documents = await prisma.document.findMany({
       where: { claimId: id }
     });
