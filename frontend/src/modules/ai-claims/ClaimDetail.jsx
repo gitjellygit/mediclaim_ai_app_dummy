@@ -71,7 +71,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const id = idProp ?? idParam;
   const onBack = onBackProp ?? (() => navigate("/claims"));
 
-  const { showToast } = useToast();
+  const { showToast, showDialog, confirmDialog } = useToast();
   const user = AuthApi.getUser();
   const isAdmin = user?.role === "ADMIN";
   const canRunAI = user?.role === "ADMIN" || user?.role === "CASHIER";
@@ -151,7 +151,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   async function saveEdit() {
     if (!editForm) return;
     if (claim?.status === "SUBMITTED") {
-      return showToast("Submitted claims are locked. Reopen or amend before editing.", "error");
+      return showDialog(
+        "Submitted claims are locked. Reopen or amend the claim before editing.",
+        { title: "Claim is locked", severity: "warning" }
+      );
     }
 
     const payload = {
@@ -169,13 +172,22 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     };
 
     if (!payload.patientName || payload.patientName.length === 0) {
-      return showToast("Patient name is required", "error");
+      return showDialog(
+        "Patient name is required",
+        { title: "Missing patient name", severity: "warning" }
+      );
     }
     if (!payload.payerName || payload.payerName.length === 0) {
-      return showToast("Insurance company is required", "error");
+      return showDialog(
+        "Insurance company is required",
+        { title: "Missing insurance company", severity: "warning" }
+      );
     }
     if (!Number.isFinite(payload.amount) || payload.amount <= 0) {
-      return showToast("Claimed amount must be a valid number greater than 0", "error");
+      return showDialog(
+        "Claimed amount must be a valid number greater than 0",
+        { title: "Invalid claimed amount", severity: "warning" }
+      );
     }
 
     try {
@@ -185,29 +197,53 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       setEditMode(false);
       showToast("Claim details updated", "success");
     } catch (e) {
-      showToast(e.message || "Failed to update claim", "error");
+      showDialog(
+        e.message || "The claim could not be updated. Please try again.",
+        { title: "Claim update failed", severity: "error" }
+      );
     } finally {
       setSavingEdit(false);
     }
   }
 
   async function deleteClaim() {
-    if (!isAdmin) return showToast("Only ADMIN can delete claims", "error");
-    if (!confirm("This will permanently delete the claim. Continue?")) return;
+    if (!isAdmin) {
+      return showDialog(
+        "Only an ADMIN can permanently delete a claim.",
+        { title: "Permission required", severity: "warning" }
+      );
+    }
+
+    const confirmed = await confirmDialog(
+      "This will permanently delete the claim and its associated documents. This action cannot be undone.",
+      {
+        title: "Delete claim?",
+        severity: "warning",
+        confirmLabel: "Delete",
+        cancelLabel: "Cancel"
+      }
+    );
+    if (!confirmed) return;
 
     try {
       await ClaimsApi.delete(id);
       showToast("Claim deleted", "warning");
       onBack();
     } catch (e) {
-      showToast(e.message || "Failed to delete claim", "error");
+      showDialog(
+        e.message || "The claim could not be deleted.",
+        { title: "Claim could not be deleted", severity: "error" }
+      );
     }
   }
 
   async function runAICheck() {
     if (!canRunAI) return showToast("Only CASHIER/ADMIN can run AI check", "error");
     if (claim?.status === "SUBMITTED") {
-      return showToast("Submitted claims are locked. Reopen the claim before running a new AI check.", "error");
+      return showDialog(
+        "Submitted claims are locked. Reopen the claim before running a new AI check.",
+        { title: "AI check unavailable", severity: "warning" }
+      );
     }
 
     try {
@@ -217,7 +253,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       await load();
       showToast("AI analysis completed", "success");
     } catch (e) {
-      showToast(e.message || "AI analysis failed", "error");
+      showDialog(
+        e.message || "AI analysis could not be completed. Please try again.",
+        { title: "AI analysis failed", severity: "error" }
+      );
     } finally {
       setAiRunning(false);
     }
@@ -230,7 +269,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       await load();
       showToast("Claim submitted successfully", "success");
     } catch (e) {
-      showToast(e.message || "Failed to submit claim", "error");
+      showDialog(
+        e.message || "The claim could not be submitted.",
+        { title: "Claim submission failed", severity: "error" }
+      );
     } finally {
       setSubmittingClaim(false);
     }
@@ -245,7 +287,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       showToast("Applied AI suggested type", "success");
       await load();
     } catch (e) {
-      showToast(e.message || "Failed to apply suggestion", "error");
+      showDialog(
+        e.message || "The AI suggestion could not be applied.",
+        { title: "Suggestion could not be applied", severity: "error" }
+      );
     }
   }
 
@@ -282,13 +327,30 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   async function handleBulkDelete() {
     if (selectedDocs.size === 0) {
-      showToast("Please select documents to delete", "warning");
+      showDialog(
+        "Select at least one document before using bulk delete.",
+        { title: "No documents selected", severity: "warning" }
+      );
       return;
     }
 
-    if (!canDeleteDoc) return showToast("Only CASHIER/ADMIN can delete documents", "error");
+    if (!canDeleteDoc) {
+      return showDialog(
+        "Only CASHIER or ADMIN users can delete documents.",
+        { title: "Permission required", severity: "warning" }
+      );
+    }
     
-    if (!confirm(`Delete ${selectedDocs.size} selected document(s)? This cannot be undone.`)) return;
+    const confirmed = await confirmDialog(
+      `Delete ${selectedDocs.size} selected document${selectedDocs.size === 1 ? "" : "s"}? This cannot be undone.`,
+      {
+        title: "Delete selected documents?",
+        severity: "warning",
+        confirmLabel: "Delete",
+        cancelLabel: "Cancel"
+      }
+    );
+    if (!confirmed) return;
 
     try {
       setBulkDeleteLoading(true);
@@ -299,7 +361,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       setSelectedDocs(new Set());
       await load();
     } catch (e) {
-      showToast(e.message || "Failed to delete documents", "error");
+      showDialog(
+        e.message || "The selected documents could not be deleted.",
+        { title: "Documents could not be deleted", severity: "error" }
+      );
     } finally {
       setBulkDeleteLoading(false);
     }
@@ -316,7 +381,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       
       if (!token) {
         console.error("No authentication token found");
-        showToast("Please log in to preview documents", "error");
+        showDialog(
+          "Your session is missing or has expired. Please log in again to preview documents.",
+          { title: "Sign-in required", severity: "warning" }
+        );
         return;
       }
       
@@ -333,7 +401,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Preview response not ok:", response.status, response.statusText, errorText);
-        showToast(`Failed to preview: ${response.statusText}`, "error");
+        showDialog(
+          errorText || `Preview failed: ${response.statusText}`,
+          { title: "Document preview failed", severity: "error" }
+        );
         return;
       }
       
@@ -358,7 +429,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       
     } catch (e) {
       console.error("Preview error:", e);
-      showToast("Failed to preview document. Check if backend is running.", "error");
+      showDialog(
+        e?.message || "The document preview could not be loaded. Please try again.",
+        { title: "Document preview failed", severity: "error" }
+      );
     }
   }
 
@@ -373,7 +447,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       
       if (!token) {
         console.error("No authentication token found");
-        showToast("Please log in to download documents", "error");
+        showDialog(
+          "Your session is missing or has expired. Please log in again to download documents.",
+          { title: "Sign-in required", severity: "warning" }
+        );
         return;
       }
       
@@ -390,7 +467,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Download response not ok:", response.status, response.statusText, errorText);
-        showToast(`Failed to download: ${response.statusText}`, "error");
+        showDialog(
+          errorText || `Download failed: ${response.statusText}`,
+          { title: "Document download failed", severity: "error" }
+        );
         return;
       }
       
@@ -407,7 +487,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       showToast("Document downloaded successfully", "success");
     } catch (e) {
       console.error("Download error:", e);
-      showToast("Failed to download document. Check if backend is running.", "error");
+      showDialog(
+        e?.message || "The document could not be downloaded. Please try again.",
+        { title: "Document download failed", severity: "error" }
+      );
     }
   }
 
@@ -707,7 +790,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                     showToast("Document uploaded (AI analyzed)", "success");
                     await load();
                   } catch (err) {
-                    showToast(err.message || "Upload failed", "error");
+                    showDialog(
+                      err.message || "The document upload failed. Please try again.",
+                      { title: "Document upload failed", severity: "error" }
+                    );
                   }
 
                   e.target.value = "";
@@ -862,13 +948,25 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                                   <IconButton 
                                     size="small"
                                     onClick={async () => {
-                                      if (!confirm("Delete this document?")) return;
+                                      const confirmed = await confirmDialog(
+                                        "Delete this document? This action cannot be undone.",
+                                        {
+                                          title: "Delete document?",
+                                          severity: "warning",
+                                          confirmLabel: "Delete",
+                                          cancelLabel: "Cancel"
+                                        }
+                                      );
+                                      if (!confirmed) return;
                                       try {
                                         await ClaimsApi.deleteDoc(doc.id);
                                         showToast("Document deleted", "warning");
                                         await load();
                                       } catch (err) {
-                                        showToast(err.message || "Delete failed", "error");
+                                        showDialog(
+                                          err.message || "The document could not be deleted.",
+                                          { title: "Document could not be deleted", severity: "error" }
+                                        );
                                       }
                                     }}
                                     sx={{ color: 'error.main' }}
