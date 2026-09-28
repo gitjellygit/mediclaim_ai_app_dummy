@@ -400,28 +400,37 @@ export function documentsRouter(prisma, uploadDir) {
         document: doc
       });
     } catch (error) {
-      if (error.code === 'P2002') {
+      if (error.code === "P2002") {
         if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
           fs.unlinkSync(uploadedFilePath);
         }
-        
+
         return res.status(409).json({
           error: "Duplicate document",
           message: "This same document is already uploaded."
         });
       }
-      
+
       if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
         try {
           fs.unlinkSync(uploadedFilePath);
-        } catch (cleanupError) {
-          // Cleanup failed, file will be cleaned up later
+        } catch {
+          // Best-effort cleanup. Do not expose filesystem details.
         }
       }
-      
+
+      // Never expose Prisma/schema/database internals to the browser. These can
+      // contain implementation details and make investor/demo UX look broken.
+      console.error("[smart-upload] document processing failed", {
+        name: error?.name || "Error",
+        code: error?.code || null,
+        message: error?.message || "Unknown error"
+      });
+
       res.status(500).json({
         error: "Document processing failed",
-        message: error.message
+        message:
+          "The document could not be processed because the backend data model is not ready. Please retry after the server has been updated."
       });
     }
   });
