@@ -533,7 +533,10 @@ export default function ClaimJourney() {
                 xs: "1fr",
                 sm: "repeat(2, minmax(0, 1fr))",
                 lg: "repeat(3, minmax(0, 1fr))",
-                xl: "repeat(5, minmax(0, 1fr))"
+                xl: "repeat(4, minmax(0, 1fr))"
+              },
+              "@media (min-width:1900px)": {
+                gridTemplateColumns: "repeat(5, minmax(0, 1fr))"
               },
               gap: { xs: 1.5, md: 2 },
               alignItems: "stretch"
