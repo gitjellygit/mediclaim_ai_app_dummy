@@ -365,6 +365,19 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
     const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
+    // Completed eligibility is idempotent. Re-clicking the same action should
+    // not rewrite timestamps, invalidate readiness, or generate duplicate UX noise.
+    if (claim.eligibilityStatus === "VERIFIED") {
+      return res.json({
+        unchanged: true,
+        message: "Eligibility is already verified",
+        status: claim.eligibilityStatus,
+        coverageStatus: claim.coverageStatus,
+        livePayerVerification: false,
+        claim
+      });
+    }
+
     const now = new Date();
     const missing = [];
     if (!claim.memberId) missing.push("memberId");
@@ -462,6 +475,27 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
       return res.status(400).json({ error: "Invalid prior authorization expiry date" });
     }
 
+    const normalizedExpiry = expiry ? new Date(expiry).toISOString() : null;
+    const existingExpiry = claim.priorAuthExpiry
+      ? new Date(claim.priorAuthExpiry).toISOString()
+      : null;
+
+    const unchanged =
+      claim.priorAuthRequired === required &&
+      claim.priorAuthStatus === priorAuthStatus &&
+      (claim.authorizationNo || null) === (authorizationNo || null) &&
+      existingExpiry === normalizedExpiry;
+
+    if (unchanged) {
+      return res.json({
+        unchanged: true,
+        message: "Prior authorization information is already up to date",
+        status: claim.priorAuthStatus,
+        livePayerVerification: false,
+        claim
+      });
+    }
+
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
@@ -521,6 +555,15 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
 
     if (!["SUBMITTED", "PAID"].includes(claim.status)) {
       return res.status(409).json({ error: "Claim must be submitted before payer status can be recorded" });
+    }
+
+    if ((claim.payerClaimStatus || null) === payerClaimStatus) {
+      return res.json({
+        ...claim,
+        unchanged: true,
+        message: "Payer claim status is already up to date",
+        denialCase: null
+      });
     }
 
     const updated = await prisma.claim.update({
@@ -640,7 +683,7 @@ router.patch("/:id/journey/remittance", async (req, res) => {
     };
 
     const allowedAmount = parseOptionalMoney(req.body.allowedAmount, "Allowed amount");
-    const patientResponsibility = parseOptionalMoney(
+    const requestedPatientResponsibility = parseOptionalMoney(
       req.body.patientResponsibility,
       "Patient responsibility"
     );
@@ -656,6 +699,38 @@ router.patch("/:id/journey/remittance", async (req, res) => {
       });
     }
 
+    // If payer responsibility is not explicitly supplied, estimate the
+    // remaining patient responsibility as allowed - payer paid. This is an
+    // estimate only; an 835/ERA patient-responsibility value remains the source
+    // of truth when available. Claimed - paid is NOT used because contractual
+    // adjustments are not automatically patient responsibility.
+    const patientResponsibility =
+      requestedPatientResponsibility != null
+        ? requestedPatientResponsibility
+        : allowedAmount != null && paidAmount != null
+        ? Math.max(0, allowedAmount - paidAmount)
+        : null;
+
+    const normalizedPaymentReference =
+      typeof req.body.paymentReference === "string"
+        ? req.body.paymentReference.trim() || null
+        : null;
+
+    const remittanceUnchanged =
+      claim.remittanceStatus === remittanceStatus &&
+      (claim.allowedAmount ?? null) === allowedAmount &&
+      (claim.patientResponsibility ?? null) === patientResponsibility &&
+      (claim.paidAmount ?? null) === paidAmount &&
+      (claim.paymentReference || null) === normalizedPaymentReference;
+
+    if (remittanceUnchanged) {
+      return res.json({
+        ...claim,
+        unchanged: true,
+        message: "Remittance information is already up to date"
+      });
+    }
+
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
@@ -667,10 +742,7 @@ router.patch("/:id/journey/remittance", async (req, res) => {
         allowedAmount,
         patientResponsibility,
         paidAmount,
-        paymentReference:
-          typeof req.body.paymentReference === "string"
-            ? req.body.paymentReference.trim() || null
-            : null,
+        paymentReference: normalizedPaymentReference,
         approvedAmount: allowedAmount,
         status:
           remittanceStatus === "POSTED" && paidAmount != null
