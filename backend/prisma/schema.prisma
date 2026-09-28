@@ -95,6 +95,30 @@ model Claim {
   authorizationNo     String?
   claimSubmissionDate DateTime?
 
+  // Revenue-cycle journey: eligibility -> prior auth -> claim -> status -> remittance.
+  // These fields are deliberately explicit so each stage can be audited and gated.
+  eligibilityStatus       String   @default("NOT_CHECKED")
+  eligibilityCheckedAt    DateTime?
+  coverageStatus          String?
+  deductibleRemaining     Int?
+  coinsurancePct          Int?
+  networkStatus           String?
+
+  priorAuthRequired       Boolean?
+  priorAuthStatus         String   @default("NOT_CHECKED")
+  priorAuthCheckedAt      DateTime?
+  priorAuthExpiry         DateTime?
+
+  payerClaimStatus        String?
+  claimStatusCheckedAt    DateTime?
+
+  remittanceStatus        String   @default("NOT_AVAILABLE")
+  remittanceReceivedAt    DateTime?
+  allowedAmount           Int?
+  patientResponsibility   Int?
+  paidAmount              Int?
+  paymentReference        String?
+
   documents Document[]
   checks    Check[]
 }
