@@ -131,7 +131,8 @@ export function documentsRouter(prisma, uploadDir) {
 
       const extracted = intel.extracted || {};
       const patientName = extracted.patientName || "Unknown Patient";
-      const amount = Number(extracted.amount || 1);
+      const parsedAmount = extracted.amount != null ? Number(extracted.amount) : null;
+      const amount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : null;
       const payerName = extracted.payerName || "Insurance";
 
       let claim = null;
@@ -144,6 +145,9 @@ export function documentsRouter(prisma, uploadDir) {
           patientName: {
             equals: patientName,
             mode: "insensitive"
+          },
+          status: {
+            not: "SUBMITTED"
           }
         },
         orderBy: { createdAt: "desc" },
@@ -175,8 +179,11 @@ export function documentsRouter(prisma, uploadDir) {
         const claimData = {
           patientName,
           payerName,
-          amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
-          totalBilledAmount: Number.isFinite(amount) && amount > 0 ? amount : null,
+          amount,
+          totalBilledAmount:
+            intel.suggestedType === "FINAL_BILL" && amount
+              ? amount
+              : null,
           policyNo: extracted.policyNo || null,
           hospitalName: extracted.hospitalName || null,
           doctorName: extracted.doctorName || null,
@@ -231,9 +238,11 @@ export function documentsRouter(prisma, uploadDir) {
       } else {
         const updatePayload = {};
 
-        if (intel.suggestedType === "FINAL_BILL") {
-          if ((!claim.amount || claim.amount === 1) && amount > 1) {
+        if (intel.suggestedType === "FINAL_BILL" && amount) {
+          if (!claim.amount || Number(claim.amount) <= 0) {
             updatePayload.amount = amount;
+          }
+          if (!claim.totalBilledAmount || Number(claim.totalBilledAmount) <= 0) {
             updatePayload.totalBilledAmount = amount;
           }
         }
@@ -324,10 +333,21 @@ export function documentsRouter(prisma, uploadDir) {
         }
       });
 
+      await prisma.$transaction([
+        prisma.check.deleteMany({ where: { claimId: claim.id } }),
+        prisma.claim.update({
+          where: { id: claim.id },
+          data: { status: "DRAFT" }
+        })
+      ]);
+
       const updatedClaim = await prisma.claim.findUnique({
         where: { id: claim.id },
         include: {
           documents: {
+            orderBy: { createdAt: "desc" }
+          },
+          checks: {
             orderBy: { createdAt: "desc" }
           }
         }
@@ -398,6 +418,15 @@ export function documentsRouter(prisma, uploadDir) {
       return res.status(404).json({ error: "Claim not found" });
     }
 
+    if (claim.status === "SUBMITTED") {
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(409).json({
+        error: "Submitted claims are locked. Documents cannot be added."
+      });
+    }
+
     const uploadedFilePath = req.file.path;
     
     if (!fs.existsSync(uploadedFilePath)) {
@@ -429,6 +458,14 @@ export function documentsRouter(prisma, uploadDir) {
         status: "PROCESSED"
       }
     });
+
+    await prisma.$transaction([
+      prisma.check.deleteMany({ where: { claimId } }),
+      prisma.claim.update({
+        where: { id: claimId },
+        data: { status: "DRAFT" }
+      })
+    ]);
 
     res.status(201).json(doc);
   });
@@ -509,8 +546,17 @@ export function documentsRouter(prisma, uploadDir) {
   // DELETE doc
   router.delete("/:id", async (req, res) => {
     try {
-      const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
+      const doc = await prisma.document.findUnique({
+        where: { id: req.params.id },
+        include: { claim: true }
+      });
       if (!doc) return res.status(404).json({ error: "Doc not found" });
+
+      if (doc.claim?.status === "SUBMITTED") {
+        return res.status(409).json({
+          error: "Submitted claims are locked. Documents cannot be deleted."
+        });
+      }
 
       // Build correct file path - doc.path should be just filename
       const filePath = path.join(__dirname, "../uploads", doc.path);
@@ -519,7 +565,14 @@ export function documentsRouter(prisma, uploadDir) {
         fs.unlinkSync(filePath);
       }
 
-      await prisma.document.delete({ where: { id: doc.id } });
+      await prisma.$transaction([
+        prisma.document.delete({ where: { id: doc.id } }),
+        prisma.check.deleteMany({ where: { claimId: doc.claimId } }),
+        prisma.claim.update({
+          where: { id: doc.claimId },
+          data: { status: "DRAFT" }
+        })
+      ]);
 
       res.json({ ok: true });
     } catch (err) {
@@ -546,11 +599,18 @@ export function documentsRouter(prisma, uploadDir) {
   router.post("/:id/process", async (req, res) => {
     try {
       const doc = await prisma.document.findUnique({
-        where: { id: req.params.id }
+        where: { id: req.params.id },
+        include: { claim: true }
       });
       
       if (!doc) {
         return res.status(404).json({ error: "Document not found" });
+      }
+
+      if (doc.claim?.status === "SUBMITTED") {
+        return res.status(409).json({
+          error: "Submitted claims are locked. Documents cannot be reprocessed."
+        });
       }
 
       // Build correct file path - doc.path should be just filename
@@ -581,6 +641,14 @@ export function documentsRouter(prisma, uploadDir) {
           status: "PROCESSED"
         }
       });
+
+      await prisma.$transaction([
+        prisma.check.deleteMany({ where: { claimId: doc.claimId } }),
+        prisma.claim.update({
+          where: { id: doc.claimId },
+          data: { status: "DRAFT" }
+        })
+      ]);
 
       res.json(updated);
     } catch (error) {
