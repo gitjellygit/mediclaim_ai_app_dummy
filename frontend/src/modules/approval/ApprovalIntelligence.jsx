@@ -29,7 +29,7 @@ import {
   Refresh,
   Visibility
 } from "@mui/icons-material";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 
 function money(value) {
@@ -94,6 +94,7 @@ function projectedApproval(claim) {
 
 export default function ApprovalIntelligence() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [claims, setClaims] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
@@ -508,7 +509,14 @@ export default function ApprovalIntelligence() {
                       <Button
                         size="small"
                         startIcon={<Visibility />}
-                        onClick={() => navigate(`/claims/${claim.id}`)}
+                        onClick={() =>
+                          navigate(`/claims/${claim.id}`, {
+                            state: {
+                              from: location.pathname + location.search,
+                              backLabel: "Back to Approval Intelligence"
+                            }
+                          })
+                        }
                       >
                         Review
                       </Button>
