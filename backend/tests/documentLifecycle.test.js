@@ -9,6 +9,10 @@ import { PrismaClient } from "@prisma/client";
 import {
   recomputeDerivedClaimPatch
 } from "../src/services/claimDocumentProvenance.js";
+import {
+  buildAutomationSummary,
+  documentProvenance
+} from "../src/services/claimFieldProvenance.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -854,4 +858,202 @@ test("33 - AI readiness issues expose contextual fix actions", { concurrency: fa
   assert.match(source, /Verify Eligibility/);
   assert.match(source, /Resolve Auth/);
   assert.match(source, /Action required to improve this claim/);
+});
+
+
+test("34 - manual claim creation records user provenance", { concurrency: false }, async () => {
+  const response = await authFetch("/api/claims", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patientName: "Lifecycle Test Manual",
+      payerName: "Lifecycle Test Payer",
+      policyNo: "POL-MANUAL-001",
+      amount: 2200,
+      totalBilledAmount: 2300
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.fieldProvenance.patientName.source, "USER");
+  assert.equal(body.fieldProvenance.amount.source, "USER");
+});
+
+test("35 - manual edit changes provenance only for changed tracked fields", { concurrency: false }, async () => {
+  const claim = await createClaim({
+    amount: 1000,
+    totalBilledAmount: 1000
+  });
+
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      fieldProvenance: {
+        patientName: {
+          source: "DOCUMENT_AI",
+          label: "AI Extracted",
+          confidence: 92
+        },
+        amount: {
+          source: "DOCUMENT_AI",
+          label: "AI Extracted",
+          confidence: 92
+        }
+      }
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patientName: claim.patientName,
+      payerName: claim.payerName,
+      policyNo: claim.policyNo,
+      memberId: null,
+      patientDob: null,
+      hospitalName: null,
+      diagnosisText: "Updated manual diagnosis",
+      claimType: "REIMBURSEMENT",
+      icd10Codes: ["Z00.00"],
+      amount: 1000,
+      totalBilledAmount: 1000
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.fieldProvenance.patientName.source, "DOCUMENT_AI");
+  assert.equal(body.fieldProvenance.amount.source, "DOCUMENT_AI");
+  assert.equal(body.fieldProvenance.diagnosisText.source, "USER");
+});
+
+test("36 - eligibility pre-check identifies itself as local pre-check provenance", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      eligibilityStatus: "NOT_CHECKED",
+      memberId: "MEM-PROV-001",
+      policyNo: "POL-PROV-001",
+      fieldProvenance: null
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/eligibility/precheck`, {
+    method: "POST"
+  });
+
+  assert.equal(response.status, 200);
+  const updated = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(updated.fieldProvenance.eligibilityStatus.source, "LOCAL_PRECHECK");
+  assert.equal(updated.fieldProvenance.coverageStatus.source, "LOCAL_PRECHECK");
+});
+
+test("37 - estimated patient responsibility is labeled calculated estimate", { concurrency: false }, async () => {
+  const claim = await createClaim({
+    status: "SUBMITTED",
+    amount: 12000,
+    totalBilledAmount: 12000
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      remittanceStatus: "RECEIVED",
+      allowedAmount: 10000,
+      paidAmount: 8000,
+      paymentReference: "PROV-PAY-001"
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const updated = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(updated.patientResponsibility, 2000);
+  assert.equal(
+    updated.fieldProvenance.patientResponsibility.source,
+    "CALCULATED_ESTIMATE"
+  );
+  assert.equal(updated.fieldProvenance.allowedAmount.source, "USER_RECORDED");
+});
+
+test("38 - document provenance records AI source and confidence", { concurrency: false }, () => {
+  const provenance = documentProvenance({
+    fields: ["patientName", "amount"],
+    confidence: 87,
+    documentId: "doc-123",
+    fileName: "final_bill.pdf",
+    documentType: "FINAL_BILL"
+  });
+
+  assert.equal(provenance.patientName.source, "DOCUMENT_AI");
+  assert.equal(provenance.patientName.confidence, 87);
+  assert.equal(provenance.patientName.documentId, "doc-123");
+  assert.match(provenance.amount.sourceDetail, /FINAL_BILL/);
+});
+
+test("39 - automation summary separates automatic, manual, review and missing fields", { concurrency: false }, () => {
+  const summary = buildAutomationSummary({
+    patientName: "Lifecycle Test Patient",
+    payerName: "Lifecycle Test Payer",
+    policyNo: "POL-001",
+    amount: 1200,
+    patientResponsibility: 200,
+    fieldProvenance: {
+      patientName: {
+        source: "DOCUMENT_AI",
+        label: "AI Extracted",
+        confidence: 95
+      },
+      payerName: {
+        source: "USER",
+        label: "Entered by User"
+      },
+      policyNo: {
+        source: "DOCUMENT_AI",
+        label: "AI Extracted",
+        confidence: 60
+      },
+      amount: {
+        source: "DOCUMENT_AI",
+        label: "AI Extracted",
+        confidence: 90
+      },
+      patientResponsibility: {
+        source: "CALCULATED_ESTIMATE",
+        label: "Calculated Estimate"
+      }
+    }
+  });
+
+  assert.ok(summary.automatedFields >= 2);
+  assert.ok(summary.manualFields >= 1);
+  assert.ok(summary.reviewFields >= 2);
+  assert.ok(summary.missingFields > 0);
+});
+
+test("40 - claim detail exposes automation summary and visible source badges", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /Claim Automation/);
+  assert.match(source, /View Field Sources/);
+  assert.match(source, /AI Extracted/);
+  assert.match(source, /automationSummary\.automationRate/);
+  assert.match(source, /SourceBadge/);
+});
+
+test("41 - claim journey shows compact automation snapshot", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /Automation Snapshot/);
+  assert.match(source, /auto-populated/);
+  assert.match(source, /automationSummary\.missingFields/);
 });
