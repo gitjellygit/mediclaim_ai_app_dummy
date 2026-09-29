@@ -79,10 +79,22 @@ function StageCard({
   blockedReason,
   onStatusClick,
   statusHelp,
+  stageId,
+  highlighted = false,
   children
 }) {
   return (
-    <Card sx={{ height: "100%", opacity: actionable ? 1 : 0.72 }}>
+    <Card
+      id={stageId}
+      sx={{
+        height: "100%",
+        opacity: actionable ? 1 : 0.72,
+        scrollMarginTop: 96,
+        border: highlighted ? "2px solid" : undefined,
+        borderColor: highlighted ? "warning.main" : undefined,
+        boxShadow: highlighted ? 4 : undefined
+      }}
+    >
       <CardContent>
         <Stack
           direction="row"
@@ -328,6 +340,7 @@ export default function ClaimJourney() {
 
   const claim = journey?.claim;
   const stages = journey?.stages;
+  const focusedStage = searchParams.get("stage") || "";
 
   const eligibilityComplete = stages?.eligibility?.status === "VERIFIED";
 
@@ -370,6 +383,20 @@ export default function ClaimJourney() {
 
     setPatientResponsibility(String(Math.max(0, allowed - paid)));
   }, [allowedAmount, paidAmount, patientResponsibilityManual]);
+
+  React.useEffect(() => {
+    if (!claim || !focusedStage) return;
+
+    const stageElement = document.getElementById(`journey-stage-${focusedStage}`);
+    if (!stageElement) return;
+
+    window.setTimeout(() => {
+      stageElement.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
+    }, 120);
+  }, [claim?.id, focusedStage]);
 
   function claimReturnState() {
     const from = `/journey?claimId=${claim?.id || ""}`;
@@ -629,6 +656,8 @@ export default function ClaimJourney() {
           >
             <StageCard
               title={STAGE_LABELS.eligibility}
+              stageId="journey-stage-eligibility"
+              highlighted={focusedStage === "eligibility"}
               status={stages.eligibility.status}
               actionable={stages.eligibility.actionable}
               onStatusClick={
@@ -697,6 +726,8 @@ export default function ClaimJourney() {
 
             <StageCard
               title={STAGE_LABELS.priorAuth}
+              stageId="journey-stage-prior-auth"
+              highlighted={focusedStage === "prior-auth"}
               status={stages.priorAuth.status}
               actionable={stages.priorAuth.actionable}
               blockedReason={stages.priorAuth.blockedReason}
@@ -792,6 +823,8 @@ export default function ClaimJourney() {
 
             <StageCard
               title={STAGE_LABELS.claimStatus}
+              stageId="journey-stage-claim-status"
+              highlighted={focusedStage === "claim-status"}
               status={stages.claimStatus.status}
               actionable={stages.claimStatus.actionable}
               blockedReason={stages.claimStatus.blockedReason}
@@ -842,6 +875,8 @@ export default function ClaimJourney() {
 
             <StageCard
               title={STAGE_LABELS.remittance}
+              stageId="journey-stage-remittance"
+              highlighted={focusedStage === "remittance"}
               status={stages.remittance.status}
               actionable={stages.remittance.actionable}
               blockedReason={stages.remittance.blockedReason}
