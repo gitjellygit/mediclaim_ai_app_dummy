@@ -7,7 +7,8 @@ import {
 } from "@mui/material";
 import {
   DeleteForever, ExpandMore, ExpandLess, Visibility, Download, 
-  SelectAll, CheckBox, CheckBoxOutlineBlank, DeleteSweep, FolderOpen, BuildCircle
+  SelectAll, CheckBox, CheckBoxOutlineBlank, DeleteSweep, FolderOpen, BuildCircle,
+  AutoAwesome, Person, Calculate, FactCheck
 } from "@mui/icons-material";
 import { useLocation, useParams, useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
@@ -92,6 +93,53 @@ function riskChipColor(level) {
   return "default";
 }
 
+function provenanceChipColor(source) {
+  if (source === "DOCUMENT_AI") return "secondary";
+  if (source === "CALCULATED_ESTIMATE") return "warning";
+  if (source === "LOCAL_PRECHECK" || source === "DERIVED") return "info";
+  if (source === "USER" || source === "USER_RECORDED") return "default";
+  return "default";
+}
+
+function SourceBadge({ claim, field }) {
+  const source = claim?.fieldProvenance?.[field];
+  if (!source) return null;
+
+  const confidence =
+    source.confidence != null ? ` • ${source.confidence}%` : "";
+
+  return (
+    <Tooltip
+      title={
+        [source.sourceDetail, source.updatedAt
+          ? `Updated ${new Date(source.updatedAt).toLocaleString()}`
+          : null]
+          .filter(Boolean)
+          .join(" • ")
+      }
+    >
+      <Chip
+        size="small"
+        variant="outlined"
+        color={provenanceChipColor(source.source)}
+        label={`${source.label || source.source}${confidence}`}
+        sx={{ ml: 0.75, height: 22, fontSize: "0.68rem" }}
+      />
+    </Tooltip>
+  );
+}
+
+function FieldLine({ claim, field, label, children }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography component="div">
+        <b>{label}:</b> {children}
+      </Typography>
+      <SourceBadge claim={claim} field={field} />
+    </Box>
+  );
+}
+
 export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const { id: idParam } = useParams();
   const navigate = useNavigate();
@@ -124,6 +172,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
   const [bulkDeleteLoading, setBulkDeleteLoading] = React.useState(false);
   const [fixFocus, setFixFocus] = React.useState("");
+  const [automationExpanded, setAutomationExpanded] = React.useState(false);
   const patientPolicyRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
@@ -716,6 +765,146 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         </CardContent>
       </Card>
 
+      {claim.automationSummary && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              justifyContent="space-between"
+              alignItems={{ xs: "stretch", md: "center" }}
+              spacing={2}
+            >
+              <Box>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <AutoAwesome color="secondary" />
+                  <Typography variant="h6" fontWeight={700}>
+                    Claim Automation
+                  </Typography>
+                </Stack>
+                <Typography variant="body2" color="text.secondary">
+                  Shows what the system populated automatically, what staff entered,
+                  and what still needs review.
+                </Typography>
+              </Box>
+
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip
+                  icon={<AutoAwesome />}
+                  color="success"
+                  label={`${claim.automationSummary.automatedFields} auto-populated`}
+                />
+                <Chip
+                  icon={<FactCheck />}
+                  color="warning"
+                  label={`${claim.automationSummary.reviewFields} need review`}
+                />
+                <Chip
+                  icon={<Person />}
+                  variant="outlined"
+                  label={`${claim.automationSummary.manualFields} manual`}
+                />
+                <Chip
+                  icon={<Calculate />}
+                  color={claim.automationSummary.missingFields ? "error" : "default"}
+                  variant={claim.automationSummary.missingFields ? "filled" : "outlined"}
+                  label={`${claim.automationSummary.missingFields} missing`}
+                />
+              </Stack>
+            </Stack>
+
+            <Box sx={{ mt: 2 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Typography variant="body2" fontWeight={600}>
+                  Automation rate: {claim.automationSummary.automationRate}%
+                  {" "}of currently populated tracked fields
+                </Typography>
+                <Button
+                  size="small"
+                  onClick={() => setAutomationExpanded((value) => !value)}
+                >
+                  {automationExpanded ? "Hide Field Sources" : "View Field Sources"}
+                </Button>
+              </Stack>
+              <LinearProgress
+                variant="determinate"
+                value={claim.automationSummary.automationRate}
+                color={
+                  claim.automationSummary.automationRate >= 70
+                    ? "success"
+                    : claim.automationSummary.automationRate >= 40
+                    ? "warning"
+                    : "primary"
+                }
+                sx={{ mt: 1, height: 8, borderRadius: 4 }}
+              />
+            </Box>
+
+            <Collapse in={automationExpanded}>
+              <Divider sx={{ my: 2 }} />
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(2, minmax(0, 1fr))",
+                    lg: "repeat(3, minmax(0, 1fr))"
+                  },
+                  gap: 1
+                }}
+              >
+                {claim.automationSummary.fields.map((item) => (
+                  <Paper
+                    key={item.field}
+                    variant="outlined"
+                    sx={{ p: 1.25 }}
+                  >
+                    <Typography variant="body2" fontWeight={600}>
+                      {item.label}
+                    </Typography>
+                    <Stack direction="row" spacing={0.75} sx={{ mt: 0.75 }} flexWrap="wrap">
+                      <Chip
+                        size="small"
+                        label={
+                          item.bucket === "automated"
+                            ? "Auto-populated"
+                            : item.bucket === "manual"
+                            ? "Manual"
+                            : item.bucket === "review"
+                            ? "Needs Review"
+                            : "Missing"
+                        }
+                        color={
+                          item.bucket === "automated"
+                            ? "success"
+                            : item.bucket === "review"
+                            ? "warning"
+                            : item.bucket === "missing"
+                            ? "error"
+                            : "default"
+                        }
+                        variant={item.bucket === "manual" ? "outlined" : "filled"}
+                      />
+                      {item.source && (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          color={provenanceChipColor(item.source.source)}
+                          label={
+                            item.source.confidence != null
+                              ? `${item.source.label} • ${item.source.confidence}%`
+                              : item.source.label
+                          }
+                        />
+                      )}
+                    </Stack>
+                  </Paper>
+                ))}
+              </Box>
+            </Collapse>
+          </CardContent>
+        </Card>
+      )}
+
       <Card
         ref={patientPolicyRef}
         sx={{
@@ -773,10 +962,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   Clinical
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1.5 }}>
-                  <Typography><b>Diagnosis:</b> {claim.diagnosisText || "—"}</Typography>
-                  <Typography><b>ICD-10:</b> {claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "—"}</Typography>
-                  <Typography><b>Doctor:</b> {claim.doctorName || "—"}</Typography>
-                  <Typography><b>Hospital:</b> {claim.hospitalName || "—"}</Typography>
+                  <FieldLine claim={claim} field="diagnosisText" label="Diagnosis">{claim.diagnosisText || "—"}</FieldLine>
+                  <FieldLine claim={claim} field="icd10Codes" label="ICD-10">{claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "—"}</FieldLine>
+                  <FieldLine claim={claim} field="doctorName" label="Doctor">{claim.doctorName || "—"}</FieldLine>
+                  <FieldLine claim={claim} field="hospitalName" label="Hospital">{claim.hospitalName || "—"}</FieldLine>
                 </Box>
               </Box>
 
@@ -787,10 +976,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   Patient identity & coverage
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
-                  <Typography><b>Member ID:</b> {claim.memberId || "—"}</Typography>
-                  <Typography><b>DOB:</b> {formatDate(claim.patientDob)}</Typography>
-                  <Typography><b>Policy No:</b> {claim.policyNo || "—"}</Typography>
-                  <Typography><b>Payer:</b> {claim.payerName || "—"}</Typography>
+                  <FieldLine claim={claim} field="memberId" label="Member ID">{claim.memberId || "—"}</FieldLine>
+                  <FieldLine claim={claim} field="patientDob" label="DOB">{formatDate(claim.patientDob)}</FieldLine>
+                  <FieldLine claim={claim} field="policyNo" label="Policy No">{claim.policyNo || "—"}</FieldLine>
+                  <FieldLine claim={claim} field="payerName" label="Payer">{claim.payerName || "—"}</FieldLine>
                   <Typography><b>TPA:</b> {claim.tpaName || "—"}</Typography>
                   <Typography><b>Policy Type:</b> {claim.productType || "—"}</Typography>
                 </Box>
@@ -803,7 +992,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   Encounter
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
-                  <Typography><b>Date of Service:</b> {formatDate(claim.dateOfService)}</Typography>
+                  <FieldLine claim={claim} field="dateOfService" label="Date of Service">{formatDate(claim.dateOfService)}</FieldLine>
                   <Typography><b>Admission:</b> {formatDate(claim.admissionDate)}</Typography>
                   <Typography><b>Discharge:</b> {formatDate(claim.dischargeDate)}</Typography>
                   <Typography><b>Admission Type:</b> {claim.admissionType || "—"}</Typography>
@@ -819,11 +1008,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   Claim & financials
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
-                  <Typography><b>Total Billed:</b> {formatMoney(claim.totalBilledAmount)}</Typography>
-                  <Typography><b>Claimed Amount:</b> {formatMoney(claim.amount)}</Typography>
-                  <Typography><b>Approved Amount:</b> {formatMoney(claim.approvedAmount)}</Typography>
+                  <FieldLine claim={claim} field="totalBilledAmount" label="Total Billed">{formatMoney(claim.totalBilledAmount)}</FieldLine>
+                  <FieldLine claim={claim} field="amount" label="Claimed Amount">{formatMoney(claim.amount)}</FieldLine>
+                  <FieldLine claim={claim} field="approvedAmount" label="Approved Amount">{formatMoney(claim.approvedAmount)}</FieldLine>
                   <Typography><b>Insurer Claim No:</b> {claim.insurerClaimNo || "—"}</Typography>
-                  <Typography><b>Authorization No:</b> {claim.authorizationNo || "—"}</Typography>
+                  <FieldLine claim={claim} field="authorizationNo" label="Authorization No">{claim.authorizationNo || "—"}</FieldLine>
                   <Typography><b>Submission Date:</b> {formatDate(claim.claimSubmissionDate)}</Typography>
                 </Box>
               </Box>
