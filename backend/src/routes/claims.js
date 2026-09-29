@@ -1286,6 +1286,72 @@ router.get("/:id/download", async (req, res) => {
   }
 });
 
+router.post("/documents/:id/apply-suggestion", async (req, res) => {
+  try {
+    const doc = await prisma.document.findUnique({
+      where: { id: req.params.id },
+      include: { claim: true }
+    });
+
+    if (!doc) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    if (doc.claim?.status === "SUBMITTED") {
+      return res.status(409).json({
+        error: "Submitted claims are locked. Document type cannot be changed."
+      });
+    }
+
+    if (!doc.suggestedType) {
+      return res.status(409).json({
+        error: "No AI document type suggestion is available"
+      });
+    }
+
+    if (doc.type === doc.suggestedType) {
+      return res.json({
+        ...doc,
+        unchanged: true,
+        message: "Document type already matches the AI suggestion"
+      });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const changed = await tx.document.update({
+        where: { id: doc.id },
+        data: { type: doc.suggestedType }
+      });
+
+      await tx.check.deleteMany({ where: { claimId: doc.claimId } });
+
+      if (doc.claim?.status === "READY") {
+        await tx.claim.update({
+          where: { id: doc.claimId },
+          data: { status: "DRAFT" }
+        });
+      }
+
+      return changed;
+    });
+
+    res.json({
+      ...updated,
+      message: `Document type changed to ${updated.type.replaceAll("_", " ")}`
+    });
+  } catch (error) {
+    console.error("[claim-document] apply suggestion failed", {
+      documentId: req.params.id,
+      code: error?.code || null,
+      message: error?.message || "Unknown error"
+    });
+
+    res.status(500).json({
+      error: "Unable to apply AI document type suggestion"
+    });
+  }
+});
+
 router.delete("/documents/:id", async (req, res) => {
   try {
     const doc = await prisma.document.findUnique({
