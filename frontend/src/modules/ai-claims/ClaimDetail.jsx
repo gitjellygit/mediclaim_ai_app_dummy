@@ -239,6 +239,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       const updated = await ClaimsApi.update(id, payload);
       setClaim(updated);
       setEditMode(false);
+      setFixFocus("");
       showToast("Claim details updated", "success");
     } catch (e) {
       showDialog(
