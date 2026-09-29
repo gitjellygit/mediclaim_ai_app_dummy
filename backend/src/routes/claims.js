@@ -1662,11 +1662,6 @@ router.post("/:id/check", async (req, res) => {
       riskFactors.push("Blocking compliance failures present");
     }
 
-    riskScore = Math.min(riskScore, 0.95);
-
-    const riskLevel =
-      riskScore >= 0.6 ? "HIGH" : riskScore >= 0.3 ? "MED" : "LOW";
-
     let readinessScore = 100;
 
     issues.forEach((issue) => {
@@ -1675,6 +1670,21 @@ router.post("/:id/check", async (req, res) => {
     });
 
     readinessScore = Math.max(readinessScore, 0);
+
+    // Keep readiness and rejection-risk signals directionally consistent.
+    // This remains a rules-based estimate, not a payer probability.
+    const readinessRiskFloor = (100 - readinessScore) / 100;
+    if (readinessRiskFloor > riskScore) {
+      riskScore = readinessRiskFloor;
+      if (readinessRiskFloor >= 0.3) {
+        riskFactors.push("Readiness gaps indicate elevated submission risk");
+      }
+    }
+
+    riskScore = Math.min(riskScore, 0.95);
+
+    const riskLevel =
+      riskScore >= 0.6 ? "HIGH" : riskScore >= 0.3 ? "MED" : "LOW";
 
     const hasBlock = issues.some((i) => i.severity === "BLOCK");
 
