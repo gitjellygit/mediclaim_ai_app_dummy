@@ -263,6 +263,7 @@ function StageCard({
   return (
     <Card
       id={stageId}
+      data-testid={stageId}
       sx={{
         height: "100%",
         opacity: actionable ? 1 : 0.72,
