@@ -119,6 +119,11 @@ model Claim {
   paidAmount              Int?
   paymentReference        String?
 
+  // Connector abstraction: LOCAL today, SIMULATED for demo/testing, LIVE for
+  // future clearinghouse/payer integrations. Simulated payer codes are synthetic.
+  payerConnectionMode String @default("LOCAL")
+  simulatedPayerCode   String?
+
   // Fields currently supported by uploaded documents. This lets document
   // deletion recompute/clear only document-derived data without wiping
   // values a user entered manually.
@@ -133,6 +138,7 @@ model Claim {
   checks      Check[]
   denialCases DenialCase[]
   auditEvents AuditEvent[]
+  payerTransactions PayerTransaction[]
 }
 
 model Document {
@@ -160,6 +166,28 @@ model Document {
   confidence    Int? // 0..100
   extracted     Json? // { patientName?, amount?, dates?, ... }
   status        String  @default("PENDING") // PENDING, PROCESSED, FAILED
+}
+
+
+model PayerTransaction {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  claimId String
+  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  transactionId String @unique
+  mode          String @default("SIMULATED")
+  payerCode     String
+  transactionType String
+  status        String
+  latencyMs     Int?
+  requestPayload Json?
+  responsePayload Json?
+
+  @@index([claimId, createdAt])
+  @@index([payerCode])
+  @@index([transactionType])
 }
 
 model Check {
