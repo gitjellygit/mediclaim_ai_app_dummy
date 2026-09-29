@@ -16,6 +16,7 @@ import {
   Select,
   Stack,
   TextField,
+  Tooltip,
   Typography
 } from "@mui/material";
 import {
@@ -64,7 +65,22 @@ function stageColor(status) {
   return "default";
 }
 
-function StageCard({ title, status, actionable, blockedReason, children }) {
+function humanStatus(status) {
+  return String(status || "NOT_AVAILABLE")
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function StageCard({
+  title,
+  status,
+  actionable,
+  blockedReason,
+  onStatusClick,
+  statusHelp,
+  children
+}) {
   return (
     <Card sx={{ height: "100%", opacity: actionable ? 1 : 0.72 }}>
       <CardContent>
@@ -76,12 +92,34 @@ function StageCard({ title, status, actionable, blockedReason, children }) {
           sx={{ flexWrap: "wrap", rowGap: 1 }}
         >
           <Typography variant="h6" fontWeight={700}>{title}</Typography>
-          <Chip
-            size="small"
-            color={stageColor(status)}
-            variant={status === "NOT_CHECKED" || status === "NOT_AVAILABLE" ? "outlined" : "filled"}
-            label={status || "NOT_AVAILABLE"}
-          />
+          <Tooltip
+            title={
+              onStatusClick
+                ? statusHelp || "Review and fix this stage"
+                : humanStatus(status)
+            }
+          >
+            <Chip
+              size="small"
+              color={stageColor(status)}
+              variant={
+                status === "NOT_CHECKED" || status === "NOT_AVAILABLE"
+                  ? "outlined"
+                  : "filled"
+              }
+              label={humanStatus(status)}
+              onClick={onStatusClick}
+              clickable={Boolean(onStatusClick)}
+              sx={
+                onStatusClick
+                  ? {
+                      cursor: "pointer",
+                      "&:hover": { boxShadow: 2 }
+                    }
+                  : undefined
+              }
+            />
+          </Tooltip>
         </Stack>
 
         {!actionable && (
@@ -546,6 +584,22 @@ export default function ClaimJourney() {
               title={STAGE_LABELS.eligibility}
               status={stages.eligibility.status}
               actionable={stages.eligibility.actionable}
+              onStatusClick={
+                ["NEEDS_REVIEW", "FAILED"].includes(stages.eligibility.status)
+                  ? () =>
+                      navigate(`/claims/${claim.id}`, {
+                        state: {
+                          ...claimReturnState(),
+                          focus: "eligibility"
+                        }
+                      })
+                  : undefined
+              }
+              statusHelp={
+                stages.eligibility.status === "NEEDS_REVIEW"
+                  ? "Review missing member, policy, payer, or coverage information"
+                  : "Open claim details to review eligibility information"
+              }
             >
               <Stack spacing={1.2}>
                 <Typography variant="body2"><b>Coverage:</b> {stages.eligibility.coverageStatus || "—"}</Typography>
@@ -555,6 +609,24 @@ export default function ClaimJourney() {
                 <Typography variant="caption" color="text.secondary">
                   Last checked: {date(stages.eligibility.checkedAt)}
                 </Typography>
+                {["NEEDS_REVIEW", "FAILED"].includes(stages.eligibility.status) && (
+                  <Button
+                    variant="outlined"
+                    color="warning"
+                    size="small"
+                    startIcon={<Visibility />}
+                    onClick={() =>
+                      navigate(`/claims/${claim.id}`, {
+                        state: {
+                          ...claimReturnState(),
+                          focus: "eligibility"
+                        }
+                      })
+                    }
+                  >
+                    Review / Fix
+                  </Button>
+                )}
                 <Button
                   variant="contained"
                   size="small"
