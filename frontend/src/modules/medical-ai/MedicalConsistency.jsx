@@ -261,6 +261,8 @@ export default function MedicalConsistency() {
             return (
               <Paper
                 key={claim.id}
+                data-testid="medical-claim-row"
+                data-claim-name={claim.patientName}
                 variant="outlined"
                 sx={{
                   p: 2,
@@ -335,6 +337,7 @@ export default function MedicalConsistency() {
         open={Boolean(selected)}
         onClose={() => setSelected(null)}
         PaperProps={{
+          "data-testid": "medical-consistency-drawer",
           sx: {
             width: { xs: "100%", sm: 560 },
             p: { xs: 2, sm: 3 }
