@@ -1567,3 +1567,58 @@ test("63 - current submission eligibility rejects stale readiness result in UI",
 
   assert.match(source, /!check\.isStale/);
 });
+
+
+test("64 - low readiness cannot display deceptively low rejection risk", { concurrency: false }, async () => {
+  const claim = await createClaim({
+    amount: 1200,
+    totalBilledAmount: 1200
+  });
+
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      eligibilityStatus: "NOT_CHECKED",
+      priorAuthStatus: "NOT_CHECKED",
+      icd10Codes: ["Z00.00"]
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/check`, {
+    method: "POST"
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  assert.equal(body.score, 40);
+  assert.ok(body.riskScore >= 0.6);
+  assert.equal(body.riskLevel, "HIGH");
+});
+
+test("65 - AI check refresh keeps claim detail mounted and returns to readiness area", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /load\(\{ silent: true \}\)/);
+  assert.match(source, /readinessRef\.current\?\.scrollIntoView/);
+  assert.match(source, /Estimated Rejection Risk/);
+  assert.match(source, /not a payer probability/);
+});
+
+test("66 - AI analysis dialog shows domain-specific staged workflow", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/components/AICheckProgress.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /AI Claim Readiness Analysis/);
+  assert.match(source, /Reading claim documents/);
+  assert.match(source, /Checking clinical & policy data/);
+  assert.match(source, /Reviewing payer & authorization rules/);
+  assert.match(source, /Calculating readiness & rejection risk/);
+  assert.match(source, /claimAiSpin/);
+  assert.match(source, /HealthAndSafetyIcon/);
+});
