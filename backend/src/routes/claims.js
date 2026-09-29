@@ -35,7 +35,8 @@ import {
   simulatePriorAuth,
   simulateSubmission,
   simulateStatus,
-  simulateRemittance
+  simulateRemittance,
+  payerInputFingerprint
 } from "../services/payerSimulator.js";
 
 const router = express.Router();
@@ -733,7 +734,23 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
       return res.status(409).json({ error: "Eligibility is locked after claim submission" });
     }
 
-    const priorCount = claim.payerTransactions.filter((x) => x.transactionType === "ELIGIBILITY").length;
+    const eligibilityTransactions = claim.payerTransactions.filter((x) => x.transactionType === "ELIGIBILITY");
+    const priorCount = eligibilityTransactions.length;
+    const inputFingerprint = payerInputFingerprint("ELIGIBILITY", payer, claim);
+    const latestEligibility = eligibilityTransactions[0];
+    if (
+      latestEligibility?.requestPayload?.inputFingerprint === inputFingerprint &&
+      ["ACTIVE", "MEMBER_NOT_FOUND"].includes(latestEligibility.status)
+    ) {
+      return res.json({
+        unchanged: true,
+        message: "Eligibility is already current",
+        result: latestEligibility.responsePayload,
+        transaction: latestEligibility,
+        claim
+      });
+    }
+
     const result = simulateEligibility(payer, claim, priorCount + 1);
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
@@ -767,7 +784,12 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
       payer.code,
       "ELIGIBILITY",
       result,
-      { transaction: "270", memberIdPresent: Boolean(claim.memberId), policyNoPresent: Boolean(claim.policyNo) }
+      {
+        transaction: "270",
+        memberIdPresent: Boolean(claim.memberId),
+        policyNoPresent: Boolean(claim.policyNo),
+        inputFingerprint
+      }
     );
     await markReadinessChecksStale(prisma, claim.id, "Eligibility information changed");
 
@@ -796,8 +818,35 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
       return res.status(409).json({ error: "Prior authorization is locked after claim submission" });
     }
 
-    const priorCount = claim.payerTransactions.filter((x) => x.transactionType === "PRIOR_AUTH").length;
-    const result = simulatePriorAuth(payer, claim, priorCount + 1);
+    const requestedAuthorizationNo =
+      typeof req.body?.authorizationNo === "string"
+        ? req.body.authorizationNo.trim() || null
+        : claim.authorizationNo;
+
+    const claimForAuth = {
+      ...claim,
+      authorizationNo: requestedAuthorizationNo
+    };
+
+    const authTransactions = claim.payerTransactions.filter((x) => x.transactionType === "PRIOR_AUTH");
+    const priorCount = authTransactions.length;
+    const inputFingerprint = payerInputFingerprint("PRIOR_AUTH", payer, claimForAuth);
+    const latestAuth = authTransactions[0];
+
+    if (
+      latestAuth?.requestPayload?.inputFingerprint === inputFingerprint &&
+      ["NOT_REQUIRED", "APPROVED", "DENIED", "REQUIRED"].includes(latestAuth.status)
+    ) {
+      return res.json({
+        unchanged: true,
+        message: "Prior authorization is already current",
+        result: latestAuth.responsePayload,
+        transaction: latestAuth,
+        claim
+      });
+    }
+
+    const result = simulatePriorAuth(payer, claimForAuth, priorCount + 1);
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
     const updated = await prisma.claim.update({
@@ -805,7 +854,7 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
       data: {
         priorAuthRequired: result.required,
         priorAuthStatus: result.status,
-        authorizationNo: result.authorizationNo ?? claim.authorizationNo,
+        authorizationNo: result.authorizationNo ?? requestedAuthorizationNo,
         priorAuthExpiry: result.expiry ? new Date(result.expiry) : claim.priorAuthExpiry,
         priorAuthCheckedAt: new Date(),
         fieldProvenance: mergeProvenance(
@@ -825,7 +874,11 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
       payer.code,
       "PRIOR_AUTH",
       result,
-      { transaction: "278-style", procedurePresent: Boolean(claim.procedureText) }
+      {
+        transaction: "278-style",
+        procedurePresent: Boolean(claim.procedureText),
+        inputFingerprint
+      }
     );
     await markReadinessChecksStale(prisma, claim.id, "Prior authorization information changed");
 
@@ -851,7 +904,24 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
       return res.status(409).json({ error: "Submit the claim in Claim Journey first" });
     }
 
-    const priorCount = claim.payerTransactions.filter((x) => x.transactionType === "CLAIM_SUBMISSION").length;
+    const submissionTransactions = claim.payerTransactions.filter((x) => x.transactionType === "CLAIM_SUBMISSION");
+    const priorCount = submissionTransactions.length;
+    const inputFingerprint = payerInputFingerprint("CLAIM_SUBMISSION", payer, claim);
+    const latestSubmission = submissionTransactions[0];
+
+    if (
+      latestSubmission?.requestPayload?.inputFingerprint === inputFingerprint &&
+      ["ACCEPTED", "PENDED", "REJECTED"].includes(latestSubmission.status)
+    ) {
+      return res.json({
+        unchanged: true,
+        message: "Claim transmission is already current",
+        result: latestSubmission.responsePayload,
+        transaction: latestSubmission,
+        claim
+      });
+    }
+
     const result = simulateSubmission(payer, claim, priorCount + 1);
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
@@ -882,7 +952,11 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
       payer.code,
       "CLAIM_SUBMISSION",
       result,
-      { transaction: "837-style", amount: claim.amount || claim.totalBilledAmount || null }
+      {
+        transaction: "837-style",
+        amount: claim.amount || claim.totalBilledAmount || null,
+        inputFingerprint
+      }
     );
 
     res.json({ result, transaction, claim: updated });
@@ -908,6 +982,17 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
     }
 
     const statusTransactions = claim.payerTransactions.filter((x) => x.transactionType === "CLAIM_STATUS");
+    const latestStatus = statusTransactions[0];
+    if (latestStatus && ["APPROVED", "PARTIALLY_APPROVED", "DENIED", "PAID"].includes(latestStatus.status)) {
+      return res.json({
+        unchanged: true,
+        message: "Payer status is final",
+        result: latestStatus.responsePayload,
+        transaction: latestStatus,
+        claim
+      });
+    }
+
     const result = simulateStatus(payer, claim, statusTransactions.length, statusTransactions.length + 1);
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
@@ -921,6 +1006,14 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
         payerClaimStatus: result.status,
         claimStatusCheckedAt: new Date(),
         status: overallStatus,
+        allowedAmount:
+          result.allowedAmount != null ? result.allowedAmount : claim.allowedAmount,
+        approvedAmount:
+          result.approvedAmount != null ? result.approvedAmount : claim.approvedAmount,
+        patientResponsibility:
+          result.patientResponsibility != null
+            ? result.patientResponsibility
+            : claim.patientResponsibility,
         fieldProvenance: mergeProvenance(
           claim.fieldProvenance,
           systemProvenance(["payerClaimStatus"], {
