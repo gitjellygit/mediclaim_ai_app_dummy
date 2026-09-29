@@ -23,6 +23,10 @@ import {
   compareReadinessChecks,
   markReadinessChecksStale
 } from "../services/readinessHistory.js";
+import {
+  buildClaimCompleteness,
+  completenessReadinessIssues
+} from "../services/claimCompleteness.js";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -394,7 +398,8 @@ router.get("/:id/journey", async (req, res) => {
     res.json({
       claim: {
         ...claim,
-        automationSummary: buildAutomationSummary(claim)
+        automationSummary: buildAutomationSummary(claim),
+        completenessSummary: buildClaimCompleteness(claim)
       },
       stages: buildJourneyState(claim),
       livePayerConnectorConfigured: false
@@ -989,7 +994,8 @@ router.get("/:id", async (req, res) => {
   res.json({
     ...claim,
     checks,
-    automationSummary: buildAutomationSummary(claim)
+    automationSummary: buildAutomationSummary(claim),
+    completenessSummary: buildClaimCompleteness(claim)
   });
 });
 
@@ -1066,6 +1072,17 @@ router.patch("/:id", async (req, res) => {
       hospitalName: req.body.hospitalName || null,
       diagnosisText: req.body.diagnosisText || null,
       claimType: req.body.claimType,
+      dateOfService: req.body.dateOfService ? new Date(req.body.dateOfService) : null,
+      admissionDate: req.body.admissionDate ? new Date(req.body.admissionDate) : null,
+      dischargeDate: req.body.dischargeDate ? new Date(req.body.dischargeDate) : null,
+      admissionType: req.body.admissionType || null,
+      roomCategory: req.body.roomCategory || null,
+      icuDays:
+        req.body.icuDays != null && req.body.icuDays !== ""
+          ? Number(req.body.icuDays)
+          : null,
+      procedureText: req.body.procedureText || null,
+      procedureDate: req.body.procedureDate ? new Date(req.body.procedureDate) : null,
       icd10Codes: Array.isArray(req.body.icd10Codes)
         ? req.body.icd10Codes
         : [],
@@ -1092,6 +1109,26 @@ router.patch("/:id", async (req, res) => {
       Number.isNaN(new Date(payload.patientDob).getTime())
     ) {
       return res.status(400).json({ error: "Patient date of birth is invalid" });
+    }
+
+    for (const [label, value] of [
+      ["Date of service", payload.dateOfService],
+      ["Admission date", payload.admissionDate],
+      ["Discharge date", payload.dischargeDate],
+      ["Procedure date", payload.procedureDate]
+    ]) {
+      if (value && Number.isNaN(new Date(value).getTime())) {
+        return res.status(400).json({ error: `${label} is invalid` });
+      }
+    }
+
+    if (
+      payload.icuDays != null &&
+      (!Number.isFinite(payload.icuDays) || payload.icuDays < 0)
+    ) {
+      return res.status(400).json({
+        error: "ICU days must be zero or a positive number"
+      });
     }
 
     if (
@@ -1143,7 +1180,8 @@ router.patch("/:id", async (req, res) => {
 
     res.json({
       ...updated,
-      automationSummary: buildAutomationSummary(updated)
+      automationSummary: buildAutomationSummary(updated),
+      completenessSummary: buildClaimCompleteness(updated)
     });
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -1629,6 +1667,9 @@ router.post("/:id/check", async (req, res) => {
       });
     }
 
+    const completeness = completenessReadinessIssues(claim);
+    issues.push(...completeness.issues);
+
     let riskScore = 0;
     const riskFactors = [];
 
@@ -1716,7 +1757,8 @@ router.post("/:id/check", async (req, res) => {
 
     res.json({
       ...check,
-      comparison: compareReadinessChecks(check, previousCheck)
+      comparison: compareReadinessChecks(check, previousCheck),
+      completenessSummary: completeness.summary
     });
   } catch (e) {
     res.status(400).json({ error: e.message });
