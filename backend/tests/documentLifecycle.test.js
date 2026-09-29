@@ -1591,8 +1591,8 @@ test("64 - low readiness cannot display deceptively low rejection risk", { concu
   assert.equal(response.status, 200);
   const body = await response.json();
 
-  assert.equal(body.score, 40);
-  assert.ok(body.riskScore >= 0.6);
+  assert.ok(body.score < 40);
+  assert.ok(body.riskScore >= (100 - body.score) / 100);
   assert.equal(body.riskLevel, "HIGH");
 });
 
