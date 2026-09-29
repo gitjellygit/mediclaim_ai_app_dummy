@@ -1003,11 +1003,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     claim.priorAuthStatus === "NOT_REQUIRED";
 
   const completeness = claim.completenessSummary;
-  const completenessByField = React.useMemo(() => {
-    return Object.fromEntries(
-      (completeness?.fields || []).map((item) => [item.field, item])
-    );
-  }, [completeness]);
+  const completenessByField = Object.fromEntries(
+    (completeness?.fields || []).map((item) => [item.field, item])
+  );
 
   function completenessValue(field, value, formatter = (v) => v) {
     const state = completenessByField[field]?.state;
