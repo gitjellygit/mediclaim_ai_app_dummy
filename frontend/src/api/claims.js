@@ -125,6 +125,37 @@ export const ClaimsApi = {
     return withReadRetry(() => api(`${BASE}/${id}/journey`));
   },
 
+  getMockPayers() {
+    return withReadRetry(() => api(`${BASE}/payers/mock`));
+  },
+
+  connectMockPayer(id, payerCode) {
+    return api(`${BASE}/${id}/payer-simulation/connect`, {
+      method: "POST",
+      body: JSON.stringify({ payerCode })
+    });
+  },
+
+  simulatePayerEligibility(id) {
+    return api(`${BASE}/${id}/payer-simulation/eligibility`, { method: "POST" });
+  },
+
+  simulatePayerPriorAuth(id) {
+    return api(`${BASE}/${id}/payer-simulation/prior-auth`, { method: "POST" });
+  },
+
+  simulatePayerSubmission(id) {
+    return api(`${BASE}/${id}/payer-simulation/submission`, { method: "POST" });
+  },
+
+  simulatePayerStatus(id) {
+    return api(`${BASE}/${id}/payer-simulation/status`, { method: "POST" });
+  },
+
+  simulatePayerRemittance(id) {
+    return api(`${BASE}/${id}/payer-simulation/remittance`, { method: "POST" });
+  },
+
   runEligibilityPrecheck(id) {
     return api(`${BASE}/${id}/journey/eligibility/precheck`, {
       method: "POST"
