@@ -124,6 +124,11 @@ model Claim {
   // values a user entered manually.
   documentDerivedFields String[] @default([])
 
+  // Per-field source metadata used to show what was auto-populated, manually
+  // entered, calculated, or received from an external transaction.
+  // Example: { "amount": { "source": "DOCUMENT_AI", "confidence": 92, ... } }
+  fieldProvenance Json?
+
   documents   Document[]
   checks      Check[]
   denialCases DenialCase[]
