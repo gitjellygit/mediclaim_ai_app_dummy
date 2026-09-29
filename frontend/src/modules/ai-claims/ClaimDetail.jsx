@@ -3,11 +3,11 @@ import {
   Box, Card, CardContent, Typography, Button, Chip, Stack,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer, TablePagination,
   LinearProgress, Divider, TextField, Paper, Checkbox, IconButton, Tooltip,
-  Collapse, Alert, Snackbar
+  Collapse, Alert, Snackbar, MenuItem
 } from "@mui/material";
 import {
   DeleteForever, ExpandMore, ExpandLess, Visibility, Download, 
-  SelectAll, CheckBox, CheckBoxOutlineBlank, DeleteSweep, FolderOpen
+  SelectAll, CheckBox, CheckBoxOutlineBlank, DeleteSweep, FolderOpen, BuildCircle
 } from "@mui/icons-material";
 import { useLocation, useParams, useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
@@ -19,9 +19,36 @@ import { api } from "../../api/client.js";
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 const DOC_TYPES = [
-  "DISCHARGE_SUMMARY", "FINAL_BILL", "BREAKUP_BILL", "LAB_REPORT", "RADIOLOGY",
-  "PRESCRIPTION", "ID_PROOF", "INSURANCE_CARD", "OTHER"
+  "DISCHARGE_SUMMARY",
+  "FINAL_BILL",
+  "BREAKUP_BILL",
+  "LAB_REPORT",
+  "RADIOLOGY",
+  "PRESCRIPTION",
+  "ID_PROOF",
+  "INSURANCE_CARD",
+  "PRIOR_AUTHORIZATION",
+  "OPERATIVE_NOTE",
+  "PROGRESS_NOTE",
+  "EOB",
+  "OTHER"
 ];
+
+const DOC_TYPE_LABELS = {
+  DISCHARGE_SUMMARY: "Discharge Summary",
+  FINAL_BILL: "Final Bill",
+  BREAKUP_BILL: "Itemized / Breakup Bill",
+  LAB_REPORT: "Lab Report",
+  RADIOLOGY: "Radiology Report",
+  PRESCRIPTION: "Prescription",
+  ID_PROOF: "ID Proof",
+  INSURANCE_CARD: "Insurance Card",
+  PRIOR_AUTHORIZATION: "Prior Authorization",
+  OPERATIVE_NOTE: "Operative Note",
+  PROGRESS_NOTE: "Progress Note",
+  EOB: "Explanation of Benefits (EOB)",
+  OTHER: "Other"
+};
 
 const STATUS_COLOR = {
   DRAFT: "default",
@@ -96,6 +123,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [page, setPage] = React.useState(0);
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
   const [bulkDeleteLoading, setBulkDeleteLoading] = React.useState(false);
+  const [fixFocus, setFixFocus] = React.useState("");
+  const patientPolicyRef = React.useRef(null);
+  const documentsRef = React.useRef(null);
+  const readinessRef = React.useRef(null);
 
   async function load() {
     if (!id) {
@@ -123,6 +154,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       patientName: claim.patientName || "",
       payerName: claim.payerName || "",
       policyNo: claim.policyNo || "",
+      memberId: claim.memberId || "",
+      patientDob: claim.patientDob
+        ? new Date(claim.patientDob).toISOString().slice(0, 10)
+        : "",
       hospitalName: claim.hospitalName || "",
       diagnosisText: claim.diagnosisText || "",
       icd10Codes: claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "",
@@ -142,6 +177,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       patientName: claim.patientName || "",
       payerName: claim.payerName || "",
       policyNo: claim.policyNo || "",
+      memberId: claim.memberId || "",
+      patientDob: claim.patientDob
+        ? new Date(claim.patientDob).toISOString().slice(0, 10)
+        : "",
       hospitalName: claim.hospitalName || "",
       diagnosisText: claim.diagnosisText || "",
       icd10Codes: claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "",
@@ -164,6 +203,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       patientName: editForm.patientName?.trim(),
       payerName: editForm.payerName?.trim(),
       policyNo: editForm.policyNo || null,
+      memberId: editForm.memberId || null,
+      patientDob: editForm.patientDob || null,
       hospitalName: editForm.hospitalName || null,
       diagnosisText: editForm.diagnosisText || null,
       claimType: editForm.claimType,
@@ -239,6 +280,100 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       );
     }
   }
+
+  function scrollToRef(ref) {
+    window.setTimeout(() => {
+      ref?.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }, 80);
+  }
+
+  function openClaimEdit(focus = "claim") {
+    if (claim?.status === "SUBMITTED") {
+      showDialog(
+        "Submitted claims are locked. This issue cannot be edited unless the claim is reopened or amended.",
+        { title: "Claim is locked", severity: "warning" }
+      );
+      return;
+    }
+
+    setFixFocus(focus);
+    setEditMode(true);
+    scrollToRef(patientPolicyRef);
+  }
+
+  function fixIssue(issue) {
+    const message = String(issue?.message || "").toLowerCase();
+
+    if (message.includes("supporting document")) {
+      setFixFocus("documents");
+      scrollToRef(documentsRef);
+      return;
+    }
+
+    if (message.includes("eligibility")) {
+      navigate(`/journey?claimId=${claim.id}`, {
+        state: {
+          from: location.pathname + location.search,
+          backLabel: "Back to Claim Detail"
+        }
+      });
+      return;
+    }
+
+    if (message.includes("prior authorization")) {
+      navigate(`/journey?claimId=${claim.id}`, {
+        state: {
+          from: location.pathname + location.search,
+          backLabel: "Back to Claim Detail"
+        }
+      });
+      return;
+    }
+
+    if (message.includes("policy")) {
+      openClaimEdit("policyNo");
+      return;
+    }
+
+    if (message.includes("icd")) {
+      openClaimEdit("icd10Codes");
+      return;
+    }
+
+    if (message.includes("amount")) {
+      openClaimEdit("amount");
+      return;
+    }
+
+    openClaimEdit("claim");
+  }
+
+  function fixButtonLabel(issue) {
+    const message = String(issue?.message || "").toLowerCase();
+    if (message.includes("supporting document")) return "Upload Document";
+    if (message.includes("eligibility")) return "Verify Eligibility";
+    if (message.includes("prior authorization")) return "Resolve Auth";
+    return "Fix";
+  }
+
+  React.useEffect(() => {
+    if (!claim || !location.state?.focus) return;
+
+    if (location.state.focus === "eligibility") {
+      openClaimEdit("eligibility");
+    }
+    // Only consume this navigation hint once for the loaded claim.
+    navigate(location.pathname + location.search, {
+      replace: true,
+      state: {
+        from: location.state?.from,
+        backLabel: location.state?.backLabel
+      }
+    });
+  }, [claim?.id]);
 
   async function runAICheck() {
     if (!canRunAI) return showToast("Only CASHIER/ADMIN can run AI check", "error");
@@ -580,7 +715,19 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         </CardContent>
       </Card>
 
-      <Card sx={{ mb: 3 }}>
+      <Card
+        ref={patientPolicyRef}
+        sx={{
+          mb: 3,
+          scrollMarginTop: 88,
+          border:
+            fixFocus &&
+            ["eligibility", "policyNo", "icd10Codes", "amount", "claim"].includes(fixFocus)
+              ? "2px solid"
+              : undefined,
+          borderColor: "warning.main"
+        }}
+      >
         <CardContent>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Typography variant="h6">Patient & Policy</Typography>
@@ -684,6 +831,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
           {editMode && editForm && (
             <Stack spacing={2} sx={{ mt: 1 }}>
+              {fixFocus && (
+                <Alert severity="warning">
+                  Review the highlighted claim information, update the missing or incorrect values,
+                  then click Save Changes and rerun AI Check.
+                </Alert>
+              )}
               <TextField
                 label="Patient Name"
                 value={editForm.patientName}
@@ -705,6 +858,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <TextField
                 label="ICD-10 Codes (comma separated)"
                 value={editForm.icd10Codes}
+                color={fixFocus === "icd10Codes" ? "warning" : "primary"}
+                focused={fixFocus === "icd10Codes"}
                 onChange={(e) => updateEditField("icd10Codes", e.target.value)}
                 fullWidth
               />
@@ -719,6 +874,31 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 value={editForm.policyNo}
                 onChange={(e) => updateEditField("policyNo", e.target.value)}
                 fullWidth
+                autoFocus={fixFocus === "policyNo"}
+                color={fixFocus === "policyNo" ? "warning" : "primary"}
+                focused={fixFocus === "policyNo"}
+              />
+              <TextField
+                label="Member ID"
+                value={editForm.memberId}
+                onChange={(e) => updateEditField("memberId", e.target.value)}
+                fullWidth
+                autoFocus={fixFocus === "eligibility"}
+                color={fixFocus === "eligibility" ? "warning" : "primary"}
+                focused={fixFocus === "eligibility"}
+                helperText={
+                  fixFocus === "eligibility"
+                    ? "Eligibility pre-check requires Member ID, Policy Number, and Insurance Company."
+                    : ""
+                }
+              />
+              <TextField
+                label="Patient Date of Birth"
+                type="date"
+                InputLabelProps={{ shrink: true }}
+                value={editForm.patientDob}
+                onChange={(e) => updateEditField("patientDob", e.target.value)}
+                fullWidth
               />
               <TextField
                 label="Total Billed Amount ($)"
@@ -731,6 +911,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 label="Total Claimed Amount ($)"
                 type="number"
                 value={editForm.amount}
+                color={fixFocus === "amount" ? "warning" : "primary"}
+                focused={fixFocus === "amount"}
                 onChange={(e) => updateEditField("amount", e.target.value)}
                 fullWidth
               />
@@ -739,7 +921,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         </CardContent>
       </Card>
 
-      <Card sx={{ mb: 3 }}>
+      <Card
+        ref={documentsRef}
+        sx={{
+          mb: 3,
+          scrollMarginTop: 88,
+          border: fixFocus === "documents" ? "2px solid" : undefined,
+          borderColor: "warning.main"
+        }}
+      >
         <CardContent>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
             <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
@@ -765,17 +955,38 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
             )}
           </Stack>
 
-          <Stack direction="row" spacing={2} sx={{ mb: 3, alignItems: "center" }}>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={2}
+            sx={{ mb: 3, alignItems: { xs: "stretch", sm: "center" } }}
+          >
             <TextField
               select
               label="Document Type"
               value={docType}
               onChange={(e) => setDocType(e.target.value)}
               size="small"
-              sx={{ minWidth: 180 }}
+              sx={{
+                minWidth: { xs: "100%", sm: 260 },
+                "& .MuiSelect-select": { cursor: "pointer" }
+              }}
+              SelectProps={{
+                MenuProps: {
+                  PaperProps: {
+                    sx: { maxHeight: 360 }
+                  }
+                }
+              }}
+              helperText="Choose the document you are uploading"
             >
-              {DOC_TYPES.map((t) => (
-                <option key={t} value={t}>{t.replace('_', ' ')}</option>
+              {DOC_TYPES.map((type) => (
+                <MenuItem
+                  key={type}
+                  value={type}
+                  sx={{ cursor: "pointer", py: 1.1 }}
+                >
+                  {DOC_TYPE_LABELS[type] || type.replaceAll("_", " ")}
+                </MenuItem>
               ))}
             </TextField>
 
@@ -1085,7 +1296,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card ref={readinessRef} sx={{ scrollMarginTop: 88 }}>
         <CardContent>
           <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
             <Typography variant="h6">AI Readiness & Rejection Risk</Typography>
@@ -1170,13 +1381,55 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               {check.issues?.length === 0 ? (
                 <Chip label="Claim is ready for submission" color="success" sx={{ mt: 2 }} />
               ) : (
-                <Stack spacing={1} sx={{ mt: 2 }}>
-                  {check.issues.map((i, idx) => (
-                    <Chip
+                <Stack spacing={1.25} sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2">
+                    Action required to improve this claim
+                  </Typography>
+                  {check.issues.map((issue, idx) => (
+                    <Paper
                       key={idx}
-                      label={i.message}
-                      color={i.severity === "BLOCK" ? "error" : "warning"}
-                    />
+                      variant="outlined"
+                      sx={{
+                        p: 1.5,
+                        borderColor:
+                          issue.severity === "BLOCK"
+                            ? "error.light"
+                            : "warning.light"
+                      }}
+                    >
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        alignItems={{ xs: "stretch", sm: "center" }}
+                        justifyContent="space-between"
+                        spacing={1.5}
+                      >
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Chip
+                            size="small"
+                            label={issue.severity}
+                            color={
+                              issue.severity === "BLOCK"
+                                ? "error"
+                                : "warning"
+                            }
+                          />
+                          <Typography variant="body2" fontWeight={600}>
+                            {issue.message}
+                          </Typography>
+                        </Stack>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color={issue.severity === "BLOCK" ? "error" : "warning"}
+                          startIcon={<BuildCircle />}
+                          onClick={() => fixIssue(issue)}
+                          disabled={claim.status === "SUBMITTED"}
+                          sx={{ flexShrink: 0 }}
+                        >
+                          {fixButtonLabel(issue)}
+                        </Button>
+                      </Stack>
+                    </Paper>
                   ))}
                 </Stack>
               )}
