@@ -601,18 +601,28 @@ export default function ClaimJourney() {
           </Typography>
         </Box>
 
-        <Button
-          variant="outlined"
-          startIcon={<Refresh />}
-          onClick={() => {
-            const query = searchText.trim();
-            loadClaims(query.length >= 2 ? query : "");
-            if (claimId) loadJourney(claimId);
-          }}
-          disabled={loadingClaims || loadingJourney}
-        >
-          Refresh
-        </Button>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {location.state?.from && (
+            <Button
+              variant="outlined"
+              onClick={() => navigate(location.state.from)}
+            >
+              {location.state?.backLabel || "Back"}
+            </Button>
+          )}
+          <Button
+            variant="outlined"
+            startIcon={<Refresh />}
+            onClick={() => {
+              const query = searchText.trim();
+              loadClaims(query.length >= 2 ? query : "");
+              if (claimId) loadJourney(claimId);
+            }}
+            disabled={loadingClaims || loadingJourney}
+          >
+            Refresh
+          </Button>
+        </Stack>
       </Stack>
 
       <Paper
