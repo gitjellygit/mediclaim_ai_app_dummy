@@ -8,6 +8,10 @@ import {
   mergeDerivedFields,
   recomputeDerivedClaimPatch
 } from "../services/claimDocumentProvenance.js";
+import {
+  documentProvenance,
+  mergeProvenance
+} from "../services/claimFieldProvenance.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -211,6 +215,15 @@ export function documentsRouter(prisma, uploadDir) {
             extracted,
             intel.suggestedType || "OTHER"
           ),
+          fieldProvenance: documentProvenance({
+            fields: getDerivedFieldsFromDocument(
+              extracted,
+              intel.suggestedType || "OTHER"
+            ),
+            confidence: intel.confidence,
+            fileName: req.file.originalname,
+            documentType: intel.suggestedType || "OTHER"
+          }),
           status: "DRAFT"
         };
 
@@ -337,6 +350,15 @@ export function documentsRouter(prisma, uploadDir) {
               documentDerivedFields: mergeDerivedFields(
                 claim.documentDerivedFields,
                 Object.keys(updatePayload)
+              ),
+              fieldProvenance: mergeProvenance(
+                claim.fieldProvenance,
+                documentProvenance({
+                  fields: Object.keys(updatePayload),
+                  confidence: intel.confidence,
+                  fileName: req.file.originalname,
+                  documentType: intel.suggestedType || "OTHER"
+                })
               )
             }
           });
@@ -358,6 +380,31 @@ export function documentsRouter(prisma, uploadDir) {
           rawText: intel.rawExtractedText || null,
           ocrProvider: intel.ocrProvider || intel.extractionSource || null,
           status: "PROCESSED"
+        }
+      });
+
+      const documentFields = getDerivedFieldsFromDocument(
+        extracted,
+        intel.suggestedType || "OTHER"
+      );
+      const persistedClaim = await prisma.claim.findUnique({
+        where: { id: claim.id },
+        select: { fieldProvenance: true }
+      });
+
+      await prisma.claim.update({
+        where: { id: claim.id },
+        data: {
+          fieldProvenance: mergeProvenance(
+            persistedClaim?.fieldProvenance,
+            documentProvenance({
+              fields: documentFields,
+              confidence: intel.confidence,
+              documentId: doc.id,
+              fileName: req.file.originalname,
+              documentType: intel.suggestedType || "OTHER"
+            })
+          )
         }
       });
 
