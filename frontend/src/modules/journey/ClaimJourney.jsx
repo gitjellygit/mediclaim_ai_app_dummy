@@ -60,8 +60,8 @@ function stageColor(status) {
   if (
     ["VERIFIED", "APPROVED", "NOT_REQUIRED", "READY", "SUBMITTED", "PAID", "RECEIVED", "POSTED", "ACKNOWLEDGED"].includes(status)
   ) return "success";
-  if (["FAILED", "DENIED"].includes(status)) return "error";
-  if (["NEEDS_REVIEW", "REQUIRED", "IN_REVIEW", "PARTIALLY_APPROVED"].includes(status)) return "warning";
+  if (["FAILED", "DENIED", "REJECTED"].includes(status)) return "error";
+  if (["NEEDS_REVIEW", "REQUIRED", "IN_REVIEW", "PARTIALLY_APPROVED", "PENDED"].includes(status)) return "warning";
   return "default";
 }
 
@@ -341,6 +341,8 @@ export default function ClaimJourney() {
   const [loadingJourney, setLoadingJourney] = React.useState(false);
   const [pageError, setPageError] = React.useState("");
   const [action, setAction] = React.useState("");
+  const [mockPayers, setMockPayers] = React.useState([]);
+  const [selectedMockPayer, setSelectedMockPayer] = React.useState("");
 
   const [authRequired, setAuthRequired] = React.useState("");
   const [authorizationNo, setAuthorizationNo] = React.useState("");
@@ -394,6 +396,7 @@ export default function ClaimJourney() {
       setJourney(data);
 
       const claim = data.claim || {};
+      setSelectedMockPayer(data?.payerConnection?.simulatedPayerCode || "");
       setAuthRequired(
         claim.priorAuthRequired == null
           ? ""
@@ -444,6 +447,12 @@ export default function ClaimJourney() {
     } finally {
       setLoadingJourney(false);
     }
+  }, []);
+
+  React.useEffect(() => {
+    ClaimsApi.getMockPayers()
+      .then((data) => setMockPayers(Array.isArray(data?.payers) ? data.payers : []))
+      .catch(() => setMockPayers([]));
   }, []);
 
   React.useEffect(() => {
@@ -787,6 +796,224 @@ export default function ClaimJourney() {
                     Claim Detail
                   </Button>
                 </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Card sx={{ mb: 3 }} data-testid="payer-simulation-card">
+            <CardContent>
+              <Stack spacing={2}>
+                <Stack
+                  direction={{ xs: "column", md: "row" }}
+                  justifyContent="space-between"
+                  alignItems={{ xs: "stretch", md: "center" }}
+                  spacing={2}
+                >
+                  <Box>
+                    <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                      <Typography variant="h6" fontWeight={800}>
+                        Payer Connection
+                      </Typography>
+                      <Chip
+                        size="small"
+                        color={journey?.payerConnection?.mode === "SIMULATED" ? "secondary" : "default"}
+                        label={journey?.payerConnection?.mode === "SIMULATED" ? "SIMULATED" : "LOCAL"}
+                      />
+                    </Stack>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      Run deterministic 270/271, prior auth, claim, 276/277 and 835-style demo responses.
+                    </Typography>
+                  </Box>
+
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={1}
+                    sx={{ minWidth: { md: 430 } }}
+                  >
+                    <FormControl size="small" fullWidth>
+                      <InputLabel>Mock Payer</InputLabel>
+                      <Select
+                        label="Mock Payer"
+                        value={selectedMockPayer}
+                        onChange={(e) => setSelectedMockPayer(e.target.value)}
+                        disabled={Boolean(claim.claimSubmissionDate) || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)}
+                      >
+                        <MenuItem value="">Choose payer</MenuItem>
+                        {mockPayers.map((payer) => (
+                          <MenuItem key={payer.code} value={payer.code}>
+                            {payer.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <Button
+                      variant="contained"
+                      disabled={
+                        !selectedMockPayer ||
+                        action === "payer-connect" ||
+                        (journey?.payerConnection?.mode === "SIMULATED" &&
+                          journey?.payerConnection?.simulatedPayerCode === selectedMockPayer) ||
+                        Boolean(claim.claimSubmissionDate) ||
+                        ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
+                      }
+                      onClick={() =>
+                        runAction(
+                          "payer-connect",
+                          () => ClaimsApi.connectMockPayer(claim.id, selectedMockPayer),
+                          "Mock payer connected"
+                        )
+                      }
+                    >
+                      {action === "payer-connect"
+                        ? "Connecting..."
+                        : journey?.payerConnection?.simulatedPayerCode === selectedMockPayer &&
+                          journey?.payerConnection?.mode === "SIMULATED"
+                        ? "Connected"
+                        : "Connect"}
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                {journey?.payerConnection?.mode === "SIMULATED" &&
+                  journey?.payerConnection?.simulatedPayer && (
+                    <>
+                      <Alert severity="info">
+                        <b>{journey.payerConnection.simulatedPayer.name}</b> —{" "}
+                        {journey.payerConnection.simulatedPayer.description}
+                      </Alert>
+
+                      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={action !== "" || Boolean(claim.claimSubmissionDate)}
+                          onClick={() =>
+                            runAction(
+                              "payer-eligibility",
+                              () => ClaimsApi.simulatePayerEligibility(claim.id),
+                              "Mock payer eligibility response received"
+                            )
+                          }
+                        >
+                          {action === "payer-eligibility" ? "Checking..." : "1. Check Eligibility"}
+                        </Button>
+
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={
+                            action !== "" ||
+                            claim.eligibilityStatus !== "VERIFIED" ||
+                            Boolean(claim.claimSubmissionDate)
+                          }
+                          onClick={() =>
+                            runAction(
+                              "payer-auth",
+                              () => ClaimsApi.simulatePayerPriorAuth(claim.id),
+                              "Mock prior authorization response received"
+                            )
+                          }
+                        >
+                          {action === "payer-auth" ? "Checking..." : "2. Check Prior Auth"}
+                        </Button>
+
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={
+                            action !== "" ||
+                            (!claim.claimSubmissionDate && claim.status !== "SUBMITTED")
+                          }
+                          onClick={() =>
+                            runAction(
+                              "payer-submit",
+                              () => ClaimsApi.simulatePayerSubmission(claim.id),
+                              "Mock payer claim acknowledgment received"
+                            )
+                          }
+                        >
+                          {action === "payer-submit" ? "Sending..." : "3. Send to Payer"}
+                        </Button>
+
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={
+                            action !== "" ||
+                            (!claim.claimSubmissionDate && !["SUBMITTED", "DENIED", "PAID"].includes(claim.status))
+                          }
+                          onClick={() =>
+                            runAction(
+                              "payer-status",
+                              () => ClaimsApi.simulatePayerStatus(claim.id),
+                              "Mock payer status response received"
+                            )
+                          }
+                        >
+                          {action === "payer-status" ? "Checking..." : "4. Check Status"}
+                        </Button>
+
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={
+                            action !== "" ||
+                            !["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(claim.payerClaimStatus || "") ||
+                            claim.remittanceStatus === "POSTED"
+                          }
+                          onClick={() =>
+                            runAction(
+                              "payer-remittance",
+                              () => ClaimsApi.simulatePayerRemittance(claim.id),
+                              "Mock 835 remittance received"
+                            )
+                          }
+                        >
+                          {action === "payer-remittance" ? "Receiving..." : "5. Get Remittance"}
+                        </Button>
+                      </Stack>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
+                          Payer Activity
+                        </Typography>
+                        {!claim.payerTransactions?.length ? (
+                          <Typography variant="body2" color="text.secondary">
+                            No simulated payer transactions yet.
+                          </Typography>
+                        ) : (
+                          <Stack spacing={1}>
+                            {claim.payerTransactions.slice(0, 8).map((tx) => (
+                              <Paper key={tx.id} variant="outlined" sx={{ p: 1.25 }}>
+                                <Stack
+                                  direction={{ xs: "column", sm: "row" }}
+                                  justifyContent="space-between"
+                                  spacing={1}
+                                >
+                                  <Box>
+                                    <Typography variant="body2" fontWeight={700}>
+                                      {humanStatus(tx.transactionType)}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {tx.transactionId} • {tx.latencyMs || 0} ms
+                                    </Typography>
+                                  </Box>
+                                  <Chip size="small" color={stageColor(tx.status)} label={humanStatus(tx.status)} />
+                                </Stack>
+                                {tx.responsePayload?.reason && (
+                                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                                    {tx.responsePayload.reason}
+                                  </Typography>
+                                )}
+                              </Paper>
+                            ))}
+                          </Stack>
+                        )}
+                      </Box>
+                    </>
+                  )}
               </Stack>
             </CardContent>
           </Card>
