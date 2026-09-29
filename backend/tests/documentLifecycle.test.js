@@ -1261,3 +1261,23 @@ test("51 - claim journey uses compact required and conditional field cues", { co
   assert.doesNotMatch(source, /In production this should come from/);
   assert.doesNotMatch(source, /For a real 835 ERA/);
 });
+
+
+test("52 - claim journey uses visual connected progress tracker", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /function JourneyProgress/);
+  assert.match(source, /Eligibility/);
+  assert.match(source, /Prior Auth/);
+  assert.match(source, /Remittance/);
+  assert.match(source, /connectorComplete/);
+  assert.match(source, /success\.main/);
+  assert.match(source, /journey-stage-claim/);
+  assert.doesNotMatch(
+    source,
+    /Eligibility → Prior Auth → Claim → Status → Remittance/
+  );
+});
