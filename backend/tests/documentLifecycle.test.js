@@ -18,6 +18,15 @@ import {
   completenessReadinessIssues
 } from "../src/services/claimCompleteness.js";
 import { analyzeMedicalConsistency } from "../src/services/medicalConsistency.js";
+import {
+  getMockPayer,
+  listMockPayers,
+  simulateEligibility,
+  simulatePriorAuth,
+  simulateSubmission,
+  simulateStatus,
+  simulateRemittance
+} from "../src/services/payerSimulator.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2050,4 +2059,106 @@ test("85 - medical consistency UI provides dashboard metrics findings and fix na
   assert.match(source, /Review \/ Fix in Claim/);
   assert.match(source, /Passed Checks/);
   assert.match(source, /Decision support only/);
+});
+
+
+test("86 - mock payer directory exposes five synthetic payer profiles", { concurrency: false }, () => {
+  const payers = listMockPayers();
+  assert.equal(payers.length, 5);
+  assert.deepEqual(
+    payers.map((payer) => payer.code),
+    ["BLUE_HORIZON", "SUMMITCARE", "METROPLUS_DEMO", "CAREFIRST_DEMO", "APEX_BENEFIT"]
+  );
+});
+
+test("87 - CareFirst demo eligibility is member-sensitive", { concurrency: false }, () => {
+  const payer = getMockPayer("CAREFIRST_DEMO");
+  const bad = simulateEligibility(payer, {
+    id: "cf-bad",
+    memberId: "MEM-123",
+    policyNo: "POL-123"
+  });
+  const good = simulateEligibility(payer, {
+    id: "cf-good",
+    memberId: "CF-123",
+    policyNo: "POL-123"
+  });
+
+  assert.equal(bad.status, "MEMBER_NOT_FOUND");
+  assert.equal(good.status, "ACTIVE");
+  assert.equal(good.coverageStatus, "ACTIVE");
+});
+
+test("88 - SummitCare requires auth for MRI and approves recorded authorization", { concurrency: false }, () => {
+  const payer = getMockPayer("SUMMITCARE");
+  const base = {
+    id: "summit-mri",
+    procedureText: "MRI lumbar spine"
+  };
+
+  const required = simulatePriorAuth(payer, base);
+  assert.equal(required.required, true);
+  assert.equal(required.status, "REQUIRED");
+
+  const approved = simulatePriorAuth(payer, {
+    ...base,
+    authorizationNo: "AUTH-SC-100"
+  });
+  assert.equal(approved.status, "APPROVED");
+});
+
+test("89 - MetroPlus mock pends inpatient claim without discharge summary", { concurrency: false }, () => {
+  const payer = getMockPayer("METROPLUS_DEMO");
+  const result = simulateSubmission(payer, {
+    id: "metro-docs",
+    admissionDate: new Date("2026-09-20"),
+    priorAuthStatus: "NOT_REQUIRED",
+    documents: [{ type: "FINAL_BILL" }]
+  });
+
+  assert.equal(result.status, "PENDED");
+  assert.match(result.reason, /discharge summary/i);
+});
+
+test("90 - simulated claim status progresses received to review to payer outcome", { concurrency: false }, () => {
+  const payer = getMockPayer("BLUE_HORIZON");
+  const claim = {
+    id: "status-progress",
+    priorAuthStatus: "NOT_REQUIRED",
+    documents: [{ type: "DISCHARGE_SUMMARY" }]
+  };
+
+  assert.equal(simulateStatus(payer, claim, 0).status, "RECEIVED");
+  assert.equal(simulateStatus(payer, claim, 1).status, "IN_REVIEW");
+  assert.equal(simulateStatus(payer, claim, 2).status, "APPROVED");
+});
+
+test("91 - Apex remittance creates deterministic underpayment demo", { concurrency: false }, () => {
+  const payer = getMockPayer("APEX_BENEFIT");
+  const result = simulateRemittance(payer, {
+    id: "apex-payment",
+    amount: 20000,
+    coinsurancePct: 0
+  });
+
+  assert.equal(result.allowedAmount, 13600);
+  assert.equal(result.paidAmount, 10880);
+  assert.equal(result.patientResponsibility, 2720);
+  assert.ok(result.paidAmount < result.allowedAmount);
+});
+
+test("92 - payer simulator frontend exposes connection workflow and transaction history", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /Payer Connection/);
+  assert.match(source, /SIMULATED/);
+  assert.match(source, /Check Eligibility/);
+  assert.match(source, /Check Prior Auth/);
+  assert.match(source, /Send to Payer/);
+  assert.match(source, /Check Status/);
+  assert.match(source, /Get Remittance/);
+  assert.match(source, /Payer Activity/);
 });
