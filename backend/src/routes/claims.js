@@ -447,8 +447,9 @@ router.post("/e2e/medical-consistency/seed", async (req, res) => {
         procedureText: "Laparoscopic appendectomy",
         procedureDate: new Date("2026-09-21T00:00:00.000Z")
       }),
+      // Intentionally omit all clinical support documents. A FINAL_BILL alone
+      // must not satisfy procedure-documentation support.
       documents: [
-        doc("DISCHARGE_SUMMARY", "09-discharge.pdf"),
         doc("FINAL_BILL", "09-final-bill.pdf")
       ]
     },
