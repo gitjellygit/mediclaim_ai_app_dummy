@@ -17,7 +17,7 @@ let auth;
 let scenarios = [];
 
 async function selectPayer(page, payerName) {
-  await page.getByLabel("Payer").click();
+  await page.getByTestId("payer-select").click();
   await page.getByRole("option", { name: payerName }).click();
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
