@@ -1415,3 +1415,151 @@ test("58 - journey UI disables completed terminal stage controls", { concurrency
   assert.match(source, /disabled=\{!stages\.claimStatus\.actionable\}/);
   assert.match(source, /disabled=\{!stages\.remittance\.actionable\}/);
 });
+
+
+test("59 - meaningful journey change marks latest AI check stale instead of deleting history", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      eligibilityStatus: "NOT_CHECKED",
+      coverageStatus: null,
+      memberId: "MEM-HISTORY-001",
+      policyNo: "POL-HISTORY-001",
+      priorAuthRequired: false,
+      priorAuthStatus: "NOT_REQUIRED"
+    }
+  });
+
+  const first = await authFetch(`/api/claims/${claim.id}/check`, {
+    method: "POST"
+  });
+  assert.equal(first.status, 200);
+  const firstBody = await first.json();
+
+  const eligibility = await authFetch(
+    `/api/claims/${claim.id}/journey/eligibility/precheck`,
+    { method: "POST" }
+  );
+  assert.equal(eligibility.status, 200);
+
+  const stored = await prisma.check.findUnique({ where: { id: firstBody.id } });
+  assert.equal(stored.isStale, true);
+  assert.match(stored.staleReason, /Eligibility information changed/i);
+
+  const count = await prisma.check.count({ where: { claimId: claim.id } });
+  assert.equal(count, 1);
+});
+
+test("60 - refreshed AI check compares score with previous check", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      eligibilityStatus: "NOT_CHECKED",
+      coverageStatus: null,
+      memberId: "MEM-HISTORY-002",
+      policyNo: "POL-HISTORY-002",
+      priorAuthRequired: false,
+      priorAuthStatus: "NOT_REQUIRED"
+    }
+  });
+
+  const first = await authFetch(`/api/claims/${claim.id}/check`, {
+    method: "POST"
+  });
+  assert.equal(first.status, 200);
+  const firstBody = await first.json();
+
+  await authFetch(`/api/claims/${claim.id}/journey/eligibility/precheck`, {
+    method: "POST"
+  });
+
+  const second = await authFetch(`/api/claims/${claim.id}/check`, {
+    method: "POST"
+  });
+  assert.equal(second.status, 200);
+  const secondBody = await second.json();
+
+  assert.equal(secondBody.comparison.previousScore, firstBody.score);
+  assert.ok(secondBody.comparison.scoreDelta > 0);
+  assert.ok(
+    secondBody.comparison.resolvedIssues.some((issue) =>
+      /Eligibility has not been verified/i.test(issue.message)
+    )
+  );
+
+  const detail = await authFetch(`/api/claims/${claim.id}`);
+  assert.equal(detail.status, 200);
+  const detailBody = await detail.json();
+  assert.equal(detailBody.checks.length, 2);
+  assert.equal(detailBody.checks[0].isStale, false);
+  assert.equal(detailBody.checks[1].isStale, true);
+});
+
+test("61 - stale AI check cannot be used for claim submission", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      memberId: "MEM-STALE-SUBMIT",
+      eligibilityStatus: "VERIFIED",
+      priorAuthRequired: false,
+      priorAuthStatus: "NOT_REQUIRED"
+    }
+  });
+
+  const { doc } = await createDocument(claim.id, {
+    extracted: {
+      patientName: "Lifecycle Test Patient",
+      amount: 1200,
+      diagnosisText: "Test diagnosis",
+      icd10Codes: ["Z00.00"]
+    }
+  });
+
+  const check = await authFetch(`/api/claims/${claim.id}/check`, {
+    method: "POST"
+  });
+  assert.equal(check.status, 200);
+
+  await prisma.check.updateMany({
+    where: { claimId: claim.id },
+    data: {
+      isStale: true,
+      staleAt: new Date(),
+      staleReason: "Test change"
+    }
+  });
+
+  const submit = await authFetch(`/api/claims/${claim.id}/submit`, {
+    method: "POST"
+  });
+  assert.equal(submit.status, 400);
+  const body = await submit.json();
+  assert.match(body.error, /changed after the last AI Check/i);
+});
+
+test("62 - readiness UI uses red yellow green thresholds and history", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /if \(value < 40\) return "error"/);
+  assert.match(source, /if \(value < 70\) return "warning"/);
+  assert.match(source, /return "success"/);
+  assert.match(source, /AI Readiness History/);
+  assert.match(source, /Refresh AI Readiness/);
+  assert.match(source, /Claim changed after this AI Check/);
+  assert.match(source, /since previous check/);
+});
+
+test("63 - current submission eligibility rejects stale readiness result in UI", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /!check\.isStale/);
+});
