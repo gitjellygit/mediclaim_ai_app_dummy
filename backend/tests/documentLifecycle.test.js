@@ -1057,3 +1057,68 @@ test("41 - claim journey shows compact automation snapshot", { concurrency: fals
   assert.match(source, /auto-populated/);
   assert.match(source, /automationSummary\.missingFields/);
 });
+
+
+test("42 - applying AI document type suggestion updates saved document type", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  const { doc } = await createDocument(claim.id, {
+    type: "FINAL_BILL"
+  });
+
+  await prisma.document.update({
+    where: { id: doc.id },
+    data: {
+      type: "FINAL_BILL",
+      suggestedType: "INSURANCE_CARD",
+      confidence: 88
+    }
+  });
+
+  const response = await authFetch(`/api/claims/documents/${doc.id}/apply-suggestion`, {
+    method: "POST"
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.type, "INSURANCE_CARD");
+
+  const updated = await prisma.document.findUnique({ where: { id: doc.id } });
+  assert.equal(updated.type, "INSURANCE_CARD");
+});
+
+test("43 - reapplying matching AI document type is idempotent", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  const { doc } = await createDocument(claim.id, {
+    type: "LAB_REPORT"
+  });
+
+  await prisma.document.update({
+    where: { id: doc.id },
+    data: {
+      type: "LAB_REPORT",
+      suggestedType: "LAB_REPORT",
+      confidence: 90
+    }
+  });
+
+  const response = await authFetch(`/api/claims/documents/${doc.id}/apply-suggestion`, {
+    method: "POST"
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.unchanged, true);
+});
+
+test("44 - claim detail defaults document type to AI auto detection", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /useState\("AUTO"\)/);
+  assert.match(source, /Auto Detect with AI \(Recommended\)/);
+  assert.match(source, /docType === "AUTO" \? null : docType/);
+  assert.match(source, /Document type needs review/);
+  assert.match(source, /Use AI Type/);
+});
