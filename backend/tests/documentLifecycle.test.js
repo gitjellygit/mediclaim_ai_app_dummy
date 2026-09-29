@@ -13,6 +13,10 @@ import {
   buildAutomationSummary,
   documentProvenance
 } from "../src/services/claimFieldProvenance.js";
+import {
+  buildClaimCompleteness,
+  completenessReadinessIssues
+} from "../src/services/claimCompleteness.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1658,4 +1662,185 @@ test("69 - journey fix workflow provides contextual return to claim detail", { c
   assert.match(source, /location\.state\?\.from/);
   assert.match(source, /location\.state\?\.backLabel/);
   assert.match(source, /navigate\(location\.state\.from\)/);
+});
+
+
+test("70 - outpatient claim marks inpatient and ICU fields not applicable", { concurrency: false }, () => {
+  const summary = buildClaimCompleteness({
+    patientName: "Outpatient Test",
+    payerName: "Payer",
+    policyNo: "POL-OUT-001",
+    memberId: "MEM-OUT-001",
+    diagnosisText: "Migraine",
+    icd10Codes: ["G43.009"],
+    dateOfService: new Date("2026-09-20"),
+    amount: 500,
+    totalBilledAmount: 500,
+    hospitalName: "Clinic",
+    doctorName: "Dr Test",
+    eligibilityStatus: "VERIFIED",
+    priorAuthStatus: "NOT_REQUIRED",
+    priorAuthRequired: false,
+    documents: [{ type: "FINAL_BILL", rawText: "outpatient clinic visit" }]
+  });
+
+  for (const field of ["admissionDate", "dischargeDate", "admissionType", "roomCategory", "icuDays"]) {
+    assert.equal(
+      summary.fields.find((item) => item.field === field)?.state,
+      "not_applicable"
+    );
+  }
+  assert.equal(summary.inpatientLikely, false);
+  assert.equal(summary.icuApplicable, false);
+});
+
+test("71 - inpatient context makes missing encounter fields require review", { concurrency: false }, () => {
+  const summary = buildClaimCompleteness({
+    patientName: "Inpatient Test",
+    payerName: "Payer",
+    policyNo: "POL-IN-001",
+    memberId: "MEM-IN-001",
+    diagnosisText: "Pneumonia",
+    icd10Codes: ["J18.9"],
+    dateOfService: new Date("2026-09-20"),
+    admissionDate: new Date("2026-09-20"),
+    dischargeDate: new Date("2026-09-22"),
+    amount: 5000,
+    totalBilledAmount: 5000,
+    hospitalName: "Hospital",
+    doctorName: "Dr Test",
+    eligibilityStatus: "VERIFIED",
+    priorAuthStatus: "NOT_REQUIRED",
+    priorAuthRequired: false,
+    documents: [{ type: "DISCHARGE_SUMMARY", rawText: "patient admitted and discharged" }]
+  });
+
+  assert.equal(summary.inpatientLikely, true);
+  assert.equal(
+    summary.fields.find((item) => item.field === "admissionType")?.state,
+    "review"
+  );
+  assert.equal(
+    summary.fields.find((item) => item.field === "roomCategory")?.state,
+    "review"
+  );
+  assert.ok(summary.score < 100);
+});
+
+test("72 - ICU evidence makes ICU days contextually applicable", { concurrency: false }, () => {
+  const { summary, issues } = completenessReadinessIssues({
+    patientName: "ICU Test",
+    payerName: "Payer",
+    policyNo: "POL-ICU-001",
+    memberId: "MEM-ICU-001",
+    diagnosisText: "Critical illness",
+    icd10Codes: ["Z99.11"],
+    dateOfService: new Date("2026-09-20"),
+    admissionDate: new Date("2026-09-20"),
+    dischargeDate: new Date("2026-09-23"),
+    admissionType: "EMERGENCY",
+    roomCategory: "ICU",
+    amount: 10000,
+    totalBilledAmount: 10000,
+    eligibilityStatus: "VERIFIED",
+    priorAuthStatus: "NOT_REQUIRED",
+    priorAuthRequired: false,
+    documents: [{ type: "FINAL_BILL", rawText: "ICU charges intensive care" }]
+  });
+
+  assert.equal(summary.icuApplicable, true);
+  assert.equal(
+    summary.fields.find((item) => item.field === "icuDays")?.state,
+    "review"
+  );
+  assert.ok(
+    issues.some((issue) => /ICU utilization detected but ICU days need review/i.test(issue.message))
+  );
+});
+
+test("73 - AI readiness cannot remain 100 when applicable inpatient fields are unresolved", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      memberId: "MEM-COMPLETE-001",
+      dateOfService: new Date("2026-09-20"),
+      admissionDate: new Date("2026-09-20"),
+      dischargeDate: new Date("2026-09-22"),
+      admissionType: null,
+      roomCategory: null
+    }
+  });
+  await createDocument(claim.id, {
+    type: "DISCHARGE_SUMMARY",
+    contents: "patient admitted on 09/20 and discharged on 09/22",
+    extracted: {
+      patientName: "Lifecycle Test Patient",
+      admissionDate: "2026-09-20",
+      dischargeDate: "2026-09-22"
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/check`, {
+    method: "POST"
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  assert.ok(body.score < 100);
+  assert.ok(
+    body.issues.some((issue) => /admission type needs review/i.test(issue.message))
+  );
+  assert.ok(
+    body.issues.some((issue) => /room category needs review/i.test(issue.message))
+  );
+});
+
+test("74 - claim update saves encounter fields used by completeness fixes", { concurrency: false }, async () => {
+  const claim = await createClaim();
+
+  const response = await authFetch(`/api/claims/${claim.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patientName: claim.patientName,
+      payerName: claim.payerName,
+      policyNo: claim.policyNo,
+      memberId: "MEM-EDIT-001",
+      diagnosisText: claim.diagnosisText,
+      icd10Codes: claim.icd10Codes,
+      amount: claim.amount,
+      totalBilledAmount: claim.totalBilledAmount,
+      claimType: "REIMBURSEMENT",
+      dateOfService: "2026-09-20",
+      admissionDate: "2026-09-20",
+      dischargeDate: "2026-09-22",
+      admissionType: "EMERGENCY",
+      roomCategory: "ICU",
+      icuDays: 2
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.admissionType, "EMERGENCY");
+  assert.equal(body.roomCategory, "ICU");
+  assert.equal(body.icuDays, 2);
+  assert.equal(body.completenessSummary.icuApplicable, true);
+});
+
+test("75 - claim detail exposes clickable context-aware completeness and N/A states", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /Claim Completeness/);
+  assert.match(source, /Context-aware/);
+  assert.match(source, /completenessValue/);
+  assert.match(source, /not_applicable/);
+  assert.match(source, /Fields not applicable to this encounter/);
+  assert.match(source, /fixCompletenessItem/);
+  assert.match(source, /Room Category/);
+  assert.match(source, /ICU Days/);
 });
