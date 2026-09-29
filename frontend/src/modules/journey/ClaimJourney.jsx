@@ -809,7 +809,7 @@ export default function ClaimJourney() {
                 />
                 <TextField
                   size="small"
-                  label="Expiry"
+                  label="End Date / Expiry (if provided)"
                   type="date"
                   InputLabelProps={{ shrink: true }}
                   value={authExpiry}
