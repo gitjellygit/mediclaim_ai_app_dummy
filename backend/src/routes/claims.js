@@ -397,7 +397,10 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
     if (!claim.payerName) missing.push("payerName");
 
     let eligibilityStatus = "VERIFIED";
-    let coverageStatus = "ACTIVE";
+    // A local pre-check can validate that we have the minimum identity/policy
+    // information required to query a payer, but it cannot prove active coverage.
+    // Keep coverage UNKNOWN until a real 271/payer response is recorded.
+    let coverageStatus = "UNKNOWN";
 
     if (missing.length > 0) {
       eligibilityStatus = "NEEDS_REVIEW";
@@ -748,6 +751,16 @@ router.patch("/:id/journey/remittance", async (req, res) => {
     const paidAmount = parseOptionalMoney(req.body.paidAmount, "Paid amount");
 
     if (
+      ["RECEIVED", "POSTED"].includes(remittanceStatus) &&
+      (allowedAmount == null || paidAmount == null)
+    ) {
+      return res.status(400).json({
+        error:
+          "Allowed amount and paid amount are required when remittance is received or posted"
+      });
+    }
+
+    if (
       allowedAmount != null &&
       paidAmount != null &&
       paidAmount > allowedAmount
@@ -844,7 +857,7 @@ router.patch("/:id/journey/remittance", async (req, res) => {
           remittanceProvenance
         ),
         status:
-          remittanceStatus === "POSTED" && paidAmount != null
+          remittanceStatus === "POSTED" && paidAmount != null && paidAmount > 0
             ? "PAID"
             : claim.status
       }
