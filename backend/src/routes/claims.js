@@ -1778,6 +1778,24 @@ router.post("/:id/check", async (req, res) => {
     const completeness = completenessReadinessIssues(claim);
     issues.push(...completeness.issues);
 
+    // Medical-consistency findings feed the same pre-submission readiness gate.
+    // Keep the module deterministic and evidence-based; no diagnosis or payer
+    // policy is inferred here.
+    const medicalConsistency = analyzeMedicalConsistency(claim);
+    for (const finding of medicalConsistency.issues) {
+      const message = `${finding.title}: ${finding.message}`;
+      if (!issues.some((existing) => existing.message === message)) {
+        issues.push({
+          severity: finding.severity,
+          message,
+          source: "MEDICAL_CONSISTENCY",
+          category: finding.category,
+          fields: finding.fields,
+          fixTarget: finding.fixTarget
+        });
+      }
+    }
+
     let riskScore = 0;
     const riskFactors = [];
 
@@ -1866,7 +1884,13 @@ router.post("/:id/check", async (req, res) => {
     res.json({
       ...check,
       comparison: compareReadinessChecks(check, previousCheck),
-      completenessSummary: completeness.summary
+      completenessSummary: completeness.summary,
+      medicalConsistency: {
+        score: medicalConsistency.score,
+        status: medicalConsistency.status,
+        blockingIssues: medicalConsistency.blockingIssues,
+        warnings: medicalConsistency.warnings
+      }
     });
   } catch (e) {
     res.status(400).json({ error: e.message });
