@@ -1433,7 +1433,7 @@ test("58 - journey UI disables completed terminal stage controls", { concurrency
 
   assert.match(source, /disabled=\{!stages\.priorAuth\.actionable\}/);
   assert.match(source, /disabled=\{!stages\.claimStatus\.actionable\}/);
-  assert.match(source, /disabled=\{!stages\.remittance\.actionable\}/);
+  assert.match(source, /disabled=\{!stages\.remittance\.actionable \|\| payerConnected\}/);
 });
 
 
