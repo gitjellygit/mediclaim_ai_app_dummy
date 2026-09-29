@@ -28,6 +28,15 @@ import {
   completenessReadinessIssues
 } from "../services/claimCompleteness.js";
 import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
+import {
+  getMockPayer,
+  listMockPayers,
+  simulateEligibility,
+  simulatePriorAuth,
+  simulateSubmission,
+  simulateStatus,
+  simulateRemittance
+} from "../services/payerSimulator.js";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -626,13 +635,419 @@ router.get("/search", async (req, res) => {
   }
 });
 
+router.get("/payers/mock", (_req, res) => {
+  res.json({
+    mode: "SIMULATED",
+    payers: listMockPayers()
+  });
+});
+
+async function createPayerTransaction(claimId, payerCode, transactionType, result, requestPayload = {}) {
+  return prisma.payerTransaction.create({
+    data: {
+      claimId,
+      transactionId: result.transactionId,
+      mode: "SIMULATED",
+      payerCode,
+      transactionType,
+      status: result.status,
+      latencyMs: result.latencyMs || null,
+      requestPayload,
+      responsePayload: result
+    }
+  });
+}
+
+async function getSimulationClaim(id) {
+  return prisma.claim.findUnique({
+    where: { id },
+    include: {
+      documents: { orderBy: { createdAt: "desc" } },
+      payerTransactions: { orderBy: { createdAt: "desc" } }
+    }
+  });
+}
+
+router.post("/:id/payer-simulation/connect", async (req, res) => {
+  try {
+    const payerCode = String(req.body.payerCode || "").trim().toUpperCase();
+    const payer = getMockPayer(payerCode);
+    if (!payer) return res.status(400).json({ error: "Unknown mock payer" });
+
+    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+      return res.status(409).json({
+        error: "Payer profile cannot be changed after claim submission"
+      });
+    }
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        payerConnectionMode: "SIMULATED",
+        simulatedPayerCode: payer.code,
+        payerName: payer.name,
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          systemProvenance(["payerName"], {
+            source: "SIMULATED_PAYER",
+            label: "Mock Payer Profile",
+            sourceDetail: payer.name,
+            verified: false
+          })
+        )
+      }
+    });
+
+    await markReadinessChecksStale(prisma, claim.id, "Payer profile changed");
+    if (claim.status === "READY") {
+      await prisma.claim.update({ where: { id: claim.id }, data: { status: "DRAFT" } });
+    }
+
+    res.json({
+      message: `Connected to ${payer.name} simulator`,
+      payer,
+      claim: updated
+    });
+  } catch (error) {
+    console.error("[payer-simulation] connect failed", {
+      claimId: req.params.id,
+      name: error?.name || "Error"
+    });
+    res.status(500).json({ error: "Unable to connect mock payer" });
+  }
+});
+
+router.post("/:id/payer-simulation/eligibility", async (req, res) => {
+  try {
+    const claim = await getSimulationClaim(req.params.id);
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    const payer = getMockPayer(claim.simulatedPayerCode);
+    if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
+      return res.status(409).json({ error: "Connect a mock payer first" });
+    }
+    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+      return res.status(409).json({ error: "Eligibility is locked after claim submission" });
+    }
+
+    const priorCount = claim.payerTransactions.filter((x) => x.transactionType === "ELIGIBILITY").length;
+    const result = simulateEligibility(payer, claim, priorCount + 1);
+    await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
+
+    const verified = result.status === "ACTIVE";
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        eligibilityStatus: verified ? "VERIFIED" : "FAILED",
+        coverageStatus: result.coverageStatus,
+        networkStatus: result.networkStatus,
+        deductibleRemaining: result.deductibleRemaining,
+        coinsurancePct: result.coinsurancePct,
+        eligibilityCheckedAt: new Date(),
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          systemProvenance(
+            ["eligibilityStatus", "coverageStatus", "networkStatus", "deductibleRemaining", "coinsurancePct"],
+            {
+              source: "SIMULATED_PAYER",
+              label: "Mock 271 Response",
+              sourceDetail: payer.name,
+              verified: false
+            }
+          )
+        )
+      }
+    });
+
+    const transaction = await createPayerTransaction(
+      claim.id,
+      payer.code,
+      "ELIGIBILITY",
+      result,
+      { transaction: "270", memberIdPresent: Boolean(claim.memberId), policyNoPresent: Boolean(claim.policyNo) }
+    );
+    await markReadinessChecksStale(prisma, claim.id, "Eligibility information changed");
+
+    res.json({ result, transaction, claim: updated, livePayerVerification: false });
+  } catch (error) {
+    console.error("[payer-simulation] eligibility failed", {
+      claimId: req.params.id,
+      name: error?.name || "Error"
+    });
+    res.status(500).json({ error: "Mock eligibility request failed" });
+  }
+});
+
+router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
+  try {
+    const claim = await getSimulationClaim(req.params.id);
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+    const payer = getMockPayer(claim.simulatedPayerCode);
+    if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
+      return res.status(409).json({ error: "Connect a mock payer first" });
+    }
+    if (claim.eligibilityStatus !== "VERIFIED") {
+      return res.status(409).json({ error: "Verify eligibility with the payer first" });
+    }
+    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+      return res.status(409).json({ error: "Prior authorization is locked after claim submission" });
+    }
+
+    const priorCount = claim.payerTransactions.filter((x) => x.transactionType === "PRIOR_AUTH").length;
+    const result = simulatePriorAuth(payer, claim, priorCount + 1);
+    await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        priorAuthRequired: result.required,
+        priorAuthStatus: result.status,
+        authorizationNo: result.authorizationNo ?? claim.authorizationNo,
+        priorAuthExpiry: result.expiry ? new Date(result.expiry) : claim.priorAuthExpiry,
+        priorAuthCheckedAt: new Date(),
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          systemProvenance(["priorAuthRequired", "priorAuthStatus", "authorizationNo", "priorAuthExpiry"], {
+            source: "SIMULATED_PAYER",
+            label: "Mock Prior Auth Response",
+            sourceDetail: payer.name,
+            verified: false
+          })
+        )
+      }
+    });
+
+    const transaction = await createPayerTransaction(
+      claim.id,
+      payer.code,
+      "PRIOR_AUTH",
+      result,
+      { transaction: "278-style", procedurePresent: Boolean(claim.procedureText) }
+    );
+    await markReadinessChecksStale(prisma, claim.id, "Prior authorization information changed");
+
+    res.json({ result, transaction, claim: updated });
+  } catch (error) {
+    console.error("[payer-simulation] prior auth failed", {
+      claimId: req.params.id,
+      name: error?.name || "Error"
+    });
+    res.status(500).json({ error: "Mock prior authorization request failed" });
+  }
+});
+
+router.post("/:id/payer-simulation/submission", async (req, res) => {
+  try {
+    const claim = await getSimulationClaim(req.params.id);
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+    const payer = getMockPayer(claim.simulatedPayerCode);
+    if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
+      return res.status(409).json({ error: "Connect a mock payer first" });
+    }
+    if (!claim.claimSubmissionDate && claim.status !== "SUBMITTED") {
+      return res.status(409).json({ error: "Submit the claim in Claim Journey first" });
+    }
+
+    const priorCount = claim.payerTransactions.filter((x) => x.transactionType === "CLAIM_SUBMISSION").length;
+    const result = simulateSubmission(payer, claim, priorCount + 1);
+    await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
+
+    const payerClaimStatus =
+      result.status === "ACCEPTED" ? "ACKNOWLEDGED" :
+      result.status === "PENDED" ? "PENDED" : "REJECTED";
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        payerClaimStatus,
+        insurerClaimNo: result.payerClaimNo || claim.insurerClaimNo,
+        claimStatusCheckedAt: new Date(),
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          systemProvenance(["payerClaimStatus", "insurerClaimNo"], {
+            source: "SIMULATED_PAYER",
+            label: "Mock Claim Acknowledgment",
+            sourceDetail: payer.name,
+            verified: false
+          })
+        )
+      }
+    });
+
+    const transaction = await createPayerTransaction(
+      claim.id,
+      payer.code,
+      "CLAIM_SUBMISSION",
+      result,
+      { transaction: "837-style", amount: claim.amount || claim.totalBilledAmount || null }
+    );
+
+    res.json({ result, transaction, claim: updated });
+  } catch (error) {
+    console.error("[payer-simulation] submission failed", {
+      claimId: req.params.id,
+      name: error?.name || "Error"
+    });
+    res.status(500).json({ error: "Mock claim submission failed" });
+  }
+});
+
+router.post("/:id/payer-simulation/status", async (req, res) => {
+  try {
+    const claim = await getSimulationClaim(req.params.id);
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+    const payer = getMockPayer(claim.simulatedPayerCode);
+    if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
+      return res.status(409).json({ error: "Connect a mock payer first" });
+    }
+    if (!claim.claimSubmissionDate && !["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+      return res.status(409).json({ error: "Submit the claim first" });
+    }
+
+    const statusTransactions = claim.payerTransactions.filter((x) => x.transactionType === "CLAIM_STATUS");
+    const result = simulateStatus(payer, claim, statusTransactions.length, statusTransactions.length + 1);
+    await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
+
+    const overallStatus =
+      result.status === "DENIED" ? "DENIED" :
+      result.status === "PAID" ? "PAID" : claim.status;
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        payerClaimStatus: result.status,
+        claimStatusCheckedAt: new Date(),
+        status: overallStatus,
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          systemProvenance(["payerClaimStatus"], {
+            source: "SIMULATED_PAYER",
+            label: "Mock 277 Response",
+            sourceDetail: payer.name,
+            verified: false
+          })
+        )
+      }
+    });
+
+    let denialCase = null;
+    if (["DENIED", "PARTIALLY_APPROVED"].includes(result.status)) {
+      denialCase = await prisma.denialCase.findFirst({
+        where: { claimId: claim.id, status: { in: ["OPEN", "ANALYZED", "CORRECTION_REQUIRED"] } },
+        orderBy: { createdAt: "desc" }
+      });
+      if (!denialCase) {
+        denialCase = await prisma.denialCase.create({
+          data: {
+            claimId: claim.id,
+            source: "SIMULATED_PAYER_STATUS",
+            status: "OPEN",
+            denialCategory: result.status === "DENIED" ? "AUTHORIZATION" : "PAYMENT",
+            reasonText: result.reason,
+            denialDate: new Date(),
+            revenueAtRisk: Math.max(0, Number(claim.amount || 0) - Number(claim.paidAmount || 0)),
+            recommendedAction: "Review the simulated payer response and supporting claim data."
+          }
+        });
+      }
+    }
+
+    const transaction = await createPayerTransaction(
+      claim.id,
+      payer.code,
+      "CLAIM_STATUS",
+      result,
+      { transaction: "276", payerClaimNo: claim.insurerClaimNo || null }
+    );
+
+    res.json({ result, transaction, claim: updated, denialCase });
+  } catch (error) {
+    console.error("[payer-simulation] status failed", {
+      claimId: req.params.id,
+      name: error?.name || "Error"
+    });
+    res.status(500).json({ error: "Mock payer status request failed" });
+  }
+});
+
+router.post("/:id/payer-simulation/remittance", async (req, res) => {
+  try {
+    const claim = await getSimulationClaim(req.params.id);
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+    const payer = getMockPayer(claim.simulatedPayerCode);
+    if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
+      return res.status(409).json({ error: "Connect a mock payer first" });
+    }
+    if (!["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(claim.payerClaimStatus || "")) {
+      return res.status(409).json({ error: "A final payable payer status is required before remittance" });
+    }
+    if (claim.remittanceStatus === "POSTED") {
+      return res.json({
+        unchanged: true,
+        message: "Simulated remittance is already posted",
+        claim
+      });
+    }
+
+    const priorCount = claim.payerTransactions.filter((x) => x.transactionType === "REMITTANCE").length;
+    const result = simulateRemittance(payer, claim, priorCount + 1);
+    await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        remittanceStatus: "POSTED",
+        remittanceReceivedAt: new Date(),
+        allowedAmount: result.allowedAmount,
+        paidAmount: result.paidAmount,
+        patientResponsibility: result.patientResponsibility,
+        paymentReference: result.paymentReference,
+        status: result.paidAmount > 0 ? "PAID" : claim.status,
+        payerClaimStatus: result.paidAmount > 0 ? "PAID" : claim.payerClaimStatus,
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          systemProvenance(
+            ["remittanceStatus", "allowedAmount", "paidAmount", "patientResponsibility", "paymentReference"],
+            {
+              source: "SIMULATED_PAYER",
+              label: "Mock 835 Response",
+              sourceDetail: payer.name,
+              verified: false
+            }
+          )
+        )
+      }
+    });
+
+    const transaction = await createPayerTransaction(
+      claim.id,
+      payer.code,
+      "REMITTANCE",
+      result,
+      { transaction: "835-style", payerClaimNo: claim.insurerClaimNo || null }
+    );
+
+    res.json({ result, transaction, claim: updated });
+  } catch (error) {
+    console.error("[payer-simulation] remittance failed", {
+      claimId: req.params.id,
+      name: error?.name || "Error"
+    });
+    res.status(500).json({ error: "Mock remittance request failed" });
+  }
+});
+
 router.get("/:id/journey", async (req, res) => {
   try {
     const claim = await prisma.claim.findUnique({
       where: { id: req.params.id },
       include: {
         documents: { orderBy: { createdAt: "desc" } },
-        checks: { orderBy: { createdAt: "desc" }, take: 1 }
+        checks: { orderBy: { createdAt: "desc" }, take: 1 },
+        payerTransactions: { orderBy: { createdAt: "desc" }, take: 25 }
       }
     });
 
@@ -647,6 +1062,13 @@ router.get("/:id/journey", async (req, res) => {
         completenessSummary: buildClaimCompleteness(claim)
       },
       stages: buildJourneyState(claim),
+      payerConnection: {
+        mode: claim.payerConnectionMode || "LOCAL",
+        simulatedPayerCode: claim.simulatedPayerCode || null,
+        simulatedPayer: claim.simulatedPayerCode
+          ? getMockPayer(claim.simulatedPayerCode)
+          : null
+      },
       livePayerConnectorConfigured: false
     });
   } catch (error) {
