@@ -140,8 +140,11 @@ export const ClaimsApi = {
     return api(`${BASE}/${id}/payer-simulation/eligibility`, { method: "POST" });
   },
 
-  simulatePayerPriorAuth(id) {
-    return api(`${BASE}/${id}/payer-simulation/prior-auth`, { method: "POST" });
+  simulatePayerPriorAuth(id, data = {}) {
+    return api(`${BASE}/${id}/payer-simulation/prior-auth`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
   },
 
   simulatePayerSubmission(id) {
