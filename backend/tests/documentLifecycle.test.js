@@ -25,7 +25,9 @@ import {
   simulatePriorAuth,
   simulateSubmission,
   simulateStatus,
-  simulateRemittance
+  simulateRemittance,
+  payerInputFingerprint,
+  calculateAdjudication
 } from "../src/services/payerSimulator.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -2161,4 +2163,146 @@ test("92 - payer simulator frontend exposes connection workflow and transaction 
   assert.match(source, /Check Status/);
   assert.match(source, /Get Remittance/);
   assert.match(source, /Payer Activity/);
+});
+
+
+test("93 - payer request fingerprints change only when relevant inputs change", { concurrency: false }, () => {
+  const payer = getMockPayer("BLUE_HORIZON");
+  const base = {
+    id: "fingerprint",
+    memberId: "MEM-1",
+    policyNo: "POL-1",
+    patientDob: new Date("1980-01-01"),
+    procedureText: "MRI lumbar spine",
+    dateOfService: new Date("2026-09-20"),
+    authorizationNo: "AUTH-1",
+    amount: 10000,
+    totalBilledAmount: 10000,
+    icd10Codes: ["M54.5"],
+    documents: [{ id: "doc-1", type: "RADIOLOGY", createdAt: new Date("2026-09-20") }]
+  };
+
+  const a = payerInputFingerprint("ELIGIBILITY", payer, base);
+  const b = payerInputFingerprint("ELIGIBILITY", payer, { ...base, doctorName: "Changed" });
+  const c2 = payerInputFingerprint("ELIGIBILITY", payer, { ...base, memberId: "MEM-2" });
+
+  assert.equal(a, b);
+  assert.notEqual(a, c2);
+});
+
+test("94 - approved payer status includes adjudication amounts for automatic remittance display", { concurrency: false }, () => {
+  const payer = getMockPayer("BLUE_HORIZON");
+  const claim = {
+    id: "amounts",
+    amount: 10000,
+    coinsurancePct: 15,
+    priorAuthStatus: "NOT_REQUIRED",
+    documents: []
+  };
+  const result = simulateStatus(payer, claim, 2, 3);
+
+  assert.equal(result.status, "APPROVED");
+  assert.ok(result.allowedAmount > 0);
+  assert.ok(result.approvedAmount > 0);
+  assert.equal(
+    result.patientResponsibility,
+    result.allowedAmount - result.approvedAmount
+  );
+});
+
+test("95 - adjudication and remittance amounts remain internally consistent for every payer", { concurrency: false }, () => {
+  for (const payer of listMockPayers()) {
+    const full = getMockPayer(payer.code);
+    const claim = { id: payer.code, amount: 20000, coinsurancePct: 20 };
+    const adjudication = calculateAdjudication(full, claim);
+    const remittance = simulateRemittance(full, claim);
+
+    assert.ok(adjudication.allowedAmount >= adjudication.approvedAmount);
+    assert.equal(
+      adjudication.patientResponsibility,
+      adjudication.allowedAmount - adjudication.approvedAmount
+    );
+    assert.equal(remittance.allowedAmount, adjudication.allowedAmount);
+    assert.equal(remittance.paidAmount, adjudication.approvedAmount);
+    assert.equal(
+      remittance.patientResponsibility,
+      remittance.allowedAmount - remittance.paidAmount
+    );
+  }
+});
+
+test("96 - payer engine covers a broad Cartesian matrix without invalid states", { concurrency: false }, () => {
+  const services = [
+    { name: "office", procedureText: "Office consultation" },
+    { name: "mri", procedureText: "MRI lumbar spine" },
+    { name: "ct", procedureText: "CT chest" },
+    { name: "surgery", procedureText: "Operative surgical repair", admissionDate: new Date("2026-09-20") }
+  ];
+  const memberVariants = [true, false];
+  const dischargeVariants = [true, false];
+  const authVariants = [null, "AUTH-100", "AUTH-DENY"];
+  let cases = 0;
+
+  for (const payerSummary of listMockPayers()) {
+    const payer = getMockPayer(payerSummary.code);
+    for (const service of services) {
+      for (const validMember of memberVariants) {
+        for (const hasDischarge of dischargeVariants) {
+          for (const authorizationNo of authVariants) {
+            const claim = {
+              id: `matrix-${cases}`,
+              memberId:
+                payer.code === "CAREFIRST_DEMO"
+                  ? validMember ? "CF-100" : "MEM-100"
+                  : validMember ? "MEM-100" : null,
+              policyNo: "POL-100",
+              amount: 25000,
+              totalBilledAmount: 25000,
+              diagnosisText: "Test diagnosis",
+              icd10Codes: ["Z00.00"],
+              coinsurancePct: 20,
+              authorizationNo,
+              priorAuthStatus: authorizationNo === "AUTH-100" ? "APPROVED" : "NOT_REQUIRED",
+              documents: hasDischarge ? [{ type: "DISCHARGE_SUMMARY" }] : [{ type: "FINAL_BILL" }],
+              ...service
+            };
+
+            const eligibility = simulateEligibility(payer, claim);
+            const auth = simulatePriorAuth(payer, claim);
+            const submission = simulateSubmission(payer, claim);
+            const status = simulateStatus(payer, claim, 2, 3);
+
+            assert.ok(eligibility.status);
+            assert.ok(auth.status);
+            assert.ok(submission.status);
+            assert.ok(status.status);
+            assert.ok(Number.isFinite(eligibility.latencyMs));
+            cases += 1;
+          }
+        }
+      }
+    }
+  }
+
+  assert.equal(cases, 240);
+});
+
+test("97 - payer Journey UI uses one action surface and client-facing wording", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /Payer Connection/);
+  assert.match(source, /Check Eligibility/);
+  assert.match(source, /Check Prior Auth/);
+  assert.match(source, /Submit to Payer/);
+  assert.match(source, /Check Status/);
+  assert.match(source, /Get Remittance/);
+  assert.match(source, /View All/);
+  assert.match(source, /Approved Amount/);
+  assert.doesNotMatch(source, />SIMULATED</);
+  assert.doesNotMatch(source, />LOCAL</);
+  assert.doesNotMatch(source, /Mock Payer/);
+  assert.doesNotMatch(source, /manual •/i);
 });
