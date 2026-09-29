@@ -789,3 +789,69 @@ test("29 - claim detail supports source-aware back navigation", { concurrency: f
   assert.match(source, /location\.state\?\.from/);
   assert.match(source, /location\.state\?\.backLabel/);
 });
+
+
+test("30 - claim update can save member ID and DOB needed for eligibility review", { concurrency: false }, async () => {
+  const claim = await createClaim({ amount: 1500, totalBilledAmount: 1500 });
+
+  const response = await authFetch(`/api/claims/${claim.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patientName: claim.patientName,
+      payerName: claim.payerName,
+      policyNo: "POL-ELIG-001",
+      memberId: "MEM-ELIG-001",
+      patientDob: "1990-06-15",
+      hospitalName: null,
+      diagnosisText: "Test diagnosis",
+      claimType: "REIMBURSEMENT",
+      icd10Codes: ["Z00.00"],
+      amount: 1500,
+      totalBilledAmount: 1500
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.memberId, "MEM-ELIG-001");
+  assert.equal(new Date(body.patientDob).toISOString().slice(0, 10), "1990-06-15");
+});
+
+test("31 - claim journey renders human-readable status labels and actionable eligibility review", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /replaceAll\("_", " "\)/);
+  assert.match(source, /Review \/ Fix/);
+  assert.match(source, /focus:\s*"eligibility"/);
+  assert.match(source, /clickable=\{Boolean\(onStatusClick\)\}/);
+});
+
+test("32 - document type selector uses Material menu items and supports radiology and prescription", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /<MenuItem/);
+  assert.match(source, /RADIOLOGY:\s*"Radiology Report"/);
+  assert.match(source, /PRESCRIPTION:\s*"Prescription"/);
+  assert.doesNotMatch(source, /<option key=\{t\}/);
+  assert.match(source, /cursor:\s*"pointer"/);
+});
+
+test("33 - AI readiness issues expose contextual fix actions", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /function fixIssue\(issue\)/);
+  assert.match(source, /Upload Document/);
+  assert.match(source, /Verify Eligibility/);
+  assert.match(source, /Resolve Auth/);
+  assert.match(source, /Action required to improve this claim/);
+});
