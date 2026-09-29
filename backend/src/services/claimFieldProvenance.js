@@ -256,3 +256,18 @@ export function buildAutomationSummary(claim) {
     fields
   };
 }
+
+
+export function removeProvenanceFields(current, fields = []) {
+  const next = {
+    ...(current && typeof current === "object" && !Array.isArray(current)
+      ? current
+      : {})
+  };
+
+  for (const field of fields) {
+    delete next[field];
+  }
+
+  return next;
+}
