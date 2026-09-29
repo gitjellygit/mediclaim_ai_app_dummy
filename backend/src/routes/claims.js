@@ -833,6 +833,11 @@ router.patch("/:id", async (req, res) => {
       patientName: req.body.patientName,
       payerName: req.body.payerName,
       policyNo: req.body.policyNo || null,
+      memberId: req.body.memberId || null,
+      patientDob:
+        req.body.patientDob
+          ? new Date(req.body.patientDob)
+          : null,
       hospitalName: req.body.hospitalName || null,
       diagnosisText: req.body.diagnosisText || null,
       claimType: req.body.claimType,
@@ -855,6 +860,13 @@ router.patch("/:id", async (req, res) => {
 
     if (!payload.payerName) {
       return res.status(400).json({ error: "Insurance company is required" });
+    }
+
+    if (
+      payload.patientDob &&
+      Number.isNaN(new Date(payload.patientDob).getTime())
+    ) {
+      return res.status(400).json({ error: "Patient date of birth is invalid" });
     }
 
     if (
