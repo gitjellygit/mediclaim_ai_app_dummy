@@ -10,6 +10,13 @@ import {
   removeManuallyEditedFields,
   recomputeDerivedClaimPatch
 } from "../services/claimDocumentProvenance.js";
+import {
+  buildAutomationSummary,
+  changedFields,
+  manualProvenance,
+  mergeProvenance,
+  systemProvenance
+} from "../services/claimFieldProvenance.js";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -347,7 +354,10 @@ router.get("/:id/journey", async (req, res) => {
     }
 
     res.json({
-      claim,
+      claim: {
+        ...claim,
+        automationSummary: buildAutomationSummary(claim)
+      },
       stages: buildJourneyState(claim),
       livePayerConnectorConfigured: false
     });
@@ -403,7 +413,19 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
       data: {
         eligibilityStatus,
         coverageStatus,
-        eligibilityCheckedAt: now
+        eligibilityCheckedAt: now,
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          systemProvenance(
+            ["eligibilityStatus", "coverageStatus"],
+            {
+              source: "LOCAL_PRECHECK",
+              label: "Local Pre-check",
+              sourceDetail: "No live 270/271 payer connector configured",
+              verified: false
+            }
+          )
+        )
       }
     });
 
@@ -496,6 +518,10 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
       });
     }
 
+    const priorAuthFields = ["priorAuthRequired", "priorAuthStatus"];
+    if (authorizationNo) priorAuthFields.push("authorizationNo");
+    if (expiry) priorAuthFields.push("priorAuthExpiry");
+
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
@@ -503,7 +529,25 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
         priorAuthStatus,
         priorAuthCheckedAt: new Date(),
         authorizationNo,
-        priorAuthExpiry: expiry || null
+        priorAuthExpiry: expiry || null,
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          {
+            ...systemProvenance(
+              ["priorAuthStatus"],
+              {
+                source: "LOCAL_PRECHECK",
+                label: "Local Prior Auth Evaluation",
+                sourceDetail: "No live payer prior-auth connector configured",
+                verified: false
+              }
+            ),
+            ...manualProvenance(
+              priorAuthFields.filter((field) => field !== "priorAuthStatus"),
+              "Recorded by User"
+            )
+          }
+        )
       }
     });
 
@@ -571,7 +615,19 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       data: {
         payerClaimStatus,
         claimStatusCheckedAt: new Date(),
-        status: payerClaimStatus === "PAID" ? "PAID" : claim.status
+        status: payerClaimStatus === "PAID" ? "PAID" : claim.status,
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          systemProvenance(
+            ["payerClaimStatus"],
+            {
+              source: "USER_RECORDED",
+              label: "Recorded by User",
+              sourceDetail: "Manual payer status entry; 276/277 connector not configured",
+              verified: true
+            }
+          )
+        )
       }
     });
 
@@ -731,6 +787,43 @@ router.patch("/:id/journey/remittance", async (req, res) => {
       });
     }
 
+    const remittanceProvenance = {
+      ...systemProvenance(
+        ["allowedAmount", "paidAmount", "paymentReference"],
+        {
+          source: "USER_RECORDED",
+          label: "Recorded Remittance",
+          sourceDetail: "Manual remittance entry; 835 ERA connector not configured",
+          verified: true
+        }
+      ),
+      ...systemProvenance(
+        ["patientResponsibility"],
+        requestedPatientResponsibility != null
+          ? {
+              source: "USER_RECORDED",
+              label: "Recorded Remittance",
+              sourceDetail: "Entered from remittance/EOB",
+              verified: true
+            }
+          : {
+              source: "CALCULATED_ESTIMATE",
+              label: "Calculated Estimate",
+              sourceDetail: "Allowed Amount − Paid Amount",
+              verified: false
+            }
+      ),
+      ...systemProvenance(
+        ["approvedAmount"],
+        {
+          source: "DERIVED",
+          label: "Derived from Allowed Amount",
+          sourceDetail: "Remittance workflow",
+          verified: false
+        }
+      )
+    };
+
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
@@ -744,6 +837,10 @@ router.patch("/:id/journey/remittance", async (req, res) => {
         paidAmount,
         paymentReference: normalizedPaymentReference,
         approvedAmount: allowedAmount,
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          remittanceProvenance
+        ),
         status:
           remittanceStatus === "POSTED" && paidAmount != null
             ? "PAID"
@@ -777,7 +874,10 @@ router.get("/:id", async (req, res) => {
     return res.status(404).json({ error: "Claim not found" });
   }
 
-  res.json(claim);
+  res.json({
+    ...claim,
+    automationSummary: buildAutomationSummary(claim)
+  });
 });
 
 router.post("/", async (req, res) => {
@@ -796,14 +896,26 @@ router.post("/", async (req, res) => {
       });
     }
 
+    const createPayload = {
+      ...req.body,
+      amount,
+      totalBilledAmount: req.body.totalBilledAmount
+        ? Number(req.body.totalBilledAmount)
+        : null,
+      status: "DRAFT"
+    };
+
+    const manuallyEnteredFields = Object.keys(createPayload).filter(
+      (field) => !["status", "createdAt", "id"].includes(field)
+    );
+
     const claim = await prisma.claim.create({
       data: {
-        ...req.body,
-        amount,
-        totalBilledAmount: req.body.totalBilledAmount
-          ? Number(req.body.totalBilledAmount)
-          : null,
-        status: "DRAFT"
+        ...createPayload,
+        fieldProvenance: manualProvenance(
+          manuallyEnteredFields,
+          "Entered at Claim Creation"
+        )
       }
     });
 
@@ -878,9 +990,16 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
+    const manuallyChangedFields = changedFields(existing, payload);
     const documentDerivedFields = removeManuallyEditedFields(
       existing.documentDerivedFields,
-      payload
+      Object.fromEntries(
+        manuallyChangedFields.map((field) => [field, payload[field]])
+      )
+    );
+    const fieldProvenance = mergeProvenance(
+      existing.fieldProvenance,
+      manualProvenance(manuallyChangedFields)
     );
 
     await prisma.$transaction([
@@ -890,6 +1009,7 @@ router.patch("/:id", async (req, res) => {
         data: {
           ...payload,
           documentDerivedFields,
+          fieldProvenance,
           status: "DRAFT"
         }
       })
@@ -903,7 +1023,10 @@ router.patch("/:id", async (req, res) => {
       }
     });
 
-    res.json(updated);
+    res.json({
+      ...updated,
+      automationSummary: buildAutomationSummary(updated)
+    });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
