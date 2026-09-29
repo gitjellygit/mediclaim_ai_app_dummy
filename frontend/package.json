@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite"
+    "dev": "vite",
+    "test:medical": "playwright test tests/medical-consistency.e2e.spec.js --headed",
+    "test:medical:fast": "playwright test tests/medical-consistency.e2e.spec.js",
+    "test:medical:report": "playwright show-report"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -17,6 +20,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.2"
+    "vite": "^5.4.2",
+    "@playwright/test": "^1.55.0"
   }
 }
