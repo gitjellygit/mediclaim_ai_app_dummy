@@ -10,7 +10,8 @@ import {
 } from "../services/claimDocumentProvenance.js";
 import {
   documentProvenance,
-  mergeProvenance
+  mergeProvenance,
+  removeProvenanceFields
 } from "../services/claimFieldProvenance.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -643,6 +644,12 @@ export function documentsRouter(prisma, uploadDir) {
         doc.claim?.documentDerivedFields || []
       );
 
+      const recomputedFields = Object.keys(derivedPatch);
+      const fieldProvenance = removeProvenanceFields(
+        doc.claim?.fieldProvenance,
+        recomputedFields
+      );
+
       await prisma.$transaction([
         prisma.document.delete({ where: { id: doc.id } }),
         prisma.check.deleteMany({ where: { claimId: doc.claimId } }),
@@ -650,6 +657,7 @@ export function documentsRouter(prisma, uploadDir) {
           where: { id: doc.claimId },
           data: {
             ...derivedPatch,
+            fieldProvenance,
             status: "DRAFT"
           }
         })
