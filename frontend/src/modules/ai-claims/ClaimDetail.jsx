@@ -173,6 +173,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [bulkDeleteLoading, setBulkDeleteLoading] = React.useState(false);
   const [fixFocus, setFixFocus] = React.useState("");
   const [automationExpanded, setAutomationExpanded] = React.useState(false);
+  const [automationFilter, setAutomationFilter] = React.useState("all");
   const patientPolicyRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
@@ -424,6 +425,117 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       }
     });
   }, [claim?.id]);
+
+  function showAutomationBucket(bucket) {
+    setAutomationFilter(bucket);
+    setAutomationExpanded(true);
+  }
+
+  function automationFieldAction(item) {
+    if (!item) return;
+
+    const claimEditFields = new Set([
+      "patientName",
+      "patientDob",
+      "memberId",
+      "payerName",
+      "policyNo",
+      "hospitalName",
+      "doctorName",
+      "diagnosisText",
+      "icd10Codes",
+      "dateOfService",
+      "amount",
+      "totalBilledAmount"
+    ]);
+
+    const eligibilityFields = new Set([
+      "eligibilityStatus",
+      "coverageStatus",
+      "deductibleRemaining",
+      "coinsurancePct",
+      "networkStatus"
+    ]);
+
+    const priorAuthFields = new Set([
+      "priorAuthRequired",
+      "priorAuthStatus",
+      "priorAuthExpiry",
+      "authorizationNo"
+    ]);
+
+    const payerStatusFields = new Set(["payerClaimStatus"]);
+
+    const remittanceFields = new Set([
+      "allowedAmount",
+      "paidAmount",
+      "patientResponsibility",
+      "paymentReference",
+      "approvedAmount"
+    ]);
+
+    if (claimEditFields.has(item.field)) {
+      openClaimEdit(item.field);
+      return;
+    }
+
+    if (
+      eligibilityFields.has(item.field) ||
+      priorAuthFields.has(item.field) ||
+      payerStatusFields.has(item.field) ||
+      remittanceFields.has(item.field)
+    ) {
+      const stage =
+        eligibilityFields.has(item.field)
+          ? "eligibility"
+          : priorAuthFields.has(item.field)
+          ? "prior-auth"
+          : payerStatusFields.has(item.field)
+          ? "claim-status"
+          : "remittance";
+
+      navigate(`/journey?claimId=${claim.id}&stage=${stage}`, {
+        state: {
+          from: location.pathname + location.search,
+          backLabel: "Back to Claim Detail"
+        }
+      });
+      return;
+    }
+
+    showDialog(
+      `${item.label} is currently tracked by the automation engine, but there is no direct edit action for this field yet.`,
+      {
+        title: item.bucket === "missing" ? "Missing field" : "Field review",
+        severity: "info"
+      }
+    );
+  }
+
+  function automationActionLabel(item) {
+    if (!item || item.bucket === "automated") return "View";
+
+    const journeyFields = new Set([
+      "eligibilityStatus",
+      "coverageStatus",
+      "deductibleRemaining",
+      "coinsurancePct",
+      "networkStatus",
+      "priorAuthRequired",
+      "priorAuthStatus",
+      "priorAuthExpiry",
+      "authorizationNo",
+      "payerClaimStatus",
+      "allowedAmount",
+      "paidAmount",
+      "patientResponsibility",
+      "paymentReference",
+      "approvedAmount"
+    ]);
+
+    if (journeyFields.has(item.field)) return "Open Journey";
+    return item.bucket === "missing" ? "Add / Fix" : "Review / Fix";
+  }
 
   async function runAICheck() {
     if (!canRunAI) return showToast("Only CASHIER/ADMIN can run AI check", "error");
@@ -796,23 +908,35 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 <Chip
                   icon={<AutoAwesome />}
                   color="success"
+                  clickable
+                  onClick={() => showAutomationBucket("automated")}
                   label={`${claim.automationSummary.automatedFields} auto-populated`}
+                  sx={{ cursor: "pointer" }}
                 />
                 <Chip
                   icon={<FactCheck />}
                   color="warning"
+                  clickable
+                  onClick={() => showAutomationBucket("review")}
                   label={`${claim.automationSummary.reviewFields} need review`}
+                  sx={{ cursor: "pointer" }}
                 />
                 <Chip
                   icon={<Person />}
                   variant="outlined"
+                  clickable
+                  onClick={() => showAutomationBucket("manual")}
                   label={`${claim.automationSummary.manualFields} manual`}
+                  sx={{ cursor: "pointer" }}
                 />
                 <Chip
                   icon={<Calculate />}
                   color={claim.automationSummary.missingFields ? "error" : "default"}
                   variant={claim.automationSummary.missingFields ? "filled" : "outlined"}
+                  clickable
+                  onClick={() => showAutomationBucket("missing")}
                   label={`${claim.automationSummary.missingFields} missing`}
+                  sx={{ cursor: "pointer" }}
                 />
               </Stack>
             </Stack>
@@ -825,7 +949,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Typography>
                 <Button
                   size="small"
-                  onClick={() => setAutomationExpanded((value) => !value)}
+                  onClick={() => {
+                    setAutomationFilter("all");
+                    setAutomationExpanded((value) => !value);
+                  }}
                 >
                   {automationExpanded ? "Hide Field Sources" : "View Field Sources"}
                 </Button>
@@ -846,6 +973,35 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
             <Collapse in={automationExpanded}>
               <Divider sx={{ my: 2 }} />
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                justifyContent="space-between"
+                alignItems={{ xs: "stretch", sm: "center" }}
+                spacing={1}
+                sx={{ mb: 1.5 }}
+              >
+                <Typography variant="subtitle2" fontWeight={700}>
+                  {automationFilter === "missing"
+                    ? "Missing fields — click a field to complete it"
+                    : automationFilter === "review"
+                    ? "Fields needing review — click a field to resolve it"
+                    : automationFilter === "manual"
+                    ? "Manually entered fields"
+                    : automationFilter === "automated"
+                    ? "Auto-populated fields and their sources"
+                    : "All tracked fields"}
+                </Typography>
+                {automationFilter !== "all" && (
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => setAutomationFilter("all")}
+                  >
+                    Show all fields
+                  </Button>
+                )}
+              </Stack>
+
               <Box
                 sx={{
                   display: "grid",
@@ -857,15 +1013,62 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   gap: 1
                 }}
               >
-                {claim.automationSummary.fields.map((item) => (
+                {claim.automationSummary.fields
+                  .filter(
+                    (item) =>
+                      automationFilter === "all" ||
+                      item.bucket === automationFilter
+                  )
+                  .map((item) => (
                   <Paper
                     key={item.field}
                     variant="outlined"
-                    sx={{ p: 1.25 }}
+                    onClick={() =>
+                      ["missing", "review"].includes(item.bucket)
+                        ? automationFieldAction(item)
+                        : undefined
+                    }
+                    sx={{
+                      p: 1.25,
+                      cursor: ["missing", "review"].includes(item.bucket)
+                        ? "pointer"
+                        : "default",
+                      transition: "all 0.15s ease",
+                      "&:hover": ["missing", "review"].includes(item.bucket)
+                        ? {
+                            borderColor:
+                              item.bucket === "missing"
+                                ? "error.main"
+                                : "warning.main",
+                            boxShadow: 2,
+                            transform: "translateY(-1px)"
+                          }
+                        : undefined
+                    }}
                   >
-                    <Typography variant="body2" fontWeight={600}>
-                      {item.label}
-                    </Typography>
+                    <Stack
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="center"
+                      spacing={1}
+                    >
+                      <Typography variant="body2" fontWeight={600}>
+                        {item.label}
+                      </Typography>
+                      {["missing", "review"].includes(item.bucket) && (
+                        <Button
+                          size="small"
+                          variant="text"
+                          color={item.bucket === "missing" ? "error" : "warning"}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            automationFieldAction(item);
+                          }}
+                        >
+                          {automationActionLabel(item)}
+                        </Button>
+                      )}
+                    </Stack>
                     <Stack direction="row" spacing={0.75} sx={{ mt: 0.75 }} flexWrap="wrap">
                       <Chip
                         size="small"
