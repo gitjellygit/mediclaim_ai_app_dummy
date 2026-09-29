@@ -13,8 +13,10 @@ import {
 import {
   buildAutomationSummary,
   changedFields,
+  documentProvenance,
   manualProvenance,
   mergeProvenance,
+  removeProvenanceFields,
   systemProvenance
 } from "../services/claimFieldProvenance.js";
 
@@ -1179,7 +1181,17 @@ router.post("/documents", upload.single("file"), async (req, res) => {
         where: { id: claimId },
         data: {
           ...updatePayload,
-          documentDerivedFields
+          documentDerivedFields,
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            documentProvenance({
+              fields: derivedFromThisDocument,
+              confidence: intel.confidence,
+              documentId: doc.id,
+              fileName: req.file.originalname,
+              documentType: type || intel.suggestedType || "OTHER"
+            })
+          )
         },
         include: {
           documents: {
@@ -1304,6 +1316,12 @@ router.delete("/documents/:id", async (req, res) => {
       doc.claim?.documentDerivedFields || []
     );
 
+    const recomputedFields = Object.keys(derivedPatch);
+    const fieldProvenance = removeProvenanceFields(
+      doc.claim?.fieldProvenance,
+      recomputedFields
+    );
+
     await prisma.$transaction([
       prisma.document.delete({ where: { id: req.params.id } }),
       prisma.check.deleteMany({ where: { claimId: doc.claimId } }),
@@ -1311,6 +1329,7 @@ router.delete("/documents/:id", async (req, res) => {
         where: { id: doc.claimId },
         data: {
           ...derivedPatch,
+          fieldProvenance,
           status: "DRAFT"
         }
       })
