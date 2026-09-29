@@ -158,7 +158,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   const [claim, setClaim] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
-  const [docType, setDocType] = React.useState("FINAL_BILL");
+  const [docType, setDocType] = React.useState("AUTO");
   const [aiRunning, setAiRunning] = React.useState(false);
   const [submittingClaim, setSubmittingClaim] = React.useState(false);
   const [editMode, setEditMode] = React.useState(false);
@@ -471,8 +471,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     if (!doc?.suggestedType) return;
 
     try {
-      await ClaimsApi.applyDocumentSuggestion(doc.id);
-      showToast("Applied AI suggested type", "success");
+      const result = await ClaimsApi.applyDocumentSuggestion(doc.id);
+      if (!result?.unchanged) {
+        showToast(
+          result?.message || "AI document type applied",
+          "success"
+        );
+      }
       await load();
     } catch (e) {
       showDialog(
@@ -1167,8 +1172,19 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   }
                 }
               }}
-              helperText="Choose the document you are uploading"
+              helperText={
+                docType === "AUTO"
+                  ? "Recommended: AI detects the document type automatically"
+                  : "Manual override selected; AI will still validate the document type"
+              }
             >
+              <MenuItem
+                value="AUTO"
+                sx={{ cursor: "pointer", py: 1.1, fontWeight: 700 }}
+              >
+                Auto Detect with AI (Recommended)
+              </MenuItem>
+              <Divider />
               {DOC_TYPES.map((type) => (
                 <MenuItem
                   key={type}
@@ -1198,11 +1214,30 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   try {
                     const result = await ClaimsApi.uploadDoc({
                       claimId: id,
-                      type: docType,
+                      type: docType === "AUTO" ? null : docType,
                       file
                     });
 
-                    if (result?.identityValidation?.status === "UNVERIFIED") {
+                    const selectedType =
+                      docType === "AUTO" ? null : docType;
+                    const suggestedType =
+                      result?.suggestedType || result?.document?.suggestedType;
+                    const suggestionConfidence =
+                      result?.confidence ?? result?.document?.confidence;
+
+                    if (
+                      selectedType &&
+                      suggestedType &&
+                      selectedType !== suggestedType
+                    ) {
+                      showDialog(
+                        `You selected ${DOC_TYPE_LABELS[selectedType] || selectedType}, but AI detected ${DOC_TYPE_LABELS[suggestedType] || suggestedType}${suggestionConfidence != null ? ` with ${suggestionConfidence}% confidence` : ""}. The document was uploaded using your selected type. You can use the AI suggestion from the Documents table after review.`,
+                        {
+                          title: "Document type needs review",
+                          severity: "warning"
+                        }
+                      );
+                    } else if (result?.identityValidation?.status === "UNVERIFIED") {
                       showDialog(
                         result?.message ||
                           "The document was uploaded, but the patient identity could not be verified from the extracted data. Please review it before relying on this document.",
@@ -1334,17 +1369,19 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                                   size="small"
                                   variant="outlined"
                                   color="primary"
-                                  label={`${doc.suggestedType.replace('_', ' ')}`}
+                                  label={DOC_TYPE_LABELS[doc.suggestedType] || doc.suggestedType.replaceAll("_", " ")}
                                 />
                                 {doc.suggestedType !== doc.type && canDeleteDoc && (
-                                  <Button
-                                    size="small"
-                                    variant="outlined"
-                                    onClick={() => applyDocSuggestion(doc)}
-                                    sx={{ fontSize: '0.7rem', py: 0.25, px: 1 }}
-                                  >
-                                    Apply
-                                  </Button>
+                                  <Tooltip title="Change the saved document type to the AI-detected type">
+                                    <Button
+                                      size="small"
+                                      variant="outlined"
+                                      onClick={() => applyDocSuggestion(doc)}
+                                      sx={{ fontSize: "0.7rem", py: 0.25, px: 1, cursor: "pointer" }}
+                                    >
+                                      Use AI Type
+                                    </Button>
+                                  </Tooltip>
                                 )}
                               </Stack>
                             ) : (
