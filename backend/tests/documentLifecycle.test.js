@@ -2156,10 +2156,10 @@ test("92 - payer simulator frontend exposes connection workflow and transaction 
   );
 
   assert.match(source, /Payer Connection/);
-  assert.match(source, /SIMULATED/);
+  assert.match(source, /Connected/);
   assert.match(source, /Check Eligibility/);
   assert.match(source, /Check Prior Auth/);
-  assert.match(source, /Send to Payer/);
+  assert.match(source, /Submit to Payer/);
   assert.match(source, /Check Status/);
   assert.match(source, /Get Remittance/);
   assert.match(source, /Payer Activity/);
