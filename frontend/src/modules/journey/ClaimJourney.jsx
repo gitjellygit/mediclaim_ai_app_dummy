@@ -631,12 +631,21 @@ export default function ClaimJourney() {
             </Card>
           )}
 
-          {!journey.livePayerConnectorConfigured && (
-            <Alert severity="info" sx={{ mb: 3 }}>
-              Eligibility and prior-authorization actions currently perform local workflow pre-checks / recorded decisions.
-              No live payer or clearinghouse connector is configured yet.
-            </Alert>
-          )}
+          <Stack
+            direction="row"
+            spacing={2}
+            alignItems="center"
+            useFlexGap
+            flexWrap="wrap"
+            sx={{ mb: 2, px: 0.5 }}
+          >
+            <Typography variant="caption" color="text.secondary">
+              <b>*</b> Required
+            </Typography>
+            <Typography variant="caption" color="warning.main">
+              Conditional fields highlight when required
+            </Typography>
+          </Stack>
 
           <Box
             sx={{
