@@ -33,7 +33,7 @@ import { useToast } from "../../context/ToastContext.jsx";
 const STAGE_LABELS = {
   eligibility: "1. Eligibility",
   priorAuth: "2. Prior Authorization",
-  claim: "3. Claim",
+  claim: "3. Claim Submission",
   claimStatus: "4. Claim Status",
   remittance: "5. Remittance"
 };
@@ -70,6 +70,40 @@ function humanStatus(status) {
     .replaceAll("_", " ")
     .toLowerCase()
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function RequirementChip({ label, kind = "required" }) {
+  const config = {
+    required: { color: "error", text: "Required" },
+    conditional: { color: "warning", text: "Conditional" },
+    optional: { color: "default", text: "Optional" },
+    payer: { color: "info", text: "From payer when available" },
+    calculated: { color: "secondary", text: "Auto-calculated" }
+  }[kind] || { color: "default", text: kind };
+
+  return (
+    <Chip
+      size="small"
+      variant="outlined"
+      color={config.color}
+      label={`${label}: ${config.text}`}
+      sx={{ height: 22, fontSize: "0.68rem" }}
+    />
+  );
+}
+
+function Requirements({ children }) {
+  return (
+    <Stack
+      direction="row"
+      spacing={0.75}
+      useFlexGap
+      flexWrap="wrap"
+      sx={{ mb: 0.5 }}
+    >
+      {children}
+    </Stack>
+  );
 }
 
 function StageCard({
@@ -678,7 +712,18 @@ export default function ClaimJourney() {
               }
             >
               <Stack spacing={1.2}>
-                <Typography variant="body2"><b>Coverage:</b> {stages.eligibility.coverageStatus || "—"}</Typography>
+                <Requirements>
+                  <RequirementChip label="Member ID" kind="required" />
+                  <RequirementChip label="Policy No." kind="required" />
+                  <RequirementChip label="Payer" kind="required" />
+                  <RequirementChip label="Network / deductible / coinsurance" kind="payer" />
+                </Requirements>
+                <Typography variant="body2">
+                  <b>Coverage:</b>{" "}
+                  {stages.eligibility.coverageStatus === "UNKNOWN"
+                    ? "Not payer-verified"
+                    : stages.eligibility.coverageStatus || "—"}
+                </Typography>
                 <Typography variant="body2"><b>Network:</b> {stages.eligibility.networkStatus || "—"}</Typography>
                 <Typography variant="body2"><b>Deductible Remaining:</b> {money(stages.eligibility.deductibleRemaining)}</Typography>
                 <Typography variant="body2"><b>Coinsurance:</b> {stages.eligibility.coinsurancePct == null ? "—" : `${stages.eligibility.coinsurancePct}%`}</Typography>
@@ -718,7 +763,7 @@ export default function ClaimJourney() {
                   {action === "eligibility"
                     ? "Checking..."
                     : eligibilityComplete
-                    ? "Verified"
+                    ? "Pre-check Passed"
                     : "Run Pre-check"}
                 </Button>
               </Stack>
@@ -733,6 +778,16 @@ export default function ClaimJourney() {
               blockedReason={stages.priorAuth.blockedReason}
             >
               <Stack spacing={1.2}>
+                <Requirements>
+                  <RequirementChip label="Auth decision" kind="required" />
+                  <RequirementChip label="Authorization No." kind="conditional" />
+                  <RequirementChip label="End date / expiry" kind="optional" />
+                </Requirements>
+                <Typography variant="caption" color="text.secondary">
+                  If authorization is required, an authorization number is required. Expiry/end
+                  information should be recorded when supplied by the payer; not every authorization
+                  is expressed as a fixed expiration date.
+                </Typography>
                 <FormControl size="small" fullWidth disabled={!stages.priorAuth.actionable}>
                   <InputLabel>Auth Required?</InputLabel>
                   <Select
@@ -800,6 +855,15 @@ export default function ClaimJourney() {
               blockedReason={stages.claim.blockedReason}
             >
               <Stack spacing={1.2}>
+                <Requirements>
+                  <RequirementChip label="Claim amount" kind="required" />
+                  <RequirementChip label="Supporting docs" kind="required" />
+                  <RequirementChip label="Eligibility / auth resolved" kind="required" />
+                </Requirements>
+                <Typography variant="caption" color="text.secondary">
+                  This is the submission stage. "Submitted" means the claim was sent; it does not
+                  mean the payer has adjudicated or paid it.
+                </Typography>
                 <Typography variant="body2"><b>Claimed:</b> {money(claim.amount)}</Typography>
                 <Typography variant="body2"><b>Billed:</b> {money(claim.totalBilledAmount)}</Typography>
                 <Typography variant="body2"><b>Documents:</b> {claim.documents?.length || 0}</Typography>
@@ -830,6 +894,13 @@ export default function ClaimJourney() {
               blockedReason={stages.claimStatus.blockedReason}
             >
               <Stack spacing={1.2}>
+                <Requirements>
+                  <RequirementChip label="Payer status" kind="required" />
+                </Requirements>
+                <Typography variant="caption" color="text.secondary">
+                  In production this should come from the payer/clearinghouse (276/277). Manual
+                  entry here is a temporary recorded status.
+                </Typography>
                 <FormControl size="small" fullWidth disabled={!stages.claimStatus.actionable}>
                   <InputLabel>Payer Status</InputLabel>
                   <Select
@@ -882,6 +953,17 @@ export default function ClaimJourney() {
               blockedReason={stages.remittance.blockedReason}
             >
               <Stack spacing={1.2}>
+                <Requirements>
+                  <RequirementChip label="Allowed amount" kind="required" />
+                  <RequirementChip label="Paid amount" kind="required" />
+                  <RequirementChip label="Patient responsibility" kind="calculated" />
+                  <RequirementChip label="Payment reference" kind="optional" />
+                </Requirements>
+                <Typography variant="caption" color="text.secondary">
+                  For a real 835 ERA, allowed/paid/patient-responsibility values should be populated
+                  electronically. "Received" means the remittance arrived; "Posted" means it was
+                  processed into the account. A positive posted payment moves the claim to Paid.
+                </Typography>
                 <FormControl size="small" fullWidth disabled={!stages.remittance.actionable}>
                   <InputLabel>Remittance</InputLabel>
                   <Select
@@ -982,7 +1064,7 @@ export default function ClaimJourney() {
           <Divider sx={{ my: 3 }} />
 
           <Alert severity="success" icon={<CheckCircle />}>
-            Workflow guidance is gated, but every stage remains visible. Downstream stages are read-only until their prerequisites are complete.
+            Required vs optional fields are shown on each stage. "Submitted" is not the final state: payer adjudication and remittance happen afterward. When a positive remittance is Posted, the overall claim moves to Paid.
           </Alert>
         </>
       )}
