@@ -72,6 +72,183 @@ function humanStatus(status) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function journeyStepState(key, stages) {
+  if (!stages) return "pending";
+
+  if (key === "eligibility") {
+    if (stages.eligibility?.status === "VERIFIED") return "complete";
+    if (["FAILED", "NEEDS_REVIEW"].includes(stages.eligibility?.status)) return "attention";
+    return "active";
+  }
+
+  if (key === "prior-auth") {
+    if (["APPROVED", "NOT_REQUIRED"].includes(stages.priorAuth?.status)) return "complete";
+    if (["DENIED", "NEEDS_REVIEW", "REQUIRED"].includes(stages.priorAuth?.status)) return "attention";
+    return stages.eligibility?.status === "VERIFIED" ? "active" : "pending";
+  }
+
+  if (key === "claim") {
+    if (["SUBMITTED", "PAID"].includes(stages.claim?.status)) return "complete";
+    return ["APPROVED", "NOT_REQUIRED"].includes(stages.priorAuth?.status)
+      ? "active"
+      : "pending";
+  }
+
+  if (key === "claim-status") {
+    const status = stages.claimStatus?.status;
+    if (["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(status)) return "complete";
+    if (["DENIED"].includes(status)) return "attention";
+    return ["SUBMITTED", "PAID"].includes(stages.claim?.status)
+      ? "active"
+      : "pending";
+  }
+
+  if (key === "remittance") {
+    const status = stages.remittance?.status;
+    if (["RECEIVED", "POSTED"].includes(status)) return "complete";
+    return ["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(
+      stages.claimStatus?.status
+    )
+      ? "active"
+      : "pending";
+  }
+
+  return "pending";
+}
+
+function JourneyProgress({ stages, onStepClick }) {
+  const steps = [
+    { key: "eligibility", label: "Eligibility" },
+    { key: "prior-auth", label: "Prior Auth" },
+    { key: "claim", label: "Claim" },
+    { key: "claim-status", label: "Status" },
+    { key: "remittance", label: "Remittance" }
+  ];
+
+  const stateStyles = {
+    complete: {
+      circleBg: "success.main",
+      circleColor: "success.contrastText",
+      textColor: "success.main"
+    },
+    active: {
+      circleBg: "primary.main",
+      circleColor: "primary.contrastText",
+      textColor: "primary.main"
+    },
+    attention: {
+      circleBg: "warning.main",
+      circleColor: "warning.contrastText",
+      textColor: "warning.dark"
+    },
+    pending: {
+      circleBg: "grey.300",
+      circleColor: "text.secondary",
+      textColor: "text.secondary"
+    }
+  };
+
+  return (
+    <Box
+      sx={{
+        width: "100%",
+        overflowX: "auto",
+        pb: 0.5,
+        "&::-webkit-scrollbar": { height: 5 }
+      }}
+    >
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "flex-start",
+          minWidth: { xs: 700, md: "100%" },
+          px: { xs: 0.5, sm: 1 }
+        }}
+      >
+        {steps.map((step, index) => {
+          const state = journeyStepState(step.key, stages);
+          const style = stateStyles[state];
+          const previousState =
+            index > 0 ? journeyStepState(steps[index - 1].key, stages) : null;
+          const connectorComplete = previousState === "complete";
+
+          return (
+            <React.Fragment key={step.key}>
+              {index > 0 && (
+                <Box
+                  sx={{
+                    flex: 1,
+                    minWidth: 52,
+                    height: 3,
+                    mt: 2,
+                    mx: 1,
+                    borderRadius: 99,
+                    backgroundColor: connectorComplete
+                      ? "success.main"
+                      : "grey.300",
+                    transition: "background-color 0.25s ease"
+                  }}
+                />
+              )}
+
+              <Box
+                role="button"
+                tabIndex={0}
+                onClick={() => onStepClick?.(step.key)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    onStepClick?.(step.key);
+                  }
+                }}
+                sx={{
+                  width: 92,
+                  flexShrink: 0,
+                  textAlign: "center",
+                  cursor: "pointer",
+                  userSelect: "none"
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    mx: "auto",
+                    borderRadius: "50%",
+                    display: "grid",
+                    placeItems: "center",
+                    fontSize: "0.82rem",
+                    fontWeight: 800,
+                    backgroundColor: style.circleBg,
+                    color: style.circleColor,
+                    boxShadow:
+                      state === "active"
+                        ? "0 0 0 5px rgba(25,118,210,0.12)"
+                        : "none",
+                    transition: "all 0.25s ease"
+                  }}
+                >
+                  {state === "complete" ? "✓" : index + 1}
+                </Box>
+                <Typography
+                  variant="body2"
+                  fontWeight={state === "pending" ? 500 : 700}
+                  sx={{
+                    mt: 0.75,
+                    color: style.textColor,
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  {step.label}
+                </Typography>
+              </Box>
+            </React.Fragment>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
 function StageCard({
   title,
   status,
@@ -419,8 +596,8 @@ export default function ClaimJourney() {
           <Typography variant="h4" fontWeight={700}>
             Claim Journey
           </Typography>
-          <Typography color="text.secondary">
-            Eligibility → Prior Auth → Claim → Status → Remittance
+          <Typography color="text.secondary" variant="body2">
+            Track the claim from eligibility through payment.
           </Typography>
         </Box>
 
@@ -437,6 +614,26 @@ export default function ClaimJourney() {
           Refresh
         </Button>
       </Stack>
+
+      <Paper
+        variant="outlined"
+        sx={{
+          p: { xs: 1.5, sm: 2 },
+          mb: 3,
+          borderRadius: 2,
+          backgroundColor: "background.paper"
+        }}
+      >
+        <JourneyProgress
+          stages={stages}
+          onStepClick={(step) => {
+            const element = document.getElementById(`journey-stage-${step}`);
+            if (element) {
+              element.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          }}
+        />
+      </Paper>
 
       <Paper sx={{ p: 2, mb: 3 }}>
         <Autocomplete
@@ -811,6 +1008,8 @@ export default function ClaimJourney() {
 
             <StageCard
               title={STAGE_LABELS.claim}
+              stageId="journey-stage-claim"
+              highlighted={focusedStage === "claim"}
               status={stages.claim.status}
               actionable={stages.claim.actionable}
               blockedReason={stages.claim.blockedReason}
