@@ -393,7 +393,11 @@ test("11 - document deletion invalidates checks and returns claim to DRAFT", { c
 
   const updated = await prisma.claim.findUnique({ where: { id: claim.id } });
   assert.equal(updated.status, "DRAFT");
-  assert.equal(await prisma.check.count({ where: { claimId: claim.id } }), 0);
+
+  const checks = await prisma.check.findMany({ where: { claimId: claim.id } });
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].isStale, true);
+  assert.match(checks[0].staleReason, /Supporting document deleted/i);
 });
 
 test("12 - submitted claim document cannot be deleted", { concurrency: false }, async () => {
