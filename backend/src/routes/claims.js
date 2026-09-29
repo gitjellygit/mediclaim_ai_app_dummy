@@ -19,6 +19,10 @@ import {
   removeProvenanceFields,
   systemProvenance
 } from "../services/claimFieldProvenance.js";
+import {
+  compareReadinessChecks,
+  markReadinessChecksStale
+} from "../services/readinessHistory.js";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -166,14 +170,23 @@ function validateDocumentIdentityAgainstClaim(claim, extracted = {}) {
   };
 }
 
-async function invalidateClaimReadiness(claimId) {
-  await prisma.$transaction([
-    prisma.check.deleteMany({ where: { claimId } }),
-    prisma.claim.update({
+async function invalidateClaimReadiness(
+  claimId,
+  reason = "Claim data changed"
+) {
+  await markReadinessChecksStale(prisma, claimId, reason);
+
+  const claim = await prisma.claim.findUnique({
+    where: { id: claimId },
+    select: { status: true }
+  });
+
+  if (claim?.status === "READY") {
+    await prisma.claim.update({
       where: { id: claimId },
       data: { status: "DRAFT" }
-    })
-  ]);
+    });
+  }
 }
 
 // Journey logs intentionally avoid patient/member data so PHI is not written to logs.
@@ -458,7 +471,11 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
     });
 
     // Journey changes invalidate an old readiness result.
-    await prisma.check.deleteMany({ where: { claimId: claim.id } });
+    await markReadinessChecksStale(
+      prisma,
+      claim.id,
+      "Eligibility information changed"
+    );
     if (claim.status === "READY") {
       await prisma.claim.update({
         where: { id: claim.id },
@@ -588,7 +605,11 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
       }
     });
 
-    await prisma.check.deleteMany({ where: { claimId: claim.id } });
+    await markReadinessChecksStale(
+      prisma,
+      claim.id,
+      "Prior authorization information changed"
+    );
     if (claim.status === "READY") {
       await prisma.claim.update({
         where: { id: claim.id },
@@ -960,8 +981,14 @@ router.get("/:id", async (req, res) => {
     return res.status(404).json({ error: "Claim not found" });
   }
 
+  const checks = (claim.checks || []).map((check, index, all) => ({
+    ...check,
+    comparison: compareReadinessChecks(check, all[index + 1] || null)
+  }));
+
   res.json({
     ...claim,
+    checks,
     automationSummary: buildAutomationSummary(claim)
   });
 });
@@ -1088,18 +1115,23 @@ router.patch("/:id", async (req, res) => {
       manualProvenance(manuallyChangedFields)
     );
 
-    await prisma.$transaction([
-      prisma.check.deleteMany({ where: { claimId: req.params.id } }),
-      prisma.claim.update({
-        where: { id: req.params.id },
-        data: {
-          ...payload,
-          documentDerivedFields,
-          fieldProvenance,
-          status: "DRAFT"
-        }
-      })
-    ]);
+    await prisma.claim.update({
+      where: { id: req.params.id },
+      data: {
+        ...payload,
+        documentDerivedFields,
+        fieldProvenance,
+        status: "DRAFT"
+      }
+    });
+
+    if (manuallyChangedFields.length > 0) {
+      await markReadinessChecksStale(
+        prisma,
+        req.params.id,
+        "Claim details changed"
+      );
+    }
 
     const updated = await prisma.claim.findUnique({
       where: { id: req.params.id },
@@ -1407,7 +1439,14 @@ router.post("/documents/:id/apply-suggestion", async (req, res) => {
         data: { type: doc.suggestedType }
       });
 
-      await tx.check.deleteMany({ where: { claimId: doc.claimId } });
+      await tx.check.updateMany({
+        where: { claimId: doc.claimId, isStale: false },
+        data: {
+          isStale: true,
+          staleAt: new Date(),
+          staleReason: "Document type changed"
+        }
+      });
 
       if (doc.claim?.status === "READY") {
         await tx.claim.update({
@@ -1474,7 +1513,14 @@ router.delete("/documents/:id", async (req, res) => {
 
     await prisma.$transaction([
       prisma.document.delete({ where: { id: req.params.id } }),
-      prisma.check.deleteMany({ where: { claimId: doc.claimId } }),
+      prisma.check.updateMany({
+        where: { claimId: doc.claimId, isStale: false },
+        data: {
+          isStale: true,
+          staleAt: new Date(),
+          staleReason: "Supporting document deleted"
+        }
+      }),
       prisma.claim.update({
         where: { id: doc.claimId },
         data: {
@@ -1632,6 +1678,11 @@ router.post("/:id/check", async (req, res) => {
 
     const hasBlock = issues.some((i) => i.severity === "BLOCK");
 
+    const previousCheck = await prisma.check.findFirst({
+      where: { claimId: claim.id },
+      orderBy: { createdAt: "desc" }
+    });
+
     const check = await prisma.check.create({
       data: {
         claimId: claim.id,
@@ -1639,7 +1690,10 @@ router.post("/:id/check", async (req, res) => {
         riskScore,
         riskLevel,
         riskFactors,
-        issues
+        issues,
+        isStale: false,
+        staleAt: null,
+        staleReason: null
       }
     });
 
@@ -1650,7 +1704,10 @@ router.post("/:id/check", async (req, res) => {
       }
     });
 
-    res.json(check);
+    res.json({
+      ...check,
+      comparison: compareReadinessChecks(check, previousCheck)
+    });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
@@ -1715,7 +1772,14 @@ router.post("/documents/bulk-delete", async (req, res) => {
 
     await prisma.$transaction([
       prisma.document.deleteMany({ where: { id: { in: ids } } }),
-      prisma.check.deleteMany({ where: { claimId: { in: claimIds } } }),
+      prisma.check.updateMany({
+        where: { claimId: { in: claimIds }, isStale: false },
+        data: {
+          isStale: true,
+          staleAt: new Date(),
+          staleReason: "Supporting documents deleted"
+        }
+      }),
       ...claimUpdates.map(({ claimId, patch, fieldProvenance }) =>
         prisma.claim.update({
           where: { id: claimId },
@@ -1782,6 +1846,13 @@ router.post("/:id/submit", async (req, res) => {
     if (!latestCheck) {
       return res.status(400).json({
         error: "Run AI Check before submitting the claim"
+      });
+    }
+
+    if (latestCheck.isStale) {
+      return res.status(400).json({
+        error:
+          "Claim changed after the last AI Check. Refresh AI readiness before submitting."
       });
     }
 
