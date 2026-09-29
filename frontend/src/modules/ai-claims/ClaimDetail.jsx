@@ -217,6 +217,34 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     load();
   }, [id]);
 
+  // Keep Claim Detail synchronized with updates performed on Claim Journey.
+  // Browser back/forward and tab focus can return to an already-mounted page,
+  // so refresh silently instead of showing stale eligibility/auth values.
+  React.useEffect(() => {
+    if (!id) return;
+
+    const refresh = () => {
+      load({ silent: true }).catch(() => {});
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [id]);
+
+  React.useEffect(() => {
+    if (!id) return;
+    load({ silent: true }).catch(() => {});
+  }, [location.key]);
+
   React.useEffect(() => {
     if (!claim) return;
     setEditForm({
@@ -420,6 +448,44 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
     openClaimEdit("claim");
   }
+
+  function isIssueResolvedByCurrentClaim(issue) {
+    const message = String(issue?.message || "").toLowerCase();
+
+    if (message.includes("eligibility")) {
+      return claim?.eligibilityStatus === "VERIFIED";
+    }
+
+    if (message.includes("prior authorization")) {
+      return ["APPROVED", "NOT_REQUIRED"].includes(claim?.priorAuthStatus);
+    }
+
+    if (message.includes("supporting document")) {
+      return Array.isArray(claim?.documents) && claim.documents.length > 0;
+    }
+
+    if (message.includes("policy")) {
+      return Boolean(claim?.policyNo);
+    }
+
+    if (message.includes("icd")) {
+      return Array.isArray(claim?.icd10Codes) && claim.icd10Codes.length > 0;
+    }
+
+    if (message.includes("amount")) {
+      return Number(claim?.amount || claim?.totalBilledAmount || 0) > 0;
+    }
+
+    return false;
+  }
+
+  const liveResolvedIssues = check?.isStale
+    ? issues.filter((issue) => isIssueResolvedByCurrentClaim(issue))
+    : [];
+
+  const unresolvedDisplayedIssues = check?.isStale
+    ? issues.filter((issue) => !isIssueResolvedByCurrentClaim(issue))
+    : issues;
 
   function fixButtonLabel(issue) {
     const message = String(issue?.message || "").toLowerCase();
@@ -1853,8 +1919,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               {check.isStale ? (
                 <Alert severity="warning" sx={{ mb: 2 }}>
                   <b>Claim changed after this AI Check.</b>{" "}
-                  {check.staleReason || "Claim information was updated"}. The previous score is kept
-                  for history, but you need to refresh AI readiness before submission.
+                  {check.staleReason || "Claim information was updated"}.
+                  {liveResolvedIssues.length > 0
+                    ? ` ${liveResolvedIssues.length} previous issue(s) now appear resolved from the latest claim data.`
+                    : ""}
+                  {" "}Refresh AI readiness to recalculate the score before submission.
                 </Alert>
               ) : (
                 <Alert severity={readinessColor(check.score)} sx={{ mb: 2 }}>
@@ -1884,6 +1953,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                       label={`${check.comparison.newIssues.length} new issue(s)`}
                     />
                   )}
+                  {check.isStale && liveResolvedIssues.length > 0 && (
+                    <Chip
+                      size="small"
+                      color="success"
+                      variant="outlined"
+                      label={`${liveResolvedIssues.length} resolved since this check`}
+                    />
+                  )}
                 </Stack>
               )}
 
@@ -1909,14 +1986,48 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Stack>
               )}
 
-              {check.issues?.length === 0 ? (
+              {issues.length === 0 ? (
                 <Chip label="Claim is ready for submission" color="success" sx={{ mt: 2 }} />
               ) : (
                 <Stack spacing={1.25} sx={{ mt: 2 }}>
-                  <Typography variant="subtitle2">
-                    Action required to improve this claim
-                  </Typography>
-                  {check.issues.map((issue, idx) => (
+                  {check.isStale && liveResolvedIssues.length > 0 && (
+                    <>
+                      <Typography variant="subtitle2" color="success.main">
+                        Resolved since the last AI Check
+                      </Typography>
+                      {liveResolvedIssues.map((issue, idx) => (
+                        <Paper
+                          key={`resolved-${idx}`}
+                          variant="outlined"
+                          sx={{
+                            p: 1.5,
+                            borderColor: "success.light",
+                            backgroundColor: "rgba(46,125,50,0.04)"
+                          }}
+                        >
+                          <Stack
+                            direction={{ xs: "column", sm: "row" }}
+                            alignItems={{ xs: "stretch", sm: "center" }}
+                            justifyContent="space-between"
+                            spacing={1}
+                          >
+                            <Typography variant="body2" fontWeight={600}>
+                              {issue.message}
+                            </Typography>
+                            <Chip size="small" color="success" label="Resolved — refresh AI" />
+                          </Stack>
+                        </Paper>
+                      ))}
+                    </>
+                  )}
+
+                  {unresolvedDisplayedIssues.length > 0 && (
+                    <Typography variant="subtitle2">
+                      Action required to improve this claim
+                    </Typography>
+                  )}
+
+                  {unresolvedDisplayedIssues.map((issue, idx) => (
                     <Paper
                       key={idx}
                       variant="outlined"
