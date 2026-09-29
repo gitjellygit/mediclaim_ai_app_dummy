@@ -93,6 +93,21 @@ function riskChipColor(level) {
   return "default";
 }
 
+function readinessColor(score) {
+  const value = Number(score || 0);
+  if (value < 40) return "error";
+  if (value < 70) return "warning";
+  return "success";
+}
+
+function readinessTextColor(score) {
+  const value = Number(score || 0);
+  if (value < 40) return "error.main";
+  if (value < 70) return "warning.dark";
+  return "success.main";
+}
+
+
 function provenanceChipColor(source) {
   if (source === "DOCUMENT_AI") return "secondary";
   if (source === "CALCULATED_ESTIMATE") return "warning";
@@ -829,6 +844,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   const check = claim.checks?.[0];
+  const previousCheck = claim.checks?.[1] || null;
+  const checkHistory = Array.isArray(claim.checks) ? claim.checks.slice(0, 5) : [];
   const issues = Array.isArray(check?.issues) ? check.issues : [];
   const hasBlock = issues.some((i) => i.severity === "BLOCK");
   const eligibilityClear = claim.eligibilityStatus === "VERIFIED";
@@ -841,6 +858,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     eligibilityClear &&
     priorAuthClear &&
     !!check &&
+    !check.isStale &&
     !hasBlock &&
     (check?.score ?? 0) >= 80;
 
@@ -1737,7 +1755,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 onClick={runAICheck}
                 disabled={aiRunning || !canRunAI || claim.status === "SUBMITTED"}
               >
-                Run AI Check
+                {check?.isStale ? "Refresh AI Readiness" : check ? "Run AI Check Again" : "Run AI Check"}
               </Button>
 
               <Button
@@ -1772,21 +1790,92 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
           {check && (
             <>
-              <Typography sx={{ mt: 2 }}>
-                Readiness Score: <b>{check.score}/100</b>
-              </Typography>
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                justifyContent="space-between"
+                alignItems={{ xs: "flex-start", sm: "center" }}
+                spacing={1}
+                sx={{ mt: 2 }}
+              >
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700}>
+                    Last AI Readiness
+                  </Typography>
+                  <Typography
+                    variant="h4"
+                    fontWeight={800}
+                    sx={{ color: readinessTextColor(check.score) }}
+                  >
+                    {check.score}%
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Checked {new Date(check.createdAt).toLocaleString()}
+                  </Typography>
+                </Box>
+
+                {check.comparison?.scoreDelta != null && (
+                  <Chip
+                    color={
+                      check.comparison.scoreDelta > 0
+                        ? "success"
+                        : check.comparison.scoreDelta < 0
+                        ? "error"
+                        : "default"
+                    }
+                    label={
+                      check.comparison.scoreDelta > 0
+                        ? `+${check.comparison.scoreDelta}% since previous check`
+                        : check.comparison.scoreDelta < 0
+                        ? `${check.comparison.scoreDelta}% since previous check`
+                        : "No score change"
+                    }
+                  />
+                )}
+              </Stack>
 
               <LinearProgress
                 variant="determinate"
                 value={check.score}
-                sx={{ height: 10, borderRadius: 5, my: 2 }}
+                color={readinessColor(check.score)}
+                sx={{ height: 12, borderRadius: 6, my: 2 }}
               />
 
-              <Alert severity="info" sx={{ mb: 2 }}>
-                Readiness is based on the current automated checks for policy number, ICD-10 coding,
-                supporting documents, and billed-versus-claimed amount. TPA is informational in the
-                current rule set and does not reduce the score.
-              </Alert>
+              {check.isStale ? (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <b>Claim changed after this AI Check.</b>{" "}
+                  {check.staleReason || "Claim information was updated"}. The previous score is kept
+                  for history, but you need to refresh AI readiness before submission.
+                </Alert>
+              ) : (
+                <Alert severity={readinessColor(check.score)} sx={{ mb: 2 }}>
+                  {check.score >= 80 && !hasBlock
+                    ? "This readiness check is current and meets the submission threshold."
+                    : "This readiness check is current. Resolve the remaining issues and run AI Check again."}
+                </Alert>
+              )}
+
+              {check.comparison && (
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={1}
+                  sx={{ mb: 2, flexWrap: "wrap" }}
+                >
+                  {check.comparison.resolvedIssues?.length > 0 && (
+                    <Chip
+                      size="small"
+                      color="success"
+                      label={`${check.comparison.resolvedIssues.length} issue(s) resolved`}
+                    />
+                  )}
+                  {check.comparison.newIssues?.length > 0 && (
+                    <Chip
+                      size="small"
+                      color="error"
+                      label={`${check.comparison.newIssues.length} new issue(s)`}
+                    />
+                  )}
+                </Stack>
+              )}
 
               <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: "wrap" }}>
                 <Chip
@@ -1862,6 +1951,62 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                     </Paper>
                   ))}
                 </Stack>
+              )}
+
+              {checkHistory.length > 1 && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                    AI Readiness History
+                  </Typography>
+                  <Stack spacing={0.75}>
+                    {checkHistory.map((item, index) => (
+                      <Paper
+                        key={item.id}
+                        variant="outlined"
+                        sx={{
+                          p: 1,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 1,
+                          flexWrap: "wrap"
+                        }}
+                      >
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Chip
+                            size="small"
+                            color={readinessColor(item.score)}
+                            label={`${item.score}%`}
+                          />
+                          <Typography variant="body2">
+                            {new Date(item.createdAt).toLocaleString()}
+                          </Typography>
+                          {item.isStale && (
+                            <Chip size="small" variant="outlined" color="warning" label="Out of date" />
+                          )}
+                          {index === 0 && !item.isStale && (
+                            <Chip size="small" variant="outlined" color="success" label="Current" />
+                          )}
+                        </Stack>
+                        {item.comparison?.scoreDelta != null && (
+                          <Typography
+                            variant="caption"
+                            color={
+                              item.comparison.scoreDelta > 0
+                                ? "success.main"
+                                : item.comparison.scoreDelta < 0
+                                ? "error.main"
+                                : "text.secondary"
+                            }
+                          >
+                            {item.comparison.scoreDelta > 0 ? "+" : ""}
+                            {item.comparison.scoreDelta}% vs previous
+                          </Typography>
+                        )}
+                      </Paper>
+                    ))}
+                  </Stack>
+                </Box>
               )}
             </>
           )}
