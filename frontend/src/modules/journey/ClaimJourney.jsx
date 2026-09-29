@@ -991,7 +991,6 @@ export default function ClaimJourney() {
                     <Typography variant="body2" color="text.secondary">
                       {claim.automationSummary.automatedFields} fields auto-populated •{" "}
                       {claim.automationSummary.reviewFields} need review •{" "}
-                      {claim.automationSummary.manualFields} manual •{" "}
                       {claim.automationSummary.missingFields} missing
                     </Typography>
                   </Box>
