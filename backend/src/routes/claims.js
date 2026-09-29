@@ -1532,7 +1532,8 @@ router.post("/documents/bulk-delete", async (req, res) => {
       where: { id: { in: claimIds } },
       select: {
         id: true,
-        documentDerivedFields: true
+        documentDerivedFields: true,
+        fieldProvenance: true
       }
     });
 
@@ -1547,11 +1548,17 @@ router.post("/documents/bulk-delete", async (req, res) => {
         (document) => !deletingIds.has(document.id)
       );
 
+      const patch = recomputeDerivedClaimPatch(
+        keptDocuments,
+        claim.documentDerivedFields
+      );
+
       claimUpdates.push({
         claimId: claim.id,
-        patch: recomputeDerivedClaimPatch(
-          keptDocuments,
-          claim.documentDerivedFields
+        patch,
+        fieldProvenance: removeProvenanceFields(
+          claim.fieldProvenance,
+          Object.keys(patch)
         )
       });
     }
@@ -1559,11 +1566,12 @@ router.post("/documents/bulk-delete", async (req, res) => {
     await prisma.$transaction([
       prisma.document.deleteMany({ where: { id: { in: ids } } }),
       prisma.check.deleteMany({ where: { claimId: { in: claimIds } } }),
-      ...claimUpdates.map(({ claimId, patch }) =>
+      ...claimUpdates.map(({ claimId, patch, fieldProvenance }) =>
         prisma.claim.update({
           where: { id: claimId },
           data: {
             ...patch,
+            fieldProvenance,
             status: "DRAFT"
           }
         })
