@@ -1,3 +1,4 @@
+import crypto from "crypto";
 const PAYERS = [
   {
     code: "BLUE_HORIZON",
@@ -19,8 +20,8 @@ const PAYERS = [
   },
   {
     code: "METROPLUS_DEMO",
-    name: "MetroPlus Mock Health",
-    description: "Documentation-heavy payer that commonly pends incomplete inpatient claims.",
+    name: "MetroCare Health",
+    description: "Documentation-focused payer with stricter inpatient requirements.",
     color: "#ea580c",
     reimbursementRate: 0.8,
     authRules: ["INPATIENT_SURGERY"],
@@ -28,8 +29,8 @@ const PAYERS = [
   },
   {
     code: "CAREFIRST_DEMO",
-    name: "CareFirst Demo Plan",
-    description: "Eligibility-sensitive payer used to demonstrate member and coverage responses.",
+    name: "Cedar Health Plan",
+    description: "Eligibility-sensitive payer with strict member matching.",
     color: "#0891b2",
     reimbursementRate: 0.84,
     authRules: ["MRI"],
@@ -38,7 +39,7 @@ const PAYERS = [
   {
     code: "APEX_BENEFIT",
     name: "Apex Benefit Network",
-    description: "Payment-focused payer used to demonstrate reimbursement and underpayment behavior.",
+    description: "Payment-focused payer with tighter reimbursement behavior.",
     color: "#059669",
     reimbursementRate: 0.68,
     authRules: ["INPATIENT_SURGERY"],
@@ -94,6 +95,60 @@ function makeId(prefix, payerCode, claimId, sequence = 1) {
   return `${prefix}-${payerCode.slice(0, 4)}-${tail}-${String(sequence).padStart(2, "0")}`;
 }
 
+
+export function payerInputFingerprint(type, payer, claim) {
+  const fieldsByType = {
+    ELIGIBILITY: [
+      claim.memberId,
+      claim.policyNo,
+      claim.patientDob ? new Date(claim.patientDob).toISOString().slice(0, 10) : null,
+      payer?.code
+    ],
+    PRIOR_AUTH: [
+      claim.procedureText,
+      claim.dateOfService ? new Date(claim.dateOfService).toISOString().slice(0, 10) : null,
+      claim.authorizationNo,
+      payer?.code
+    ],
+    CLAIM_SUBMISSION: [
+      claim.amount,
+      claim.totalBilledAmount,
+      claim.icd10Codes,
+      claim.procedureText,
+      claim.authorizationNo,
+      claim.documents?.map((doc) => [doc.id, doc.type, doc.createdAt]).sort(),
+      payer?.code
+    ]
+  };
+
+  const values = fieldsByType[type] || [payer?.code, claim.id];
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(values))
+    .digest("hex");
+}
+
+export function calculateAdjudication(payer, claim) {
+  const billed = Number(claim.amount || claim.totalBilledAmount || 0);
+  const allowedAmount = Math.max(0, Math.round(billed * payer.reimbursementRate));
+  const coinsurance = Number(claim.coinsurancePct || 0);
+  const basePayerAmount = Math.max(
+    0,
+    Math.round(allowedAmount * (1 - coinsurance / 100))
+  );
+
+  const approvedAmount =
+    payer.code === "APEX_BENEFIT"
+      ? Math.max(0, Math.round(basePayerAmount * 0.8))
+      : basePayerAmount;
+
+  return {
+    allowedAmount,
+    approvedAmount,
+    patientResponsibility: Math.max(0, allowedAmount - approvedAmount)
+  };
+}
+
 export function simulateEligibility(payer, claim, sequence = 1) {
   const missing = [];
   if (!claim.memberId) missing.push("memberId");
@@ -124,7 +179,7 @@ export function simulateEligibility(payer, claim, sequence = 1) {
       networkStatus: null,
       deductibleRemaining: null,
       coinsurancePct: null,
-      reason: "Demo rule: CareFirst member IDs must start with CF."
+      reason: "Member identifier does not match payer enrollment records."
     };
   }
 
@@ -141,7 +196,7 @@ export function simulateEligibility(payer, claim, sequence = 1) {
     coinsurancePct:
       payer.code === "APEX_BENEFIT" ? 30 :
       payer.code === "SUMMITCARE" ? 20 : 15,
-    reason: "Synthetic 271-style eligibility response."
+    reason: "Coverage is active for the requested service period."
   };
 }
 
@@ -156,7 +211,7 @@ export function simulatePriorAuth(payer, claim, sequence = 1) {
       required: false,
       authorizationNo: null,
       expiry: null,
-      reason: "Service does not match this mock payer's authorization rules."
+      reason: "Prior authorization is not required for this service."
     };
   }
 
@@ -180,7 +235,7 @@ export function simulatePriorAuth(payer, claim, sequence = 1) {
       required: true,
       authorizationNo: claim.authorizationNo,
       expiry: null,
-      reason: "Synthetic denial triggered by demo authorization number."
+      reason: "Authorization was not approved for the requested service."
     };
   }
 
@@ -194,7 +249,7 @@ export function simulatePriorAuth(payer, claim, sequence = 1) {
     required: true,
     authorizationNo: claim.authorizationNo,
     expiry: expiry.toISOString(),
-    reason: "Synthetic prior authorization approval."
+    reason: "Authorization is approved for the requested service."
   };
 }
 
@@ -281,27 +336,25 @@ export function simulateStatus(payer, claim, priorStatusChecks = 0, sequence = 1
     reason = "Claim approved by simulated payer.";
   }
 
+  const adjudication =
+    ["APPROVED", "PARTIALLY_APPROVED"].includes(status)
+      ? calculateAdjudication(payer, claim)
+      : {};
+
   return {
     transactionId: makeId("STS", payer.code, claim.id, sequence),
     status,
     latencyMs: 550 + Math.min(priorStatusChecks, 3) * 120,
-    reason
+    reason,
+    ...adjudication
   };
 }
 
 export function simulateRemittance(payer, claim, sequence = 1) {
-  const billed = Number(claim.amount || claim.totalBilledAmount || 0);
-  const allowedAmount = Math.max(0, Math.round(billed * payer.reimbursementRate));
-  let paidAmount = allowedAmount;
-
-  if (payer.code === "APEX_BENEFIT") {
-    paidAmount = Math.max(0, Math.round(allowedAmount * 0.8));
-  } else {
-    const coinsurance = Number(claim.coinsurancePct || 0);
-    paidAmount = Math.max(0, Math.round(allowedAmount * (1 - coinsurance / 100)));
-  }
-
-  const patientResponsibility = Math.max(0, allowedAmount - paidAmount);
+  const adjudication = calculateAdjudication(payer, claim);
+  const allowedAmount = adjudication.allowedAmount;
+  const paidAmount = adjudication.approvedAmount;
+  const patientResponsibility = adjudication.patientResponsibility;
 
   return {
     transactionId: makeId("ERA", payer.code, claim.id, sequence),
