@@ -1162,3 +1162,100 @@ test("46 - missing or review automation fields route to an exact fix location", 
   assert.match(journey, /journey-stage-remittance/);
   assert.match(journey, /scrollIntoView/);
 });
+
+
+test("47 - local eligibility pre-check does not falsely claim payer-verified active coverage", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      eligibilityStatus: "NOT_CHECKED",
+      coverageStatus: null,
+      memberId: "MEM-ELIG-LOCAL-001",
+      policyNo: "POL-ELIG-LOCAL-001"
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/eligibility/precheck`, {
+    method: "POST"
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "VERIFIED");
+  assert.equal(body.coverageStatus, "UNKNOWN");
+  assert.equal(body.livePayerVerification, false);
+});
+
+test("48 - received remittance requires allowed and paid amounts", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED" });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      remittanceStatus: "RECEIVED",
+      allowedAmount: "",
+      paidAmount: "",
+      paymentReference: ""
+    })
+  });
+
+  assert.equal(response.status, 400);
+  const body = await response.json();
+  assert.match(body.error, /Allowed amount and paid amount are required/i);
+});
+
+test("49 - received remittance keeps claim submitted until posting", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED", amount: 12000, totalBilledAmount: 12000 });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      remittanceStatus: "RECEIVED",
+      allowedAmount: 10000,
+      paidAmount: 8000,
+      patientResponsibility: 2000
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "SUBMITTED");
+});
+
+test("50 - positive posted remittance moves overall claim to PAID", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED", amount: 12000, totalBilledAmount: 12000 });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      remittanceStatus: "POSTED",
+      allowedAmount: 10000,
+      paidAmount: 8000,
+      patientResponsibility: 2000,
+      paymentReference: "PAY-POSTED-001"
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "PAID");
+});
+
+test("51 - claim journey explains required optional and payer-derived fields", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /RequirementChip/);
+  assert.match(source, /Member ID/);
+  assert.match(source, /Network \/ deductible \/ coinsurance/);
+  assert.match(source, /End Date \/ Expiry \(if provided\)/);
+  assert.match(source, /Allowed amount/);
+  assert.match(source, /Payment reference/);
+  assert.match(source, /positive remittance is Posted/);
+});
