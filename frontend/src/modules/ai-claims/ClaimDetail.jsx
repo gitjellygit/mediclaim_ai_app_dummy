@@ -479,14 +479,6 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     return false;
   }
 
-  const liveResolvedIssues = check?.isStale
-    ? issues.filter((issue) => isIssueResolvedByCurrentClaim(issue))
-    : [];
-
-  const unresolvedDisplayedIssues = check?.isStale
-    ? issues.filter((issue) => !isIssueResolvedByCurrentClaim(issue))
-    : issues;
-
   function fixButtonLabel(issue) {
     const message = String(issue?.message || "").toLowerCase();
     if (message.includes("supporting document")) return "Upload Document";
@@ -923,6 +915,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const previousCheck = claim.checks?.[1] || null;
   const checkHistory = Array.isArray(claim.checks) ? claim.checks.slice(0, 5) : [];
   const issues = Array.isArray(check?.issues) ? check.issues : [];
+  const liveResolvedIssues = check?.isStale
+    ? issues.filter((issue) => isIssueResolvedByCurrentClaim(issue))
+    : [];
+  const unresolvedDisplayedIssues = check?.isStale
+    ? issues.filter((issue) => !isIssueResolvedByCurrentClaim(issue))
+    : [];
   const hasBlock = issues.some((i) => i.severity === "BLOCK");
   const eligibilityClear = claim.eligibilityStatus === "VERIFIED";
   const priorAuthClear =
