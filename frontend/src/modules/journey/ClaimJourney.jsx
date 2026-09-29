@@ -557,6 +557,53 @@ export default function ClaimJourney() {
             </CardContent>
           </Card>
 
+          {claim.automationSummary && (
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Stack
+                  direction={{ xs: "column", md: "row" }}
+                  justifyContent="space-between"
+                  alignItems={{ xs: "stretch", md: "center" }}
+                  spacing={2}
+                >
+                  <Box>
+                    <Typography variant="subtitle1" fontWeight={700}>
+                      Automation Snapshot
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {claim.automationSummary.automatedFields} fields auto-populated •{" "}
+                      {claim.automationSummary.reviewFields} need review •{" "}
+                      {claim.automationSummary.manualFields} manual •{" "}
+                      {claim.automationSummary.missingFields} missing
+                    </Typography>
+                  </Box>
+
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Chip
+                      size="small"
+                      color="success"
+                      label={`${claim.automationSummary.automationRate}% automated`}
+                    />
+                    {claim.automationSummary.reviewFields > 0 && (
+                      <Chip
+                        size="small"
+                        color="warning"
+                        label={`${claim.automationSummary.reviewFields} review`}
+                      />
+                    )}
+                    {claim.automationSummary.missingFields > 0 && (
+                      <Chip
+                        size="small"
+                        color="error"
+                        label={`${claim.automationSummary.missingFields} missing`}
+                      />
+                    )}
+                  </Stack>
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
+
           {!journey.livePayerConnectorConfigured && (
             <Alert severity="info" sx={{ mb: 3 }}>
               Eligibility and prior-authorization actions currently perform local workflow pre-checks / recorded decisions.
