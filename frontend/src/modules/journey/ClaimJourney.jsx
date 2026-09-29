@@ -343,6 +343,7 @@ export default function ClaimJourney() {
   const [action, setAction] = React.useState("");
   const [mockPayers, setMockPayers] = React.useState([]);
   const [selectedMockPayer, setSelectedMockPayer] = React.useState("");
+  const [activityExpanded, setActivityExpanded] = React.useState(false);
 
   const [authRequired, setAuthRequired] = React.useState("");
   const [authorizationNo, setAuthorizationNo] = React.useState("");
@@ -592,6 +593,36 @@ export default function ClaimJourney() {
     };
   }
 
+  const payerConnected =
+    journey?.payerConnection?.mode === "SIMULATED" &&
+    Boolean(journey?.payerConnection?.simulatedPayerCode);
+  const payerTransactions = claim?.payerTransactions || [];
+  const submissionTransaction = payerTransactions.find(
+    (tx) => tx.transactionType === "CLAIM_SUBMISSION"
+  );
+  const finalPayerStatus = ["APPROVED", "PARTIALLY_APPROVED", "DENIED", "PAID"].includes(
+    claim?.payerClaimStatus || ""
+  );
+
+  async function submitConnectedClaim() {
+    setAction("payer-submit");
+    setPageError("");
+    try {
+      if (!claim.claimSubmissionDate && claim.status !== "SUBMITTED") {
+        await ClaimsApi.submit(claim.id);
+      }
+      const result = await ClaimsApi.simulatePayerSubmission(claim.id);
+      await loadJourney(claim.id);
+      if (!result?.unchanged) showToast("Claim sent to payer", "success");
+    } catch (error) {
+      const message = error.message || "Unable to submit claim";
+      setPageError(message);
+      showToast(message, "error");
+    } finally {
+      setAction("");
+    }
+  }
+
   return (
     <Box sx={{ p: { xs: 1, sm: 2, lg: 3 } }}>
       <Stack
@@ -800,7 +831,7 @@ export default function ClaimJourney() {
             </CardContent>
           </Card>
 
-          <Card sx={{ mb: 3 }} data-testid="payer-simulation-card">
+          <Card sx={{ mb: 3 }} data-testid="payer-connection-card">
             <CardContent>
               <Stack spacing={2}>
                 <Stack
@@ -814,14 +845,13 @@ export default function ClaimJourney() {
                       <Typography variant="h6" fontWeight={800}>
                         Payer Connection
                       </Typography>
-                      <Chip
-                        size="small"
-                        color={journey?.payerConnection?.mode === "SIMULATED" ? "secondary" : "default"}
-                        label={journey?.payerConnection?.mode === "SIMULATED" ? "SIMULATED" : "LOCAL"}
-                      />
+                      {payerConnected && (
+                        <Chip size="small" color="success" label="Connected" />
+                      )}
                     </Stack>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                      Run deterministic 270/271, prior auth, claim, 276/277 and 835-style demo responses.
+                      {journey?.payerConnection?.simulatedPayer?.description ||
+                        "Select the claim payer to begin payer transactions."}
                     </Typography>
                   </Box>
 
@@ -831,9 +861,9 @@ export default function ClaimJourney() {
                     sx={{ minWidth: { md: 430 } }}
                   >
                     <FormControl size="small" fullWidth>
-                      <InputLabel>Mock Payer</InputLabel>
+                      <InputLabel>Payer</InputLabel>
                       <Select
-                        label="Mock Payer"
+                        label="Payer"
                         value={selectedMockPayer}
                         onChange={(e) => setSelectedMockPayer(e.target.value)}
                         disabled={Boolean(claim.claimSubmissionDate) || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)}
@@ -851,7 +881,7 @@ export default function ClaimJourney() {
                       disabled={
                         !selectedMockPayer ||
                         action === "payer-connect" ||
-                        (journey?.payerConnection?.mode === "SIMULATED" &&
+                        (payerConnected &&
                           journey?.payerConnection?.simulatedPayerCode === selectedMockPayer) ||
                         Boolean(claim.claimSubmissionDate) ||
                         ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
@@ -860,132 +890,50 @@ export default function ClaimJourney() {
                         runAction(
                           "payer-connect",
                           () => ClaimsApi.connectMockPayer(claim.id, selectedMockPayer),
-                          "Mock payer connected"
+                          "Payer connected"
                         )
                       }
                     >
                       {action === "payer-connect"
                         ? "Connecting..."
-                        : journey?.payerConnection?.simulatedPayerCode === selectedMockPayer &&
-                          journey?.payerConnection?.mode === "SIMULATED"
+                        : payerConnected &&
+                          journey?.payerConnection?.simulatedPayerCode === selectedMockPayer
                         ? "Connected"
                         : "Connect"}
                     </Button>
                   </Stack>
                 </Stack>
 
-                {journey?.payerConnection?.mode === "SIMULATED" &&
-                  journey?.payerConnection?.simulatedPayer && (
-                    <>
-                      <Alert severity="info">
-                        <b>{journey.payerConnection.simulatedPayer.name}</b> —{" "}
-                        {journey.payerConnection.simulatedPayer.description}
-                      </Alert>
-
-                      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={action !== "" || Boolean(claim.claimSubmissionDate)}
-                          onClick={() =>
-                            runAction(
-                              "payer-eligibility",
-                              () => ClaimsApi.simulatePayerEligibility(claim.id),
-                              "Mock payer eligibility response received"
-                            )
-                          }
-                        >
-                          {action === "payer-eligibility" ? "Checking..." : "1. Check Eligibility"}
-                        </Button>
-
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={
-                            action !== "" ||
-                            claim.eligibilityStatus !== "VERIFIED" ||
-                            Boolean(claim.claimSubmissionDate)
-                          }
-                          onClick={() =>
-                            runAction(
-                              "payer-auth",
-                              () => ClaimsApi.simulatePayerPriorAuth(claim.id),
-                              "Mock prior authorization response received"
-                            )
-                          }
-                        >
-                          {action === "payer-auth" ? "Checking..." : "2. Check Prior Auth"}
-                        </Button>
-
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={
-                            action !== "" ||
-                            (!claim.claimSubmissionDate && claim.status !== "SUBMITTED")
-                          }
-                          onClick={() =>
-                            runAction(
-                              "payer-submit",
-                              () => ClaimsApi.simulatePayerSubmission(claim.id),
-                              "Mock payer claim acknowledgment received"
-                            )
-                          }
-                        >
-                          {action === "payer-submit" ? "Sending..." : "3. Send to Payer"}
-                        </Button>
-
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={
-                            action !== "" ||
-                            (!claim.claimSubmissionDate && !["SUBMITTED", "DENIED", "PAID"].includes(claim.status))
-                          }
-                          onClick={() =>
-                            runAction(
-                              "payer-status",
-                              () => ClaimsApi.simulatePayerStatus(claim.id),
-                              "Mock payer status response received"
-                            )
-                          }
-                        >
-                          {action === "payer-status" ? "Checking..." : "4. Check Status"}
-                        </Button>
-
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={
-                            action !== "" ||
-                            !["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(claim.payerClaimStatus || "") ||
-                            claim.remittanceStatus === "POSTED"
-                          }
-                          onClick={() =>
-                            runAction(
-                              "payer-remittance",
-                              () => ClaimsApi.simulatePayerRemittance(claim.id),
-                              "Mock 835 remittance received"
-                            )
-                          }
-                        >
-                          {action === "payer-remittance" ? "Receiving..." : "5. Get Remittance"}
-                        </Button>
-                      </Stack>
-
-                      <Divider />
-
-                      <Box>
-                        <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
+                {payerConnected && (
+                  <>
+                    <Divider />
+                    <Box>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" fontWeight={800}>
                           Payer Activity
                         </Typography>
-                        {!claim.payerTransactions?.length ? (
-                          <Typography variant="body2" color="text.secondary">
-                            No simulated payer transactions yet.
-                          </Typography>
-                        ) : (
-                          <Stack spacing={1}>
-                            {claim.payerTransactions.slice(0, 8).map((tx) => (
+                        {payerTransactions.length > 5 && (
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => setActivityExpanded((value) => !value)}
+                          >
+                            {activityExpanded
+                              ? "Show Recent"
+                              : `View All (${payerTransactions.length})`}
+                          </Button>
+                        )}
+                      </Stack>
+
+                      {!payerTransactions.length ? (
+                        <Typography variant="body2" color="text.secondary">
+                          No payer transactions yet. Start with Eligibility below.
+                        </Typography>
+                      ) : (
+                        <Stack spacing={1}>
+                          {payerTransactions
+                            .slice(0, activityExpanded ? payerTransactions.length : 5)
+                            .map((tx) => (
                               <Paper key={tx.id} variant="outlined" sx={{ p: 1.25 }}>
                                 <Stack
                                   direction={{ xs: "column", sm: "row" }}
@@ -1000,7 +948,11 @@ export default function ClaimJourney() {
                                       {tx.transactionId} • {tx.latencyMs || 0} ms
                                     </Typography>
                                   </Box>
-                                  <Chip size="small" color={stageColor(tx.status)} label={humanStatus(tx.status)} />
+                                  <Chip
+                                    size="small"
+                                    color={stageColor(tx.status)}
+                                    label={humanStatus(tx.status)}
+                                  />
                                 </Stack>
                                 {tx.responsePayload?.reason && (
                                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
@@ -1009,11 +961,11 @@ export default function ClaimJourney() {
                                 )}
                               </Paper>
                             ))}
-                          </Stack>
-                        )}
-                      </Box>
-                    </>
-                  )}
+                        </Stack>
+                      )}
+                    </Box>
+                  </>
+                )}
               </Stack>
             </CardContent>
           </Card>
@@ -1154,20 +1106,23 @@ export default function ClaimJourney() {
                 <Button
                   variant="contained"
                   size="small"
-                  disabled={action === "eligibility" || eligibilityComplete}
+                  disabled={action !== "" || eligibilityComplete}
                   onClick={() =>
                     runAction(
                       "eligibility",
-                      () => ClaimsApi.runEligibilityPrecheck(claim.id),
-                      "Eligibility pre-check completed"
+                      () =>
+                        payerConnected
+                          ? ClaimsApi.simulatePayerEligibility(claim.id)
+                          : ClaimsApi.runEligibilityPrecheck(claim.id),
+                      "Eligibility updated"
                     )
                   }
                 >
                   {action === "eligibility"
                     ? "Checking..."
                     : eligibilityComplete
-                    ? "Pre-check Passed"
-                    : "Run Pre-check"}
+                    ? "Eligibility Current"
+                    : "Check Eligibility"}
                 </Button>
               </Stack>
             </StageCard>
@@ -1181,18 +1136,29 @@ export default function ClaimJourney() {
               blockedReason={stages.priorAuth.blockedReason}
             >
               <Stack spacing={1.2}>
-                <FormControl size="small" fullWidth disabled={!stages.priorAuth.actionable}>
-                  <InputLabel>Auth Required? *</InputLabel>
-                  <Select
-                    label="Auth Required? *"
-                    value={authRequired}
-                    onChange={(e) => setAuthRequired(e.target.value)}
-                  >
-                    <MenuItem value="">Unknown</MenuItem>
-                    <MenuItem value="YES">Yes</MenuItem>
-                    <MenuItem value="NO">No</MenuItem>
-                  </Select>
-                </FormControl>
+                {payerConnected ? (
+                  <Typography variant="body2">
+                    <b>Authorization Required:</b>{" "}
+                    {claim.priorAuthRequired == null
+                      ? "Not checked"
+                      : claim.priorAuthRequired
+                      ? "Yes"
+                      : "No"}
+                  </Typography>
+                ) : (
+                  <FormControl size="small" fullWidth disabled={!stages.priorAuth.actionable}>
+                    <InputLabel>Auth Required? *</InputLabel>
+                    <Select
+                      label="Auth Required? *"
+                      value={authRequired}
+                      onChange={(e) => setAuthRequired(e.target.value)}
+                    >
+                      <MenuItem value="">Unknown</MenuItem>
+                      <MenuItem value="YES">Yes</MenuItem>
+                      <MenuItem value="NO">No</MenuItem>
+                    </Select>
+                  </FormControl>
+                )}
                 <TextField
                   size="small"
                   label={authRequired === "YES" ? "Authorization No. *" : "Authorization No."}
@@ -1200,7 +1166,12 @@ export default function ClaimJourney() {
                   color={authRequired === "YES" ? "warning" : "primary"}
                   focused={authRequired === "YES" && !authorizationNo}
                   onChange={(e) => setAuthorizationNo(e.target.value)}
-                  disabled={!stages.priorAuth.actionable || authRequired !== "YES"}
+                  disabled={
+                    !stages.priorAuth.actionable ||
+                    (payerConnected
+                      ? claim.priorAuthRequired !== true
+                      : authRequired !== "YES")
+                  }
                 />
                 <TextField
                   size="small"
@@ -1209,36 +1180,45 @@ export default function ClaimJourney() {
                   InputLabelProps={{ shrink: true }}
                   value={authExpiry}
                   onChange={(e) => setAuthExpiry(e.target.value)}
-                  disabled={!stages.priorAuth.actionable || authRequired !== "YES"}
+                  disabled={
+                    !stages.priorAuth.actionable ||
+                    (payerConnected
+                      ? claim.priorAuthRequired !== true
+                      : authRequired !== "YES")
+                  }
                 />
                 <Button
                   variant="contained"
                   size="small"
                   disabled={
                     !stages.priorAuth.actionable ||
-                    action === "auth" ||
-                    authRequired === "" ||
-                    authFormMatchesSaved
+                    action !== "" ||
+                    (payerConnected
+                      ? ["APPROVED", "NOT_REQUIRED"].includes(stages.priorAuth.status)
+                      : authRequired === "" || authFormMatchesSaved)
                   }
                   onClick={() =>
                     runAction(
                       "auth",
                       () =>
-                        ClaimsApi.evaluatePriorAuth(claim.id, {
-                          required: authRequired === "YES",
-                          authorizationNo,
-                          expiry: authExpiry || null
-                        }),
-                      "Prior authorization stage updated"
+                        payerConnected
+                          ? ClaimsApi.simulatePayerPriorAuth(claim.id, {
+                              authorizationNo
+                            })
+                          : ClaimsApi.evaluatePriorAuth(claim.id, {
+                              required: authRequired === "YES",
+                              authorizationNo,
+                              expiry: authExpiry || null
+                            }),
+                      "Prior authorization updated"
                     )
                   }
                 >
                   {action === "auth"
-                    ? "Saving..."
-                    : authFormMatchesSaved &&
-                      ["APPROVED", "NOT_REQUIRED"].includes(stages.priorAuth.status)
-                    ? "Up to date"
-                    : "Evaluate"}
+                    ? "Checking..."
+                    : ["APPROVED", "NOT_REQUIRED"].includes(stages.priorAuth.status)
+                    ? "Authorization Current"
+                    : "Check Prior Auth"}
                 </Button>
               </Stack>
             </StageCard>
@@ -1258,6 +1238,24 @@ export default function ClaimJourney() {
                 <Typography variant="caption" color="text.secondary">
                   Submitted: {date(stages.claim.submissionDate)}
                 </Typography>
+                {payerConnected && (
+                  <Button
+                    variant="contained"
+                    size="small"
+                    disabled={
+                      action !== "" ||
+                      Boolean(submissionTransaction) ||
+                      !stages.claim.actionable
+                    }
+                    onClick={submitConnectedClaim}
+                  >
+                    {action === "payer-submit"
+                      ? "Submitting..."
+                      : submissionTransaction
+                      ? "Sent to Payer"
+                      : "Submit to Payer"}
+                  </Button>
+                )}
                 <Button
                   variant="outlined"
                   size="small"
@@ -1282,21 +1280,27 @@ export default function ClaimJourney() {
               blockedReason={stages.claimStatus.blockedReason}
             >
               <Stack spacing={1.2}>
-                <FormControl size="small" fullWidth disabled={!stages.claimStatus.actionable}>
-                  <InputLabel>Payer Status *</InputLabel>
-                  <Select
-                    label="Payer Status *"
-                    value={payerStatus}
-                    onChange={(e) => setPayerStatus(e.target.value)}
-                  >
-                    <MenuItem value="ACKNOWLEDGED">Acknowledged</MenuItem>
-                    <MenuItem value="IN_REVIEW">In Review</MenuItem>
-                    <MenuItem value="APPROVED">Approved</MenuItem>
-                    <MenuItem value="PARTIALLY_APPROVED">Partially Approved</MenuItem>
-                    <MenuItem value="DENIED">Denied</MenuItem>
-                    <MenuItem value="PAID">Paid</MenuItem>
-                  </Select>
-                </FormControl>
+                {payerConnected ? (
+                  <Typography variant="body2">
+                    <b>Current Status:</b> {humanStatus(stages.claimStatus.status)}
+                  </Typography>
+                ) : (
+                  <FormControl size="small" fullWidth disabled={!stages.claimStatus.actionable}>
+                    <InputLabel>Payer Status *</InputLabel>
+                    <Select
+                      label="Payer Status *"
+                      value={payerStatus}
+                      onChange={(e) => setPayerStatus(e.target.value)}
+                    >
+                      <MenuItem value="ACKNOWLEDGED">Acknowledged</MenuItem>
+                      <MenuItem value="IN_REVIEW">In Review</MenuItem>
+                      <MenuItem value="APPROVED">Approved</MenuItem>
+                      <MenuItem value="PARTIALLY_APPROVED">Partially Approved</MenuItem>
+                      <MenuItem value="DENIED">Denied</MenuItem>
+                      <MenuItem value="PAID">Paid</MenuItem>
+                    </Select>
+                  </FormControl>
+                )}
                 <Typography variant="caption" color="text.secondary">
                   Last updated: {date(stages.claimStatus.checkedAt)}
                 </Typography>
@@ -1305,22 +1309,25 @@ export default function ClaimJourney() {
                   size="small"
                   disabled={
                     !stages.claimStatus.actionable ||
-                    action === "status" ||
-                    payerStatusUnchanged
+                    action !== "" ||
+                    (payerConnected ? finalPayerStatus : payerStatusUnchanged)
                   }
                   onClick={() =>
                     runAction(
                       "status",
-                      () => ClaimsApi.updatePayerStatus(claim.id, payerStatus),
-                      "Payer claim status recorded"
+                      () =>
+                        payerConnected
+                          ? ClaimsApi.simulatePayerStatus(claim.id)
+                          : ClaimsApi.updatePayerStatus(claim.id, payerStatus),
+                      "Payer status updated"
                     )
                   }
                 >
                   {action === "status"
-                    ? "Saving..."
-                    : payerStatusUnchanged
-                    ? "Status up to date"
-                    : "Record Status"}
+                    ? "Checking..."
+                    : finalPayerStatus
+                    ? "Final Status"
+                    : "Check Status"}
                 </Button>
               </Stack>
             </StageCard>
@@ -1334,7 +1341,7 @@ export default function ClaimJourney() {
               blockedReason={stages.remittance.blockedReason}
             >
               <Stack spacing={1.2}>
-                <FormControl size="small" fullWidth disabled={!stages.remittance.actionable}>
+                <FormControl size="small" fullWidth disabled={!stages.remittance.actionable || payerConnected}>
                   <InputLabel>Remittance *</InputLabel>
                   <Select
                     label="Remittance *"
@@ -1366,8 +1373,17 @@ export default function ClaimJourney() {
                     allowedAmount === ""
                   }
                   onChange={(e) => setAllowedAmount(e.target.value)}
-                  disabled={!stages.remittance.actionable}
+                  disabled={!stages.remittance.actionable || payerConnected}
                 />
+                {claim.approvedAmount != null && (
+                  <TextField
+                    size="small"
+                    type="number"
+                    label="Approved Amount"
+                    value={claim.approvedAmount}
+                    disabled
+                  />
+                )}
                 <TextField
                   size="small"
                   type="number"
@@ -1381,7 +1397,7 @@ export default function ClaimJourney() {
                     setPatientResponsibility(e.target.value);
                     setPatientResponsibilityManual(true);
                   }}
-                  disabled={!stages.remittance.actionable}
+                  disabled={!stages.remittance.actionable || payerConnected}
                   helperText={
                     patientResponsibilityManual
                       ? "Entered value"
@@ -1408,7 +1424,7 @@ export default function ClaimJourney() {
                     paidAmount === ""
                   }
                   onChange={(e) => setPaidAmount(e.target.value)}
-                  disabled={!stages.remittance.actionable}
+                  disabled={!stages.remittance.actionable || payerConnected}
                 />
                 {patientResponsibilityManual && stages.remittance.actionable && (
                   <Button
@@ -1424,33 +1440,42 @@ export default function ClaimJourney() {
                   label="Payment Reference"
                   value={paymentReference}
                   onChange={(e) => setPaymentReference(e.target.value)}
-                  disabled={!stages.remittance.actionable}
+                  disabled={!stages.remittance.actionable || payerConnected}
                 />
                 <Button
                   variant="contained"
                   size="small"
                   disabled={
                     !stages.remittance.actionable ||
-                    action === "remittance" ||
-                    !remittanceDirty
+                    action !== "" ||
+                    (payerConnected
+                      ? !["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(claim.payerClaimStatus || "") ||
+                        claim.remittanceStatus === "POSTED"
+                      : !remittanceDirty)
                   }
                   onClick={() =>
                     runAction(
                       "remittance",
                       () =>
-                        ClaimsApi.updateRemittance(claim.id, {
-                          remittanceStatus,
-                          allowedAmount,
-                          patientResponsibility,
-                          paidAmount,
-                          paymentReference
-                        }),
-                      "Remittance information recorded"
+                        payerConnected
+                          ? ClaimsApi.simulatePayerRemittance(claim.id)
+                          : ClaimsApi.updateRemittance(claim.id, {
+                              remittanceStatus,
+                              allowedAmount,
+                              patientResponsibility,
+                              paidAmount,
+                              paymentReference
+                            }),
+                      "Remittance updated"
                     )
                   }
                 >
                   {action === "remittance"
-                    ? "Saving..."
+                    ? "Processing..."
+                    : claim.remittanceStatus === "POSTED"
+                    ? "Remittance Posted"
+                    : payerConnected
+                    ? "Get Remittance"
                     : !remittanceDirty
                     ? "Remittance up to date"
                     : "Record Remittance"}
