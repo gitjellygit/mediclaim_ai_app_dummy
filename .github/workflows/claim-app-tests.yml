@@ -66,3 +66,15 @@ jobs:
       - name: Compile frontend
         working-directory: frontend
         run: npx vite build
+
+      - name: Seed browser-test user
+        working-directory: backend
+        run: node prisma/seed.js
+
+      - name: Install Playwright media dependency
+        working-directory: frontend
+        run: npx playwright install ffmpeg
+
+      - name: Run browser end-to-end regressions
+        working-directory: frontend
+        run: npm run test:e2e:fast
