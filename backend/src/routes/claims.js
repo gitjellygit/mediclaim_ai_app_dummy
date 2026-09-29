@@ -191,9 +191,20 @@ function buildJourneyState(claim) {
   const authComplete =
     claim.priorAuthStatus === "APPROVED" ||
     claim.priorAuthStatus === "NOT_REQUIRED";
-  const claimComplete = claim.status === "SUBMITTED" || claim.status === "PAID";
-  const statusAvailable = claimComplete;
-  const remittanceAvailable = claimComplete;
+
+  // Submission is its own completed stage. Overall claim status can later become
+  // DENIED or PAID without making the submission stage look unfinished.
+  const submitted = Boolean(claim.claimSubmissionDate) ||
+    ["SUBMITTED", "DENIED", "PAID"].includes(claim.status);
+
+  const terminalPayerStatuses = new Set([
+    "APPROVED",
+    "PARTIALLY_APPROVED",
+    "DENIED",
+    "PAID"
+  ]);
+  const payerStatusFinal = terminalPayerStatuses.has(claim.payerClaimStatus);
+  const remittanceFinal = claim.remittanceStatus === "POSTED";
 
   return {
     eligibility: {
@@ -203,7 +214,7 @@ function buildJourneyState(claim) {
       deductibleRemaining: claim.deductibleRemaining,
       coinsurancePct: claim.coinsurancePct,
       networkStatus: claim.networkStatus,
-      actionable: true
+      actionable: !submitted
     },
     priorAuth: {
       status: claim.priorAuthStatus,
@@ -211,11 +222,15 @@ function buildJourneyState(claim) {
       checkedAt: claim.priorAuthCheckedAt,
       authorizationNo: claim.authorizationNo,
       expiry: claim.priorAuthExpiry,
-      actionable: eligibilityComplete,
-      blockedReason: eligibilityComplete ? null : "Verify eligibility first"
+      actionable: eligibilityComplete && !submitted,
+      blockedReason: submitted
+        ? "Locked after claim submission"
+        : eligibilityComplete
+        ? null
+        : "Verify eligibility first"
     },
     claim: {
-      status: claim.status,
+      status: submitted ? "SUBMITTED" : claim.status,
       submissionDate: claim.claimSubmissionDate,
       actionable: eligibilityComplete && authComplete,
       blockedReason:
@@ -224,10 +239,14 @@ function buildJourneyState(claim) {
           : "Eligibility and prior authorization must be resolved first"
     },
     claimStatus: {
-      status: claim.payerClaimStatus || (claimComplete ? "SUBMITTED" : "NOT_AVAILABLE"),
+      status: claim.payerClaimStatus || (submitted ? "SUBMITTED" : "NOT_AVAILABLE"),
       checkedAt: claim.claimStatusCheckedAt,
-      actionable: statusAvailable,
-      blockedReason: statusAvailable ? null : "Submit the claim first"
+      actionable: submitted && !payerStatusFinal,
+      blockedReason: !submitted
+        ? "Submit the claim first"
+        : payerStatusFinal
+        ? "Final payer status recorded"
+        : null
     },
     remittance: {
       status: claim.remittanceStatus,
@@ -236,8 +255,12 @@ function buildJourneyState(claim) {
       patientResponsibility: claim.patientResponsibility,
       paidAmount: claim.paidAmount,
       paymentReference: claim.paymentReference,
-      actionable: remittanceAvailable,
-      blockedReason: remittanceAvailable ? null : "Submit the claim first"
+      actionable: submitted && !remittanceFinal,
+      blockedReason: !submitted
+        ? "Submit the claim first"
+        : remittanceFinal
+        ? "Remittance already posted"
+        : null
     }
   };
 }
@@ -472,6 +495,15 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
     const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
+    if (
+      claim.claimSubmissionDate ||
+      ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
+    ) {
+      return res.status(409).json({
+        error: "Prior authorization is locked after claim submission"
+      });
+    }
+
     if (claim.eligibilityStatus !== "VERIFIED") {
       return res.status(409).json({
         error: "Eligibility must be verified before prior authorization can be evaluated"
@@ -602,8 +634,29 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
     const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
-    if (!["SUBMITTED", "PAID"].includes(claim.status)) {
-      return res.status(409).json({ error: "Claim must be submitted before payer status can be recorded" });
+    if (
+      !claim.claimSubmissionDate &&
+      !["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
+    ) {
+      return res.status(409).json({
+        error: "Claim must be submitted before payer status can be recorded"
+      });
+    }
+
+    const terminalPayerStatuses = [
+      "APPROVED",
+      "PARTIALLY_APPROVED",
+      "DENIED",
+      "PAID"
+    ];
+
+    if (
+      terminalPayerStatuses.includes(claim.payerClaimStatus) &&
+      claim.payerClaimStatus !== payerClaimStatus
+    ) {
+      return res.status(409).json({
+        error: "Final payer status is locked. Reopen the claim before changing it."
+      });
     }
 
     if ((claim.payerClaimStatus || null) === payerClaimStatus) {
@@ -620,7 +673,12 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       data: {
         payerClaimStatus,
         claimStatusCheckedAt: new Date(),
-        status: payerClaimStatus === "PAID" ? "PAID" : claim.status,
+        status:
+          payerClaimStatus === "DENIED"
+            ? "DENIED"
+            : payerClaimStatus === "PAID"
+            ? "PAID"
+            : claim.status,
         fieldProvenance: mergeProvenance(
           claim.fieldProvenance,
           systemProvenance(
@@ -728,8 +786,19 @@ router.patch("/:id/journey/remittance", async (req, res) => {
     const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
-    if (!["SUBMITTED", "PAID"].includes(claim.status)) {
-      return res.status(409).json({ error: "Claim must be submitted before remittance can be recorded" });
+    if (
+      !claim.claimSubmissionDate &&
+      !["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
+    ) {
+      return res.status(409).json({
+        error: "Claim must be submitted before remittance can be recorded"
+      });
+    }
+
+    if (claim.remittanceStatus === "POSTED") {
+      return res.status(409).json({
+        error: "Posted remittance is locked. Reopen the claim before changing it."
+      });
     }
 
     const parseOptionalMoney = (value, name) => {
@@ -859,6 +928,8 @@ router.patch("/:id/journey/remittance", async (req, res) => {
         status:
           remittanceStatus === "POSTED" && paidAmount != null && paidAmount > 0
             ? "PAID"
+            : claim.payerClaimStatus === "DENIED"
+            ? "DENIED"
             : claim.status
       }
     });
