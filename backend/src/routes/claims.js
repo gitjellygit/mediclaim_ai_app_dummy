@@ -27,6 +27,7 @@ import {
   buildClaimCompleteness,
   completenessReadinessIssues
 } from "../services/claimCompleteness.js";
+import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -969,6 +970,113 @@ router.patch("/:id/journey/remittance", async (req, res) => {
     });
     res.status(error.status || 500).json({
       error: error.status ? error.message : "Unable to record remittance"
+    });
+  }
+});
+
+router.get("/medical-consistency/summary", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    const requestedLimit = Number(req.query.limit || 50);
+    const limit = Math.max(
+      1,
+      Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 50, 100)
+    );
+
+    const where = q
+      ? {
+          OR: [
+            { id: { equals: q } },
+            { patientName: { contains: q, mode: "insensitive" } },
+            { payerName: { contains: q, mode: "insensitive" } },
+            { policyNo: { contains: q, mode: "insensitive" } },
+            { memberId: { contains: q, mode: "insensitive" } }
+          ]
+        }
+      : {};
+
+    const claims = await prisma.claim.findMany({
+      where,
+      include: {
+        documents: {
+          orderBy: { createdAt: "desc" }
+        }
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit
+    });
+
+    const items = claims.map((claim) => ({
+      claim: {
+        id: claim.id,
+        patientName: claim.patientName,
+        payerName: claim.payerName,
+        policyNo: claim.policyNo,
+        status: claim.status,
+        diagnosisText: claim.diagnosisText,
+        icd10Codes: claim.icd10Codes,
+        admissionDate: claim.admissionDate,
+        dischargeDate: claim.dischargeDate,
+        dateOfService: claim.dateOfService,
+        roomCategory: claim.roomCategory,
+        icuDays: claim.icuDays
+      },
+      analysis: analyzeMedicalConsistency(claim)
+    }));
+
+    const metrics = {
+      total: items.length,
+      consistent: items.filter((item) => item.analysis.status === "CONSISTENT").length,
+      needsReview: items.filter((item) => item.analysis.status === "NEEDS_REVIEW").length,
+      blocked: items.filter((item) => item.analysis.status === "BLOCKED").length,
+      averageScore:
+        items.length > 0
+          ? Math.round(
+              items.reduce((sum, item) => sum + item.analysis.score, 0) /
+                items.length
+            )
+          : 0
+    };
+
+    res.json({ items, metrics, query: q, limit });
+  } catch (error) {
+    console.error("[medical-consistency] summary failed", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({
+      error: "Unable to load medical consistency analysis"
+    });
+  }
+});
+
+router.get("/:id/medical-consistency", async (req, res) => {
+  try {
+    const claim = await prisma.claim.findUnique({
+      where: { id: req.params.id },
+      include: {
+        documents: {
+          orderBy: { createdAt: "desc" }
+        }
+      }
+    });
+
+    if (!claim) {
+      return res.status(404).json({ error: "Claim not found" });
+    }
+
+    res.json({
+      claim,
+      analysis: analyzeMedicalConsistency(claim)
+    });
+  } catch (error) {
+    console.error("[medical-consistency] claim analysis failed", {
+      claimId: req.params.id,
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({
+      error: "Unable to analyze medical consistency"
     });
   }
 });
