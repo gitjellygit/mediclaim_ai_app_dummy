@@ -1245,17 +1245,19 @@ test("50 - positive posted remittance moves overall claim to PAID", { concurrenc
   assert.equal(body.status, "PAID");
 });
 
-test("51 - claim journey explains required optional and payer-derived fields", { concurrency: false }, () => {
+test("51 - claim journey uses compact required and conditional field cues", { concurrency: false }, () => {
   const source = fs.readFileSync(
     path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
     "utf8"
   );
 
-  assert.match(source, /RequirementChip/);
-  assert.match(source, /Member ID/);
-  assert.match(source, /Network \/ deductible \/ coinsurance/);
-  assert.match(source, /End Date \/ Expiry \(if provided\)/);
-  assert.match(source, /Allowed amount/);
-  assert.match(source, /Payment reference/);
-  assert.match(source, /positive remittance is Posted/);
+  assert.match(source, /<b>\*<\/b> Required/);
+  assert.match(source, /Conditional fields are highlighted when required/);
+  assert.match(source, /Auth Required\? \*/);
+  assert.match(source, /Authorization No\. \*/);
+  assert.match(source, /Allowed Amount \*/);
+  assert.match(source, /Paid Amount \*/);
+  assert.match(source, /Auto-calculated; editable/);
+  assert.doesNotMatch(source, /In production this should come from/);
+  assert.doesNotMatch(source, /For a real 835 ERA/);
 });
