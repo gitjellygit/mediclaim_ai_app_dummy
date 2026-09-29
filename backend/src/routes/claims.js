@@ -994,6 +994,19 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
     }
 
     const result = simulateStatus(payer, claim, statusTransactions.length, statusTransactions.length + 1);
+
+    // Polling may legitimately happen more than once, but do not create an
+    // endless activity feed when the payer returns the same state repeatedly.
+    if (latestStatus?.status === result.status) {
+      return res.json({
+        unchanged: true,
+        message: "Payer status has not changed",
+        result,
+        transaction: latestStatus,
+        claim
+      });
+    }
+
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
     const overallStatus =
