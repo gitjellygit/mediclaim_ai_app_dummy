@@ -1281,3 +1281,137 @@ test("52 - claim journey uses visual connected progress tracker", { concurrency:
     /Eligibility → Prior Auth → Claim → Status → Remittance/
   );
 });
+
+
+test("53 - denied payer status moves overall claim to DENIED", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED" });
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: { claimSubmissionDate: new Date() }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/claim-status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payerClaimStatus: "DENIED" })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "DENIED");
+  assert.equal(body.payerClaimStatus, "DENIED");
+});
+
+test("54 - zero-dollar posted remittance keeps denied claim DENIED", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED", amount: 9850, totalBilledAmount: 9850 });
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      claimSubmissionDate: new Date(),
+      payerClaimStatus: "DENIED",
+      status: "DENIED"
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      remittanceStatus: "POSTED",
+      allowedAmount: 0,
+      paidAmount: 0,
+      patientResponsibility: 0
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "DENIED");
+  assert.equal(body.remittanceStatus, "POSTED");
+});
+
+test("55 - prior authorization cannot be changed after claim submission", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED" });
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      claimSubmissionDate: new Date(),
+      eligibilityStatus: "VERIFIED"
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/prior-auth/evaluate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      required: true,
+      authorizationNo: "SHOULD-NOT-CHANGE"
+    })
+  });
+
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.match(body.error, /locked after claim submission/i);
+});
+
+test("56 - terminal payer status cannot be changed without reopening", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "DENIED" });
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      claimSubmissionDate: new Date(),
+      payerClaimStatus: "DENIED"
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/claim-status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payerClaimStatus: "APPROVED" })
+  });
+
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.match(body.error, /Final payer status is locked/i);
+});
+
+test("57 - posted remittance cannot be edited again", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "DENIED" });
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      claimSubmissionDate: new Date(),
+      payerClaimStatus: "DENIED",
+      remittanceStatus: "POSTED",
+      allowedAmount: 0,
+      paidAmount: 0,
+      patientResponsibility: 0
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      remittanceStatus: "POSTED",
+      allowedAmount: 100,
+      paidAmount: 0,
+      patientResponsibility: 100
+    })
+  });
+
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.match(body.error, /Posted remittance is locked/i);
+});
+
+test("58 - journey UI disables completed terminal stage controls", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /disabled=\{!stages\.priorAuth\.actionable\}/);
+  assert.match(source, /disabled=\{!stages\.claimStatus\.actionable\}/);
+  assert.match(source, /disabled=\{!stages\.remittance\.actionable\}/);
+});
