@@ -48,6 +48,8 @@ backend/node_modules/.prisma/
 # Testing
 coverage/
 .nyc_output/
+frontend/playwright-report/
+frontend/test-results/
 
 # Misc
 *.swp
