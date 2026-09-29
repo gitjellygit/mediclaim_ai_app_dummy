@@ -1622,3 +1622,40 @@ test("66 - AI analysis dialog shows domain-specific staged workflow", { concurre
   assert.match(source, /claimAiSpin/);
   assert.match(source, /HealthAndSafetyIcon/);
 });
+
+
+test("67 - claim detail silently refreshes after journey navigation or tab focus", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /window\.addEventListener\("focus", refresh\)/);
+  assert.match(source, /document\.addEventListener\("visibilitychange", handleVisibility\)/);
+  assert.match(source, /\[location\.key\]/);
+  assert.match(source, /load\(\{ silent: true \}\)/);
+});
+
+test("68 - stale readiness issues are reconciled against current eligibility and prior auth", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /function isIssueResolvedByCurrentClaim\(issue\)/);
+  assert.match(source, /claim\?\.eligibilityStatus === "VERIFIED"/);
+  assert.match(source, /\["APPROVED", "NOT_REQUIRED"\]\.includes\(claim\?\.priorAuthStatus\)/);
+  assert.match(source, /Resolved since the last AI Check/);
+  assert.match(source, /Resolved — refresh AI/);
+});
+
+test("69 - journey fix workflow provides contextual return to claim detail", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /location\.state\?\.from/);
+  assert.match(source, /location\.state\?\.backLabel/);
+  assert.match(source, /navigate\(location\.state\.from\)/);
+});
