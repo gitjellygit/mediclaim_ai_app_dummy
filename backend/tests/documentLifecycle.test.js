@@ -1042,7 +1042,7 @@ test("40 - claim detail exposes automation summary and visible source badges", {
 
   assert.match(source, /Claim Automation/);
   assert.match(source, /View Field Sources/);
-  assert.match(source, /AI Extracted/);
+  assert.match(source, /source\.label/);
   assert.match(source, /automationSummary\.automationRate/);
   assert.match(source, /SourceBadge/);
 });
