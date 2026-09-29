@@ -6,7 +6,11 @@
     "dev": "vite",
     "test:medical": "playwright test tests/medical-consistency.e2e.spec.js --headed",
     "test:medical:fast": "playwright test tests/medical-consistency.e2e.spec.js",
-    "test:medical:report": "playwright show-report"
+    "test:medical:report": "playwright show-report",
+    "test:payer": "playwright test tests/payer-journey.e2e.spec.js --headed",
+    "test:payer:fast": "playwright test tests/payer-journey.e2e.spec.js",
+    "test:e2e": "playwright test --headed",
+    "test:e2e:fast": "playwright test"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
