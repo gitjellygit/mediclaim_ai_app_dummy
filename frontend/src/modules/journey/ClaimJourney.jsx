@@ -869,6 +869,7 @@ export default function ClaimJourney() {
                       <InputLabel>Payer</InputLabel>
                       <Select
                         label="Payer"
+                        data-testid="payer-select"
                         value={selectedMockPayer}
                         onChange={(e) => setSelectedMockPayer(e.target.value)}
                         disabled={Boolean(claim.claimSubmissionDate) || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)}
