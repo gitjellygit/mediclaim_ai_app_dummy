@@ -17,6 +17,7 @@ import {
   buildClaimCompleteness,
   completenessReadinessIssues
 } from "../src/services/claimCompleteness.js";
+import { analyzeMedicalConsistency } from "../src/services/medicalConsistency.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1843,4 +1844,210 @@ test("75 - claim detail exposes clickable context-aware completeness and N/A sta
   assert.match(source, /fixCompletenessItem/);
   assert.match(source, /Room Category/);
   assert.match(source, /ICU Days/);
+});
+
+
+test("76 - medical consistency blocks admission date after discharge date", { concurrency: false }, () => {
+  const analysis = analyzeMedicalConsistency({
+    id: "mc-date-order",
+    admissionDate: new Date("2026-09-22"),
+    dischargeDate: new Date("2026-09-20"),
+    documents: []
+  });
+
+  assert.equal(analysis.status, "BLOCKED");
+  assert.ok(
+    analysis.issues.some((item) =>
+      /Admission is after discharge/i.test(item.title)
+    )
+  );
+});
+
+test("77 - medical consistency warns when service date falls outside encounter", { concurrency: false }, () => {
+  const analysis = analyzeMedicalConsistency({
+    id: "mc-service-date",
+    admissionDate: new Date("2026-09-20"),
+    dischargeDate: new Date("2026-09-22"),
+    dateOfService: new Date("2026-09-25"),
+    documents: [{ type: "DISCHARGE_SUMMARY" }]
+  });
+
+  assert.equal(analysis.status, "NEEDS_REVIEW");
+  assert.ok(
+    analysis.issues.some((item) =>
+      /Service date outside encounter/i.test(item.title)
+    )
+  );
+});
+
+test("78 - medical consistency blocks ICU days exceeding length of stay", { concurrency: false }, () => {
+  const analysis = analyzeMedicalConsistency({
+    id: "mc-icu-days",
+    admissionDate: new Date("2026-09-20"),
+    dischargeDate: new Date("2026-09-22"),
+    roomCategory: "ICU",
+    icuDays: 5,
+    documents: [{ type: "DISCHARGE_SUMMARY" }]
+  });
+
+  assert.equal(analysis.status, "BLOCKED");
+  assert.ok(
+    analysis.issues.some((item) =>
+      /ICU days exceed length of stay/i.test(item.title)
+    )
+  );
+});
+
+test("79 - medical consistency warns when ICU days conflict with room category", { concurrency: false }, () => {
+  const analysis = analyzeMedicalConsistency({
+    id: "mc-icu-room",
+    admissionDate: new Date("2026-09-20"),
+    dischargeDate: new Date("2026-09-22"),
+    roomCategory: "PRIVATE",
+    icuDays: 1,
+    documents: [{ type: "DISCHARGE_SUMMARY" }]
+  });
+
+  assert.ok(
+    analysis.issues.some((item) =>
+      /ICU utilization conflicts with room category/i.test(item.title)
+    )
+  );
+});
+
+test("80 - inpatient claim without discharge summary needs documentation review", { concurrency: false }, () => {
+  const analysis = analyzeMedicalConsistency({
+    id: "mc-discharge-doc",
+    admissionDate: new Date("2026-09-20"),
+    dischargeDate: new Date("2026-09-22"),
+    documents: [{ type: "FINAL_BILL" }]
+  });
+
+  assert.ok(
+    analysis.issues.some((item) =>
+      /Discharge summary not found/i.test(item.title)
+    )
+  );
+});
+
+test("81 - recorded procedure without clinical support document is flagged", { concurrency: false }, () => {
+  const analysis = analyzeMedicalConsistency({
+    id: "mc-procedure-doc",
+    procedureText: "Test procedure",
+    documents: [{ type: "FINAL_BILL" }]
+  });
+
+  assert.ok(
+    analysis.issues.some((item) =>
+      /Procedure lacks supporting clinical document/i.test(item.title)
+    )
+  );
+});
+
+test("82 - conflicting document dates are detected", { concurrency: false }, () => {
+  const analysis = analyzeMedicalConsistency({
+    id: "mc-doc-conflict",
+    documents: [
+      {
+        id: "doc-a",
+        type: "FINAL_BILL",
+        fileName: "bill.pdf",
+        extracted: { dateOfService: "2026-09-20" }
+      },
+      {
+        id: "doc-b",
+        type: "DISCHARGE_SUMMARY",
+        fileName: "discharge.pdf",
+        extracted: { dateOfService: "2026-09-21" }
+      }
+    ]
+  });
+
+  const conflict = analysis.issues.find((item) =>
+    /Documents disagree on date of service/i.test(item.title)
+  );
+  assert.ok(conflict);
+  assert.equal(conflict.evidence.length, 2);
+});
+
+test("83 - clean internally consistent claim can score 100", { concurrency: false }, () => {
+  const analysis = analyzeMedicalConsistency({
+    id: "mc-clean",
+    diagnosisText: "Pneumonia",
+    icd10Codes: ["J18.9"],
+    admissionDate: new Date("2026-09-20"),
+    dischargeDate: new Date("2026-09-22"),
+    dateOfService: new Date("2026-09-21"),
+    roomCategory: "PRIVATE",
+    icuDays: 0,
+    documents: [
+      {
+        type: "DISCHARGE_SUMMARY",
+        extracted: {
+          dateOfService: "2026-09-21",
+          diagnosisText: "Pneumonia"
+        }
+      }
+    ]
+  });
+
+  assert.equal(analysis.status, "CONSISTENT");
+  assert.equal(analysis.score, 100);
+  assert.equal(analysis.issues.length, 0);
+});
+
+test("84 - medical consistency findings reduce AI readiness", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      memberId: "MEM-MED-READY",
+      policyNo: "POL-MED-READY",
+      eligibilityStatus: "VERIFIED",
+      priorAuthRequired: false,
+      priorAuthStatus: "NOT_REQUIRED",
+      dateOfService: new Date("2026-09-25"),
+      admissionDate: new Date("2026-09-20"),
+      dischargeDate: new Date("2026-09-22")
+    }
+  });
+
+  await createDocument(claim.id, {
+    type: "DISCHARGE_SUMMARY",
+    extracted: {
+      patientName: "Lifecycle Test Patient",
+      diagnosisText: "Test diagnosis",
+      icd10Codes: ["Z00.00"],
+      dateOfService: "2026-09-25"
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/check`, {
+    method: "POST"
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  assert.ok(body.score < 100);
+  assert.ok(
+    body.issues.some((item) =>
+      /Service date outside encounter/i.test(item.message)
+    )
+  );
+  assert.equal(body.medicalConsistency.status, "NEEDS_REVIEW");
+});
+
+test("85 - medical consistency UI provides dashboard metrics findings and fix navigation", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/medical-ai/MedicalConsistency.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /Medical Consistency/);
+  assert.match(source, /Claims Reviewed/);
+  assert.match(source, /Needs Review/);
+  assert.match(source, /Consistency Score/);
+  assert.match(source, /Review \/ Fix in Claim/);
+  assert.match(source, /Passed Checks/);
+  assert.match(source, /Decision support only/);
 });
