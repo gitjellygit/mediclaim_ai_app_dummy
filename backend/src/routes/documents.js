@@ -13,6 +13,7 @@ import {
   mergeProvenance,
   removeProvenanceFields
 } from "../services/claimFieldProvenance.js";
+import { markReadinessChecksStale } from "../services/readinessHistory.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -410,7 +411,14 @@ export function documentsRouter(prisma, uploadDir) {
       });
 
       await prisma.$transaction([
-        prisma.check.deleteMany({ where: { claimId: claim.id } }),
+        prisma.check.updateMany({
+          where: { claimId: claim.id, isStale: false },
+          data: {
+            isStale: true,
+            staleAt: new Date(),
+            staleReason: "Supporting document uploaded"
+          }
+        }),
         prisma.claim.update({
           where: { id: claim.id },
           data: { status: "DRAFT" }
@@ -545,7 +553,14 @@ export function documentsRouter(prisma, uploadDir) {
     });
 
     await prisma.$transaction([
-      prisma.check.deleteMany({ where: { claimId } }),
+      prisma.check.updateMany({
+        where: { claimId, isStale: false },
+        data: {
+          isStale: true,
+          staleAt: new Date(),
+          staleReason: "Supporting document uploaded"
+        }
+      }),
       prisma.claim.update({
         where: { id: claimId },
         data: { status: "DRAFT" }
@@ -652,7 +667,14 @@ export function documentsRouter(prisma, uploadDir) {
 
       await prisma.$transaction([
         prisma.document.delete({ where: { id: doc.id } }),
-        prisma.check.deleteMany({ where: { claimId: doc.claimId } }),
+        prisma.check.updateMany({
+          where: { claimId: doc.claimId, isStale: false },
+          data: {
+            isStale: true,
+            staleAt: new Date(),
+            staleReason: "Supporting document deleted"
+          }
+        }),
         prisma.claim.update({
           where: { id: doc.claimId },
           data: {
@@ -749,7 +771,14 @@ export function documentsRouter(prisma, uploadDir) {
       });
 
       await prisma.$transaction([
-        prisma.check.deleteMany({ where: { claimId: doc.claimId } }),
+        prisma.check.updateMany({
+          where: { claimId: doc.claimId, isStale: false },
+          data: {
+            isStale: true,
+            staleAt: new Date(),
+            staleReason: "Supporting document deleted"
+          }
+        }),
         prisma.claim.update({
           where: { id: doc.claimId },
           data: { status: "DRAFT" }
