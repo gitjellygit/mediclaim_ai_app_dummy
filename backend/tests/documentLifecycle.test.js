@@ -1122,3 +1122,43 @@ test("44 - claim detail defaults document type to AI auto detection", { concurre
   assert.match(source, /Document type needs review/);
   assert.match(source, /Use AI Type/);
 });
+
+
+test("45 - claim automation summary chips are clickable and filter field buckets", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /showAutomationBucket\("automated"\)/);
+  assert.match(source, /showAutomationBucket\("review"\)/);
+  assert.match(source, /showAutomationBucket\("manual"\)/);
+  assert.match(source, /showAutomationBucket\("missing"\)/);
+  assert.match(source, /Missing fields — click a field to complete it/);
+  assert.match(source, /Fields needing review — click a field to resolve it/);
+});
+
+test("46 - missing or review automation fields route to an exact fix location", { concurrency: false }, () => {
+  const detail = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    "utf8"
+  );
+  const journey = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(detail, /function automationFieldAction\(item\)/);
+  assert.match(detail, /stage=\$\{stage\}/);
+  assert.match(detail, /openClaimEdit\(item\.field\)/);
+  assert.match(detail, /Open Journey/);
+  assert.match(detail, /Add \/ Fix/);
+  assert.match(detail, /Review \/ Fix/);
+
+  assert.match(journey, /focusedStage = searchParams\.get\("stage"\)/);
+  assert.match(journey, /journey-stage-eligibility/);
+  assert.match(journey, /journey-stage-prior-auth/);
+  assert.match(journey, /journey-stage-claim-status/);
+  assert.match(journey, /journey-stage-remittance/);
+  assert.match(journey, /scrollIntoView/);
+});
