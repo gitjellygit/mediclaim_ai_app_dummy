@@ -609,6 +609,10 @@ export default function ClaimJourney() {
     setPageError("");
     try {
       if (!claim.claimSubmissionDate && claim.status !== "SUBMITTED") {
+        // Submission always uses a fresh readiness result. If the claim changed
+        // after eligibility/auth, refresh readiness automatically rather than
+        // forcing the user to bounce to another screen.
+        await ClaimsApi.runCheck(claim.id);
         await ClaimsApi.submit(claim.id);
       }
       const result = await ClaimsApi.simulatePayerSubmission(claim.id);
