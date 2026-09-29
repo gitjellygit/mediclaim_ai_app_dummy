@@ -193,19 +193,23 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
 
-  async function load() {
+  async function load({ silent = false } = {}) {
     if (!id) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+
+    if (!silent) setLoading(true);
+
     try {
       const data = await ClaimsApi.get(id);
       setClaim(data);
+      return data;
     } catch (e) {
-      setClaim(null);
+      if (!silent) setClaim(null);
+      throw e;
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -565,7 +569,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       setAiRunning(true);
       await new Promise((r) => setTimeout(r, 2500));
       await ClaimsApi.runCheck(id);
-      await load();
+      await load({ silent: true });
+      window.setTimeout(() => {
+        readinessRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start"
+        });
+      }, 120);
       showToast("AI analysis completed", "success");
     } catch (e) {
       showDialog(
@@ -1878,10 +1888,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               )}
 
               <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: "wrap" }}>
-                <Chip
-                  label={`Rejection Risk: ${pct(check.riskScore)} (${check.riskLevel || "—"})`}
-                  color={riskChipColor(check.riskLevel)}
-                />
+                <Tooltip title="Rule-based estimate derived from the same readiness gaps and claim-risk checks. It is not a payer probability.">
+                  <Chip
+                    label={`Estimated Rejection Risk: ${pct(check.riskScore)} (${check.riskLevel || "—"})`}
+                    color={riskChipColor(check.riskLevel)}
+                  />
+                </Tooltip>
 
                 {canSubmit && claim.status !== "SUBMITTED" && (
                   <Chip label="Ready for submission" color="success" />
