@@ -571,6 +571,134 @@ router.delete("/e2e/medical-consistency/cleanup", async (req, res) => {
   }
 });
 
+router.post("/e2e/payer-journey/seed", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const prefix = "E2E-PAYER-";
+  const doc = (type, fileName) => ({
+    type,
+    fileName,
+    mimeType: "application/pdf",
+    sizeBytes: 1024,
+    path: `e2e-fixture://${fileName}`,
+    status: "PROCESSED",
+    confidence: 99
+  });
+
+  const base = (suffix, overrides = {}) => ({
+    patientName: `${prefix}${suffix}`,
+    payerName: "Payer Setup",
+    policyNo: `POL-${suffix}`,
+    memberId: `MEM-${suffix}`,
+    amount: 20000,
+    totalBilledAmount: 20000,
+    diagnosisText: "Routine test diagnosis",
+    icd10Codes: ["Z00.00"],
+    dateOfService: new Date("2026-09-21T00:00:00.000Z"),
+    status: "DRAFT",
+    eligibilityStatus: "NOT_CHECKED",
+    priorAuthStatus: "NOT_CHECKED",
+    remittanceStatus: "NOT_AVAILABLE",
+    ...overrides
+  });
+
+  const scenarios = [
+    {
+      key: "BLUE",
+      payerCode: "BLUE_HORIZON",
+      claim: base("BLUE"),
+      documents: [doc("FINAL_BILL", "blue-final-bill.pdf")]
+    },
+    {
+      key: "SUMMIT",
+      payerCode: "SUMMITCARE",
+      claim: base("SUMMIT", {
+        procedureText: "MRI lumbar spine"
+      }),
+      documents: [
+        doc("FINAL_BILL", "summit-final-bill.pdf"),
+        doc("RADIOLOGY", "summit-radiology.pdf")
+      ]
+    },
+    {
+      key: "METRO",
+      payerCode: "METROPLUS_DEMO",
+      claim: base("METRO", {
+        admissionDate: new Date("2026-09-20T00:00:00.000Z"),
+        dischargeDate: new Date("2026-09-22T00:00:00.000Z"),
+        admissionType: "EMERGENCY",
+        roomCategory: "PRIVATE",
+        icuDays: 0
+      }),
+      documents: [doc("FINAL_BILL", "metro-final-bill.pdf")]
+    },
+    {
+      key: "CEDAR",
+      payerCode: "CAREFIRST_DEMO",
+      claim: base("CEDAR", {
+        memberId: "CF-1001"
+      }),
+      documents: [doc("FINAL_BILL", "cedar-final-bill.pdf")]
+    },
+    {
+      key: "APEX",
+      payerCode: "APEX_BENEFIT",
+      claim: base("APEX"),
+      documents: [doc("FINAL_BILL", "apex-final-bill.pdf")]
+    }
+  ];
+
+  try {
+    await prisma.claim.deleteMany({
+      where: { patientName: { startsWith: prefix } }
+    });
+
+    const created = [];
+    for (const scenario of scenarios) {
+      const claim = await prisma.claim.create({
+        data: {
+          ...scenario.claim,
+          documents: { create: scenario.documents }
+        }
+      });
+      created.push({
+        id: claim.id,
+        patientName: claim.patientName,
+        key: scenario.key,
+        payerCode: scenario.payerCode
+      });
+    }
+
+    res.json({ count: created.length, scenarios: created });
+  } catch (error) {
+    console.error("[e2e-payer-journey] seed failed", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({ error: "Unable to seed payer Journey scenarios" });
+  }
+});
+
+router.delete("/e2e/payer-journey/cleanup", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  try {
+    const result = await prisma.claim.deleteMany({
+      where: { patientName: { startsWith: "E2E-PAYER-" } }
+    });
+    res.json({ deleted: result.count });
+  } catch (error) {
+    console.error("[e2e-payer-journey] cleanup failed", {
+      name: error?.name || "Error"
+    });
+    res.status(500).json({ error: "Unable to clean payer Journey scenarios" });
+  }
+});
+
 /**
  * Claim Journey endpoints
  *
