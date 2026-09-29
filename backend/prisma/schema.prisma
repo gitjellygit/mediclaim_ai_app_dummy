@@ -172,6 +172,12 @@ model Check {
   score  Int
   issues Json
 
+  // Readiness checks are historical. Claim/document/journey changes mark the
+  // latest result stale instead of deleting it, so users can see progress.
+  isStale     Boolean   @default(false)
+  staleAt     DateTime?
+  staleReason String?
+
   // ✅ Rejection Risk Prediction (AI)
   riskScore   Float?
   riskLevel   String? // LOW | MED | HIGH
