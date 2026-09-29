@@ -189,6 +189,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [fixFocus, setFixFocus] = React.useState("");
   const [automationExpanded, setAutomationExpanded] = React.useState(false);
   const [automationFilter, setAutomationFilter] = React.useState("all");
+  const [completenessExpanded, setCompletenessExpanded] = React.useState(false);
+  const [completenessFilter, setCompletenessFilter] = React.useState("all");
   const patientPolicyRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
@@ -260,6 +262,22 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       icd10Codes: claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "",
       amount: claim.amount != null ? String(claim.amount) : "",
       totalBilledAmount: claim.totalBilledAmount != null ? String(claim.totalBilledAmount) : "",
+      dateOfService: claim.dateOfService
+        ? new Date(claim.dateOfService).toISOString().slice(0, 10)
+        : "",
+      admissionDate: claim.admissionDate
+        ? new Date(claim.admissionDate).toISOString().slice(0, 10)
+        : "",
+      dischargeDate: claim.dischargeDate
+        ? new Date(claim.dischargeDate).toISOString().slice(0, 10)
+        : "",
+      admissionType: claim.admissionType || "",
+      roomCategory: claim.roomCategory || "",
+      icuDays: claim.icuDays != null ? String(claim.icuDays) : "",
+      procedureText: claim.procedureText || "",
+      procedureDate: claim.procedureDate
+        ? new Date(claim.procedureDate).toISOString().slice(0, 10)
+        : "",
       claimType: claim.claimType || "REIMBURSEMENT"
     });
   }, [claim]);
@@ -283,6 +301,22 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       icd10Codes: claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "",
       amount: claim.amount != null ? String(claim.amount) : "",
       totalBilledAmount: claim.totalBilledAmount != null ? String(claim.totalBilledAmount) : "",
+      dateOfService: claim.dateOfService
+        ? new Date(claim.dateOfService).toISOString().slice(0, 10)
+        : "",
+      admissionDate: claim.admissionDate
+        ? new Date(claim.admissionDate).toISOString().slice(0, 10)
+        : "",
+      dischargeDate: claim.dischargeDate
+        ? new Date(claim.dischargeDate).toISOString().slice(0, 10)
+        : "",
+      admissionType: claim.admissionType || "",
+      roomCategory: claim.roomCategory || "",
+      icuDays: claim.icuDays != null ? String(claim.icuDays) : "",
+      procedureText: claim.procedureText || "",
+      procedureDate: claim.procedureDate
+        ? new Date(claim.procedureDate).toISOString().slice(0, 10)
+        : "",
       claimType: claim.claimType || "REIMBURSEMENT"
     });
   }
@@ -305,6 +339,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       hospitalName: editForm.hospitalName || null,
       diagnosisText: editForm.diagnosisText || null,
       claimType: editForm.claimType,
+      dateOfService: editForm.dateOfService || null,
+      admissionDate: editForm.admissionDate || null,
+      dischargeDate: editForm.dischargeDate || null,
+      admissionType: editForm.admissionType || null,
+      roomCategory: editForm.roomCategory || null,
+      icuDays:
+        editForm.icuDays !== "" && editForm.icuDays != null
+          ? Number(editForm.icuDays)
+          : null,
+      procedureText: editForm.procedureText || null,
+      procedureDate: editForm.procedureDate || null,
       amount: parseFloat(editForm.amount),
       totalBilledAmount: parseFloat(editForm.totalBilledAmount) || null,
       icd10Codes: editForm.icd10Codes
@@ -443,6 +488,36 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
     if (message.includes("amount")) {
       openClaimEdit("amount");
+      return;
+    }
+
+    if (message.includes("date of service")) {
+      openClaimEdit("dateOfService");
+      return;
+    }
+
+    if (message.includes("admission date")) {
+      openClaimEdit("admissionDate");
+      return;
+    }
+
+    if (message.includes("discharge date")) {
+      openClaimEdit("dischargeDate");
+      return;
+    }
+
+    if (message.includes("admission type")) {
+      openClaimEdit("admissionType");
+      return;
+    }
+
+    if (message.includes("room category")) {
+      openClaimEdit("roomCategory");
+      return;
+    }
+
+    if (message.includes("icu days")) {
+      openClaimEdit("icuDays");
       return;
     }
 
@@ -927,6 +1002,41 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     claim.priorAuthStatus === "APPROVED" ||
     claim.priorAuthStatus === "NOT_REQUIRED";
 
+  const completeness = claim.completenessSummary;
+  const completenessByField = React.useMemo(() => {
+    return Object.fromEntries(
+      (completeness?.fields || []).map((item) => [item.field, item])
+    );
+  }, [completeness]);
+
+  function completenessValue(field, value, formatter = (v) => v) {
+    const state = completenessByField[field]?.state;
+    if (state === "not_applicable") return "N/A";
+    if (value == null || value === "" || (Array.isArray(value) && value.length === 0)) {
+      return state === "missing" ? "Missing" : state === "review" ? "Needs Review" : "—";
+    }
+    return formatter(value);
+  }
+
+  function openCompletenessBucket(bucket) {
+    setCompletenessFilter(bucket);
+    setCompletenessExpanded(true);
+  }
+
+  function fixCompletenessItem(item) {
+    if (!item) return;
+    if (["eligibility", "prior-auth"].includes(item.fixTarget)) {
+      navigate(`/journey?claimId=${claim.id}&stage=${item.fixTarget}`, {
+        state: {
+          from: location.pathname + location.search,
+          backLabel: "Back to Claim Detail"
+        }
+      });
+      return;
+    }
+    openClaimEdit(item.field);
+  }
+
   const canSubmit =
     claim.status !== "SUBMITTED" &&
     eligibilityClear &&
@@ -1205,6 +1315,177 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         </Card>
       )}
 
+      {completeness && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              justifyContent="space-between"
+              alignItems={{ xs: "stretch", md: "center" }}
+              spacing={2}
+            >
+              <Box>
+                <Typography variant="h6" fontWeight={700}>
+                  Claim Completeness
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Context-aware: only fields applicable to this encounter count against completeness.
+                </Typography>
+              </Box>
+
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                <Chip
+                  color={completeness.score >= 90 ? "success" : completeness.score >= 70 ? "warning" : "error"}
+                  label={`${completeness.score}% complete`}
+                />
+                <Chip
+                  clickable
+                  color={completeness.missingFields ? "error" : "default"}
+                  onClick={() => openCompletenessBucket("missing")}
+                  label={`${completeness.missingFields} missing`}
+                />
+                <Chip
+                  clickable
+                  color={completeness.reviewFields ? "warning" : "default"}
+                  onClick={() => openCompletenessBucket("review")}
+                  label={`${completeness.reviewFields} need review`}
+                />
+                <Chip
+                  clickable
+                  variant="outlined"
+                  onClick={() => openCompletenessBucket("not_applicable")}
+                  label={`${completeness.notApplicableFields} N/A`}
+                />
+              </Stack>
+            </Stack>
+
+            <LinearProgress
+              variant="determinate"
+              value={completeness.score}
+              color={completeness.score >= 90 ? "success" : completeness.score >= 70 ? "warning" : "error"}
+              sx={{ mt: 2, height: 8, borderRadius: 4 }}
+            />
+
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                {completeness.completeFields} of {completeness.applicableFields} applicable fields complete
+              </Typography>
+              <Button
+                size="small"
+                onClick={() => {
+                  setCompletenessFilter("all");
+                  setCompletenessExpanded((value) => !value);
+                }}
+              >
+                {completenessExpanded ? "Hide Details" : "View Details"}
+              </Button>
+            </Stack>
+
+            <Collapse in={completenessExpanded}>
+              <Divider sx={{ my: 2 }} />
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                justifyContent="space-between"
+                alignItems={{ xs: "stretch", sm: "center" }}
+                spacing={1}
+                sx={{ mb: 1.5 }}
+              >
+                <Typography variant="subtitle2" fontWeight={700}>
+                  {completenessFilter === "missing"
+                    ? "Missing required fields"
+                    : completenessFilter === "review"
+                    ? "Applicable fields needing review"
+                    : completenessFilter === "not_applicable"
+                    ? "Fields not applicable to this encounter"
+                    : "All completeness fields"}
+                </Typography>
+                {completenessFilter !== "all" && (
+                  <Button size="small" onClick={() => setCompletenessFilter("all")}>
+                    Show all
+                  </Button>
+                )}
+              </Stack>
+
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(2, minmax(0, 1fr))",
+                    lg: "repeat(3, minmax(0, 1fr))"
+                  },
+                  gap: 1
+                }}
+              >
+                {completeness.fields
+                  .filter(
+                    (item) =>
+                      completenessFilter === "all" ||
+                      item.state === completenessFilter
+                  )
+                  .map((item) => (
+                    <Paper
+                      key={item.field}
+                      variant="outlined"
+                      sx={{
+                        p: 1.25,
+                        borderColor:
+                          item.state === "missing"
+                            ? "error.light"
+                            : item.state === "review"
+                            ? "warning.light"
+                            : undefined
+                      }}
+                    >
+                      <Stack direction="row" justifyContent="space-between" spacing={1}>
+                        <Box>
+                          <Typography variant="body2" fontWeight={700}>
+                            {item.label}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {item.reason || (item.conditional ? "Conditional" : "Applicable")}
+                          </Typography>
+                        </Box>
+                        <Chip
+                          size="small"
+                          color={
+                            item.state === "complete"
+                              ? "success"
+                              : item.state === "missing"
+                              ? "error"
+                              : item.state === "review"
+                              ? "warning"
+                              : "info"
+                          }
+                          variant={item.state === "not_applicable" ? "outlined" : "filled"}
+                          label={
+                            item.state === "complete"
+                              ? "Complete"
+                              : item.state === "missing"
+                              ? "Missing"
+                              : item.state === "review"
+                              ? "Review"
+                              : "N/A"
+                          }
+                        />
+                      </Stack>
+                      {["missing", "review"].includes(item.state) && (
+                        <Button
+                          size="small"
+                          sx={{ mt: 1 }}
+                          onClick={() => fixCompletenessItem(item)}
+                        >
+                          Fix
+                        </Button>
+                      )}
+                    </Paper>
+                  ))}
+              </Box>
+            </Collapse>
+          </CardContent>
+        </Card>
+      )}
+
       <Card
         ref={patientPolicyRef}
         sx={{
@@ -1292,12 +1573,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   Encounter
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
-                  <FieldLine claim={claim} field="dateOfService" label="Date of Service">{formatDate(claim.dateOfService)}</FieldLine>
-                  <Typography><b>Admission:</b> {formatDate(claim.admissionDate)}</Typography>
-                  <Typography><b>Discharge:</b> {formatDate(claim.dischargeDate)}</Typography>
-                  <Typography><b>Admission Type:</b> {claim.admissionType || "—"}</Typography>
-                  <Typography><b>Room Category:</b> {claim.roomCategory || "—"}</Typography>
-                  <Typography><b>ICU Days:</b> {claim.icuDays ?? "—"}</Typography>
+                  <FieldLine claim={claim} field="dateOfService" label="Date of Service">{completenessValue("dateOfService", claim.dateOfService, formatDate)}</FieldLine>
+                  <Typography><b>Admission:</b> {completenessValue("admissionDate", claim.admissionDate, formatDate)}</Typography>
+                  <Typography><b>Discharge:</b> {completenessValue("dischargeDate", claim.dischargeDate, formatDate)}</Typography>
+                  <Typography><b>Admission Type:</b> {completenessValue("admissionType", claim.admissionType)}</Typography>
+                  <Typography><b>Room Category:</b> {completenessValue("roomCategory", claim.roomCategory)}</Typography>
+                  <Typography><b>ICU Days:</b> {completenessValue("icuDays", claim.icuDays)}</Typography>
                 </Box>
               </Box>
 
@@ -1390,6 +1671,79 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 onChange={(e) => updateEditField("patientDob", e.target.value)}
                 fullWidth
               />
+              <Divider />
+              <Typography variant="subtitle2">Encounter Details</Typography>
+              <TextField
+                label="Date of Service"
+                type="date"
+                InputLabelProps={{ shrink: true }}
+                value={editForm.dateOfService}
+                onChange={(e) => updateEditField("dateOfService", e.target.value)}
+                color={fixFocus === "dateOfService" ? "warning" : "primary"}
+                focused={fixFocus === "dateOfService"}
+                fullWidth
+              />
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                <TextField
+                  label="Admission Date"
+                  type="date"
+                  InputLabelProps={{ shrink: true }}
+                  value={editForm.admissionDate}
+                  onChange={(e) => updateEditField("admissionDate", e.target.value)}
+                  color={fixFocus === "admissionDate" ? "warning" : "primary"}
+                  focused={fixFocus === "admissionDate"}
+                  fullWidth
+                />
+                <TextField
+                  label="Discharge Date"
+                  type="date"
+                  InputLabelProps={{ shrink: true }}
+                  value={editForm.dischargeDate}
+                  onChange={(e) => updateEditField("dischargeDate", e.target.value)}
+                  color={fixFocus === "dischargeDate" ? "warning" : "primary"}
+                  focused={fixFocus === "dischargeDate"}
+                  fullWidth
+                />
+              </Stack>
+              <TextField
+                select
+                label="Admission Type"
+                value={editForm.admissionType}
+                onChange={(e) => updateEditField("admissionType", e.target.value)}
+                color={fixFocus === "admissionType" ? "warning" : "primary"}
+                focused={fixFocus === "admissionType"}
+                fullWidth
+              >
+                <MenuItem value="">Not specified</MenuItem>
+                <MenuItem value="PLANNED">Planned</MenuItem>
+                <MenuItem value="EMERGENCY">Emergency</MenuItem>
+              </TextField>
+              <TextField
+                select
+                label="Room Category"
+                value={editForm.roomCategory}
+                onChange={(e) => updateEditField("roomCategory", e.target.value)}
+                color={fixFocus === "roomCategory" ? "warning" : "primary"}
+                focused={fixFocus === "roomCategory"}
+                fullWidth
+              >
+                <MenuItem value="">Not specified</MenuItem>
+                <MenuItem value="GENERAL">General</MenuItem>
+                <MenuItem value="SEMI_PRIVATE">Semi Private</MenuItem>
+                <MenuItem value="PRIVATE">Private</MenuItem>
+                <MenuItem value="ICU">ICU</MenuItem>
+              </TextField>
+              <TextField
+                label="ICU Days"
+                type="number"
+                inputProps={{ min: 0 }}
+                value={editForm.icuDays}
+                onChange={(e) => updateEditField("icuDays", e.target.value)}
+                color={fixFocus === "icuDays" ? "warning" : "primary"}
+                focused={fixFocus === "icuDays"}
+                fullWidth
+              />
+
               <TextField
                 label="Total Billed Amount ($)"
                 type="number"
