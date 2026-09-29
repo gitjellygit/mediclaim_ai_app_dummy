@@ -1252,7 +1252,7 @@ test("51 - claim journey uses compact required and conditional field cues", { co
   );
 
   assert.match(source, /<b>\*<\/b> Required/);
-  assert.match(source, /Conditional fields are highlighted when required/);
+  assert.match(source, /Conditional fields highlight when required/);
   assert.match(source, /Auth Required\? \*/);
   assert.match(source, /Authorization No\. \*/);
   assert.match(source, /Allowed Amount \*/);
