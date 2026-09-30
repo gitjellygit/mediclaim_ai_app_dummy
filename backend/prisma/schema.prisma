@@ -49,7 +49,7 @@ model Claim {
   patientName String
   payerName   String
   policyNo    String?
-  amount      Int?
+  amount      Decimal? @db.Decimal(14,2)
   status      String  @default("DRAFT")
 
   patientAge    Int?
@@ -78,15 +78,15 @@ model Claim {
   policyStartDate   DateTime?
   policyEndDate     DateTime?
   productType       String?
-  sumInsured        Int?
-  balanceSumInsured Int?
+  sumInsured        Decimal? @db.Decimal(14,2)
+  balanceSumInsured Decimal? @db.Decimal(14,2)
 
   claimType         ClaimType     @default(REIMBURSEMENT)
   claimStage        ClaimStage    @default(INITIAL)
-  totalBilledAmount Int?
-  approvedAmount    Int?
-  deductionAmount   Int?
-  copayAmount       Int?
+  totalBilledAmount Decimal? @db.Decimal(14,2)
+  approvedAmount    Decimal? @db.Decimal(14,2)
+  deductionAmount   Decimal? @db.Decimal(14,2)
+  copayAmount       Decimal? @db.Decimal(14,2)
   roomCategory      RoomCategory?
   icuDays           Int?
 
@@ -100,7 +100,7 @@ model Claim {
   eligibilityStatus       String   @default("NOT_CHECKED")
   eligibilityCheckedAt    DateTime?
   coverageStatus          String?
-  deductibleRemaining     Int?
+  deductibleRemaining     Decimal? @db.Decimal(14,2)
   coinsurancePct          Int?
   networkStatus           String?
 
@@ -114,9 +114,9 @@ model Claim {
 
   remittanceStatus        String   @default("NOT_AVAILABLE")
   remittanceReceivedAt    DateTime?
-  allowedAmount           Int?
-  patientResponsibility   Int?
-  paidAmount              Int?
+  allowedAmount           Decimal? @db.Decimal(14,2)
+  patientResponsibility   Decimal? @db.Decimal(14,2)
+  paidAmount              Decimal? @db.Decimal(14,2)
   paymentReference        String?
 
   // Connector abstraction: LOCAL today, SIMULATED for demo/testing, LIVE for
@@ -278,8 +278,8 @@ model DenialCase {
   correctable     Boolean?
   appealEligible  Boolean?
   appealDeadline  DateTime?
-  revenueAtRisk   Int?
-  recoveredAmount Int?
+  revenueAtRisk   Decimal? @db.Decimal(14,2)
+  recoveredAmount Decimal? @db.Decimal(14,2)
 
   recommendedAction String?
   requiredDocuments Json?
