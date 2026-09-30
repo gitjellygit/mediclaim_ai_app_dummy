@@ -1,3 +1,4 @@
+import { validMoney } from "../utils/money.js";
 /**
  * Claim field provenance helpers.
  *
@@ -33,8 +34,8 @@ function clean(value) {
 
 function parsePositiveMoney(value) {
   if (value == null || value === "") return null;
-  const number = Number(String(value).replace(/,/g, "").replace(/[^0-9.]/g, ""));
-  return Number.isFinite(number) && number > 0 ? Math.round(number) : null;
+  const precise = validMoney(String(value).replace(/,/g, "").replace(/[^0-9.]/g, ""));
+  return precise != null && Number(precise) > 0 ? Number(precise) : null;
 }
 
 function safeDate(value) {
