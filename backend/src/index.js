@@ -1,18 +1,16 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { PrismaClient } from "@prisma/client";
+import { prisma, disconnectDatabase } from "./db.js";
+import { requireAuth, requireRoles } from "./middleware/auth.js";
 
 import claimsRouter from "./routes/claims.js";
 import rulesRouter from "./routes/rules.js";
 import { authRouter } from "./routes/auth.js";
 import { documentsRouter } from "./routes/documents.js";
 import denialsRouter from "./routes/denials.js";
-import { requireAuth, requireRoles } from "./middleware/auth.js";
-
 dotenv.config();
 
-const prisma = new PrismaClient();
 const app = express();
 
 app.use(cors());
@@ -57,48 +55,6 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/auth/logout-all", requireAuth, async (req, res) => {
-  try {
-    await prisma.refreshToken.updateMany({
-      where: {
-        userId: req.user.id,
-        revoked: false
-      },
-      data: {
-        revoked: true,
-        revokedAt: new Date()
-      }
-    });
-
-    res.json({ message: "All sessions logged out successfully" });
-  } catch (error) {
-    console.error("Logout all error:", error);
-    res.status(500).json({
-      error: "Internal server error",
-      message: "An error occurred during logout"
-    });
-  }
-});
-
-app.get("/api/debug", requireAuth, requireRoles(["ADMIN"]), async (req, res) => {
-  try {
-    const { PrismaClient } = await import("@prisma/client");
-    const prisma = new PrismaClient();
-    
-    const claims = await prisma.claim.count();
-    const documents = await prisma.document.count();
-
-    // Operational counts only. Do not emit PHI or claim/document payloads.
-    res.json({
-      claims,
-      documents
-    });
-  } catch (error) {
-    console.error("Debug error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 /**
  * CLAIM ROUTES
  * claimsRouter IS ALREADY A ROUTER → DO NOT CALL IT
@@ -127,3 +83,14 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// Centralized error handler: unexpected failures never leak database internals.
+app.use((err, req, res, _next) => {
+  console.error("[request-error]", { route: req.path, code: err.code || null, name: err.name });
+  if (err.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "File too large", message: "Upload exceeds the allowed file size", code: "FILE_TOO_LARGE" });
+  if (err.code === "INVALID_UPLOAD_TYPE") return res.status(415).json({ error: "Unsupported file", message: "Upload PDF, PNG, JPEG or TIFF only", code: "UNSUPPORTED_FILE" });
+  return res.status(500).json({ error: "Internal server error", message: "The request could not be completed", code: "INTERNAL_ERROR" });
+});
+
+process.once("SIGTERM", async () => { await disconnectDatabase(); process.exit(0); });
+process.once("SIGINT", async () => { await disconnectDatabase(); process.exit(0); });
