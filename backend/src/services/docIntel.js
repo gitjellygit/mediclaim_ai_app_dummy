@@ -43,15 +43,13 @@ function clean(value) {
 }
 
 function hasAny(text, keywords) {
-  // Whole tokens/phrases only: "ct" must not match "doctor", and "pan"
-  // must not match "panel". Filename underscores and hyphens act as spaces.
-  const t = norm(text).replace(/[_-]/g, " ");
+  // Match complete words/phrases, never substrings like CT in "doctor".
+  const tokens = norm(text).replace(/[_-]/g, " ");
   return keywords.some((keyword) => {
-    const escaped = keyword.replace(/[.*+?^\u0024{}()|[\]\\]/g, "\\function hasAny(text, keywords) {
-  const t = norm(text);
-  return keywords.some((keyword) => t.includes(keyword));
-}");
-    return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(t);
+    const escaped = keyword.split("").map((char) =>
+      /[a-z0-9 ]/i.test(char) ? char : "\\\\" + char
+    ).join("");
+    return new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "i").test(tokens);
   });
 }
 
