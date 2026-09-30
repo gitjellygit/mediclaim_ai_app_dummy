@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseClaimDate } from "../src/utils/claimDate.js";
+import { createPayerConnector, PayerConnectorNotConfiguredError } from "../src/services/payerGateway.js";
 import {
   MAX_UPLOAD_BYTES,
   uploadFileFilter,
@@ -63,4 +64,28 @@ test("Async wrapper forwards rejected route promises to error handler", async ()
   const handler = router.stack[0].route.stack[0].handle;
   const error = await new Promise((resolve) => handler({}, {}, resolve));
   assert.equal(error.message, "sample service failure");
+});
+
+
+test("Payer adapter preserves the five-operation contract across all five profiles", () => {
+  for (const code of ["BLUE_HORIZON", "SUMMITCARE", "METROPLUS_DEMO", "CAREFIRST_DEMO", "APEX_BENEFIT"]) {
+    const gateway = createPayerConnector("SIMULATED", code);
+    const claim = {
+      id: "gateway-regression",
+      memberId: code === "CAREFIRST_DEMO" ? "CF-123" : "MEM-123",
+      policyNo: "POL-123",
+      amount: 10000,
+      documents: [{ type: "DISCHARGE_SUMMARY" }]
+    };
+    for (const method of ["checkEligibility", "requestPriorAuth", "submitClaim", "getStatus", "getRemittance"]) {
+      assert.equal(typeof gateway[method], "function");
+    }
+    assert.equal(gateway.checkEligibility(claim, 1).status, "ACTIVE");
+    assert.ok(gateway.requestPriorAuth(claim, 1).status);
+    assert.ok(gateway.submitClaim({ ...claim, priorAuthStatus: "NOT_REQUIRED" }, 1).status);
+    assert.equal(gateway.getStatus(claim, 0, 1).status, "RECEIVED");
+    assert.ok(Number.isFinite(gateway.getRemittance(claim, 1).paidAmount));
+  }
+  assert.throws(() => createPayerConnector("LIVE", "BLUE_HORIZON"), PayerConnectorNotConfiguredError);
+  assert.throws(() => createPayerConnector("LOCAL", "BLUE_HORIZON"), PayerConnectorNotConfiguredError);
 });
