@@ -154,7 +154,7 @@ model Document {
   sizeBytes Int
   path      String
 
-  fileHash    String? @unique
+  fileHash    String?
   rawText     String?
   ocrProvider String?
 
@@ -166,6 +166,8 @@ model Document {
   confidence    Int? // 0..100
   extracted     Json? // { patientName?, amount?, dates?, ... }
   status        String  @default("PENDING") // PENDING, PROCESSED, FAILED
+
+  @@unique([claimId, fileHash])
 }
 
 
