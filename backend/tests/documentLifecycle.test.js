@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client";
 import {
   recomputeDerivedClaimPatch
@@ -2390,4 +2391,28 @@ test("102 - a previous payer's not-required decision cannot bypass a new payer's
     authorizationNo: "AUTH-SC-101"
   });
   assert.equal(approved.status, "ACCEPTED");
+});
+
+
+test("103 - receptionist cannot submit or delete claims or supporting documents", { concurrency: false }, async () => {
+  const admin = await prisma.user.findUnique({ where: { email: "test-admin@hospital.local" } });
+  const receptionistToken = jwt.sign({
+    sub: admin.id,
+    email: admin.email,
+    role: "RECEPTIONIST",
+    type: "access"
+  }, process.env.JWT_SECRET || "claim-app-ci-only-signing-secret-32-characters", { expiresIn: "5m" });
+  const claim = await createClaim();
+  const { doc } = await createDocument(claim.id);
+  const call = (endpoint, method, body) => fetch(`${baseUrl}${endpoint}`, {
+    method,
+    headers: { Authorization: `Bearer ${receptionistToken}`, "Content-Type": "application/json" },
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+  assert.equal((await call(`/api/claims/${claim.id}/submit`, "POST")).status, 403);
+  assert.equal((await call(`/api/claims/${claim.id}`, "DELETE")).status, 403);
+  assert.equal((await call(`/api/documents/${doc.id}`, "DELETE")).status, 403);
+  assert.equal((await call(`/api/claims/documents/${doc.id}`, "DELETE")).status, 403);
+  assert.ok(await prisma.claim.findUnique({ where: { id: claim.id } }));
+  assert.ok(await prisma.document.findUnique({ where: { id: doc.id } }));
 });
