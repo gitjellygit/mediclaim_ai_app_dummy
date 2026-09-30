@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseClaimDate } from "../utils/claimDate.js";
+import { resolveStoredDocument, safeDownloadName } from "../services/storedDocumentPath.js";
 import express from "express";
 import { requireRoles } from "../middleware/auth.js";
 import multer from "multer";
@@ -2263,7 +2264,8 @@ router.patch("/:id", async (req, res) => {
       completenessSummary: buildClaimCompleteness(updated)
     });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    console.error("[claim-edit] failed", { name: e.name, code: e.code || null });
+    res.status(500).json({ error: "Unable to update claim", code: "CLAIM_UPDATE_FAILED" });
   }
 });
 
@@ -2322,7 +2324,7 @@ router.post("/documents", upload.single("file"), verifyUploadSignature, async (r
       });
     }
 
-    if (claim.status === "SUBMITTED") {
+    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
       if (req.file?.path && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
@@ -2372,7 +2374,7 @@ router.post("/documents", upload.single("file"), verifyUploadSignature, async (r
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
         sizeBytes: req.file.size,
-        path: req.file.path,
+        path: req.file.filename,
         suggestedType: intel.suggestedType,
         confidence: intel.confidence,
         extracted: intel.extracted,
@@ -2474,50 +2476,26 @@ router.post("/documents", upload.single("file"), verifyUploadSignature, async (r
   }
 });
 
-router.get("/:id/preview", async (req, res) => {
-  try {
-    const doc = await prisma.document.findUnique({
-      where: { id: req.params.id }
-    });
-
-    if (!doc) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-
-    if (!fs.existsSync(doc.path)) {
-      return res.status(404).json({ error: "File not found on server" });
-    }
-
-    res.setHeader("Content-Type", doc.mimeType);
-    res.setHeader("Content-Disposition", `inline; filename="${doc.fileName}"`);
-
-    fs.createReadStream(doc.path).pipe(res);
-  } catch (error) {
-    console.error("Preview error:", error);
-    res.status(500).json({ error: error.message });
+// Legacy document URLs remain supported but now share the same safe
+// basename-only storage convention as /api/documents.
+async function serveDocument(req, res, download = false) {
+  const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
+  if (!doc) return res.status(404).json({ error: "Document not found" });
+  const filePath = resolveStoredDocument(doc.path);
+  if (!filePath || !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "Document file not found" });
   }
-});
+  const name = safeDownloadName(doc.fileName);
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  if (download) return res.download(filePath, name);
+  res.type(doc.mimeType);
+  res.setHeader("Content-Disposition", `inline; filename="${name}"`);
+  return fs.createReadStream(filePath).pipe(res);
+}
 
-router.get("/:id/download", async (req, res) => {
-  try {
-    const doc = await prisma.document.findUnique({
-      where: { id: req.params.id }
-    });
-
-    if (!doc) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-
-    if (!fs.existsSync(doc.path)) {
-      return res.status(404).json({ error: "File not found on server" });
-    }
-
-    res.download(doc.path, doc.fileName);
-  } catch (error) {
-    console.error("Download error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+router.get("/:id/preview", async (req, res) => serveDocument(req, res));
+router.get("/:id/download", async (req, res) => serveDocument(req, res, true));
 
 router.post("/documents/:id/apply-suggestion", async (req, res) => {
   try {
