@@ -647,6 +647,12 @@ router.post("/e2e/payer-journey/seed", async (req, res) => {
       payerCode: "APEX_BENEFIT",
       claim: base("APEX"),
       documents: [doc("FINAL_BILL", "apex-final-bill.pdf")]
+    },
+    {
+      key: "SWITCH",
+      payerCode: "BLUE_HORIZON",
+      claim: base("SWITCH"),
+      documents: [doc("FINAL_BILL", "switch-final-bill.pdf")]
     }
   ];
 
