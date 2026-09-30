@@ -839,10 +839,20 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
         authorizationNo: null,
         priorAuthExpiry: null,
         fieldProvenance: mergeProvenance(
-          claim.fieldProvenance,
+          removeProvenanceFields(claim.fieldProvenance, [
+            "eligibilityStatus",
+            "coverageStatus",
+            "networkStatus",
+            "deductibleRemaining",
+            "coinsurancePct",
+            "priorAuthRequired",
+            "priorAuthStatus",
+            "authorizationNo",
+            "priorAuthExpiry"
+          ]),
           systemProvenance(["payerName"], {
             source: "SIMULATED_PAYER",
-            label: "Mock Payer Profile",
+            label: "Demo Payer Profile",
             sourceDetail: payer.name,
             verified: false
           })
