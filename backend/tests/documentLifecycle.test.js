@@ -230,6 +230,19 @@ after(async () => {
   }
 });
 
+test("config - synthetic fixture endpoints are isolated behind E2E_TEST_MODE and admin auth", { concurrency: false }, () => {
+  const claims = fs.readFileSync(path.join(backendRoot, "src/routes/claims.js"), "utf8");
+  const entry = fs.readFileSync(path.join(backendRoot, "src/index.js"), "utf8");
+  const fixtures = fs.readFileSync(path.join(backendRoot, "src/routes/e2eFixtures.js"), "utf8");
+
+  assert.equal(claims.includes('router.post("/e2e/'), false);
+  assert.equal(claims.includes('router.delete("/e2e/'), false);
+  assert.ok(entry.includes('process.env.E2E_TEST_MODE === "true"'));
+  assert.ok(entry.includes('requireRoles(["ADMIN"]), captureAsyncRouter(e2eFixturesRouter'));
+  assert.ok(fixtures.includes('e2e/medical-consistency/seed'));
+  assert.ok(fixtures.includes('e2e/payer-journey/seed'));
+});
+
 test("01 - document download requires authentication", { concurrency: false }, async () => {
   const claim = await createClaim();
   const { doc } = await createDocument(claim.id);
