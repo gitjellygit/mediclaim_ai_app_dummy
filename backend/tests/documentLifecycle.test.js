@@ -2566,6 +2566,21 @@ test("103 - document reprocessing cannot mutate transmitted or terminal claims",
   assert.equal(response.status, 409, "submission timestamp must also lock reprocessing");
 });
 
+test("B1 - reprocessing a document with an empty stored path returns 404", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  const { doc } = await createDocument(claim.id);
+  await prisma.document.update({
+    where: { id: doc.id },
+    data: { path: "" }
+  });
+
+  const response = await authFetch(`/api/documents/${doc.id}/process`, {
+    method: "POST"
+  });
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), { error: "File not found on server" });
+});
+
 test("stabilization - legacy document path resolver cannot escape upload root", { concurrency: false }, () => {
   const root = path.resolve(backendRoot, "uploads");
   assert.equal(resolveStoredDocument("uploads/record.pdf", root), path.join(root, "record.pdf"));

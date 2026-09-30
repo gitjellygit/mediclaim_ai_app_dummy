@@ -728,7 +728,7 @@ export function documentsRouter(prisma, uploadDir) {
       // Build correct file path - doc.path should be just filename
       const filePath = resolveStoredFile(doc.path);
       
-      if (!fs.existsSync(filePath)) {
+      if (!filePath || !fs.existsSync(filePath)) {
         return res.status(404).json({
           error: "File not found on server",
         });
