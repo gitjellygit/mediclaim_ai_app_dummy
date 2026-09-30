@@ -9,7 +9,6 @@ import { MAX_UPLOAD_BYTES, uploadFileFilter, verifyUploadSignature } from "../mi
 import fs from "fs";
 import { prisma } from "../db.js";
 import { analyzeDocument } from "../services/docIntel.js";
-import { predictRejectionRisk } from "../services/riskModel.js";
 import {
   getDerivedFieldsFromDocument,
   mergeDerivedFields,
