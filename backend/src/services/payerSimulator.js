@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { percentageMoney, differenceMoney } from "../utils/money.js";
 const PAYERS = [
   {
     code: "BLUE_HORIZON",
@@ -129,13 +130,10 @@ export function payerInputFingerprint(type, payer, claim) {
 }
 
 export function calculateAdjudication(payer, claim) {
-  const billed = Number(claim.amount || claim.totalBilledAmount || 0);
-  const allowedAmount = Math.max(0, Math.round(billed * payer.reimbursementRate));
-  const coinsurance = Number(claim.coinsurancePct || 0);
-  const basePayerAmount = Math.max(
-    0,
-    Math.round(allowedAmount * (1 - coinsurance / 100))
-  );
+  const billed = claim.amount ?? claim.totalBilledAmount ?? 0;
+  const allowedAmount = percentageMoney(billed, Math.round(payer.reimbursementRate * 10000));
+  const coinsurance = Math.max(0, Math.min(100, Number(claim.coinsurancePct || 0)));
+  const basePayerAmount = percentageMoney(allowedAmount, 10000 - Math.round(coinsurance * 100));
 
   // Adjudication approval is not proof of payment. In particular, a payer
   // shortfall must NEVER be transferred to patient responsibility.
@@ -144,7 +142,7 @@ export function calculateAdjudication(payer, claim) {
   return {
     allowedAmount,
     approvedAmount,
-    patientResponsibility: Math.max(0, allowedAmount - approvedAmount)
+    patientResponsibility: Math.max(0, differenceMoney(allowedAmount, approvedAmount))
   };
 }
 
@@ -354,10 +352,10 @@ export function simulateRemittance(payer, claim, sequence = 1) {
   const expectedPayerPayment = adjudication.approvedAmount;
   const paidAmount =
     payer.code === "APEX_BENEFIT"
-      ? Math.max(0, Math.round(expectedPayerPayment * 0.8))
+      ? percentageMoney(expectedPayerPayment, 8000)
       : expectedPayerPayment;
   const patientResponsibility = adjudication.patientResponsibility;
-  const potentialUnderpayment = Math.max(0, expectedPayerPayment - paidAmount);
+  const potentialUnderpayment = Math.max(0, differenceMoney(expectedPayerPayment, paidAmount));
 
   return {
     transactionId: makeId("ERA", payer.code, claim.id, sequence),

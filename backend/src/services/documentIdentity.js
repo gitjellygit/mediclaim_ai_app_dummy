@@ -1,3 +1,4 @@
+import { validMoney } from "../utils/money.js";
 /** Identity checks for claim document uploads. */
 function cleanValue(value) {
   if (!value) return null;
@@ -22,8 +23,8 @@ export function getExtractedAmount(extracted) {
 
   if (!raw) return null;
 
-  const amount = Number(String(raw).replace(/[^0-9.]/g, ""));
-  return Number.isFinite(amount) && amount > 0 ? Math.round(amount) : null;
+  const amount = validMoney(String(raw).replace(/[^0-9.]/g, ""));
+  return amount != null && Number(amount) > 0 ? Number(amount) : null;
 }
 
 function normalizeIdentityText(value) {

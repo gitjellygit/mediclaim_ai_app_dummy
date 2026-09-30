@@ -1,3 +1,4 @@
+import { validMoney, moneyCents, differenceMoney } from "../utils/money.js";
 import { z } from "zod";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
@@ -667,7 +668,7 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
             denialCategory: result.status === "DENIED" ? "AUTHORIZATION" : "PAYMENT",
             reasonText: result.reason,
             denialDate: new Date(),
-            revenueAtRisk: Math.max(0, Number(claim.amount || 0) - Number(claim.paidAmount || 0)),
+            revenueAtRisk: Math.max(0, differenceMoney(claim.amount || 0, claim.paidAmount || 0)),
             recommendedAction: "Review the simulated payer response and supporting claim data."
           }
         });
@@ -1134,9 +1135,9 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
         const allowedAmount = Number(claim.allowedAmount || 0);
         const revenueAtRisk =
           paid > 0
-            ? Math.max(0, claimed - paid)
+            ? Math.max(0, differenceMoney(claim.amount, claim.paidAmount))
             : allowedAmount > 0
-            ? Math.max(0, claimed - allowedAmount)
+            ? Math.max(0, differenceMoney(claim.amount, claim.allowedAmount))
             : claimed;
 
         denialCase = await prisma.denialCase.create({
@@ -1222,7 +1223,13 @@ router.patch("/:id/journey/remittance", async (req, res) => {
         error.status = 400;
         throw error;
       }
-      return Math.round(number);
+      const amount = validMoney(value);
+      if (amount == null) {
+        const error = new Error(`${name} must use at most two decimal places`);
+        error.status = 400;
+        throw error;
+      }
+      return amount;
     };
 
     const allowedAmount = parseOptionalMoney(req.body.allowedAmount, "Allowed amount");
@@ -1245,7 +1252,7 @@ router.patch("/:id/journey/remittance", async (req, res) => {
     if (
       allowedAmount != null &&
       paidAmount != null &&
-      paidAmount > allowedAmount
+      moneyCents(paidAmount) > moneyCents(allowedAmount)
     ) {
       return res.status(400).json({
         error: "Paid amount cannot exceed allowed amount"
@@ -1261,7 +1268,7 @@ router.patch("/:id/journey/remittance", async (req, res) => {
       requestedPatientResponsibility != null
         ? requestedPatientResponsibility
         : allowedAmount != null && paidAmount != null
-        ? Math.max(0, allowedAmount - paidAmount)
+        ? Math.max(0, differenceMoney(allowedAmount, paidAmount))
         : null;
 
     const normalizedPaymentReference =
@@ -1271,9 +1278,9 @@ router.patch("/:id/journey/remittance", async (req, res) => {
 
     const remittanceUnchanged =
       claim.remittanceStatus === remittanceStatus &&
-      (claim.allowedAmount ?? null) === allowedAmount &&
-      (claim.patientResponsibility ?? null) === patientResponsibility &&
-      (claim.paidAmount ?? null) === paidAmount &&
+      (claim.allowedAmount == null ? null : validMoney(claim.allowedAmount)) === allowedAmount &&
+      (claim.patientResponsibility == null ? null : validMoney(claim.patientResponsibility)) === (patientResponsibility == null ? null : validMoney(patientResponsibility)) &&
+      (claim.paidAmount == null ? null : validMoney(claim.paidAmount)) === paidAmount &&
       (claim.paymentReference || null) === normalizedPaymentReference;
 
     if (remittanceUnchanged) {
@@ -1545,6 +1552,18 @@ router.post("/", async (req, res) => {
       ...parsed.data,
       status: "DRAFT"
     };
+    for (const key of ["amount", "totalBilledAmount"]) {
+      if (createPayload[key] == null) continue;
+      const canonical = validMoney(createPayload[key]);
+      if (canonical == null) {
+        return res.status(400).json({
+          error: "Invalid money",
+          message: `${key} must have at most two decimal places`,
+          code: "INVALID_MONEY"
+        });
+      }
+      createPayload[key] = canonical;
+    }
     for (const field of ["patientDob", "dateOfService", "admissionDate", "dischargeDate", "procedureDate"]) {
       if (!createPayload[field]) continue;
       const parsedDate = parseClaimDate(createPayload[field]);
@@ -1622,12 +1641,12 @@ router.patch("/:id", async (req, res) => {
         ? req.body.icd10Codes
         : [],
       amount: req.body.amount != null && req.body.amount !== ""
-        ? Number(req.body.amount)
+        ? validMoney(req.body.amount)
         : null,
       totalBilledAmount:
         req.body.totalBilledAmount != null &&
         req.body.totalBilledAmount !== ""
-          ? Number(req.body.totalBilledAmount)
+          ? validMoney(req.body.totalBilledAmount)
           : null
     };
 
@@ -1668,11 +1687,19 @@ router.patch("/:id", async (req, res) => {
 
     if (
       payload.amount != null &&
-      (!Number.isFinite(payload.amount) || payload.amount <= 0)
+      (!Number.isFinite(Number(payload.amount)) || Number(payload.amount) <= 0)
     ) {
       return res.status(400).json({
         error: "Claimed amount must be a valid number greater than 0"
       });
+    }
+
+    // Reject invalid money before writing or changing provenance.
+    for (const name of ["amount", "totalBilledAmount"]) {
+      const supplied = req.body[name];
+      if (supplied != null && supplied !== "" && validMoney(supplied) == null) {
+        return res.status(400).json({ error: "Invalid money", message: `${name} must have at most two decimal places`, code: "INVALID_MONEY" });
+      }
     }
 
     const manuallyChangedFields = changedFields(existing, payload);
