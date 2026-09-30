@@ -20,6 +20,11 @@ import { parseClaimDate } from "../utils/claimDate.js";
 import { resolveStoredDocument } from "../services/storedDocumentPath.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
+import {
+  getExtractedPatientName,
+  getExtractedAmount,
+  validateDocumentIdentityAgainstClaim
+} from "../services/documentIdentity.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,6 +81,27 @@ function calculateMatchScore(extracted, existingClaim) {
   
   return Math.min(100, score);
 }
+
+async function invalidateClaimReadiness(
+  prisma,
+  claimId,
+  reason = "Claim data changed"
+) {
+  await markReadinessChecksStale(prisma, claimId, reason);
+
+  const claim = await prisma.claim.findUnique({
+    where: { id: claimId },
+    select: { status: true }
+  });
+
+  if (claim?.status === "READY") {
+    await prisma.claim.update({
+      where: { id: claimId },
+      data: { status: "DRAFT" }
+    });
+  }
+}
+
 
 export function documentsRouter(prisma, uploadDir) {
   const router = express.Router();
@@ -486,16 +512,12 @@ export function documentsRouter(prisma, uploadDir) {
   });
 
   // Upload document
-  router.post("/upload", upload.single("file"), verifyUploadSignature, async (req, res) => {
+  async function handleClaimDocumentUpload(req, res) {
+  try {
     const { claimId, type } = req.body;
-    
-    if (!req.file) {
-      return res.status(400).json({ error: "file is required" });
-    }
 
-    if (!claimId) {
-      if (req.file?.path) fs.rmSync(req.file.path, { force: true });
-      return res.status(400).json({ error: "claimId is required" });
+    if (!req.file) {
+      return res.status(400).json({ error: "File is required" });
     }
 
     const claim = await prisma.claim.findUnique({
@@ -503,8 +525,10 @@ export function documentsRouter(prisma, uploadDir) {
     });
 
     if (!claim) {
-      if (req.file?.path) fs.rmSync(req.file.path, { force: true });
-      return res.status(404).json({ error: "Claim not found" });
+      return res.status(400).json({
+        error: "Invalid claimId",
+        message: `Claim with ID ${claimId} does not exist`
+      });
     }
 
     if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
@@ -516,27 +540,44 @@ export function documentsRouter(prisma, uploadDir) {
       });
     }
 
-    const uploadedFilePath = req.file.path;
-    
-    if (!fs.existsSync(uploadedFilePath)) {
-      return res.status(400).json({ 
-        error: "File not found",
-        message: "Uploaded file could not be located on server"
-      });
-    }
-
-    // Call AI analysis service
-    const { analyzeDocument } = await import("../services/docIntel.js");
     const intel = await analyzeDocument({
       fileName: req.file.originalname,
       mimeType: req.file.mimetype,
-      path: uploadedFilePath
+      path: req.file.path
     });
+
+    // Validate patient/member identity BEFORE persisting the document.
+    // This prevents a John Smith document from being attached to Alice's claim.
+    const identityValidation = validateDocumentIdentityAgainstClaim(
+      claim,
+      intel.extracted
+    );
+
+    if (identityValidation.status === "MISMATCH") {
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+
+      console.warn("[claim-document] identity mismatch blocked", {
+        claimId,
+        conflictFields: identityValidation.conflicts
+      });
+
+      return res.status(409).json({
+        error: "Patient mismatch",
+        message:
+          identityValidation.extractedPatientName
+            ? `This document appears to belong to ${identityValidation.extractedPatientName}, but the current claim is for ${claim.patientName}. The document was not uploaded.`
+            : "The document identity does not match the current claim. The document was not uploaded.",
+        code: "DOCUMENT_PATIENT_MISMATCH",
+        identityValidation
+      });
+    }
 
     const doc = await prisma.document.create({
       data: {
-        claimId: claimId,
-        type: type || intel.suggestedType,
+        claimId,
+        type: type || intel.suggestedType || "OTHER",
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
         sizeBytes: req.file.size,
@@ -548,23 +589,103 @@ export function documentsRouter(prisma, uploadDir) {
       }
     });
 
-    await prisma.$transaction([
-      prisma.check.updateMany({
-        where: { claimId, isStale: false },
-        data: {
-          isStale: true,
-          staleAt: new Date(),
-          staleReason: "Supporting document uploaded"
-        }
-      }),
-      prisma.claim.update({
-        where: { id: claimId },
-        data: { status: "DRAFT" }
-      })
-    ]);
+    const extractedPatientName = getExtractedPatientName(intel.extracted);
+    const extractedAmount = getExtractedAmount(intel.extracted);
 
-    res.status(201).json(doc);
-  });
+    const updatePayload = {};
+
+    if (
+      extractedPatientName &&
+      (!claim.patientName ||
+        claim.patientName === "Unknown Patient" ||
+        claim.patientName.trim() === "")
+    ) {
+      updatePayload.patientName = extractedPatientName;
+    }
+
+    if (extractedAmount && (!claim.amount || Number(claim.amount) <= 0)) {
+      updatePayload.amount = extractedAmount;
+      if ((type || intel.suggestedType) === "FINAL_BILL") {
+        updatePayload.totalBilledAmount = extractedAmount;
+      }
+    }
+
+    let updatedClaim = claim;
+
+    if (Object.keys(updatePayload).length > 0) {
+      const derivedFromThisDocument = Object.keys(updatePayload);
+      const documentDerivedFields = mergeDerivedFields(
+        claim.documentDerivedFields,
+        derivedFromThisDocument
+      );
+
+      updatedClaim = await prisma.claim.update({
+        where: { id: claimId },
+        data: {
+          ...updatePayload,
+          documentDerivedFields,
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            documentProvenance({
+              fields: derivedFromThisDocument,
+              confidence: intel.confidence,
+              documentId: doc.id,
+              fileName: req.file.originalname,
+              documentType: type || intel.suggestedType || "OTHER"
+            })
+          )
+        },
+        include: {
+          documents: {
+            orderBy: { createdAt: "desc" }
+          }
+        }
+      });
+    }
+
+    await invalidateClaimReadiness(prisma, claimId);
+
+    updatedClaim = await prisma.claim.findUnique({
+      where: { id: claimId },
+      include: {
+        documents: { orderBy: { createdAt: "desc" } },
+        checks: { orderBy: { createdAt: "desc" } }
+      }
+    });
+
+    res.status(req.baseUrl === "/api/claims/documents" ? 200 : 201).json({
+      ...doc,
+      claim: updatedClaim,
+      identityValidation,
+      message:
+        identityValidation.status === "UNVERIFIED"
+          ? "Document uploaded, but patient identity could not be verified from the extracted document data."
+          : "Document uploaded and patient identity matched the current claim."
+    });
+  } catch (e) {
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // Best-effort cleanup; do not expose filesystem details to the client.
+      }
+    }
+
+    console.error("[claim-document] upload failed", {
+      claimId: req.body?.claimId || null,
+      name: e?.name || "Error",
+      message: e?.message || "Unknown error"
+    });
+
+    res.status(400).json({
+      error: e?.message || "Document upload failed"
+    });
+  }
+  }
+
+  router.post("/upload", upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
+  // Compatibility for callers using POST /api/claims/documents.
+  router.post("/", upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
 
   // List docs for a claim
   router.get("/claim/:claimId", async (req, res) => {
