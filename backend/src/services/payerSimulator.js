@@ -137,10 +137,9 @@ export function calculateAdjudication(payer, claim) {
     Math.round(allowedAmount * (1 - coinsurance / 100))
   );
 
-  const approvedAmount =
-    payer.code === "APEX_BENEFIT"
-      ? Math.max(0, Math.round(basePayerAmount * 0.8))
-      : basePayerAmount;
+  // Adjudication approval is not proof of payment. In particular, a payer
+  // shortfall must NEVER be transferred to patient responsibility.
+  const approvedAmount = basePayerAmount;
 
   return {
     allowedAmount,
@@ -353,16 +352,24 @@ export function simulateStatus(payer, claim, priorStatusChecks = 0, sequence = 1
 export function simulateRemittance(payer, claim, sequence = 1) {
   const adjudication = calculateAdjudication(payer, claim);
   const allowedAmount = adjudication.allowedAmount;
-  const paidAmount = adjudication.approvedAmount;
+  const expectedPayerPayment = adjudication.approvedAmount;
+  const paidAmount =
+    payer.code === "APEX_BENEFIT"
+      ? Math.max(0, Math.round(expectedPayerPayment * 0.8))
+      : expectedPayerPayment;
   const patientResponsibility = adjudication.patientResponsibility;
+  const potentialUnderpayment = Math.max(0, expectedPayerPayment - paidAmount);
 
   return {
     transactionId: makeId("ERA", payer.code, claim.id, sequence),
     status: "POSTED",
     latencyMs: 680,
     allowedAmount,
+    approvedAmount: adjudication.approvedAmount,
+    expectedPayerPayment,
     paidAmount,
     patientResponsibility,
+    potentialUnderpayment,
     paymentReference: makeId("PAY", payer.code, claim.id, sequence),
     reason:
       payer.code === "APEX_BENEFIT"
