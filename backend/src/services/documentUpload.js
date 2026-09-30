@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import multer from "multer";
 import { MAX_UPLOAD_BYTES, uploadFileFilter } from "../middleware/uploadSafety.js";
 
@@ -9,7 +10,7 @@ export function createDocumentUpload(uploadDir = process.env.UPLOAD_DIR || "uplo
     destination: (_req, _file, cb) => cb(null, uploadDir),
     filename: (_req, file, cb) => {
       const safe = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-      cb(null, `${Date.now()}_${safe}`);
+      cb(null, `${randomUUID()}_${safe}`);
     }
   });
   return multer({
