@@ -2145,8 +2145,10 @@ test("91 - Apex remittance creates deterministic underpayment demo", { concurren
 
   assert.equal(result.allowedAmount, 13600);
   assert.equal(result.paidAmount, 10880);
-  assert.equal(result.patientResponsibility, 2720);
-  assert.ok(result.paidAmount < result.allowedAmount);
+  assert.equal(result.patientResponsibility, 0);
+  assert.equal(result.expectedPayerPayment, 13600);
+  assert.equal(result.potentialUnderpayment, 2720);
+  assert.ok(result.paidAmount < result.expectedPayerPayment);
 });
 
 test("92 - payer simulator frontend exposes connection workflow and transaction history", { concurrency: false }, () => {
@@ -2223,10 +2225,14 @@ test("95 - adjudication and remittance amounts remain internally consistent for 
       adjudication.allowedAmount - adjudication.approvedAmount
     );
     assert.equal(remittance.allowedAmount, adjudication.allowedAmount);
-    assert.equal(remittance.paidAmount, adjudication.approvedAmount);
+    assert.equal(remittance.expectedPayerPayment, adjudication.approvedAmount);
     assert.equal(
       remittance.patientResponsibility,
-      remittance.allowedAmount - remittance.paidAmount
+      adjudication.allowedAmount - adjudication.approvedAmount
+    );
+    assert.equal(
+      remittance.potentialUnderpayment,
+      adjudication.approvedAmount - remittance.paidAmount
     );
   }
 });
@@ -2305,4 +2311,59 @@ test("97 - payer Journey UI uses one action surface and client-facing wording", 
   assert.doesNotMatch(source, />LOCAL</);
   assert.doesNotMatch(source, /Mock Payer/);
   assert.doesNotMatch(source, /manual •/i);
+});
+
+
+test("98 - payer switch requires fresh eligibility and authorization", { concurrency: false }, () => {
+  const routeSource = fs.readFileSync(
+    path.join(backendRoot, "src/routes/claims.js"),
+    "utf8"
+  );
+  assert.match(routeSource, /simulatedPayerCode: payer.code,[\s\S]*eligibilityStatus: "NOT_CHECKED"/);
+  assert.match(routeSource, /priorAuthStatus: "NOT_CHECKED"/);
+});
+
+test("99 - status polling requires acknowledged transmission", { concurrency: false }, () => {
+  const routeSource = fs.readFileSync(
+    path.join(backendRoot, "src/routes/claims.js"),
+    "utf8"
+  );
+  assert.match(routeSource, /Wait until the claim has been transmitted and acknowledged/);
+});
+
+test("100 - payer financial cross-product never transfers short payment to the patient", { concurrency: false }, () => {
+  const amounts = [0, 1, 150, 9850, 25000, 50000, 99000];
+  const coinsuranceOptions = [0, 10, 15, 20, 30, 50, 100];
+  let combinations = 0;
+  for (const summary of listMockPayers()) {
+    const payer = getMockPayer(summary.code);
+    for (const amount of amounts) {
+      for (const coinsurancePct of coinsuranceOptions) {
+        const claim = { id: `fin-${combinations}`, amount, coinsurancePct };
+        const approval = calculateAdjudication(payer, claim);
+        const era = simulateRemittance(payer, claim);
+        assert.ok(approval.allowedAmount >= approval.approvedAmount);
+        assert.ok(era.paidAmount <= era.approvedAmount);
+        assert.equal(era.patientResponsibility, approval.patientResponsibility);
+        assert.equal(era.potentialUnderpayment, approval.approvedAmount - era.paidAmount);
+        assert.equal(
+          era.allowedAmount,
+          era.paidAmount + era.patientResponsibility + era.potentialUnderpayment
+        );
+        combinations += 1;
+      }
+    }
+  }
+  assert.equal(combinations, 245);
+});
+
+test("101 - approval estimates do not impersonate a posted remittance", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+  assert.match(source, /Expected Payer Payment/);
+  assert.match(source, /Actual paid amount and payment reference will populate when remittance arrives/);
+  assert.match(source, /Potential payer underpayment/);
+  assert.match(source, /Demo environment/);
 });
