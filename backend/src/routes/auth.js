@@ -29,7 +29,8 @@ export function authRouter(prisma) {
       }
 
       // Rate limiting
-      const rateLimit = checkRateLimit(`login:${email}`, MAX_FAILED_ATTEMPTS);
+      const rateKey = `login:${String(email).toLowerCase().trim()}`;
+      const rateLimit = checkRateLimit(rateKey, MAX_FAILED_ATTEMPTS);
       if (!rateLimit.allowed) {
         return res.status(429).json({
           error: "Too many attempts",
@@ -38,7 +39,6 @@ export function authRouter(prisma) {
         });
       }
 
-      const rateKey = `login:${String(email).toLowerCase().trim()}`;
       // Find user
       const user = await prisma.user.findUnique({ 
         where: { email: email.toLowerCase().trim() }
