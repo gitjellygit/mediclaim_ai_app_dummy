@@ -75,7 +75,11 @@ app.use("/api/denials", requireAuth, captureAsyncRouter(denialsRouter));
  * DOCUMENT ROUTES
  * documentsRouter IS A FUNCTION → must be CALLED
  */
-app.use("/api/documents", requireAuth, captureAsyncRouter(documentsRouter(prisma, process.env.UPLOAD_DIR || "uploads")));
+const documentsApiRouter = captureAsyncRouter(
+  documentsRouter(prisma, process.env.UPLOAD_DIR || "uploads")
+);
+app.use("/api/claims/documents", requireAuth, documentsApiRouter); // Legacy URL alias
+app.use("/api/documents", requireAuth, documentsApiRouter);
 
 /**
  * RULE ROUTES (ADMIN ONLY)
