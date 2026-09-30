@@ -251,6 +251,22 @@ test("01 - document download requires authentication", { concurrency: false }, a
   assert.equal(response.status, 401);
 });
 
+test("B2 - global document list is unavailable; claim-scoped list returns only its documents", { concurrency: false }, async () => {
+  const firstClaim = await createClaim();
+  const secondClaim = await createClaim();
+  const { doc: firstDoc } = await createDocument(firstClaim.id);
+  const { doc: secondDoc } = await createDocument(secondClaim.id);
+
+  const globalList = await authFetch("/api/documents/list");
+  assert.equal(globalList.status, 404);
+
+  const scoped = await authFetch(`/api/documents/claim/${firstClaim.id}`);
+  assert.equal(scoped.status, 200);
+  const docs = await scoped.json();
+  assert.ok(docs.some((doc) => doc.id === firstDoc.id));
+  assert.ok(!docs.some((doc) => doc.id === secondDoc.id));
+});
+
 test("02 - authenticated document download returns exact file bytes", { concurrency: false }, async () => {
   const claim = await createClaim();
   const expected = "download-content-123";
