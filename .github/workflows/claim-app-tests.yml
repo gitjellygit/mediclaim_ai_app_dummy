@@ -30,7 +30,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://app:app@localhost:5432/claim_ai_test?schema=public
-      JWT_SECRET: claim-app-ci-secret
+      JWT_SECRET: claim-app-ci-only-signing-secret-32-characters
       HIPAA_BAA_CONFIRMED: "false"
       NODE_ENV: test
 
