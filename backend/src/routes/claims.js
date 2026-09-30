@@ -1,6 +1,7 @@
 import { z } from "zod";
 import express from "express";
 import multer from "multer";
+import { MAX_UPLOAD_BYTES, uploadFileFilter, verifyUploadSignature } from "../middleware/uploadSafety.js";
 import fs from "fs";
 import { prisma } from "../db.js";
 import { analyzeDocument } from "../services/docIntel.js";
@@ -41,7 +42,7 @@ import {
 } from "../services/payerSimulator.js";
 
 const router = express.Router();
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ dest: process.env.UPLOAD_DIR || "uploads/", limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 }, fileFilter: uploadFileFilter });
 
 function cleanValue(value) {
   if (!value) return null;
@@ -2299,7 +2300,7 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-router.post("/documents", upload.single("file"), async (req, res) => {
+router.post("/documents", upload.single("file"), verifyUploadSignature, async (req, res) => {
   try {
     const { claimId, type } = req.body;
 
