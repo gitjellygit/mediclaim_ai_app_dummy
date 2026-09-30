@@ -1,4 +1,4 @@
-import { validMoney, numberMoney, differenceMoney } from "../utils/money.js";
+import { validMoney, moneyCents, differenceMoney } from "../utils/money.js";
 import { z } from "zod";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { resolveStoredDocument, safeDownloadName } from "../services/storedDocumentPath.js";
@@ -1213,7 +1213,7 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
             denialCategory: result.status === "DENIED" ? "AUTHORIZATION" : "PAYMENT",
             reasonText: result.reason,
             denialDate: new Date(),
-            revenueAtRisk: Math.max(0, Number(claim.amount || 0) - Number(claim.paidAmount || 0)),
+            revenueAtRisk: Math.max(0, differenceMoney(claim.amount || 0, claim.paidAmount || 0)),
             recommendedAction: "Review the simulated payer response and supporting claim data."
           }
         });
@@ -1680,9 +1680,9 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
         const allowedAmount = Number(claim.allowedAmount || 0);
         const revenueAtRisk =
           paid > 0
-            ? Math.max(0, claimed - paid)
+            ? Math.max(0, differenceMoney(claim.amount, claim.paidAmount))
             : allowedAmount > 0
-            ? Math.max(0, claimed - allowedAmount)
+            ? Math.max(0, differenceMoney(claim.amount, claim.allowedAmount))
             : claimed;
 
         denialCase = await prisma.denialCase.create({
@@ -1797,7 +1797,7 @@ router.patch("/:id/journey/remittance", async (req, res) => {
     if (
       allowedAmount != null &&
       paidAmount != null &&
-      paidAmount > allowedAmount
+      moneyCents(paidAmount) > moneyCents(allowedAmount)
     ) {
       return res.status(400).json({
         error: "Paid amount cannot exceed allowed amount"
