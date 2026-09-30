@@ -1,3 +1,4 @@
+import { z } from "zod";
 import express from "express";
 import multer from "multer";
 import fs from "fs";
@@ -291,22 +292,6 @@ function buildJourneyState(claim) {
     }
   };
 }
-
-router.get("/debug", async (req, res) => {
-  try {
-    const claims = await prisma.claim.findMany();
-    const documents = await prisma.document.findMany();
-
-    res.json({
-      claims: claims.length,
-      documents: documents.length,
-      sampleClaim: claims[0],
-      sampleDocument: documents[0]
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 router.get("/", async (req, res) => {
   try {
@@ -2064,14 +2049,54 @@ router.post("/", async (req, res) => {
       });
     }
 
+    // Explicit input allowlist: never accept caller-supplied lifecycle, payer,
+    // monetary-adjudication, provenance, relationship IDs or audit fields.
+    const claimCreateSchema = z.object({
+      patientName: z.string().trim().min(1).max(250),
+      payerName: z.string().trim().min(1).max(250),
+      amount: z.coerce.number().positive().finite(),
+      totalBilledAmount: z.coerce.number().positive().finite().nullish(),
+      policyNo: z.string().trim().max(100).nullish(),
+      memberId: z.string().trim().max(100).nullish(),
+      patientDob: z.string().nullish(),
+      hospitalName: z.string().trim().max(250).nullish(),
+      doctorName: z.string().trim().max(250).nullish(),
+      diagnosisText: z.string().max(6000).nullish(),
+      icd10Codes: z.array(z.string().max(20)).max(100).optional(),
+      procedureText: z.string().max(6000).nullish(),
+      dateOfService: z.string().nullish(),
+      admissionDate: z.string().nullish(),
+      dischargeDate: z.string().nullish(),
+      procedureDate: z.string().nullish(),
+      admissionType: z.enum(["PLANNED", "EMERGENCY"]).nullish(),
+      roomCategory: z.enum(["GENERAL", "SEMI_PRIVATE", "PRIVATE", "ICU"]).nullish(),
+      icuDays: z.coerce.number().int().nonnegative().nullish(),
+      claimType: z.enum(["CASHLESS", "REIMBURSEMENT"]).optional()
+    }).strict();
+    const parsed = claimCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid claim input",
+        message: "Only supported claim-creation fields are accepted",
+        code: "INVALID_CLAIM_INPUT"
+      });
+    }
     const createPayload = {
-      ...req.body,
-      amount,
-      totalBilledAmount: req.body.totalBilledAmount
-        ? Number(req.body.totalBilledAmount)
-        : null,
+      ...parsed.data,
       status: "DRAFT"
     };
+    for (const field of ["patientDob", "dateOfService", "admissionDate", "dischargeDate", "procedureDate"]) {
+      if (!createPayload[field]) continue;
+      const parsedDate = new Date(createPayload[field]);
+      if (Number.isNaN(parsedDate.getTime())) {
+        return res.status(400).json({
+          error: "Invalid date",
+          message: `Invalid value for ${field}`,
+          code: "INVALID_DATE"
+        });
+      }
+      createPayload[field] = parsedDate;
+    }
 
     const manuallyEnteredFields = Object.keys(createPayload).filter(
       (field) => !["status", "createdAt", "id"].includes(field)
@@ -2089,7 +2114,8 @@ router.post("/", async (req, res) => {
 
     res.json(claim);
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    console.error("[claim-create] failed", { name: e.name, code: e.code || null });
+    res.status(500).json({ error: "Unable to create claim", code: "CLAIM_CREATE_FAILED" });
   }
 });
 
@@ -2103,7 +2129,7 @@ router.patch("/:id", async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    if (existing.status === "SUBMITTED") {
+    if (existing.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(existing.status)) {
       return res.status(409).json({
         error: "Submitted claims are locked. Reopen or amend the claim before editing."
       });
