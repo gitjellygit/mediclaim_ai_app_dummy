@@ -69,32 +69,28 @@ export function generateSecureToken(length = 32) {
  */
 const rateLimitStore = new Map();
 
+// Read-only check; a successful login must never consume a failed-attempt slot.
 export function checkRateLimit(identifier, maxAttempts = 5, windowMs = 15 * 60 * 1000) {
+  const record = rateLimitStore.get(identifier);
+  if (!record || Date.now() > record.resetAt) {
+    if (record) rateLimitStore.delete(identifier);
+    return { allowed: true, remaining: maxAttempts };
+  }
+  return {
+    allowed: record.count < maxAttempts,
+    remaining: Math.max(0, maxAttempts - record.count),
+    resetAt: record.resetAt
+  };
+}
+
+export function recordFailedAttempt(identifier, windowMs = 15 * 60 * 1000) {
   const now = Date.now();
-  const key = identifier;
-  const record = rateLimitStore.get(key);
-
-  if (!record) {
-    rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
-    return { allowed: true, remaining: maxAttempts - 1 };
-  }
-
-  if (now > record.resetAt) {
-    rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
-    return { allowed: true, remaining: maxAttempts - 1 };
-  }
-
-  if (record.count >= maxAttempts) {
-    return { 
-      allowed: false, 
-      remaining: 0,
-      resetAt: record.resetAt
-    };
-  }
-
-  record.count++;
-  rateLimitStore.set(key, record);
-  return { allowed: true, remaining: maxAttempts - record.count };
+  const record = rateLimitStore.get(identifier);
+  const next = !record || now > record.resetAt
+    ? { count: 1, resetAt: now + windowMs }
+    : { count: record.count + 1, resetAt: record.resetAt };
+  rateLimitStore.set(identifier, next);
+  return next;
 }
 
 /**
