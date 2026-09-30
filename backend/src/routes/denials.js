@@ -1,4 +1,4 @@
-import { validMoney, differenceMoney } from "../utils/money.js";
+import { validMoney, differenceMoney, moneyCents, moneyFromCents } from "../utils/money.js";
 import express from "express";
 import { prisma } from "../db.js";
 import { analyzeDenial } from "../services/denialIntelligence.js";
@@ -169,17 +169,20 @@ router.get("/", async (req, res) => {
     });
 
     const categories = {};
-    let revenueAtRisk = 0;
+    let revenueAtRiskCents = 0n;
     let appealEligible = 0;
-    let recoveredAmount = 0;
+    let recoveredAmountCents = 0n;
 
     for (const item of metricsSource) {
-      revenueAtRisk += Number(item.revenueAtRisk || 0);
-      recoveredAmount += Number(item.recoveredAmount || 0);
+      revenueAtRiskCents += moneyCents(item.revenueAtRisk || 0);
+      recoveredAmountCents += moneyCents(item.recoveredAmount || 0);
       if (item.appealEligible === true) appealEligible += 1;
       const category = item.denialCategory || "UNCLASSIFIED";
       categories[category] = (categories[category] || 0) + 1;
     }
+
+    const revenueAtRisk = Number(moneyFromCents(revenueAtRiskCents));
+    const recoveredAmount = Number(moneyFromCents(recoveredAmountCents));
 
     const topCategory =
       Object.entries(categories).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
