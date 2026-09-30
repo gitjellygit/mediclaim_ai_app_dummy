@@ -1,5 +1,6 @@
 import express from "express";
 import multer from "multer";
+import { MAX_UPLOAD_BYTES, uploadFileFilter, verifyUploadSignature } from "../middleware/uploadSafety.js";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -97,9 +98,9 @@ export function documentsRouter(prisma, uploadDir) {
     }
   });
 
-  const upload = multer({ storage });
+  const upload = multer({ storage, limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 }, fileFilter: uploadFileFilter });
 
-  router.post("/smart-upload", upload.single("file"), async (req, res) => {
+  router.post("/smart-upload", upload.single("file"), verifyUploadSignature, async (req, res) => {
     let uploadedFilePath = null;
     
     try {
@@ -482,7 +483,7 @@ export function documentsRouter(prisma, uploadDir) {
   });
 
   // Upload document
-  router.post("/upload", upload.single("file"), async (req, res) => {
+  router.post("/upload", upload.single("file"), verifyUploadSignature, async (req, res) => {
     const { claimId, type } = req.body;
     
     if (!req.file) {
