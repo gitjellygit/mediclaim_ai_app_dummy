@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
+import { deleteStoredDocument } from "../services/documentDeletion.js";
 import express from "express";
 import { requireRoles } from "../middleware/auth.js";
 import multer from "multer";
@@ -2174,95 +2175,9 @@ router.post("/documents/:id/apply-suggestion", async (req, res) => {
   }
 });
 
-router.delete("/documents/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
-  try {
-    const doc = await prisma.document.findUnique({
-      where: { id: req.params.id },
-      include: { claim: true }
-    });
-
-    if (!doc) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-
-    if (doc.claim?.status === "SUBMITTED") {
-      return res.status(409).json({
-        error: "Submitted claims are locked. Documents cannot be deleted."
-      });
-    }
-
-    const remainingDocuments = await prisma.document.findMany({
-      where: {
-        claimId: doc.claimId,
-        id: { not: doc.id }
-      },
-      orderBy: { createdAt: "desc" }
-    });
-
-    const derivedPatch = recomputeDerivedClaimPatch(
-      remainingDocuments,
-      doc.claim?.documentDerivedFields || []
-    );
-
-    const recomputedFields = Object.keys(derivedPatch);
-    const fieldProvenance = removeProvenanceFields(
-      doc.claim?.fieldProvenance,
-      recomputedFields
-    );
-
-    await prisma.$transaction([
-      prisma.document.delete({ where: { id: req.params.id } }),
-      prisma.check.updateMany({
-        where: { claimId: doc.claimId, isStale: false },
-        data: {
-          isStale: true,
-          staleAt: new Date(),
-          staleReason: "Supporting document deleted"
-        }
-      }),
-      prisma.claim.update({
-        where: { id: doc.claimId },
-        data: {
-          ...derivedPatch,
-          fieldProvenance,
-          status: "DRAFT"
-        }
-      })
-    ]);
-
-    // Remove the physical file after the database transaction succeeds.
-    if (doc.path && fs.existsSync(doc.path)) {
-      try {
-        fs.unlinkSync(doc.path);
-      } catch (fileError) {
-        console.error("[claim-document] file cleanup failed", {
-          claimId: doc.claimId,
-          documentId: doc.id,
-          message: fileError.message
-        });
-      }
-    }
-
-    res.json({
-      success: true,
-      remainingDocuments: remainingDocuments.length,
-      recomputedFields: Object.keys(derivedPatch)
-    });
-  } catch (e) {
-    console.error("[claim-document] delete failed", {
-      documentId: req.params.id,
-      name: e?.name || "Error",
-      code: e?.code || null,
-      message: e?.message || "Unknown error"
-    });
-
-    res.status(500).json({
-      error: "Document deletion failed",
-      message:
-        "The document could not be deleted safely. No claim data was changed. Please retry after refreshing the claim."
-    });
-  }
-});
+router.delete("/documents/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =>
+  deleteStoredDocument(prisma, req, res, { legacy: true })
+);
 
 router.post("/:id/check", async (req, res) => {
   try {

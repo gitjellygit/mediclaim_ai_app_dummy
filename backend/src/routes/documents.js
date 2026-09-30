@@ -19,6 +19,7 @@ import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { resolveStoredDocument } from "../services/storedDocumentPath.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
+import { deleteStoredDocument } from "../services/documentDeletion.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -583,83 +584,9 @@ export function documentsRouter(prisma, uploadDir) {
   );
 
   // DELETE doc
-  router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
-    try {
-      const doc = await prisma.document.findUnique({
-        where: { id: req.params.id },
-        include: { claim: true }
-      });
-      if (!doc) return res.status(404).json({ error: "Doc not found" });
-
-      if (doc.claim?.status === "SUBMITTED") {
-        return res.status(409).json({
-          error: "Submitted claims are locked. Documents cannot be deleted."
-        });
-      }
-
-      const remainingDocuments = await prisma.document.findMany({
-        where: {
-          claimId: doc.claimId,
-          id: { not: doc.id }
-        },
-        orderBy: { createdAt: "desc" }
-      });
-
-      const derivedPatch = recomputeDerivedClaimPatch(
-        remainingDocuments,
-        doc.claim?.documentDerivedFields || []
-      );
-
-      const recomputedFields = Object.keys(derivedPatch);
-      const fieldProvenance = removeProvenanceFields(
-        doc.claim?.fieldProvenance,
-        recomputedFields
-      );
-
-      await prisma.$transaction([
-        prisma.document.delete({ where: { id: doc.id } }),
-        prisma.check.updateMany({
-          where: { claimId: doc.claimId, isStale: false },
-          data: {
-            isStale: true,
-            staleAt: new Date(),
-            staleReason: "Supporting document deleted"
-          }
-        }),
-        prisma.claim.update({
-          where: { id: doc.claimId },
-          data: {
-            ...derivedPatch,
-            fieldProvenance,
-            status: "DRAFT"
-          }
-        })
-      ]);
-
-      const filePath = resolveStoredFile(doc.path);
-      if (filePath && fs.existsSync(filePath)) {
-        try {
-          fs.unlinkSync(filePath);
-        } catch (fileError) {
-          console.error("[documents] file cleanup failed", {
-            claimId: doc.claimId,
-            documentId: doc.id,
-            message: fileError.message
-          });
-        }
-      }
-
-      res.json({
-        ok: true,
-        remainingDocuments: remainingDocuments.length,
-        recomputedFields: Object.keys(derivedPatch)
-      });
-    } catch (err) {
-      return res.status(500).json({
-        error: "Failed to delete document"
-      });
-    }
-  });
+  router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =>
+    deleteStoredDocument(prisma, req, res, { uploadDir })
+  );
 
   // Process document with AI
   router.post("/:id/process", async (req, res) => {
