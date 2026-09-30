@@ -133,7 +133,9 @@ async function textractPdfViaS3(filePath, fileName) {
 
     const jobId = start.JobId;
 
-    for (let i = 0; i < 30; i += 1) {
+    // Synchronous OCR is bounded; long-running OCR needs a durable worker.
+    const attempts = Math.max(1, Math.min(30, Math.ceil((Number(process.env.OCR_SYNC_WAIT_MS) || 10000) / 2000)));
+    for (let i = 0; i < attempts; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       const result = await textract.send(
@@ -435,12 +437,13 @@ export function classifyDocument({ fileName, text }) {
   return { suggestedType: "OTHER", confidence: 55 };
 }
 
-export async function analyzeDocument({ fileName, mimeType, path: filePath }) {
+export async function analyzeDocument({ fileName, mimeType, path: filePath }, { ocrExtractor = extractTextWithTextract, pdfExtractor = extractPdfText } = {}) {
   let rawText = "";
   let ocrProvider = "none";
+  let providerFailed = false;
 
   try {
-    rawText = await extractTextWithTextract({
+    rawText = await ocrExtractor({
       filePath,
       fileName,
       mimeType
@@ -450,17 +453,22 @@ export async function analyzeDocument({ fileName, mimeType, path: filePath }) {
       ocrProvider = "AWS_TEXTRACT";
     }
   } catch (error) {
-    // Provider failures must be observable without logging extracted PHI.\n    console.error("[doc-intel] OCR provider failed", { provider: "TEXTRACT", name: error?.name || "Error" });
+    // Never include OCR content or exception text in logs (possible PHI).
+    providerFailed = true;
+    console.error("[doc-intel] OCR provider failed", { provider: "TEXTRACT", name: error?.name || "Error" });
   }
 
-  if (!rawText || rawText.length < 40) {
-    const pdfText = await extractPdfText(filePath);
+  const isPdf = norm(mimeType).includes("pdf") || path.extname(fileName || "").toLowerCase() === ".pdf";
+  if (isPdf && (!rawText || rawText.length < 40)) {
+    const pdfText = await pdfExtractor(filePath);
     if (pdfText?.trim()) {
       rawText = pdfText;
       ocrProvider = "PDF_PARSE";
     }
   }
 
+  const ocrStatus = providerFailed && !rawText?.trim() ? "FAILED" : rawText?.trim() ? "PROCESSED" : "NO_TEXT";
+  if (ocrStatus === "FAILED") ocrProvider = "AWS_TEXTRACT_FAILED";
   const extracted = extractFields(rawText || "");
   const classification = classifyDocument({ fileName, text: rawText || "" });
 
@@ -473,6 +481,7 @@ export async function analyzeDocument({ fileName, mimeType, path: filePath }) {
     rawExtractedText: rawText || "",
     extractionConfidence,
     extractionSource: ocrProvider,
-    ocrProvider
+    ocrProvider,
+    ocrStatus
   };
 }
