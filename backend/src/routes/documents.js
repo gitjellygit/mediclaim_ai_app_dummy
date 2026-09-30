@@ -89,16 +89,6 @@ export function documentsRouter(prisma, uploadDir) {
     return filePath;
   }
 
-  // Public test route (no auth required)
-  router.get("/public-test", (req, res) => {
-    res.json({ message: "Documents router is working without auth!" });
-  });
-
-  // Test route (with auth)
-  router.get("/test", (req, res) => {
-    res.json({ message: "Documents router is working!" });
-  });
-
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadDir),
     filename: (_req, file, cb) => {
@@ -598,7 +588,6 @@ export function documentsRouter(prisma, uploadDir) {
     } catch (err) {
       return res.status(500).json({
         error: "Failed to download document",
-        details: err.message
       });
     }
   });
@@ -626,7 +615,6 @@ export function documentsRouter(prisma, uploadDir) {
     } catch (err) {
       return res.status(500).json({
         error: "Failed to preview document",
-        details: err.message
       });
     }
   });
@@ -710,19 +698,6 @@ export function documentsRouter(prisma, uploadDir) {
     }
   });
 
-  // List all documents for user
-  router.get("/list", async (req, res) => {
-    try {
-      const docs = await prisma.document.findMany({
-        where: { claimId: { not: null } }, // Get documents for any claim, not just specific one
-        orderBy: { createdAt: "desc" }
-      });
-      res.json(docs);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
   // Process document with AI
   router.post("/:id/process", async (req, res) => {
     try {
@@ -742,12 +717,11 @@ export function documentsRouter(prisma, uploadDir) {
       }
 
       // Build correct file path - doc.path should be just filename
-      const filePath = path.join(__dirname, "../uploads", doc.path);
+      const filePath = resolveStoredFile(doc.path);
       
       if (!fs.existsSync(filePath)) {
         return res.status(404).json({
           error: "File not found on server",
-          path: filePath
         });
       }
 
@@ -776,7 +750,7 @@ export function documentsRouter(prisma, uploadDir) {
           data: {
             isStale: true,
             staleAt: new Date(),
-            staleReason: "Supporting document deleted"
+            staleReason: "Supporting document reprocessed"
           }
         }),
         prisma.claim.update({
