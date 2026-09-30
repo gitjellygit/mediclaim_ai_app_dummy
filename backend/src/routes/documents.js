@@ -1,7 +1,7 @@
 import express from "express";
 import { requireRoles } from "../middleware/auth.js";
-import multer from "multer";
-import { MAX_UPLOAD_BYTES, uploadFileFilter, verifyUploadSignature } from "../middleware/uploadSafety.js";
+import { verifyUploadSignature } from "../middleware/uploadSafety.js";
+import { createDocumentUpload } from "../services/documentUpload.js";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -84,15 +84,7 @@ export function documentsRouter(prisma, uploadDir) {
 
   const resolveStoredFile = (storedPath) => resolveStoredDocument(storedPath, uploadDir);
 
-  const storage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadDir),
-    filename: (_req, file, cb) => {
-      const safe = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-      cb(null, `${Date.now()}_${safe}`);
-    }
-  });
-
-  const upload = multer({ storage, limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 }, fileFilter: uploadFileFilter });
+  const upload = createDocumentUpload(uploadDir);
 
   router.post("/smart-upload", upload.single("file"), verifyUploadSignature, async (req, res) => {
     let uploadedFilePath = null;
