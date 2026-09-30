@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { parseClaimDate } from "../utils/claimDate.js";
 import express from "express";
+import { requireRoles } from "../middleware/auth.js";
 import multer from "multer";
 import { MAX_UPLOAD_BYTES, uploadFileFilter, verifyUploadSignature } from "../middleware/uploadSafety.js";
 import fs from "fs";
@@ -2265,7 +2266,7 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
   try {
     const id = req.params.id;
 
@@ -2590,7 +2591,7 @@ router.post("/documents/:id/apply-suggestion", async (req, res) => {
   }
 });
 
-router.delete("/documents/:id", async (req, res) => {
+router.delete("/documents/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
   try {
     const doc = await prisma.document.findUnique({
       where: { id: req.params.id },
@@ -2866,7 +2867,7 @@ router.post("/:id/check", async (req, res) => {
   }
 });
 
-router.post("/documents/bulk-delete", async (req, res) => {
+router.post("/documents/bulk-delete", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
   try {
     const { ids } = req.body;
 
@@ -2966,7 +2967,7 @@ router.post("/documents/bulk-delete", async (req, res) => {
   }
 });
 
-router.post("/:id/submit", async (req, res) => {
+router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
   try {
     const claim = await prisma.claim.findUnique({
       where: { id: req.params.id },
