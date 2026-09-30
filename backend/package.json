@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
     "test": "node --test --test-reporter=spec tests/*.test.js"
   },
   "dependencies": {
