@@ -1,3 +1,4 @@
+import { moneyCents } from "../src/utils/money.js";
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -2347,10 +2348,10 @@ test("100 - payer financial cross-product never transfers short payment to the p
         assert.ok(approval.allowedAmount >= approval.approvedAmount);
         assert.ok(era.paidAmount <= era.approvedAmount);
         assert.equal(era.patientResponsibility, approval.patientResponsibility);
-        assert.equal(era.potentialUnderpayment, approval.approvedAmount - era.paidAmount);
+        assert.equal(moneyCents(era.potentialUnderpayment), moneyCents(approval.approvedAmount) - moneyCents(era.paidAmount));
         assert.equal(
-          era.allowedAmount,
-          era.paidAmount + era.patientResponsibility + era.potentialUnderpayment
+          moneyCents(era.allowedAmount),
+          moneyCents(era.paidAmount) + moneyCents(era.patientResponsibility) + moneyCents(era.potentialUnderpayment)
         );
         combinations += 1;
       }
