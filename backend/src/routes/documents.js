@@ -724,9 +724,14 @@ export function documentsRouter(prisma, uploadDir) {
         return res.status(404).json({ error: "Document not found" });
       }
 
-      if (doc.claim?.status === "SUBMITTED") {
+      // A terminal claim must never be reset to DRAFT by document reprocessing.
+      // Changes after transmission require a controlled amendment workflow.
+      if (
+        doc.claim?.claimSubmissionDate ||
+        ["SUBMITTED", "DENIED", "PAID"].includes(doc.claim?.status)
+      ) {
         return res.status(409).json({
-          error: "Submitted claims are locked. Documents cannot be reprocessed."
+          error: "Transmitted claims are locked. Amend the claim before reprocessing documents."
         });
       }
 

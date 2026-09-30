@@ -2418,6 +2418,32 @@ test("103 - receptionist cannot submit or delete claims or supporting documents"
   assert.ok(await prisma.document.findUnique({ where: { id: doc.id } }));
 });
 
+
+test("103 - document reprocessing cannot mutate transmitted or terminal claims", { concurrency: false }, async () => {
+  for (const status of ["SUBMITTED", "DENIED", "PAID"]) {
+    const claim = await createClaim({ status });
+    const { doc } = await createDocument(claim.id);
+    const before = await prisma.claim.findUnique({ where: { id: claim.id } });
+    const response = await authFetch(`/api/documents/${doc.id}/process`, {
+      method: "POST"
+    });
+    assert.equal(response.status, 409, `${status} must reject reprocessing`);
+    const after = await prisma.claim.findUnique({ where: { id: claim.id } });
+    assert.equal(after.status, before.status);
+  }
+
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: { claimSubmissionDate: new Date(), status: "DRAFT" }
+  });
+  const { doc } = await createDocument(claim.id);
+  const response = await authFetch(`/api/documents/${doc.id}/process`, {
+    method: "POST"
+  });
+  assert.equal(response.status, 409, "submission timestamp must also lock reprocessing");
+});
+
 test("stabilization - legacy document path resolver cannot escape upload root", { concurrency: false }, () => {
   const root = path.resolve(backendRoot, "uploads");
   assert.equal(resolveStoredDocument("uploads/record.pdf", root), path.join(root, "record.pdf"));
