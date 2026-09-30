@@ -9,7 +9,6 @@ import fs from "fs";
 import { prisma } from "../db.js";
 import { analyzeDocument } from "../services/docIntel.js";
 import {
-  getDerivedFieldsFromDocument,
   mergeDerivedFields,
   removeManuallyEditedFields,
   recomputeDerivedClaimPatch
