@@ -260,6 +260,31 @@ test("03 - authenticated preview is private/no-store and returns exact bytes", {
   assert.equal(await response.text(), expected);
 });
 
+test("03b - legacy and current document URLs serve identical protected content", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  const expected = "shared-serving-regression";
+  const { doc } = await createDocument(claim.id, {
+    fileName: "safe-report.txt",
+    contents: expected
+  });
+
+  for (const url of [
+    `/api/documents/${doc.id}`,
+    `/api/claims/${doc.id}`
+  ]) {
+    for (const action of ["preview", "download"]) {
+      const unauthenticated = await fetch(`${baseUrl}${url}/${action}`);
+      assert.equal(unauthenticated.status, 401);
+
+      const response = await authFetch(`${url}/${action}`);
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), expected);
+      assert.match(response.headers.get("cache-control") || "", /private.*no-store/i);
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    }
+  }
+});
+
 test("04 - missing document download returns 404 without filesystem path disclosure", { concurrency: false }, async () => {
   const response = await authFetch("/api/documents/not-a-real-document/download");
   assert.equal(response.status, 404);
@@ -554,9 +579,9 @@ test("17 - Claim Detail download and preview include bearer authentication", { c
   assert.ok(matches.length >= 2);
 });
 
-test("18 - document route never marks PHI preview cache as public", { concurrency: false }, () => {
+test("18 - shared document responder never marks PHI preview cache as public", { concurrency: false }, () => {
   const source = fs.readFileSync(
-    path.join(backendRoot, "src/routes/documents.js"),
+    path.join(backendRoot, "src/services/documentResponse.js"),
     "utf8"
   );
 
@@ -2504,7 +2529,9 @@ test("stabilization - legacy claim document endpoints prevent directory escape a
   const response = await authFetch(`/api/claims/${document.id}/preview`);
   assert.equal(response.status, 404);
   assert.ok(!String(await response.text()).includes("outside-never-show"));
-  const source = fs.readFileSync(path.join(backendRoot, "src/routes/claims.js"), "utf8");
-  assert.match(source, /resolveStoredDocument\(doc.path\)/);
-  assert.match(source, /"private, no-store"/);
+  const claimsSource = fs.readFileSync(path.join(backendRoot, "src/routes/claims.js"), "utf8");
+  const sharedSource = fs.readFileSync(path.join(backendRoot, "src/services/documentResponse.js"), "utf8");
+  assert.match(claimsSource, /serveStoredDocument\(prisma, req, res/);
+  assert.match(sharedSource, /resolveStoredDocument\(doc.path, uploadDir\)/);
+  assert.match(sharedSource, /"private, no-store"/);
 });

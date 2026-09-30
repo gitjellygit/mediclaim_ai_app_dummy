@@ -18,6 +18,7 @@ import {
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { resolveStoredDocument } from "../services/storedDocumentPath.js";
+import { serveStoredDocument } from "../services/documentResponse.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -573,55 +574,13 @@ export function documentsRouter(prisma, uploadDir) {
     res.json(docs);
   });
 
-  // Download doc
-  router.get("/:id/download", async (req, res) => {
-    try {
-      const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
-      if (!doc) return res.status(404).json({ error: "Doc not found" });
-
-      const filePath = resolveStoredFile(doc.path);
-
-      if (!filePath || !fs.existsSync(filePath)) {
-        return res.status(404).json({
-          error: "File not found"
-        });
-      }
-
-      res.setHeader("Cache-Control", "private, no-store");
-      return res.download(filePath, doc.fileName);
-    } catch (err) {
-      return res.status(500).json({
-        error: "Failed to download document",
-      });
-    }
-  });
-
-  // Preview doc
-  router.get("/:id/preview", async (req, res) => {
-    try {
-      const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
-      if (!doc) return res.status(404).json({ error: "Doc not found" });
-
-      const filePath = resolveStoredFile(doc.path);
-
-      if (!filePath || !fs.existsSync(filePath)) {
-        return res.status(404).json({
-          error: "File not found"
-        });
-      }
-
-      res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
-      res.setHeader("Content-Disposition", `inline; filename="${doc.fileName}"`);
-      // PHI must not be cached by shared/public browser or proxy caches.
-      res.setHeader("Cache-Control", "private, no-store");
-
-      return res.sendFile(filePath);
-    } catch (err) {
-      return res.status(500).json({
-        error: "Failed to preview document",
-      });
-    }
-  });
+  // Current document URLs and legacy claim URLs share safe file serving.
+  router.get("/:id/download", (req, res) =>
+    serveStoredDocument(prisma, req, res, { download: true, uploadDir })
+  );
+  router.get("/:id/preview", (req, res) =>
+    serveStoredDocument(prisma, req, res, { uploadDir })
+  );
 
   // DELETE doc
   router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {

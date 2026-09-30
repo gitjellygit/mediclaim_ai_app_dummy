@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { parseClaimDate } from "../utils/claimDate.js";
-import { resolveStoredDocument, safeDownloadName } from "../services/storedDocumentPath.js";
+import { serveStoredDocument } from "../services/documentResponse.js";
 import express from "express";
 import { requireRoles } from "../middleware/auth.js";
 import multer from "multer";
@@ -2476,26 +2476,9 @@ router.post("/documents", upload.single("file"), verifyUploadSignature, async (r
   }
 });
 
-// Legacy document URLs remain supported but now share the same safe
-// basename-only storage convention as /api/documents.
-async function serveDocument(req, res, download = false) {
-  const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
-  if (!doc) return res.status(404).json({ error: "Document not found" });
-  const filePath = resolveStoredDocument(doc.path);
-  if (!filePath || !fs.existsSync(filePath)) {
-    return res.status(404).json({ error: "Document file not found" });
-  }
-  const name = safeDownloadName(doc.fileName);
-  res.setHeader("Cache-Control", "private, no-store");
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  if (download) return res.download(filePath, name);
-  res.type(doc.mimeType);
-  res.setHeader("Content-Disposition", `inline; filename="${name}"`);
-  return fs.createReadStream(filePath).pipe(res);
-}
-
-router.get("/:id/preview", async (req, res) => serveDocument(req, res));
-router.get("/:id/download", async (req, res) => serveDocument(req, res, true));
+// Legacy URLs delegate to the same implementation as /api/documents.
+router.get("/:id/preview", (req, res) => serveStoredDocument(prisma, req, res));
+router.get("/:id/download", (req, res) => serveStoredDocument(prisma, req, res, { download: true }));
 
 router.post("/documents/:id/apply-suggestion", async (req, res) => {
   try {
