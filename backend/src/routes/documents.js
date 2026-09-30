@@ -17,6 +17,7 @@ import {
 } from "../services/claimFieldProvenance.js";
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { parseClaimDate } from "../utils/claimDate.js";
+import { resolveStoredDocument } from "../services/storedDocumentPath.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -79,18 +80,7 @@ export function documentsRouter(prisma, uploadDir) {
 
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-  const uploadsRoot = path.resolve(uploadDir);
-
-  function resolveStoredFile(storedPath) {
-    if (!storedPath) return null;
-    const filePath = path.resolve(uploadsRoot, path.basename(storedPath));
-
-    if (!filePath.startsWith(uploadsRoot + path.sep)) {
-      return null;
-    }
-
-    return filePath;
-  }
+  const resolveStoredFile = (storedPath) => resolveStoredDocument(storedPath, uploadDir);
 
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadDir),
