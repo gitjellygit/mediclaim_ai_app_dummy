@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseClaimDate } from "../utils/claimDate.js";
 import express from "express";
 import multer from "multer";
 import { MAX_UPLOAD_BYTES, uploadFileFilter, verifyUploadSignature } from "../middleware/uploadSafety.js";
@@ -2088,8 +2089,8 @@ router.post("/", async (req, res) => {
     };
     for (const field of ["patientDob", "dateOfService", "admissionDate", "dischargeDate", "procedureDate"]) {
       if (!createPayload[field]) continue;
-      const parsedDate = new Date(createPayload[field]);
-      if (Number.isNaN(parsedDate.getTime())) {
+      const parsedDate = parseClaimDate(createPayload[field]);
+      if (!parsedDate) {
         return res.status(400).json({
           error: "Invalid date",
           message: `Invalid value for ${field}`,
