@@ -93,50 +93,66 @@ async function refreshTokenIfNeeded() {
   return refreshPromise;
 }
 
+function authEndpoint(url) {
+  const pathname = new URL(url, API_BASE_URL).pathname;
+  return ["/api/auth/login", "/api/auth/refresh", "/api/auth/logout"].includes(pathname);
+}
+
+function asApiError(response, data) {
+  const message = data?.message || data?.error || `Request failed: ${response.status}`;
+  const error = new Error(message);
+  error.status = response.status;
+  error.statusText = response.statusText;
+  error.code = data?.code || null;
+  error.data = data;
+  return error;
+}
+
 export async function api(url, options = {}) {
-  const token = getToken();
-  const headers = new Headers(options.headers || {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  
-  // Set Content-Type for JSON requests
-  if (options.body && typeof options.body === 'string') {
-    headers.set("Content-Type", "application/json");
-  }
-
   const fullUrl = url.startsWith("http") ? url : `${API_BASE_URL}${url}`;
-  const res = await fetch(fullUrl, { ...options, headers });
-
-  if (res.status === 401) {
-    // 🔥 auto logout on token failure
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("user");
-    window.location.href = "/login";
-    return;
+  const isAuth = authEndpoint(fullUrl);
+  // Proactive refresh is only for protected requests. In particular, an
+  // invalid password must NEVER cause an automatic logout or login redirect.
+  if (!isAuth && getRefreshToken()) {
+    await refreshTokenIfNeeded().catch(() => null);
   }
 
-  if (!res.ok) {
-    const text = await res.text();
-    let errorMessage = text || `Request failed: ${res.status}`;
-    let errorJson = null;
-    
-    // Preserve structured backend errors so UI workflows can distinguish
-    // validation/lifecycle conditions without parsing human-readable text.
-    try {
-      errorJson = JSON.parse(text);
-      errorMessage = errorJson.message || errorJson.error || errorMessage;
-    } catch {
-      // Not JSON, use text as-is.
+  async function send(token) {
+    const headers = new Headers(options.headers || {});
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    if (options.body && typeof options.body === "string") {
+      headers.set("Content-Type", "application/json");
     }
-    
-    const error = new Error(errorMessage);
-    error.status = res.status;
-    error.statusText = res.statusText;
-    error.code = errorJson?.code || null;
-    error.data = errorJson;
-    throw error;
+    return fetch(fullUrl, { ...options, headers });
   }
 
-  if (res.status === 204) return null;
-  return res.json();
+  let response = await send(getToken());
+  if (response.status === 401 && !isAuth && getRefreshToken()) {
+    // Refresh at most once, then retry the original request once. For mutating
+    // requests the retry happens only after the first response was explicitly
+    // rejected as unauthorized (no mutation was accepted).
+    try {
+      const nextToken = await refreshTokenIfNeeded();
+      if (nextToken) response = await send(nextToken);
+    } catch {
+      // Fall through to the normal structured 401 handling.
+    }
+  }
+
+  if (!response.ok) {
+    let data;
+    try { data = await response.json(); }
+    catch { data = null; }
+    if (response.status === 401 && !isAuth) {
+      clearTokens();
+      // Preserve normal error semantics so protected-route UI can redirect.
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
+    throw asApiError(response, data);
+  }
+
+  if (response.status === 204) return null;
+  return response.json();
 }
