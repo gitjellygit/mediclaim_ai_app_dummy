@@ -579,9 +579,9 @@ test("17 - Claim Detail download and preview include bearer authentication", { c
   assert.ok(matches.length >= 2);
 });
 
-test("18 - document route never marks PHI preview cache as public", { concurrency: false }, () => {
+test("18 - shared document responder never marks PHI preview cache as public", { concurrency: false }, () => {
   const source = fs.readFileSync(
-    path.join(backendRoot, "src/routes/documents.js"),
+    path.join(backendRoot, "src/services/documentResponse.js"),
     "utf8"
   );
 
