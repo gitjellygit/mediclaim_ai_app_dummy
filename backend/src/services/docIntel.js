@@ -43,8 +43,16 @@ function clean(value) {
 }
 
 function hasAny(text, keywords) {
+  // Whole tokens/phrases only: "ct" must not match "doctor", and "pan"
+  // must not match "panel". Filename underscores and hyphens act as spaces.
+  const t = norm(text).replace(/[_-]/g, " ");
+  return keywords.some((keyword) => {
+    const escaped = keyword.replace(/[.*+?^\u0024{}()|[\]\\]/g, "\\function hasAny(text, keywords) {
   const t = norm(text);
   return keywords.some((keyword) => t.includes(keyword));
+}");
+    return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(t);
+  });
 }
 
 export function getFileHash(filePath) {
@@ -346,7 +354,7 @@ function extractFields(text) {
   };
 }
 
-function classifyDocument({ fileName, text }) {
+export function classifyDocument({ fileName, text }) {
   const name = norm(fileName);
 
   if (hasAny(name, ["discharge"]) || hasAny(text, ["discharge summary"])) {
@@ -354,17 +362,17 @@ function classifyDocument({ fileName, text }) {
   }
 
   if (
+    hasAny(name, ["breakup", "itemized", "itemised"]) ||
+    hasAny(text, ["itemized bill", "itemised bill", "bill breakup"])
+  ) {
+    return { suggestedType: "BREAKUP_BILL", confidence: 78 };
+  }
+
+  if (
     hasAny(name, ["final bill", "invoice", "bill"]) ||
     hasAny(text, ["final bill", "grand total", "net amount", "total amount"])
   ) {
     return { suggestedType: "FINAL_BILL", confidence: 84 };
-  }
-
-  if (
-    hasAny(name, ["breakup", "itemized", "itemised"]) ||
-    hasAny(text, ["particulars", "itemized", "itemised"])
-  ) {
-    return { suggestedType: "BREAKUP_BILL", confidence: 78 };
   }
 
   if (
@@ -445,7 +453,7 @@ export async function analyzeDocument({ fileName, mimeType, path: filePath }) {
       ocrProvider = "AWS_TEXTRACT";
     }
   } catch (error) {
-    // Textract failed, will fallback to pdf-parse
+    // Provider failures must be observable without logging extracted PHI.\n    console.error("[doc-intel] OCR provider failed", { provider: "TEXTRACT", name: error?.name || "Error" });
   }
 
   if (!rawText || rawText.length < 40) {
