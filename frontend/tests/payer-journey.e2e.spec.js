@@ -44,7 +44,7 @@ test.beforeAll(async () => {
   if (!seed.ok()) throw new Error(`Payer seed failed: ${await seed.text()}`);
   const body = await seed.json();
   scenarios = body.scenarios;
-  expect(scenarios).toHaveLength(5);
+  expect(scenarios).toHaveLength(6);
 });
 
 test.afterAll(async () => {
@@ -230,4 +230,41 @@ test("payer Journey compact activity and duplicate-action protections", async ({
     await connectionCard.getByRole("button", { name: "Show Recent" }).click();
     expect(await visibleRows.count()).toBeLessThanOrEqual(5);
   }
+});
+
+
+test("payer switch invalidates old coverage and authorization without reusing old transactions", async ({ page }) => {
+  const scenario = scenarios.find((item) => item.key === "SWITCH");
+  expect(scenario).toBeTruthy();
+  await page.goto(`/journey?claimId=${scenario.id}`);
+  await expect(page.getByText(scenario.patientName, { exact: true })).toBeVisible();
+  await selectPayer(page, payerNames.BLUE_HORIZON);
+  const eligibility = page.getByTestId("journey-stage-eligibility");
+  const priorAuth = page.getByTestId("journey-stage-prior-auth");
+  await clickStageButton(eligibility, "Check Eligibility");
+  await expect(eligibility).toContainText("Verified");
+  await clickStageButton(priorAuth, "Check Prior Auth");
+  await expect(priorAuth).toContainText("Not Required");
+
+  await selectPayer(page, payerNames.CAREFIRST_DEMO);
+  await expect(eligibility).not.toContainText("Verified");
+
+  const changedJourney = await apiContext.get(
+    `/api/claims/${scenario.id}/journey`,
+    { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+  );
+  expect(changedJourney.ok()).toBeTruthy();
+  const state = (await changedJourney.json()).claim;
+  expect(state.eligibilityStatus).toBe("NOT_CHECKED");
+  expect(state.priorAuthStatus).toBe("NOT_CHECKED");
+  expect(state.authorizationNo).toBeNull();
+
+  await clickStageButton(eligibility, "Check Eligibility");
+  await expect(eligibility).toContainText("Failed");
+  await expect(priorAuth.getByRole("button", { name: "Check Prior Auth" })).toBeDisabled();
+  const blockedAuth = await apiContext.post(
+    `/api/claims/${scenario.id}/payer-simulation/prior-auth`,
+    { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+  );
+  expect(blockedAuth.status()).toBe(409);
 });
