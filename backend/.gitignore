@@ -4,6 +4,7 @@ node_modules/
 # Environment variables and secrets
 .env
 .env.*
+!.env.example
 
 # Uploads and temporary files
 uploads/
