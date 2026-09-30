@@ -1,3 +1,4 @@
+import { validMoney, differenceMoney, moneyCents, moneyFromCents } from "../utils/money.js";
 import express from "express";
 import { prisma } from "../db.js";
 import { analyzeDenial } from "../services/denialIntelligence.js";
@@ -72,13 +73,13 @@ function parseOptionalDate(value, fieldName) {
 
 function parseOptionalMoney(value, fieldName) {
   if (value == null || value === "") return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    const error = new Error(`${fieldName} must be a non-negative number`);
+  const parsed = validMoney(value);
+  if (parsed == null) {
+    const error = new Error(`${fieldName} must be non-negative with at most two decimal places`);
     error.status = 400;
     throw error;
   }
-  return Math.round(parsed);
+  return parsed;
 }
 
 function revenueAtRiskForClaim(claim) {
@@ -87,8 +88,8 @@ function revenueAtRiskForClaim(claim) {
   const allowed = Number(claim.allowedAmount || 0);
 
   if (claimed <= 0) return 0;
-  if (paid > 0) return Math.max(0, claimed - paid);
-  if (allowed > 0) return Math.max(0, claimed - allowed);
+  if (paid > 0) return Math.max(0, differenceMoney(claim.amount, claim.paidAmount));
+  if (allowed > 0) return Math.max(0, differenceMoney(claim.amount, claim.allowedAmount));
   return claimed;
 }
 
@@ -168,17 +169,20 @@ router.get("/", async (req, res) => {
     });
 
     const categories = {};
-    let revenueAtRisk = 0;
+    let revenueAtRiskCents = 0n;
     let appealEligible = 0;
-    let recoveredAmount = 0;
+    let recoveredAmountCents = 0n;
 
     for (const item of metricsSource) {
-      revenueAtRisk += Number(item.revenueAtRisk || 0);
-      recoveredAmount += Number(item.recoveredAmount || 0);
+      revenueAtRiskCents += moneyCents(item.revenueAtRisk || 0);
+      recoveredAmountCents += moneyCents(item.recoveredAmount || 0);
       if (item.appealEligible === true) appealEligible += 1;
       const category = item.denialCategory || "UNCLASSIFIED";
       categories[category] = (categories[category] || 0) + 1;
     }
+
+    const revenueAtRisk = Number(moneyFromCents(revenueAtRiskCents));
+    const recoveredAmount = Number(moneyFromCents(recoveredAmountCents));
 
     const topCategory =
       Object.entries(categories).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
