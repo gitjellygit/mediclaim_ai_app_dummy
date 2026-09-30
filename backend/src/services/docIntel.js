@@ -1,4 +1,5 @@
 import fs from "fs";
+import { validMoney } from "../utils/money.js";
 import crypto from "crypto";
 import path from "path";
 import {
@@ -221,7 +222,8 @@ function parseAmount(value) {
       .replace(/[^0-9.]/g, "")
   );
 
-  return Number.isFinite(number) && number > 0 ? Math.round(number) : null;
+  const precise = Number.isFinite(number) ? validMoney(number) : null;
+  return precise != null && Number(precise) > 0 ? Number(precise) : null;
 }
 
 function extractCodes(text, pattern) {
