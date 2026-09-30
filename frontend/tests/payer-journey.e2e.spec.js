@@ -83,6 +83,14 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
 
     await selectPayer(page, payerNames[scenario.payerCode]);
 
+    // Payer status cannot be queried until the payer has accepted/received
+    // transmission. Validate this in the API, not just the disabled button.
+    const preSubmission = await apiContext.post(
+      `/api/claims/${scenario.id}/payer-simulation/status`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+    );
+    expect(preSubmission.status()).toBe(409);
+
     const eligibility = page.getByTestId("journey-stage-eligibility");
     const priorAuth = page.getByTestId("journey-stage-prior-auth");
     const claim = page.getByTestId("journey-stage-claim");
@@ -92,6 +100,13 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     await clickStageButton(eligibility, "Check Eligibility");
     await expect(eligibility).toContainText("Verified");
     await expect(eligibility.getByRole("button", { name: "Eligibility Current" })).toBeDisabled();
+
+    const duplicateEligibility = await apiContext.post(
+      `/api/claims/${scenario.id}/payer-simulation/eligibility`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+    );
+    expect(duplicateEligibility.ok()).toBeTruthy();
+    expect((await duplicateEligibility.json()).unchanged).toBe(true);
 
     await clickStageButton(priorAuth, "Check Prior Auth");
 
@@ -109,9 +124,23 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
       priorAuth.getByRole("button", { name: "Authorization Current" })
     ).toBeDisabled();
 
+    const duplicateAuth = await apiContext.post(
+      `/api/claims/${scenario.id}/payer-simulation/prior-auth`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+    );
+    expect(duplicateAuth.ok()).toBeTruthy();
+    expect((await duplicateAuth.json()).unchanged).toBe(true);
+
     await clickStageButton(claim, "Submit to Payer");
     await expect(claim).toContainText("Submitted");
     await expect(claim.getByRole("button", { name: "Sent to Payer" })).toBeDisabled();
+
+    const duplicateTransmission = await apiContext.post(
+      `/api/claims/${scenario.id}/payer-simulation/submission`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+    );
+    expect(duplicateTransmission.ok()).toBeTruthy();
+    expect((await duplicateTransmission.json()).unchanged).toBe(true);
 
     // Status progression is intentionally polled; identical final/pended states
     // must not create unlimited activity rows.
@@ -142,7 +171,7 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     // Adjudication should pre-fill financial data before remittance arrives.
     const allowed = remittance.getByLabel("Allowed Amount");
     await expect(allowed).not.toHaveValue("");
-    const approved = remittance.getByLabel("Approved Amount");
+    const approved = remittance.getByLabel("Expected Payer Payment");
     await expect(approved).not.toHaveValue("");
 
     await expect(status.getByRole("button", { name: "Final Status" })).toBeDisabled();
@@ -154,6 +183,29 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     await expect(
       remittance.getByRole("button", { name: "Remittance Posted" })
     ).toBeDisabled();
+
+    const duplicateRemittance = await apiContext.post(
+      `/api/claims/${scenario.id}/payer-simulation/remittance`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+    );
+    expect(duplicateRemittance.ok()).toBeTruthy();
+    expect((await duplicateRemittance.json()).unchanged).toBe(true);
+
+    const journeyAfterERA = await apiContext.get(
+      `/api/claims/${scenario.id}/journey`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+    );
+    expect(journeyAfterERA.ok()).toBeTruthy();
+    const finalClaim = (await journeyAfterERA.json()).claim;
+    expect(finalClaim.status).toBe("PAID");
+    expect(finalClaim.remittanceStatus).toBe("POSTED");
+    expect(finalClaim.paidAmount).toBeGreaterThan(0);
+    if (expectedKey === "APEX") {
+      const era = finalClaim.payerTransactions.find((tx) => tx.transactionType === "REMITTANCE");
+      expect(era.responsePayload.potentialUnderpayment).toBeGreaterThan(0);
+      expect(finalClaim.patientResponsibility).toBeLessThan(era.responsePayload.allowedAmount);
+      await expect(remittance).toContainText("Potential payer underpayment");
+    }
 
     console.log(`✓ ${expectedKey} full payer lifecycle passed`);
   });
