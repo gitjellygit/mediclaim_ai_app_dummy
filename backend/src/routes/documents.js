@@ -671,7 +671,7 @@ export function documentsRouter(prisma, uploadDir) {
     });
 
     res.status(400).json({
-      error: e?.message || "Document upload failed"
+      error: "Document upload failed", code: "DOCUMENT_UPLOAD_FAILED"
     });
   }
   }
@@ -947,7 +947,7 @@ export function documentsRouter(prisma, uploadDir) {
     res.json({ success: true, deleted: docs.length });
   } catch (e) {
     console.error("Bulk delete error:", e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: "Bulk deletion failed", code: "DOCUMENT_BULK_DELETE_FAILED" });
   }
 });
 
