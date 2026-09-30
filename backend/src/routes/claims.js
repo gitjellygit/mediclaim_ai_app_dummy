@@ -4,8 +4,8 @@ import { serveStoredDocument } from "../services/documentResponse.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
 import express from "express";
 import { requireRoles } from "../middleware/auth.js";
-import multer from "multer";
-import { MAX_UPLOAD_BYTES, uploadFileFilter, verifyUploadSignature } from "../middleware/uploadSafety.js";
+import { verifyUploadSignature } from "../middleware/uploadSafety.js";
+import { createDocumentUpload } from "../services/documentUpload.js";
 import fs from "fs";
 import { prisma } from "../db.js";
 import { analyzeDocument } from "../services/docIntel.js";
@@ -46,7 +46,7 @@ import {
 } from "../services/payerSimulator.js";
 
 const router = express.Router();
-const upload = multer({ dest: process.env.UPLOAD_DIR || "uploads/", limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 }, fileFilter: uploadFileFilter });
+const upload = createDocumentUpload();
 
 function cleanValue(value) {
   if (!value) return null;
