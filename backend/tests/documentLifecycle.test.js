@@ -330,6 +330,20 @@ test("06 - deleting the only DRAFT document is allowed", { concurrency: false },
   );
 });
 
+test("06b - current and legacy delete endpoints share safe behavior", { concurrency: false }, async () => {
+  for (const prefix of ["/api/claims/documents", "/api/documents"]) {
+    const claim = await createClaim({ documentDerivedFields: ["amount"] });
+    const { doc, physicalPath } = await createDocument(claim.id);
+    const response = await authFetch(`${prefix}/${doc.id}`, { method: "DELETE" });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.success === true || payload.ok === true, true);
+    assert.equal(payload.remainingDocuments, 0);
+    assert.equal(await prisma.document.count({ where: { claimId: claim.id } }), 0);
+    assert.equal(fs.existsSync(physicalPath), false);
+  }
+});
+
 test("07 - deleting the last supporting document clears document-derived financial fields", { concurrency: false }, async () => {
   const claim = await createClaim({
     amount: 1200,
