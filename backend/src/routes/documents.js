@@ -502,6 +502,7 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     if (!claimId) {
+      if (req.file?.path) fs.rmSync(req.file.path, { force: true });
       return res.status(400).json({ error: "claimId is required" });
     }
 
@@ -510,10 +511,11 @@ export function documentsRouter(prisma, uploadDir) {
     });
 
     if (!claim) {
+      if (req.file?.path) fs.rmSync(req.file.path, { force: true });
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    if (claim.status === "SUBMITTED") {
+    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
       if (req.file?.path && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }

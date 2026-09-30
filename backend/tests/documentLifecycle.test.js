@@ -19,6 +19,7 @@ import {
   completenessReadinessIssues
 } from "../src/services/claimCompleteness.js";
 import { analyzeMedicalConsistency } from "../src/services/medicalConsistency.js";
+import { resolveStoredDocument, safeDownloadName } from "../src/services/storedDocumentPath.js";
 import {
   getMockPayer,
   listMockPayers,
@@ -2441,4 +2442,27 @@ test("103 - document reprocessing cannot mutate transmitted or terminal claims",
     method: "POST"
   });
   assert.equal(response.status, 409, "submission timestamp must also lock reprocessing");
+});
+
+test("stabilization - legacy document path resolver cannot escape upload root", { concurrency: false }, () => {
+  const root = path.resolve(backendRoot, "uploads");
+  assert.equal(resolveStoredDocument("uploads/record.pdf", root), path.join(root, "record.pdf"));
+  assert.equal(resolveStoredDocument("record.pdf", root), path.join(root, "record.pdf"));
+  assert.equal(resolveStoredDocument("../../outside.pdf", root), path.join(root, "outside.pdf"));
+  assert.equal(resolveStoredDocument(null, root), null);
+  assert.equal(safeDownloadName('../../note\r\nInjected: yes.pdf').includes("\r"), false);
+});
+
+test("stabilization - legacy claim document endpoints prevent directory escape and private caching", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  const document = await createDocument(claim.id, {
+    type: "FINAL_BILL",
+    path: "../../outside-never-show.pdf"
+  });
+  const response = await authFetch(`/api/claims/${document.id}/preview`);
+  assert.equal(response.status, 404);
+  assert.ok(!String(await response.text()).includes("outside-never-show"));
+  const source = fs.readFileSync(path.join(backendRoot, "src/routes/claims.js"), "utf8");
+  assert.match(source, /resolveStoredDocument\(doc.path\)/);
+  assert.match(source, /"private, no-store"/);
 });
