@@ -2367,3 +2367,27 @@ test("101 - approval estimates do not impersonate a posted remittance", { concur
   assert.match(source, /Potential payer underpayment/);
   assert.match(source, /Demo environment/);
 });
+
+
+test("102 - a previous payer's not-required decision cannot bypass a new payer's authorization rule", { concurrency: false }, () => {
+  const payer = getMockPayer("SUMMITCARE");
+  const claim = {
+    id: "auth-regression",
+    procedureText: "MRI lumbar spine",
+    memberId: "SC-101",
+    policyNo: "POL-101",
+    priorAuthStatus: "NOT_REQUIRED",
+    authorizationNo: null,
+    documents: [{ type: "RADIOLOGY" }],
+    amount: 10000
+  };
+  const attempt = simulateSubmission(payer, claim);
+  assert.equal(attempt.status, "REJECTED");
+  assert.match(attempt.reason, /authorization/i);
+  const approved = simulateSubmission(payer, {
+    ...claim,
+    priorAuthStatus: "APPROVED",
+    authorizationNo: "AUTH-SC-101"
+  });
+  assert.equal(approved.status, "ACCEPTED");
+});
