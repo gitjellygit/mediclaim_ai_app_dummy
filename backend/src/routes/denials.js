@@ -1,9 +1,8 @@
 import express from "express";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../db.js";
 import { analyzeDenial } from "../services/denialIntelligence.js";
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 const MANAGER_ROLES = new Set(["ADMIN", "CASHIER"]);
 const ACTIVE_STATUSES = [
