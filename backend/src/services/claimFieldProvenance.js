@@ -151,6 +151,10 @@ export function changedFields(existing = {}, payload = {}) {
 
     const normalize = (value) => {
       if (value instanceof Date) return value.toISOString();
+      if (value && typeof value === "object" && typeof value.toFixed === "function") {
+        // Decimal(14,2): compare stored and submitted money by canonical value.
+        return value.toFixed(2);
+      }
       if (Array.isArray(value)) return JSON.stringify(value);
       if (value == null) return null;
 
