@@ -15,6 +15,7 @@ import {
   removeProvenanceFields
 } from "../services/claimFieldProvenance.js";
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
+import { parseClaimDate } from "../utils/claimDate.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -203,7 +204,7 @@ export function documentsRouter(prisma, uploadDir) {
 
         if (extracted.dateOfBirth) {
           try {
-            claimData.patientDob = new Date(extracted.dateOfBirth);
+            claimData.patientDob = parseClaimDate(extracted.dateOfBirth) || undefined;
           } catch (e) {
             // Invalid date, skip
           }
@@ -211,7 +212,7 @@ export function documentsRouter(prisma, uploadDir) {
 
         if (extracted.dateOfService) {
           try {
-            claimData.dateOfService = new Date(extracted.dateOfService);
+            claimData.dateOfService = parseClaimDate(extracted.dateOfService) || undefined;
           } catch (e) {
             // Invalid date, skip
           }
@@ -219,7 +220,7 @@ export function documentsRouter(prisma, uploadDir) {
 
         if (extracted.admissionDate) {
           try {
-            claimData.admissionDate = new Date(extracted.admissionDate);
+            claimData.admissionDate = parseClaimDate(extracted.admissionDate) || undefined;
           } catch (e) {
             // Invalid date, skip
           }
@@ -227,7 +228,7 @@ export function documentsRouter(prisma, uploadDir) {
 
         if (extracted.dischargeDate) {
           try {
-            claimData.dischargeDate = new Date(extracted.dischargeDate);
+            claimData.dischargeDate = parseClaimDate(extracted.dischargeDate) || undefined;
           } catch (e) {
             // Invalid date, skip
           }
@@ -282,7 +283,7 @@ export function documentsRouter(prisma, uploadDir) {
 
         if (!claim.patientDob && extracted.dateOfBirth) {
           try {
-            updatePayload.patientDob = new Date(extracted.dateOfBirth);
+            updatePayload.patientDob = parseClaimDate(extracted.dateOfBirth) || undefined;
           } catch (e) {
             // Invalid date, skip
           }
@@ -290,7 +291,7 @@ export function documentsRouter(prisma, uploadDir) {
 
         if (!claim.dateOfService && extracted.dateOfService) {
           try {
-            updatePayload.dateOfService = new Date(extracted.dateOfService);
+            updatePayload.dateOfService = parseClaimDate(extracted.dateOfService) || undefined;
           } catch (e) {
             // Invalid date, skip
           }
@@ -298,7 +299,7 @@ export function documentsRouter(prisma, uploadDir) {
 
         if (!claim.admissionDate && extracted.admissionDate) {
           try {
-            updatePayload.admissionDate = new Date(extracted.admissionDate);
+            updatePayload.admissionDate = parseClaimDate(extracted.admissionDate) || undefined;
           } catch (e) {
             // Invalid date, skip
           }
@@ -306,7 +307,7 @@ export function documentsRouter(prisma, uploadDir) {
 
         if (!claim.dischargeDate && extracted.dischargeDate) {
           try {
-            updatePayload.dischargeDate = new Date(extracted.dischargeDate);
+            updatePayload.dischargeDate = parseClaimDate(extracted.dischargeDate) || undefined;
           } catch (e) {
             // Invalid date, skip
           }
