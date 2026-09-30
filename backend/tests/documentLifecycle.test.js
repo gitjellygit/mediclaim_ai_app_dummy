@@ -237,10 +237,10 @@ test("config - synthetic fixture endpoints are isolated behind E2E_TEST_MODE and
 
   assert.equal(claims.includes('router.post("/e2e/'), false);
   assert.equal(claims.includes('router.delete("/e2e/'), false);
-  assert.match(entry, /process\\.env\\.E2E_TEST_MODE === "true"/);
-  assert.match(entry, /requireRoles\\(\\["ADMIN"\\]\\).*e2eFixturesRouter/);
-  assert.match(fixtures, /e2e\/medical-consistency\/seed/);
-  assert.match(fixtures, /e2e\/payer-journey\/seed/);
+  assert.ok(entry.includes('process.env.E2E_TEST_MODE === "true"'));
+  assert.ok(entry.includes('requireRoles(["ADMIN"]), captureAsyncRouter(e2eFixturesRouter'));
+  assert.ok(fixtures.includes('e2e/medical-consistency/seed'));
+  assert.ok(fixtures.includes('e2e/payer-journey/seed'));
 });
 
 test("01 - document download requires authentication", { concurrency: false }, async () => {
