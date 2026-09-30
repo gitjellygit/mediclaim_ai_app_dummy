@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { prisma, disconnectDatabase } from "./db.js";
+import { captureAsyncRouter } from "./middleware/asyncRouter.js";
 import { requireAuth, requireRoles } from "./middleware/auth.js";
 
 import claimsRouter from "./routes/claims.js";
@@ -26,7 +27,7 @@ app.get("/health", (_, res) => res.json({ ok: true }));
  * AUTH ROUTES
  * authRouter IS A FUNCTION → must be CALLED
  */
-app.use("/api/auth", authRouter(prisma));
+app.use("/api/auth", captureAsyncRouter(authRouter(prisma)));
 
 // Protected auth endpoints
 app.get("/api/auth/me", requireAuth, async (req, res) => {
@@ -63,14 +64,14 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
  * CLAIM ROUTES
  * claimsRouter IS ALREADY A ROUTER → DO NOT CALL IT
  */
-app.use("/api/claims", requireAuth, claimsRouter);
-app.use("/api/denials", requireAuth, denialsRouter);
+app.use("/api/claims", requireAuth, captureAsyncRouter(claimsRouter));
+app.use("/api/denials", requireAuth, captureAsyncRouter(denialsRouter));
 
 /**
  * DOCUMENT ROUTES
  * documentsRouter IS A FUNCTION → must be CALLED
  */
-app.use("/api/documents", requireAuth, documentsRouter(prisma, "uploads"));
+app.use("/api/documents", requireAuth, captureAsyncRouter(documentsRouter(prisma, process.env.UPLOAD_DIR || "uploads")));
 
 /**
  * RULE ROUTES (ADMIN ONLY)
@@ -80,7 +81,7 @@ app.use(
   "/api/rules",
   requireAuth,
   requireRoles(["ADMIN"]),
-  rulesRouter
+  captureAsyncRouter(rulesRouter)
 );
 
 const PORT = process.env.PORT || 4000;
