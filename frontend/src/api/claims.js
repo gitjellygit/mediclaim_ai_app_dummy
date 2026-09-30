@@ -76,7 +76,7 @@ export const ClaimsApi = {
     if (type) fd.append("type", type);
     fd.append("file", file);
 
-    return api(`${BASE}/documents`, {
+    return api("/api/documents/upload", {
       method: "POST",
       body: fd
     });
