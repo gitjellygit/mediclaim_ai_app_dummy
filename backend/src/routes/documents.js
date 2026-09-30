@@ -776,5 +776,180 @@ export function documentsRouter(prisma, uploadDir) {
     }
   });
 
+  // Canonical document operations; legacy /api/claims/documents URLs share this router.
+  router.post("/:id/apply-suggestion", async (req, res) => {
+  try {
+    const doc = await prisma.document.findUnique({
+      where: { id: req.params.id },
+      include: { claim: true }
+    });
+
+    if (!doc) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    if (doc.claim?.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(doc.claim?.status)) {
+      return res.status(409).json({
+        error: "Submitted claims are locked. Document type cannot be changed."
+      });
+    }
+
+    if (!doc.suggestedType) {
+      return res.status(409).json({
+        error: "No AI document type suggestion is available"
+      });
+    }
+
+    if (doc.type === doc.suggestedType) {
+      return res.json({
+        ...doc,
+        unchanged: true,
+        message: "Document type already matches the AI suggestion"
+      });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const changed = await tx.document.update({
+        where: { id: doc.id },
+        data: { type: doc.suggestedType }
+      });
+
+      await tx.check.updateMany({
+        where: { claimId: doc.claimId, isStale: false },
+        data: {
+          isStale: true,
+          staleAt: new Date(),
+          staleReason: "Document type changed"
+        }
+      });
+
+      if (doc.claim?.status === "READY") {
+        await tx.claim.update({
+          where: { id: doc.claimId },
+          data: { status: "DRAFT" }
+        });
+      }
+
+      return changed;
+    });
+
+    res.json({
+      ...updated,
+      message: `Document type changed to ${updated.type.replaceAll("_", " ")}`
+    });
+  } catch (error) {
+    console.error("[claim-document] apply suggestion failed", {
+      documentId: req.params.id,
+      code: error?.code || null,
+      message: error?.message || "Unknown error"
+    });
+
+    res.status(500).json({
+      error: "Unable to apply AI document type suggestion"
+    });
+  }
+});
+
+  router.post("/bulk-delete", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids array required" });
+    }
+
+    const docs = await prisma.document.findMany({
+      where: { id: { in: ids } },
+      include: { claim: true }
+    });
+
+    if (docs.some((doc) => doc.claim?.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(doc.claim?.status))) {
+      return res.status(409).json({
+        error: "Submitted claims are locked. Their documents cannot be deleted."
+      });
+    }
+
+    const claimIds = [...new Set(docs.map((doc) => doc.claimId))];
+    const deletingIds = new Set(ids);
+
+    const claims = await prisma.claim.findMany({
+      where: { id: { in: claimIds } },
+      select: {
+        id: true,
+        documentDerivedFields: true,
+        fieldProvenance: true
+      }
+    });
+
+    const claimUpdates = [];
+    for (const claim of claims) {
+      const remainingDocuments = await prisma.document.findMany({
+        where: { claimId: claim.id },
+        orderBy: { createdAt: "desc" }
+      });
+
+      const keptDocuments = remainingDocuments.filter(
+        (document) => !deletingIds.has(document.id)
+      );
+
+      const patch = recomputeDerivedClaimPatch(
+        keptDocuments,
+        claim.documentDerivedFields
+      );
+
+      claimUpdates.push({
+        claimId: claim.id,
+        patch,
+        fieldProvenance: removeProvenanceFields(
+          claim.fieldProvenance,
+          Object.keys(patch)
+        )
+      });
+    }
+
+    await prisma.$transaction([
+      prisma.document.deleteMany({ where: { id: { in: ids } } }),
+      prisma.check.updateMany({
+        where: { claimId: { in: claimIds }, isStale: false },
+        data: {
+          isStale: true,
+          staleAt: new Date(),
+          staleReason: "Supporting documents deleted"
+        }
+      }),
+      ...claimUpdates.map(({ claimId, patch, fieldProvenance }) =>
+        prisma.claim.update({
+          where: { id: claimId },
+          data: {
+            ...patch,
+            fieldProvenance,
+            status: "DRAFT"
+          }
+        })
+      )
+    ]);
+
+    for (const doc of docs) {
+      const safePath = resolveStoredFile(doc.path);
+      if (safePath && fs.existsSync(safePath)) {
+        try {
+          fs.unlinkSync(safePath);
+        } catch (fileError) {
+          console.error("[claim-document] bulk file cleanup failed", {
+            claimId: doc.claimId,
+            documentId: doc.id,
+            message: fileError.message
+          });
+        }
+      }
+    }
+
+    res.json({ success: true, deleted: docs.length });
+  } catch (e) {
+    console.error("Bulk delete error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
   return router;
 }

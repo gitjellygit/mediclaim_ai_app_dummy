@@ -506,6 +506,34 @@ test("13 - bulk delete is atomic when selection includes a submitted claim docum
   );
 });
 
+test("13b - canonical document bulk deletion removes the file and updates the claim", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  const { doc, physicalPath } = await createDocument(claim.id);
+  const response = await authFetch("/api/documents/bulk-delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: [doc.id] })
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).deleted, 1);
+  assert.equal(await prisma.document.count({ where: { id: doc.id } }), 0);
+  assert.equal(fs.existsSync(physicalPath), false);
+});
+
+test("13c - canonical document suggestion endpoint updates the type", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  const { doc } = await createDocument(claim.id, { type: "FINAL_BILL" });
+  await prisma.document.update({
+    where: { id: doc.id },
+    data: { suggestedType: "INSURANCE_CARD" }
+  });
+  const response = await authFetch(`/api/documents/${doc.id}/apply-suggestion`, {
+    method: "POST"
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).type, "INSURANCE_CARD");
+});
+
 test("14 - AI readiness detects no supporting documents after deletion", { concurrency: false }, async () => {
   const claim = await createClaim({
     documentDerivedFields: ["amount"]
