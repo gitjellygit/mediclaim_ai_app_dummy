@@ -1,3 +1,4 @@
+import { moneyCents } from "../src/utils/money.js";
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -453,8 +454,8 @@ test("09 - manual claim fields survive last-document deletion", { concurrency: f
   });
 
   const updated = await prisma.claim.findUnique({ where: { id: claim.id } });
-  assert.equal(updated.amount, 900);
-  assert.equal(updated.totalBilledAmount, 950);
+  assert.equal(Number(updated.amount), 900);
+  assert.equal(Number(updated.totalBilledAmount), 950);
   assert.equal(updated.diagnosisText, "Test diagnosis");
 });
 
@@ -485,8 +486,8 @@ test("10 - deleting one of two bills recomputes amount from remaining document",
   assert.equal(response.status, 200);
 
   const updated = await prisma.claim.findUnique({ where: { id: claim.id } });
-  assert.equal(updated.amount, 900);
-  assert.equal(updated.totalBilledAmount, 900);
+  assert.equal(Number(updated.amount), 900);
+  assert.equal(Number(updated.totalBilledAmount), 900);
 });
 
 test("11 - document deletion invalidates checks and returns claim to DRAFT", { concurrency: false }, async () => {
@@ -1163,7 +1164,7 @@ test("37 - estimated patient responsibility is labeled calculated estimate", { c
 
   assert.equal(response.status, 200);
   const updated = await prisma.claim.findUnique({ where: { id: claim.id } });
-  assert.equal(updated.patientResponsibility, 2000);
+  assert.equal(Number(updated.patientResponsibility), 2000);
   assert.equal(
     updated.fieldProvenance.patientResponsibility.source,
     "CALCULATED_ESTIMATE"
@@ -2517,10 +2518,10 @@ test("100 - payer financial cross-product never transfers short payment to the p
         assert.ok(approval.allowedAmount >= approval.approvedAmount);
         assert.ok(era.paidAmount <= era.approvedAmount);
         assert.equal(era.patientResponsibility, approval.patientResponsibility);
-        assert.equal(era.potentialUnderpayment, approval.approvedAmount - era.paidAmount);
+        assert.equal(moneyCents(era.potentialUnderpayment), moneyCents(approval.approvedAmount) - moneyCents(era.paidAmount));
         assert.equal(
-          era.allowedAmount,
-          era.paidAmount + era.patientResponsibility + era.potentialUnderpayment
+          moneyCents(era.allowedAmount),
+          moneyCents(era.paidAmount) + moneyCents(era.patientResponsibility) + moneyCents(era.potentialUnderpayment)
         );
         combinations += 1;
       }
@@ -2712,4 +2713,57 @@ test("stabilization - legacy claim document endpoints prevent directory escape a
   assert.match(claimsSource, /serveStoredDocument\(prisma, req, res/);
   assert.match(sharedSource, /resolveStoredDocument\(doc.path, uploadDir\)/);
   assert.match(sharedSource, /"private, no-store"/);
+});
+
+test("money - create and retrieve exact cent amounts without rounding to dollars", { concurrency: false }, async () => {
+  const response = await authFetch("/api/claims", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patientName: "Exact Cent Test",
+      payerName: "Test Payer",
+      amount: "1234.56",
+      totalBilledAmount: "1234.56"
+    })
+  });
+  assert.equal(response.status, 200);
+  const claim = await response.json();
+  assert.equal(claim.amount, 1234.56);
+  const saved = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(saved.amount.toFixed(2), "1234.56");
+  await prisma.claim.delete({ where: { id: claim.id } });
+});
+
+test("money - reject excess fractional precision at claim creation", { concurrency: false }, async () => {
+  const response = await authFetch("/api/claims", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ patientName: "Precision Test", payerName: "Test Payer", amount: "1234.567" })
+  });
+  assert.equal(response.status, 400);
+});
+
+test("money - remittance preserves exact cents and is idempotent on replay", { concurrency: false }, async () => {
+  const claim = await createClaim({ status: "SUBMITTED", claimSubmissionDate: new Date(), amount: 2000 });
+  const request = {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      remittanceStatus: "RECEIVED",
+      allowedAmount: "1234.56",
+      paidAmount: "1000.01",
+      paymentReference: "CENT-PAY-100"
+    })
+  };
+  const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, request);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.patientResponsibility, 234.55);
+  const saved = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(saved.allowedAmount.toFixed(2), "1234.56");
+  assert.equal(saved.paidAmount.toFixed(2), "1000.01");
+  assert.equal(saved.patientResponsibility.toFixed(2), "234.55");
+  const repeat = await authFetch(`/api/claims/${claim.id}/journey/remittance`, request);
+  assert.equal(repeat.status, 200);
+  assert.equal((await repeat.json()).unchanged, true);
 });
