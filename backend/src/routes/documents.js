@@ -121,23 +121,6 @@ export function documentsRouter(prisma, uploadDir) {
 
       const fileHash = getFileHash(uploadedFilePath);
 
-      const duplicate = await prisma.document.findFirst({
-        where: { fileHash },
-        include: { claim: true }
-      });
-
-      if (duplicate) {
-        if (fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
-
-        return res.status(409).json({
-          error: "Duplicate document",
-          message: "This same document is already uploaded.",
-          existingDocumentId: duplicate.id,
-          existingClaimId: duplicate.claimId,
-          patientName: duplicate.claim?.patientName
-        });
-      }
-
       const intel = await analyzeDocument({
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
@@ -161,9 +144,7 @@ export function documentsRouter(prisma, uploadDir) {
             equals: patientName,
             mode: "insensitive"
           },
-          status: {
-            not: "SUBMITTED"
-          }
+          status: { in: ["DRAFT", "READY", "NEEDS_REVIEW"] }
         },
         orderBy: { createdAt: "desc" },
         take: 10
@@ -356,6 +337,19 @@ export function documentsRouter(prisma, uploadDir) {
             }
           });
         }
+      }
+
+      const duplicateInClaim = await prisma.document.findFirst({
+        where: { claimId: claim.id, fileHash },
+        select: { id: true }
+      });
+      if (duplicateInClaim) {
+        if (uploadedFilePath && fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
+        return res.status(409).json({
+          error: "Duplicate document",
+          message: "This document is already attached to this claim.",
+          code: "DOCUMENT_DUPLICATE"
+        });
       }
 
       const doc = await prisma.document.create({
