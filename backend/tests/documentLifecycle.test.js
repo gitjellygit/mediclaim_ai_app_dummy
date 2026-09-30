@@ -2614,6 +2614,37 @@ test("103 - document reprocessing cannot mutate transmitted or terminal claims",
   assert.equal(response.status, 409, "submission timestamp must also lock reprocessing");
 });
 
+test("B8 - claim creation rejects lifecycle, payment and identity-field mass assignment", { concurrency: false }, async () => {
+  const base = { patientName: "Lifecycle Test Create", payerName: "Test Payer", amount: 1250 };
+  const malicious = [
+    { status: "SUBMITTED" },
+    { eligibilityStatus: "VERIFIED" },
+    { priorAuthStatus: "APPROVED" },
+    { paidAmount: 1000 },
+    { claimSubmissionDate: new Date().toISOString() },
+    { id: "caller-chosen-claim-id" },
+    { fieldProvenance: {} }
+  ];
+  for (const extra of malicious) {
+    const response = await authFetch("/api/claims", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...base, ...extra })
+    });
+    assert.equal(response.status, 400, `must reject ${Object.keys(extra)[0]}`);
+    assert.equal((await response.json()).code, "INVALID_CLAIM_INPUT");
+  }
+  const legitimate = await authFetch("/api/claims", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(base)
+  });
+  assert.equal(legitimate.status, 200);
+  const claim = await legitimate.json();
+  assert.equal(claim.status, "DRAFT");
+  assert.equal(claim.patientName, base.patientName);
+});
+
 test("B7 - API errors retain consistent fields without database exception details", { concurrency: false }, async () => {
   const notFound = await authFetch("/api/rules/definitely-missing-rule");
   assert.equal(notFound.status, 404);
