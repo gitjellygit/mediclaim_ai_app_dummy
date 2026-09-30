@@ -32,6 +32,7 @@ import {
   completenessReadinessIssues
 } from "../services/claimCompleteness.js";
 import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
+import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
 import { createPayerConnector } from "../services/payerGateway.js";
 import {
   getMockPayer,
@@ -2676,20 +2677,28 @@ router.post("/:id/check", async (req, res) => {
       });
     }
 
+    // Only recognized rule codes alter live readiness. Mandatory gates remain mandatory.
+    const rules = await prisma.rule.findMany({
+      where: { code: { in: ["REQ_POLICY_NO", "RECOMMENDED_ICD"] } }
+    });
     const issues = [];
 
     if (!claim.policyNo) {
-      issues.push({
+      issues.push(configuredReadinessIssue(rules, {
+        code: "REQ_POLICY_NO",
         severity: "BLOCK",
-        message: "Policy number missing"
-      });
+        message: "Policy number missing",
+        mandatory: true
+      }));
     }
 
     if (!claim.icd10Codes?.length) {
-      issues.push({
+      const icdIssue = configuredReadinessIssue(rules, {
+        code: "RECOMMENDED_ICD",
         severity: "WARN",
         message: "ICD-10 codes missing"
       });
+      if (icdIssue) issues.push(icdIssue);
     }
 
     if (!claim.documents?.length) {
@@ -2754,7 +2763,7 @@ router.post("/:id/check", async (req, res) => {
       );
     }
 
-    if (!claim.icd10Codes?.length) {
+    if (issues.some((issue) => issue.rule === "RECOMMENDED_ICD")) {
       riskScore += 0.15;
       riskFactors.push(
         "Unstructured diagnosis increases manual review probability"
