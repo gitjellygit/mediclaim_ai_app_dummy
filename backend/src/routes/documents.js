@@ -17,6 +17,7 @@ import {
 } from "../services/claimFieldProvenance.js";
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { parseClaimDate } from "../utils/claimDate.js";
+import { selectSmartUploadMatch } from "../services/smartUploadMatch.js";
 import { resolveStoredDocument } from "../services/storedDocumentPath.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
 import { analyzeDocument } from "../services/docIntel.js";
@@ -50,7 +51,7 @@ function calculateMatchScore(extracted, existingClaim) {
     score += 35;
   }
   
-  if (dateOfBirth && existingClaim.patientDob && dateOfBirth === existingClaim.patientDob) {
+  if (dateOfBirth && existingClaim.patientDob && parseClaimDate(dateOfBirth)?.toISOString().slice(0, 10) === existingClaim.patientDob.toISOString().slice(0, 10)) {
     score += 25;
   }
   
@@ -169,41 +170,11 @@ export function documentsRouter(prisma, uploadDir) {
         take: 10
       });
 
-      let bestMatch = null;
-      let bestScore = 0;
-
-      for (const existingClaim of recentClaims) {
-        const score = calculateMatchScore(extracted, existingClaim);
-        if (score > bestScore) {
-          bestScore = score;
-          bestMatch = existingClaim;
-        }
-      }
-
-      // Never merge an unidentified document into an "Unknown Patient"
-      // claim, even when contextual dates or facility details look similar.
-      // Automated merging requires positive identity corroboration.
-      const hasReliableIdentity =
-        Boolean(extracted.patientName && extracted.patientName.trim()) &&
-        Boolean(
-          (extracted.memberId && bestMatch?.memberId &&
-            extracted.memberId === bestMatch.memberId) ||
-          (extracted.policyNo && bestMatch?.policyNo &&
-            extracted.policyNo === bestMatch.policyNo) ||
-          (extracted.dateOfBirth && bestMatch?.patientDob &&
-            !Number.isNaN(new Date(extracted.dateOfBirth).getTime()) &&
-            new Date(extracted.dateOfBirth).toISOString().slice(0, 10) ===
-              new Date(bestMatch.patientDob).toISOString().slice(0, 10))
-        );
-      if (bestMatch && bestScore >= 90 && hasReliableIdentity) {
-        claim = bestMatch;
-        matchStatus = "MERGED";
-        matchScore = bestScore;
-      } else if (bestMatch && bestScore >= 70) {
-        candidateClaim = bestMatch;
-        matchStatus = "REVIEW";
-        matchScore = bestScore;
-      }
+      const selected = selectSmartUploadMatch(extracted, recentClaims, calculateMatchScore);
+      claim = selected.claim;
+      candidateClaim = selected.candidateClaim;
+      matchScore = selected.matchScore;
+      matchStatus = selected.matchStatus;
 
       if (!claim) {
         const claimData = {
