@@ -421,9 +421,10 @@ export default function ClaimJourney() {
       setAllowedAmount(claim.allowedAmount ?? "");
       setPaidAmount(claim.paidAmount ?? "");
 
-      const currentAllowed = Number(claim.allowedAmount);
-      const currentPaid = Number(claim.paidAmount);
+      const currentAllowed = claim.allowedAmount == null ? null : Number(claim.allowedAmount);
+      const currentPaid = claim.paidAmount == null ? null : Number(claim.paidAmount);
       const derivedPatientResponsibility =
+        currentAllowed != null && currentPaid != null &&
         Number.isFinite(currentAllowed) && Number.isFinite(currentPaid)
           ? Math.max(0, currentAllowed - currentPaid)
           : null;
@@ -601,6 +602,14 @@ export default function ClaimJourney() {
   const submissionTransaction = payerTransactions.find(
     (tx) => tx.transactionType === "CLAIM_SUBMISSION"
   );
+  const acknowledged = ["ACCEPTED", "PENDED"].includes(submissionTransaction?.status);
+  const latestRemittance = payerTransactions.find(
+    (tx) => tx.transactionType === "REMITTANCE"
+  );
+  const estimatedPatientResponsibility =
+    claim?.allowedAmount != null && claim?.approvedAmount != null
+      ? Math.max(0, Number(claim.allowedAmount) - Number(claim.approvedAmount))
+      : null;
   const finalPayerStatus = ["APPROVED", "PARTIALLY_APPROVED", "DENIED", "PAID"].includes(
     claim?.payerClaimStatus || ""
   );
@@ -857,6 +866,11 @@ export default function ClaimJourney() {
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                       {journey?.payerConnection?.simulatedPayer?.description ||
                         "Select the claim payer to begin payer transactions."}
+                      {payerConnected && (
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
+                          Demo environment · Illustrative responses; no live payer connection
+                        </Typography>
+                      )}
                     </Typography>
                   </Box>
 
@@ -1315,7 +1329,7 @@ export default function ClaimJourney() {
                   disabled={
                     !stages.claimStatus.actionable ||
                     action !== "" ||
-                    (payerConnected ? finalPayerStatus : payerStatusUnchanged)
+                    (payerConnected ? finalPayerStatus || !acknowledged : payerStatusUnchanged)
                   }
                   onClick={() =>
                     runAction(
@@ -1346,6 +1360,23 @@ export default function ClaimJourney() {
               blockedReason={stages.remittance.blockedReason}
             >
               <Stack spacing={1.2}>
+                {payerConnected && claim.approvedAmount != null && claim.remittanceStatus !== "POSTED" && (
+                  <Alert severity="info">
+                    Approval recorded. Expected payer payment: {money(claim.approvedAmount)}.
+                    {estimatedPatientResponsibility != null
+                      ? ` Estimated patient share: ${money(estimatedPatientResponsibility)}.`
+                      : ""}
+                    Actual paid amount and payment reference will populate when remittance arrives.
+                  </Alert>
+                )}
+                {payerConnected && claim.remittanceStatus === "POSTED" &&
+                  Number(latestRemittance?.responsePayload?.potentialUnderpayment || 0) > 0 && (
+                    <Alert severity="warning">
+                      Potential payer underpayment:{" "}
+                      {money(latestRemittance.responsePayload.potentialUnderpayment)}.
+                      This amount is not patient responsibility.
+                    </Alert>
+                  )}
                 <FormControl size="small" fullWidth disabled={!stages.remittance.actionable || payerConnected}>
                   <InputLabel>Remittance *</InputLabel>
                   <Select
@@ -1384,7 +1415,7 @@ export default function ClaimJourney() {
                   <TextField
                     size="small"
                     type="number"
-                    label="Approved Amount"
+                    label="Expected Payer Payment"
                     value={claim.approvedAmount}
                     disabled
                   />
