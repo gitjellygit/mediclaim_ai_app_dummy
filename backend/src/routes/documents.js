@@ -19,6 +19,7 @@ import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { resolveStoredDocument } from "../services/storedDocumentPath.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
+import { analyzeDocument } from "../services/docIntel.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
 import {
   getExtractedPatientName,
