@@ -1,4 +1,5 @@
 import express from "express";
+import { requireRoles } from "../middleware/auth.js";
 import multer from "multer";
 import { MAX_UPLOAD_BYTES, uploadFileFilter, verifyUploadSignature } from "../middleware/uploadSafety.js";
 import path from "path";
@@ -631,7 +632,7 @@ export function documentsRouter(prisma, uploadDir) {
   });
 
   // DELETE doc
-  router.delete("/:id", async (req, res) => {
+  router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
     try {
       const doc = await prisma.document.findUnique({
         where: { id: req.params.id },
