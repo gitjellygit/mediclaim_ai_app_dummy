@@ -836,6 +836,7 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
         priorAuthRequired: null,
         priorAuthStatus: "NOT_CHECKED",
         priorAuthCheckedAt: null,
+        authorizationNo: null,
         priorAuthExpiry: null,
         fieldProvenance: mergeProvenance(
           claim.fieldProvenance,
