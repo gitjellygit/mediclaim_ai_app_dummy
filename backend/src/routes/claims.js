@@ -2232,7 +2232,7 @@ router.patch("/:id", async (req, res) => {
 
     if (
       payload.amount != null &&
-      (!Number.isFinite(payload.amount) || payload.amount <= 0)
+      (!Number.isFinite(Number(payload.amount)) || Number(payload.amount) <= 0)
     ) {
       return res.status(400).json({
         error: "Claimed amount must be a valid number greater than 0"
