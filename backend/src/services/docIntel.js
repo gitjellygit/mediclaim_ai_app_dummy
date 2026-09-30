@@ -66,14 +66,14 @@ async function extractPdfText(filePath) {
     const result = await parser.getText();
     return result?.text || "";
   } catch (error) {
-    console.error("pdf-parse failed:", error.message);
+    console.error("[doc-intel] PDF parse failed", { name: error?.name || "Error" });
     return "";
   } finally {
     if (parser) {
       try {
         await parser.destroy();
       } catch (cleanupError) {
-        console.error("pdf-parse cleanup failed:", cleanupError.message);
+        console.error("[doc-intel] PDF parser cleanup failed", { name: cleanupError?.name || "Error" });
       }
     }
   }
@@ -182,7 +182,7 @@ async function textractPdfViaS3(filePath, fileName) {
         })
       );
     } catch (cleanupError) {
-      console.error("Failed to cleanup S3 object:", cleanupError);
+      console.error("[doc-intel] OCR temporary object cleanup failed", { name: cleanupError?.name || "Error" });
     }
   }
 }
