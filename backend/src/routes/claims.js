@@ -145,7 +145,7 @@ router.get("/", async (req, res) => {
     res.json(claims);
   } catch (error) {
     console.error("Error fetching claims:", error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Unable to load claims", code: "CLAIM_LIST_FAILED" });
   }
 });
 

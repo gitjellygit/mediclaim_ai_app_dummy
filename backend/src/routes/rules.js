@@ -73,7 +73,7 @@ router.patch("/:id", async (req, res) => {
     });
     res.json(rule);
   } catch (e) {
-    res.status(400).json({ error: e.message || "Failed to update rule" });
+    res.status(e?.code === "P2025" ? 404 : e?.code === "P2002" ? 409 : 500).json({ error: e?.code === "P2025" ? "Rule not found" : e?.code === "P2002" ? "Rule already exists" : "Unable to update rule" });
   }
 });
 

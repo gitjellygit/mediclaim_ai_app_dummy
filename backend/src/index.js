@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { prisma, disconnectDatabase } from "./db.js";
 import { captureAsyncRouter } from "./middleware/asyncRouter.js";
+import { standardizeApiErrors } from "./middleware/apiErrors.js";
 import { requireAuth, requireRoles } from "./middleware/auth.js";
 
 import claimsRouter from "./routes/claims.js";
@@ -21,6 +22,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(standardizeApiErrors);
 
 app.get("/health", (_, res) => res.json({ ok: true }));
 

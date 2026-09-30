@@ -2614,6 +2614,35 @@ test("103 - document reprocessing cannot mutate transmitted or terminal claims",
   assert.equal(response.status, 409, "submission timestamp must also lock reprocessing");
 });
 
+test("B7 - API errors retain consistent fields without database exception details", { concurrency: false }, async () => {
+  const notFound = await authFetch("/api/rules/definitely-missing-rule");
+  assert.equal(notFound.status, 404);
+  const missing = await notFound.json();
+  assert.equal(missing.code, "NOT_FOUND");
+  assert.equal(missing.message, missing.error);
+
+  const ruleUpdate = await authFetch("/api/rules/definitely-missing-rule", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Regression" })
+  });
+  assert.equal(ruleUpdate.status, 404);
+  const updated = await ruleUpdate.json();
+  assert.deepEqual(updated, { error: "Rule not found", message: "Rule not found", code: "NOT_FOUND" });
+  assert.doesNotMatch(JSON.stringify(updated), /Prisma|P2025|Record to update/i);
+
+  const invalid = await authFetch("/api/claims", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ patientName: "Lifecycle Test Invalid", payerName: "Test", amount: -1 })
+  });
+  assert.equal(invalid.status, 400);
+  const bad = await invalid.json();
+  assert.equal(typeof bad.error, "string");
+  assert.equal(typeof bad.message, "string");
+  assert.equal(typeof bad.code, "string");
+});
+
 test("B1 - reprocessing a document with an empty stored path returns 404", { concurrency: false }, async () => {
   const claim = await createClaim();
   const { doc } = await createDocument(claim.id);
@@ -2626,7 +2655,7 @@ test("B1 - reprocessing a document with an empty stored path returns 404", { con
     method: "POST"
   });
   assert.equal(response.status, 404);
-  assert.deepEqual(await response.json(), { error: "File not found on server" });
+  assert.deepEqual(await response.json(), { error: "File not found on server", message: "File not found on server", code: "NOT_FOUND" });
 });
 
 test("stabilization - legacy document path resolver cannot escape upload root", { concurrency: false }, () => {
