@@ -243,6 +243,38 @@ test("config - synthetic fixture endpoints are isolated behind E2E_TEST_MODE and
   assert.ok(fixtures.includes('e2e/payer-journey/seed'));
 });
 
+test("B4 - logout-all requires auth and revokes every refresh token", { concurrency: false }, async () => {
+  const anonymous = await fetch(`${baseUrl}/api/auth/logout-all`, { method: "POST" });
+  assert.equal(anonymous.status, 401);
+
+  const credentials = { email: "test-admin@hospital.local", password: "test-admin-password" };
+  const loginSession = async () => {
+    const response = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(credentials)
+    });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const first = await loginSession();
+  const second = await loginSession();
+  const logout = await fetch(`${baseUrl}/api/auth/logout-all`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${first.accessToken}` }
+  });
+  assert.equal(logout.status, 200);
+
+  for (const session of [first, second]) {
+    const response = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: session.refreshToken })
+    });
+    assert.equal(response.status, 401);
+  }
+});
+
 test("01 - document download requires authentication", { concurrency: false }, async () => {
   const claim = await createClaim();
   const { doc } = await createDocument(claim.id);
