@@ -56,7 +56,7 @@ function isTokenExpired(token) {
  */
 let refreshPromise = null;
 
-async function refreshTokenIfNeeded() {
+async function refreshTokenIfNeeded(force = false) {
   const token = getToken();
   const refreshToken = getRefreshToken();
 
@@ -66,7 +66,7 @@ async function refreshTokenIfNeeded() {
   }
 
   // If token is still valid, no need to refresh
-  if (token && !isTokenExpired(token)) {
+  if (!force && token && !isTokenExpired(token)) {
     return token;
   }
 
@@ -132,7 +132,7 @@ export async function api(url, options = {}) {
     // requests the retry happens only after the first response was explicitly
     // rejected as unauthorized (no mutation was accepted).
     try {
-      const nextToken = await refreshTokenIfNeeded();
+      const nextToken = await refreshTokenIfNeeded(true);
       if (nextToken) response = await send(nextToken);
     } catch {
       // Fall through to the normal structured 401 handling.
