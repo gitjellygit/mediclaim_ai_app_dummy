@@ -812,12 +812,31 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
       });
     }
 
+    if (
+      claim.payerConnectionMode === "SIMULATED" &&
+      claim.simulatedPayerCode === payer.code
+    ) {
+      return res.json({ unchanged: true, payer, claim });
+    }
+
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
         payerConnectionMode: "SIMULATED",
         simulatedPayerCode: payer.code,
         payerName: payer.name,
+        // Changing payer invalidates earlier coverage and authorization responses.
+        // A previous payer's approval must not carry over to a new insurer.
+        eligibilityStatus: "NOT_CHECKED",
+        eligibilityCheckedAt: null,
+        coverageStatus: null,
+        networkStatus: null,
+        deductibleRemaining: null,
+        coinsurancePct: null,
+        priorAuthRequired: null,
+        priorAuthStatus: "NOT_CHECKED",
+        priorAuthCheckedAt: null,
+        priorAuthExpiry: null,
         fieldProvenance: mergeProvenance(
           claim.fieldProvenance,
           systemProvenance(["payerName"], {
@@ -1103,10 +1122,15 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
-      return res.status(409).json({ error: "Connect a mock payer first" });
+      return res.status(409).json({ error: "Connect a payer first" });
     }
-    if (!claim.claimSubmissionDate && !["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
-      return res.status(409).json({ error: "Submit the claim first" });
+    const transmitted = claim.payerTransactions.find(
+      (tx) => tx.transactionType === "CLAIM_SUBMISSION"
+    );
+    if (!transmitted || !["ACCEPTED", "PENDED"].includes(transmitted.status)) {
+      return res.status(409).json({
+        error: "Wait until the claim has been transmitted and acknowledged"
+      });
     }
 
     const statusTransactions = claim.payerTransactions.filter((x) => x.transactionType === "CLAIM_STATUS");
@@ -1236,6 +1260,7 @@ router.post("/:id/payer-simulation/remittance", async (req, res) => {
         remittanceStatus: "POSTED",
         remittanceReceivedAt: new Date(),
         allowedAmount: result.allowedAmount,
+        approvedAmount: result.approvedAmount,
         paidAmount: result.paidAmount,
         patientResponsibility: result.patientResponsibility,
         paymentReference: result.paymentReference,
