@@ -260,6 +260,31 @@ test("03 - authenticated preview is private/no-store and returns exact bytes", {
   assert.equal(await response.text(), expected);
 });
 
+test("03b - legacy and current document URLs serve identical protected content", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  const expected = "shared-serving-regression";
+  const { doc } = await createDocument(claim.id, {
+    fileName: "safe-report.txt",
+    contents: expected
+  });
+
+  for (const url of [
+    `/api/documents/${doc.id}`,
+    `/api/claims/${doc.id}`
+  ]) {
+    for (const action of ["preview", "download"]) {
+      const unauthenticated = await fetch(`${baseUrl}${url}/${action}`);
+      assert.equal(unauthenticated.status, 401);
+
+      const response = await authFetch(`${url}/${action}`);
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), expected);
+      assert.match(response.headers.get("cache-control") || "", /private.*no-store/i);
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    }
+  }
+});
+
 test("04 - missing document download returns 404 without filesystem path disclosure", { concurrency: false }, async () => {
   const response = await authFetch("/api/documents/not-a-real-document/download");
   assert.equal(response.status, 404);
