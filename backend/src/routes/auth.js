@@ -1,6 +1,7 @@
+import { requireAuth, requireRoles } from "../middleware/auth.js";
 import express from "express";
 import jwt from "jsonwebtoken";
-import { hashPassword, comparePassword, validatePassword, checkRateLimit, generateSecureToken, clearRateLimit } from "../utils/security.js";
+import { comparePassword, checkRateLimit, recordFailedAttempt, generateSecureToken, clearRateLimit } from "../utils/security.js";
 
 // Token expiration times
 const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "15m"; // Short-lived access token
@@ -37,6 +38,7 @@ export function authRouter(prisma) {
         });
       }
 
+      const rateKey = `login:${String(email).toLowerCase().trim()}`;
       // Find user
       const user = await prisma.user.findUnique({ 
         where: { email: email.toLowerCase().trim() }
@@ -44,6 +46,7 @@ export function authRouter(prisma) {
 
       // Security: Don't reveal if user exists (prevents user enumeration)
       if (!user) {
+        recordFailedAttempt(rateKey);
         return res.status(401).json({ 
           error: "Invalid credentials",
           message: "Invalid email or password"
@@ -63,6 +66,7 @@ export function authRouter(prisma) {
       const passwordValid = await comparePassword(password, user.passwordHash);
       
       if (!passwordValid) {
+        recordFailedAttempt(rateKey);
         // Increment failed attempts
         const failedAttempts = user.failedLoginAttempts + 1;
         const shouldLock = failedAttempts >= MAX_FAILED_ATTEMPTS;
@@ -83,6 +87,8 @@ export function authRouter(prisma) {
         });
       }
 
+      // Only a failed attempt consumes the rate-limit budget.
+      clearRateLimit(rateKey);
       // Reset failed attempts and update last login
       await prisma.user.update({
         where: { id: user.id },
@@ -245,7 +251,7 @@ export function authRouter(prisma) {
    * Revoke all refresh tokens for a user (requires auth middleware)
    * Note: This endpoint should be protected by requireAuth middleware in index.js
    */
-  router.post("/logout-all", async (req, res) => {
+  router.post("/logout-all", requireAuth, async (req, res) => {
     try {
       const userId = req.user?.id;
       
@@ -282,7 +288,10 @@ export function authRouter(prisma) {
    * Reset account lockout and rate limits (for development/testing)
    * In production, this should be protected and admin-only
    */
-  router.post("/reset-lockout", async (req, res) => {
+  router.post("/reset-lockout", requireAuth, requireRoles(["ADMIN"]), async (req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(404).json({ error: "Not found", code: "NOT_FOUND" });
+    }
     try {
       const { email } = req.body;
       console.log("Reset lockout request for:", email);
@@ -328,7 +337,7 @@ export function authRouter(prisma) {
       console.error("Reset lockout error:", error);
       res.status(500).json({
         error: "Internal server error",
-        message: error.message || "An error occurred while resetting lockout"
+        message: "An error occurred while resetting lockout"
       });
     }
   });
