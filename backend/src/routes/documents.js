@@ -140,6 +140,12 @@ export function documentsRouter(prisma, uploadDir) {
         path: uploadedFilePath
       });
 
+      // A provider outage must not silently create/merge a claim based on guessed OCR data.
+      if (intel.ocrStatus === "FAILED") {
+        if (uploadedFilePath && fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
+        return res.status(503).json({ error: "OCR unavailable", message: "Text extraction failed. Retry this upload later.", code: "OCR_UNAVAILABLE" });
+      }
+
       const extracted = intel.extracted || {};
       const patientName = extracted.patientName || "Unknown Patient";
       const parsedAmount = extracted.amount != null ? Number(extracted.amount) : null;
@@ -741,6 +747,11 @@ export function documentsRouter(prisma, uploadDir) {
         mimeType: doc.mimeType,
         path: filePath
       });
+
+      if (analysis.ocrStatus === "FAILED") {
+        await prisma.document.update({ where: { id: doc.id }, data: { status: "FAILED" } });
+        return res.status(503).json({ error: "OCR unavailable", message: "Text extraction failed. Retry document processing later.", code: "OCR_UNAVAILABLE" });
+      }
 
       // Update document with AI results
       const updated = await prisma.document.update({
