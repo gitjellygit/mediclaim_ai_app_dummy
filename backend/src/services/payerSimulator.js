@@ -267,9 +267,8 @@ export function simulateSubmission(payer, claim, sequence = 1) {
 
   const authRequired = authRequiredFor(payer, claim);
   const authSatisfied =
-    claim.priorAuthStatus === "APPROVED" ||
-    claim.priorAuthStatus === "NOT_REQUIRED" ||
-    !authRequired;
+    !authRequired ||
+    (claim.priorAuthStatus === "APPROVED" && Boolean(claim.authorizationNo));
 
   if (!authSatisfied) {
     return {
