@@ -2529,7 +2529,9 @@ test("stabilization - legacy claim document endpoints prevent directory escape a
   const response = await authFetch(`/api/claims/${document.id}/preview`);
   assert.equal(response.status, 404);
   assert.ok(!String(await response.text()).includes("outside-never-show"));
-  const source = fs.readFileSync(path.join(backendRoot, "src/routes/claims.js"), "utf8");
-  assert.match(source, /resolveStoredDocument\(doc.path\)/);
-  assert.match(source, /"private, no-store"/);
+  const claimsSource = fs.readFileSync(path.join(backendRoot, "src/routes/claims.js"), "utf8");
+  const sharedSource = fs.readFileSync(path.join(backendRoot, "src/services/documentResponse.js"), "utf8");
+  assert.match(claimsSource, /serveStoredDocument\(prisma, req, res/);
+  assert.match(sharedSource, /resolveStoredDocument\(doc.path, uploadDir\)/);
+  assert.match(sharedSource, /"private, no-store"/);
 });
