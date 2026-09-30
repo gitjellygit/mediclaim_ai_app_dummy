@@ -235,7 +235,8 @@ test("config - synthetic fixture endpoints are isolated behind E2E_TEST_MODE and
   const entry = fs.readFileSync(path.join(backendRoot, "src/index.js"), "utf8");
   const fixtures = fs.readFileSync(path.join(backendRoot, "src/routes/e2eFixtures.js"), "utf8");
 
-  assert.doesNotMatch(claims, /router\\.(?:post|delete)\\("\/e2e\//);
+  assert.equal(claims.includes('router.post("/e2e/'), false);
+  assert.equal(claims.includes('router.delete("/e2e/'), false);
   assert.match(entry, /process\\.env\\.E2E_TEST_MODE === "true"/);
   assert.match(entry, /requireRoles\\(\\["ADMIN"\\]\\).*e2eFixturesRouter/);
   assert.match(fixtures, /e2e\/medical-consistency\/seed/);
