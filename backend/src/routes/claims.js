@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
 import fs from "fs";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../db.js";
 import { analyzeDocument } from "../services/docIntel.js";
 import { predictRejectionRisk } from "../services/riskModel.js";
 import {
@@ -40,7 +40,6 @@ import {
 } from "../services/payerSimulator.js";
 
 const router = express.Router();
-const prisma = new PrismaClient();
 const upload = multer({ dest: "uploads/" });
 
 function cleanValue(value) {
