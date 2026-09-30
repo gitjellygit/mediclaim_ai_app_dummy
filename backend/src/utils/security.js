@@ -96,7 +96,7 @@ export function recordFailedAttempt(identifier, windowMs = 15 * 60 * 1000) {
 /**
  * Clean up expired rate limit records
  */
-setInterval(() => {
+const rateLimitCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [key, record] of rateLimitStore.entries()) {
     if (now > record.resetAt) {
@@ -104,6 +104,7 @@ setInterval(() => {
     }
   }
 }, 60 * 1000); // Clean every minute
+rateLimitCleanupTimer.unref?.(); // Cleanup must not keep short-lived test/CLI processes alive.
 
 /**
  * Clear rate limit for a specific identifier (useful for development/testing)
