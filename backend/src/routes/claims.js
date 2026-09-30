@@ -1,3 +1,4 @@
+import { validMoney, numberMoney, differenceMoney } from "../utils/money.js";
 import { z } from "zod";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { resolveStoredDocument, safeDownloadName } from "../services/storedDocumentPath.js";
@@ -71,8 +72,8 @@ function getExtractedAmount(extracted) {
 
   if (!raw) return null;
 
-  const amount = Number(String(raw).replace(/[^0-9.]/g, ""));
-  return Number.isFinite(amount) && amount > 0 ? Math.round(amount) : null;
+  const amount = validMoney(String(raw).replace(/[^0-9.]/g, ""));
+  return amount != null && Number(amount) > 0 ? Number(amount) : null;
 }
 
 function normalizeIdentityText(value) {
@@ -1767,7 +1768,13 @@ router.patch("/:id/journey/remittance", async (req, res) => {
         error.status = 400;
         throw error;
       }
-      return Math.round(number);
+      const amount = validMoney(value);
+      if (amount == null) {
+        const error = new Error(`${name} must use at most two decimal places`);
+        error.status = 400;
+        throw error;
+      }
+      return amount;
     };
 
     const allowedAmount = parseOptionalMoney(req.body.allowedAmount, "Allowed amount");
@@ -1806,7 +1813,7 @@ router.patch("/:id/journey/remittance", async (req, res) => {
       requestedPatientResponsibility != null
         ? requestedPatientResponsibility
         : allowedAmount != null && paidAmount != null
-        ? Math.max(0, allowedAmount - paidAmount)
+        ? Math.max(0, differenceMoney(allowedAmount, paidAmount))
         : null;
 
     const normalizedPaymentReference =
@@ -1816,9 +1823,9 @@ router.patch("/:id/journey/remittance", async (req, res) => {
 
     const remittanceUnchanged =
       claim.remittanceStatus === remittanceStatus &&
-      (claim.allowedAmount ?? null) === allowedAmount &&
-      (claim.patientResponsibility ?? null) === patientResponsibility &&
-      (claim.paidAmount ?? null) === paidAmount &&
+      (claim.allowedAmount == null ? null : validMoney(claim.allowedAmount)) === allowedAmount &&
+      (claim.patientResponsibility == null ? null : validMoney(claim.patientResponsibility)) === (patientResponsibility == null ? null : validMoney(patientResponsibility)) &&
+      (claim.paidAmount == null ? null : validMoney(claim.paidAmount)) === paidAmount &&
       (claim.paymentReference || null) === normalizedPaymentReference;
 
     if (remittanceUnchanged) {
@@ -2090,6 +2097,18 @@ router.post("/", async (req, res) => {
       ...parsed.data,
       status: "DRAFT"
     };
+    for (const key of ["amount", "totalBilledAmount"]) {
+      if (createPayload[key] == null) continue;
+      const canonical = validMoney(createPayload[key]);
+      if (canonical == null) {
+        return res.status(400).json({
+          error: "Invalid money",
+          message: `${key} must have at most two decimal places`,
+          code: "INVALID_MONEY"
+        });
+      }
+      createPayload[key] = canonical;
+    }
     for (const field of ["patientDob", "dateOfService", "admissionDate", "dischargeDate", "procedureDate"]) {
       if (!createPayload[field]) continue;
       const parsedDate = parseClaimDate(createPayload[field]);
@@ -2167,12 +2186,12 @@ router.patch("/:id", async (req, res) => {
         ? req.body.icd10Codes
         : [],
       amount: req.body.amount != null && req.body.amount !== ""
-        ? Number(req.body.amount)
+        ? validMoney(req.body.amount)
         : null,
       totalBilledAmount:
         req.body.totalBilledAmount != null &&
         req.body.totalBilledAmount !== ""
-          ? Number(req.body.totalBilledAmount)
+          ? validMoney(req.body.totalBilledAmount)
           : null
     };
 
@@ -2218,6 +2237,14 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json({
         error: "Claimed amount must be a valid number greater than 0"
       });
+    }
+
+    // Reject invalid money before writing or changing provenance.
+    for (const name of ["amount", "totalBilledAmount"]) {
+      const supplied = req.body[name];
+      if (supplied != null && supplied !== "" && validMoney(supplied) == null) {
+        return res.status(400).json({ error: "Invalid money", message: `${name} must have at most two decimal places`, code: "INVALID_MONEY" });
+      }
     }
 
     const manuallyChangedFields = changedFields(existing, payload);
