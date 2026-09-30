@@ -7,6 +7,8 @@ on:
       - "backend/**"
       - "frontend/**"
       - ".github/workflows/claim-app-tests.yml"
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -45,7 +47,7 @@ jobs:
 
       - name: Install backend dependencies
         working-directory: backend
-        run: npm install
+        run: npm ci
 
       - name: Generate Prisma client
         working-directory: backend
@@ -61,7 +63,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
       - name: Compile frontend
         working-directory: frontend
