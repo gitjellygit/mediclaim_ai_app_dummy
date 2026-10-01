@@ -329,7 +329,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const amount = Number(input.amount);
+    const amount = Number(req.body.amount);
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({
