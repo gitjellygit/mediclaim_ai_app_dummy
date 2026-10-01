@@ -114,6 +114,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       payerName: claim.payerName || "",
       policyNo: claim.policyNo || "",
       memberId: claim.memberId || "",
+      medicalRecordNumber: claim.medicalRecordNumber || "",
+      planAdministratorName: claim.planAdministratorName || "",
+      coverageLimit: claim.coverageLimit != null ? String(claim.coverageLimit) : "",
+      remainingCoverageLimit:
+        claim.remainingCoverageLimit != null ? String(claim.remainingCoverageLimit) : "",
+      payerReferenceNo: claim.payerReferenceNo || "",
       patientDob: claim.patientDob
         ? new Date(claim.patientDob).toISOString().slice(0, 10)
         : "",
@@ -153,6 +159,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       payerName: claim.payerName || "",
       policyNo: claim.policyNo || "",
       memberId: claim.memberId || "",
+      medicalRecordNumber: claim.medicalRecordNumber || "",
+      planAdministratorName: claim.planAdministratorName || "",
+      coverageLimit: claim.coverageLimit != null ? String(claim.coverageLimit) : "",
+      remainingCoverageLimit:
+        claim.remainingCoverageLimit != null ? String(claim.remainingCoverageLimit) : "",
+      payerReferenceNo: claim.payerReferenceNo || "",
       patientDob: claim.patientDob
         ? new Date(claim.patientDob).toISOString().slice(0, 10)
         : "",
@@ -195,6 +207,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       payerName: editForm.payerName?.trim(),
       policyNo: editForm.policyNo || null,
       memberId: editForm.memberId || null,
+      medicalRecordNumber: editForm.medicalRecordNumber || null,
+      planAdministratorName: editForm.planAdministratorName || null,
+      coverageLimit:
+        editForm.coverageLimit !== "" ? Number(editForm.coverageLimit) : null,
+      remainingCoverageLimit:
+        editForm.remainingCoverageLimit !== ""
+          ? Number(editForm.remainingCoverageLimit)
+          : null,
+      payerReferenceNo: editForm.payerReferenceNo || null,
       patientDob: editForm.patientDob || null,
       hospitalName: editForm.hospitalName || null,
       diagnosisText: editForm.diagnosisText || null,
@@ -997,11 +1018,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
                   <FieldLine claim={claim} field="memberId" label="Member ID">{claim.memberId || "—"}</FieldLine>
+                  <FieldLine claim={claim} field="medicalRecordNumber" label="MRN">{claim.medicalRecordNumber || "—"}</FieldLine>
                   <FieldLine claim={claim} field="patientDob" label="DOB">{formatDate(claim.patientDob)}</FieldLine>
                   <FieldLine claim={claim} field="policyNo" label="Policy No">{claim.policyNo || "—"}</FieldLine>
                   <FieldLine claim={claim} field="payerName" label="Payer">{claim.payerName || "—"}</FieldLine>
-                  <Typography><b>Plan Administrator:</b> {claim.planAdministratorName || "—"}</Typography>
+                  <FieldLine claim={claim} field="planAdministratorName" label="Plan Administrator">{claim.planAdministratorName || "—"}</FieldLine>
                   <Typography><b>Policy Type:</b> {claim.productType || "—"}</Typography>
+                  <Typography><b>Payer Reference:</b> {claim.payerReferenceNo || "—"}</Typography>
                 </Box>
               </Box>
 
@@ -1031,6 +1054,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   <FieldLine claim={claim} field="totalBilledAmount" label="Total Billed">{formatMoney(claim.totalBilledAmount)}</FieldLine>
                   <FieldLine claim={claim} field="amount" label="Claimed Amount">{formatMoney(claim.amount)}</FieldLine>
                   <FieldLine claim={claim} field="approvedAmount" label="Approved Amount">{formatMoney(claim.approvedAmount)}</FieldLine>
+                  <FieldLine claim={claim} field="coverageLimit" label="Coverage Limit">{formatMoney(claim.coverageLimit)}</FieldLine>
+                  <FieldLine claim={claim} field="remainingCoverageLimit" label="Remaining Coverage">{formatMoney(claim.remainingCoverageLimit)}</FieldLine>
                   <Typography><b>Insurer Claim No:</b> {claim.insurerClaimNo || "—"}</Typography>
                   <FieldLine claim={claim} field="authorizationNo" label="Authorization No">{claim.authorizationNo || "—"}</FieldLine>
                   <Typography><b>Submission Date:</b> {formatDate(claim.claimSubmissionDate)}</Typography>
@@ -1101,6 +1126,24 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                     ? "Eligibility pre-check requires Member ID, Policy Number, and Insurance Company."
                     : ""
                 }
+              />
+              <TextField
+                label="Medical Record Number (MRN)"
+                value={editForm.medicalRecordNumber}
+                onChange={(e) => updateEditField("medicalRecordNumber", e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Plan Administrator"
+                value={editForm.planAdministratorName}
+                onChange={(e) => updateEditField("planAdministratorName", e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Payer Reference Number"
+                value={editForm.payerReferenceNo}
+                onChange={(e) => updateEditField("payerReferenceNo", e.target.value)}
+                fullWidth
               />
               <TextField
                 label="Patient Date of Birth"
@@ -1183,6 +1226,20 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
 
+              <TextField
+                label="Coverage Limit (USD)"
+                type="number"
+                value={editForm.coverageLimit}
+                onChange={(e) => updateEditField("coverageLimit", e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Remaining Coverage Limit (USD)"
+                type="number"
+                value={editForm.remainingCoverageLimit}
+                onChange={(e) => updateEditField("remainingCoverageLimit", e.target.value)}
+                fullWidth
+              />
               <TextField
                 label="Total Billed Amount ($)"
                 type="number"
