@@ -34,18 +34,9 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import { DenialsApi } from "../../api/denials.js";
 import { useToast } from "../../context/ToastContext.jsx";
+import { formatUSD } from "../../utils/currency.js";
 
-function money(value) {
-  if (value == null || value === "") return "—";
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "—";
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0
-  }).format(number);
-}
+const money = formatUSD;
 
 function date(value) {
   if (!value) return "—";
