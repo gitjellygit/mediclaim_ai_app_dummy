@@ -1015,7 +1015,7 @@ test("30 - claim update can save member ID and DOB needed for eligibility review
       patientDob: "1990-06-15",
       hospitalName: null,
       diagnosisText: "Test diagnosis",
-      claimType: "REIMBURSEMENT",
+      claimType: "MEMBER_REIMBURSEMENT",
       icd10Codes: ["Z00.00"],
       amount: 1500,
       totalBilledAmount: 1500
@@ -1121,7 +1121,7 @@ test("35 - manual edit changes provenance only for changed tracked fields", { co
       patientDob: null,
       hospitalName: null,
       diagnosisText: "Updated manual diagnosis",
-      claimType: "REIMBURSEMENT",
+      claimType: "MEMBER_REIMBURSEMENT",
       icd10Codes: ["Z00.00"],
       amount: 1000,
       totalBilledAmount: 1000
@@ -2009,7 +2009,7 @@ test("74 - claim update saves encounter fields used by completeness fixes", { co
       icd10Codes: claim.icd10Codes,
       amount: claim.amount,
       totalBilledAmount: claim.totalBilledAmount,
-      claimType: "REIMBURSEMENT",
+      claimType: "MEMBER_REIMBURSEMENT",
       dateOfService: "2026-09-20",
       admissionDate: "2026-09-20",
       dischargeDate: "2026-09-22",
