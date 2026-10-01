@@ -41,6 +41,7 @@ async function audit(req, {
   try {
     await prisma.auditEvent.create({
       data: {
+        organizationId: req.user.organizationId,
         claimId,
         actorUserId: req.user?.id || null,
         action,
@@ -109,7 +110,7 @@ router.get("/", async (req, res) => {
     );
 
     const where = {
-      claim: { is: { organizationId: req.user.organizationId } },
+      claim: { is: { organizationId: req.user.organizationId, deletedAt: null } },
       ...(status && status !== "ALL" ? { status } : {}),
       ...(q
         ? {
@@ -161,7 +162,7 @@ router.get("/", async (req, res) => {
     const metricsSource = await prisma.denialCase.findMany({
       where: {
         status: { in: ACTIVE_STATUSES },
-        claim: { is: { organizationId: req.user.organizationId } }
+        claim: { is: { organizationId: req.user.organizationId, deletedAt: null } }
       },
       select: {
         revenueAtRisk: true,
@@ -209,7 +210,7 @@ router.get("/", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
     const denial = await prisma.denialCase.findFirst({
-      where: { id: req.params.id, claim: { organizationId: req.user.organizationId } },
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },
       include: {
         claim: {
           include: {
@@ -243,7 +244,7 @@ router.get("/:id", async (req, res) => {
 router.post("/from-claim/:claimId", requireManager, async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.claimId, organizationId: req.user.organizationId }
+      where: { id: req.params.claimId, organizationId: req.user.organizationId, deletedAt: null }
     });
 
     if (!claim) {
@@ -337,7 +338,7 @@ router.post("/from-claim/:claimId", requireManager, async (req, res) => {
 router.patch("/:id", requireManager, async (req, res) => {
   try {
     const existing = await prisma.denialCase.findFirst({
-      where: { id: req.params.id, claim: { organizationId: req.user.organizationId } }
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } }
     });
     if (!existing) {
       return res.status(404).json({ error: "Denial case not found" });
@@ -429,7 +430,7 @@ router.patch("/:id", requireManager, async (req, res) => {
 router.post("/:id/analyze", requireManager, async (req, res) => {
   try {
     const denial = await prisma.denialCase.findFirst({
-      where: { id: req.params.id, claim: { organizationId: req.user.organizationId } },
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },
       include: {
         claim: {
           include: {
