@@ -96,7 +96,7 @@ function ruleBasedAnalysis(claim, denial) {
   }
 
   if (
-    claim.claimType === "REIMBURSEMENT" &&
+    claim.claimType === "MEMBER_REIMBURSEMENT" &&
     !documentTypes.has("DISCHARGE_SUMMARY")
   ) {
     requiredDocuments.push("DISCHARGE_SUMMARY");
