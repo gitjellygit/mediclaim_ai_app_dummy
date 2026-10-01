@@ -75,9 +75,9 @@ jobs:
         working-directory: backend
         run: node prisma/seed.js
 
-      - name: Install Playwright media dependency
+      - name: Install Playwright browser
         working-directory: frontend
-        run: npx playwright install ffmpeg
+        run: npx playwright install --with-deps chromium
 
       - name: Run browser end-to-end regressions
         working-directory: frontend
