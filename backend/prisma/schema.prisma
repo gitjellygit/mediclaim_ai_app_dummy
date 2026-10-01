@@ -19,8 +19,8 @@ enum AdmissionType {
 }
 
 enum ClaimType {
-  CASHLESS
-  REIMBURSEMENT
+  PROVIDER_BILLED
+  MEMBER_REIMBURSEMENT
 }
 
 enum ClaimStage {
@@ -164,7 +164,7 @@ model Claim {
   patientAge    Int?
   patientGender Gender?
   patientDob    DateTime?
-  uhid          String?
+  medicalRecordNumber String?
   patientMobile String?
   memberId      String?
 
@@ -183,14 +183,14 @@ model Claim {
   procedureDate DateTime?
   dateOfService DateTime?
 
-  tpaName           String?
+  planAdministratorName String?
   policyStartDate   DateTime?
   policyEndDate     DateTime?
   productType       String?
-  sumInsured        Decimal? @db.Decimal(14,2)
-  balanceSumInsured Decimal? @db.Decimal(14,2)
+  coverageLimit      Decimal? @db.Decimal(14,2)
+  remainingCoverageLimit Decimal? @db.Decimal(14,2)
 
-  claimType         ClaimType     @default(REIMBURSEMENT)
+  claimType         ClaimType     @default(MEMBER_REIMBURSEMENT)
   claimStage        ClaimStage    @default(INITIAL)
   totalBilledAmount Decimal? @db.Decimal(14,2)
   approvedAmount    Decimal? @db.Decimal(14,2)
@@ -199,7 +199,7 @@ model Claim {
   roomCategory      RoomCategory?
   icuDays           Int?
 
-  tpaReferenceNo      String?
+  payerReferenceNo    String?
   insurerClaimNo      String?
   authorizationNo     String?
   claimSubmissionDate DateTime?
