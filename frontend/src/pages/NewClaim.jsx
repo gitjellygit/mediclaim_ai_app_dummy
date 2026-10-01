@@ -41,6 +41,7 @@ export default function NewClaim() {
     patientName: "",
     patientAge: "",
     patientGender: "",
+    medicalRecordNumber: "",
 
     // Hospital / admission
     hospitalName: "",
@@ -50,11 +51,16 @@ export default function NewClaim() {
     // Policy
     payerName: "",
     policyNo: "",
+    memberId: "",
+    planAdministratorName: "",
+    payerReferenceNo: "",
 
     // Financials
     claimType: "MEMBER_REIMBURSEMENT",
     totalBilledAmount: "",
-    amount: ""
+    amount: "",
+    coverageLimit: "",
+    remainingCoverageLimit: ""
   });
 
   function update(key, value) {
@@ -151,6 +157,14 @@ export default function NewClaim() {
         patientName: form.patientName,
         payerName: form.payerName,
         policyNo: form.policyNo || null,
+        memberId: form.memberId || null,
+        medicalRecordNumber: form.medicalRecordNumber || null,
+        planAdministratorName: form.planAdministratorName || null,
+        payerReferenceNo: form.payerReferenceNo || null,
+        coverageLimit: form.coverageLimit ? Number(form.coverageLimit) : null,
+        remainingCoverageLimit: form.remainingCoverageLimit
+          ? Number(form.remainingCoverageLimit)
+          : null,
         hospitalName: form.hospitalName || null,
         diagnosisText: form.diagnosisText || null,
         claimType: form.claimType,
@@ -231,6 +245,11 @@ export default function NewClaim() {
           {activeStep === 2 && (
             <Stack spacing={2}>
               <TextField
+                label="Medical Record Number (MRN, optional)"
+                value={form.medicalRecordNumber}
+                onChange={(e) => update("medicalRecordNumber", e.target.value)}
+              />
+              <TextField
                 label="Insurance Company"
                 value={form.payerName}
                 onChange={(e) => update("payerName", e.target.value)}
@@ -241,6 +260,21 @@ export default function NewClaim() {
                 label="Policy Number (optional)"
                 value={form.policyNo}
                 onChange={(e) => update("policyNo", e.target.value)}
+              />
+              <TextField
+                label="Member ID (optional)"
+                value={form.memberId}
+                onChange={(e) => update("memberId", e.target.value)}
+              />
+              <TextField
+                label="Plan Administrator (optional)"
+                value={form.planAdministratorName}
+                onChange={(e) => update("planAdministratorName", e.target.value)}
+              />
+              <TextField
+                label="Payer Reference Number (optional)"
+                value={form.payerReferenceNo}
+                onChange={(e) => update("payerReferenceNo", e.target.value)}
               />
             </Stack>
           )}
@@ -265,6 +299,20 @@ export default function NewClaim() {
                 onChange={(e) =>
                   update("totalBilledAmount", e.target.value)
                 }
+              />
+
+              <TextField
+                label="Coverage Limit (USD, optional)"
+                type="number"
+                value={form.coverageLimit}
+                onChange={(e) => update("coverageLimit", e.target.value)}
+              />
+
+              <TextField
+                label="Remaining Coverage Limit (USD, optional)"
+                type="number"
+                value={form.remainingCoverageLimit}
+                onChange={(e) => update("remainingCoverageLimit", e.target.value)}
               />
 
               <TextField
@@ -294,11 +342,16 @@ export default function NewClaim() {
               <Divider />
               <Typography><b>Insurance:</b> {form.payerName}</Typography>
               <Typography><b>Policy No:</b> {form.policyNo || "—"}</Typography>
+              <Typography><b>Member ID:</b> {form.memberId || "—"}</Typography>
+              <Typography><b>MRN:</b> {form.medicalRecordNumber || "—"}</Typography>
+              <Typography><b>Plan Administrator:</b> {form.planAdministratorName || "—"}</Typography>
+              <Typography><b>Payer Reference:</b> {form.payerReferenceNo || "—"}</Typography>
 
               <Divider />
               <Typography>
                 <b>Billed:</b> {formatUSD(form.totalBilledAmount)} &nbsp; | &nbsp;
-                <b> Claimed:</b> {formatUSD(form.amount)}
+                <b> Claimed:</b> {formatUSD(form.amount)} &nbsp; | &nbsp;
+                <b> Coverage:</b> {formatUSD(form.coverageLimit)}
               </Typography>
             </Stack>
           )}
