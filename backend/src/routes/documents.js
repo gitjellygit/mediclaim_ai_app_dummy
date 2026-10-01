@@ -501,7 +501,7 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     const claim = await prisma.claim.findFirst({
-      where: { id: claimId, organizationId: req.user.organizationId }
+      where: { id: claimId, organizationId: req.user.organizationId, deletedAt: null }
     });
 
     if (!claim) {
@@ -670,7 +670,7 @@ export function documentsRouter(prisma, uploadDir) {
   // List docs for a claim
   router.get("/claim/:claimId", async (req, res) => {
     const docs = await prisma.document.findMany({
-      where: { claimId: req.params.claimId, claim: { organizationId: req.user.organizationId } },
+      where: { claimId: req.params.claimId, claim: { organizationId: req.user.organizationId, deletedAt: null } },
       orderBy: { createdAt: "desc" }
     });
     res.json(docs);
@@ -693,7 +693,7 @@ export function documentsRouter(prisma, uploadDir) {
   router.post("/:id/process", async (req, res) => {
     try {
       const doc = await prisma.document.findFirst({
-        where: { id: req.params.id, claim: { organizationId: req.user.organizationId } },
+        where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },
         include: { claim: true }
       });
       
@@ -772,7 +772,7 @@ export function documentsRouter(prisma, uploadDir) {
   router.post("/:id/apply-suggestion", async (req, res) => {
   try {
     const doc = await prisma.document.findFirst({
-      where: { id: req.params.id, claim: { organizationId: req.user.organizationId } },
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },
       include: { claim: true }
     });
 
@@ -851,7 +851,7 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     const docs = await prisma.document.findMany({
-      where: { id: { in: ids }, claim: { organizationId: req.user.organizationId } },
+      where: { id: { in: ids }, claim: { organizationId: req.user.organizationId, deletedAt: null } },
       include: { claim: true }
     });
 
@@ -865,7 +865,7 @@ export function documentsRouter(prisma, uploadDir) {
     const deletingIds = new Set(ids);
 
     const claims = await prisma.claim.findMany({
-      where: { id: { in: claimIds }, organizationId: req.user.organizationId },
+      where: { id: { in: claimIds }, organizationId: req.user.organizationId, deletedAt: null },
       select: {
         id: true,
         documentDerivedFields: true,

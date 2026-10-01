@@ -140,13 +140,15 @@ model Organization {
   name      String
   slug      String   @unique
 
-  users     User[]
-  claims    Claim[]
+  users       User[]
+  claims      Claim[]
+  auditEvents AuditEvent[]
 }
 
 model Claim {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
+  deletedAt DateTime?
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
@@ -247,7 +249,7 @@ model Claim {
   auditEvents AuditEvent[]
   payerTransactions PayerTransaction[]
 
-  @@index([organizationId, createdAt])
+  @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
 }
 
@@ -354,6 +356,7 @@ model User {
 
   refreshTokens RefreshToken[]
   createdClaims Claim[] @relation("ClaimCreatedBy")
+  auditEvents AuditEvent[] @relation("AuditActor")
 
   @@index([organizationId])
 }
@@ -417,16 +420,21 @@ model AuditEvent {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
 
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
   claimId String?
   claim   Claim? @relation(fields: [claimId], references: [id], onDelete: SetNull)
 
   actorUserId String?
+  actorUser   User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   action      String
   entityType  String
   entityId    String?
   outcome     String
   metadata    Json?
 
+  @@index([organizationId, createdAt])
   @@index([claimId])
   @@index([actorUserId])
   @@index([createdAt])

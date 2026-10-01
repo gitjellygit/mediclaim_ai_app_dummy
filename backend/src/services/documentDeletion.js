@@ -10,7 +10,7 @@ export async function deleteStoredDocument(prisma, req, res, {
 } = {}) {
   try {
     const doc = await prisma.document.findFirst({
-      where: { id: req.params.id, claim: { organizationId: req.user.organizationId } },
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },
       include: { claim: true }
     });
     if (!doc) return res.status(404).json({ error: "Document not found" });
