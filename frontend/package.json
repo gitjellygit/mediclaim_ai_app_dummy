@@ -10,7 +10,9 @@
     "test:payer": "playwright test tests/payer-journey.e2e.spec.js --headed",
     "test:payer:fast": "playwright test tests/payer-journey.e2e.spec.js",
     "test:e2e": "playwright test --headed",
-    "test:e2e:fast": "playwright test"
+    "test:e2e:fast": "playwright test",
+    "test:us": "playwright test tests/us-localization.e2e.spec.js --headed",
+    "test:us:fast": "playwright test tests/us-localization.e2e.spec.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
