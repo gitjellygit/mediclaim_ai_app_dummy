@@ -1,4 +1,5 @@
 import express from "express";
+import { emptyMutationSchema, parseMutation, priorAuthEvaluationSchema, payerClaimStatusSchema, remittanceMutationSchema } from "../validation/claimMutations.js";
 import { prisma } from "../db.js";
 import { validMoney, moneyCents, differenceMoney } from "../utils/money.js";
 import {
@@ -148,6 +149,8 @@ router.get("/:id/journey", async (req, res) => {
 
 router.post("/:id/journey/eligibility/precheck", async (req, res) => {
   try {
+    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
@@ -248,6 +251,9 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
 
 router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
   try {
+    const parsedInput = parseMutation(priorAuthEvaluationSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
+    const input = parsedInput.data;
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
@@ -268,13 +274,13 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
     }
 
     const required =
-      typeof req.body.required === "boolean"
-        ? req.body.required
+      typeof input.required === "boolean"
+        ? input.required
         : claim.priorAuthRequired;
 
     const authorizationNo =
-      typeof req.body.authorizationNo === "string"
-        ? req.body.authorizationNo.trim() || null
+      typeof input.authorizationNo === "string"
+        ? input.authorizationNo.trim() || null
         : claim.authorizationNo;
 
     let priorAuthStatus = "NEEDS_REVIEW";
@@ -283,8 +289,8 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
     if (required === true && !authorizationNo) priorAuthStatus = "REQUIRED";
 
     const expiry =
-      req.body.expiry != null && req.body.expiry !== ""
-        ? new Date(req.body.expiry)
+      input.expiry != null && input.expiry !== ""
+        ? new Date(input.expiry)
         : claim.priorAuthExpiry;
 
     if (expiry && Number.isNaN(new Date(expiry).getTime())) {
@@ -378,20 +384,9 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
 
 router.patch("/:id/journey/claim-status", async (req, res) => {
   try {
-    const allowed = [
-      "ACKNOWLEDGED",
-      "IN_REVIEW",
-      "APPROVED",
-      "PARTIALLY_APPROVED",
-      "DENIED",
-      "PAID"
-    ];
-    const payerClaimStatus = String(req.body.payerClaimStatus || "").toUpperCase();
-
-    if (!allowed.includes(payerClaimStatus)) {
-      return res.status(400).json({ error: "Invalid payer claim status" });
-    }
-
+    const parsedInput = parseMutation(payerClaimStatusSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
+    const { payerClaimStatus } = parsedInput.data;
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
@@ -539,13 +534,10 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
 
 router.patch("/:id/journey/remittance", async (req, res) => {
   try {
-    const allowedStatuses = ["AWAITING", "RECEIVED", "POSTED"];
-    const remittanceStatus = String(req.body.remittanceStatus || "").toUpperCase();
-
-    if (!allowedStatuses.includes(remittanceStatus)) {
-      return res.status(400).json({ error: "Invalid remittance status" });
-    }
-
+    const parsedInput = parseMutation(remittanceMutationSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
+    const input = parsedInput.data;
+    const { remittanceStatus } = input;
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
@@ -582,12 +574,12 @@ router.patch("/:id/journey/remittance", async (req, res) => {
       return amount;
     };
 
-    const allowedAmount = parseOptionalMoney(req.body.allowedAmount, "Allowed amount");
+    const allowedAmount = parseOptionalMoney(input.allowedAmount, "Allowed amount");
     const requestedPatientResponsibility = parseOptionalMoney(
-      req.body.patientResponsibility,
+      input.patientResponsibility,
       "Patient responsibility"
     );
-    const paidAmount = parseOptionalMoney(req.body.paidAmount, "Paid amount");
+    const paidAmount = parseOptionalMoney(input.paidAmount, "Paid amount");
 
     if (
       ["RECEIVED", "POSTED"].includes(remittanceStatus) &&
@@ -622,8 +614,8 @@ router.patch("/:id/journey/remittance", async (req, res) => {
         : null;
 
     const normalizedPaymentReference =
-      typeof req.body.paymentReference === "string"
-        ? req.body.paymentReference.trim() || null
+      typeof input.paymentReference === "string"
+        ? input.paymentReference.trim() || null
         : null;
 
     const remittanceUnchanged =
