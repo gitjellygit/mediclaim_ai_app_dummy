@@ -1,3 +1,5 @@
+import { formatUSD } from "../../../utils/currency.js";
+
 export const DOC_TYPES = [
   "DISCHARGE_SUMMARY",
   "FINAL_BILL",
@@ -55,16 +57,7 @@ export function formatDate(value) {
   }).format(date);
 }
 
-export function formatMoney(value) {
-  if (value == null || value === "") return "—";
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2
-  }).format(amount);
-}
+export const formatMoney = formatUSD;
 
 export function riskChipColor(level) {
   if (level === "HIGH") return "error";
