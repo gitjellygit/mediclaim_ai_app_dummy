@@ -2028,10 +2028,15 @@ test("74 - claim update saves encounter fields used by completeness fixes", { co
 });
 
 test("75 - claim detail exposes clickable context-aware completeness and N/A states", { concurrency: false }, () => {
-  const source = fs.readFileSync(
+  const detailSource = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
+  const completenessSource = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimCompletenessCard.jsx"),
+    "utf8"
+  );
+  const source = `${detailSource}\n${completenessSource}`;
 
   assert.match(source, /Claim Completeness/);
   assert.match(source, /Context-aware/);
