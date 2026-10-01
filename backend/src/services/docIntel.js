@@ -12,7 +12,7 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client
 
 import { PDFParse } from "pdf-parse";
 
-const REGION = process.env.AWS_REGION || "ap-south-1";
+const REGION = process.env.AWS_REGION || "us-east-1";
 const TEXTRACT_BUCKET = process.env.AWS_TEXTRACT_S3_BUCKET;
 
 const textract = new TextractClient({ region: REGION });
@@ -280,13 +280,12 @@ function extractFields(text) {
   ]);
 
   const amountText = firstMatch(t, [
-    /Grand\s*Total\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Net\s*Amount\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Total\s*Amount\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Total\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Balance\s*Due\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Amount\s*Due\s*[:\-]?\s*(?:₹|Rs\.?|INR|USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /₹\s*([0-9,]+\.?[0-9]*)/i,
+    /Grand\s*Total\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Net\s*Amount\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Total\s*Amount\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Total\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Balance\s*Due\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
+    /Amount\s*Due\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
     /\$\s*([0-9,]+\.?[0-9]*)/i
   ]);
 
@@ -395,8 +394,8 @@ export function classifyDocument({ fileName, text }) {
   }
 
   if (
-    hasAny(name, ["aadhaar", "aadhar", "pan", "passport"]) ||
-    hasAny(text, ["aadhaar", "aadhar", "permanent account number"])
+    hasAny(name, ["drivers license", "driver license", "state id", "passport"]) ||
+    hasAny(text, ["driver license", "drivers license", "state identification", "passport number"])
   ) {
     return { suggestedType: "ID_PROOF", confidence: 80 };
   }
