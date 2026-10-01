@@ -1342,14 +1342,14 @@ test("44 - claim detail defaults document type to AI auto detection", { concurre
 
 test("45 - claim automation summary chips are clickable and filter field buckets", { concurrency: false }, () => {
   const source = fs.readFileSync(
-    path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
+    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimAutomationCard.jsx"),
     "utf8"
   );
 
-  assert.match(source, /showAutomationBucket\("automated"\)/);
-  assert.match(source, /showAutomationBucket\("review"\)/);
-  assert.match(source, /showAutomationBucket\("manual"\)/);
-  assert.match(source, /showAutomationBucket\("missing"\)/);
+  assert.match(source, /showBucket\("automated"\)/);
+  assert.match(source, /showBucket\("review"\)/);
+  assert.match(source, /showBucket\("manual"\)/);
+  assert.match(source, /showBucket\("missing"\)/);
   assert.match(source, /Missing fields — click a field to complete it/);
   assert.match(source, /Fields needing review — click a field to resolve it/);
 });
