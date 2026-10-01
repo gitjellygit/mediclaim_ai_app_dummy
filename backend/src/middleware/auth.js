@@ -19,7 +19,7 @@ export function requireAuth(req, res, next) {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     
     // Validate token structure
-    if (!payload.sub || !payload.email || !payload.role) {
+    if (!payload.sub || !payload.email || !payload.role || !payload.organizationId) {
       return res.status(401).json({ 
         error: "Invalid token",
         message: "Token missing required claims"
@@ -31,6 +31,7 @@ export function requireAuth(req, res, next) {
       id: payload.sub,
       email: payload.email,
       role: payload.role,
+      organizationId: payload.organizationId,
       iat: payload.iat,
       exp: payload.exp
     };
@@ -97,11 +98,12 @@ export function optionalAuth(req, res, next) {
   if (token) {
     try {
       const payload = jwt.verify(token, process.env.JWT_SECRET);
-      if (payload.sub && payload.email && payload.role) {
+      if (payload.sub && payload.email && payload.role && payload.organizationId) {
         req.user = {
           id: payload.sub,
           email: payload.email,
-          role: payload.role
+          role: payload.role,
+          organizationId: payload.organizationId
         };
       }
     } catch {
