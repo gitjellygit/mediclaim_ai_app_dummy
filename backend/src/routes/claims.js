@@ -1,5 +1,6 @@
 import { validMoney } from "../utils/money.js";
 import { z } from "zod";
+import { claimUpdateSchema, emptyMutationSchema, parseMutation } from "../validation/claimMutations.js";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
@@ -428,6 +429,11 @@ router.post("/", async (req, res) => {
 
 router.patch("/:id", async (req, res) => {
   try {
+    const parsedInput = parseMutation(claimUpdateSchema, req.body);
+    if (!parsedInput.ok) {
+      return res.status(400).json(parsedInput.response);
+    }
+    const input = parsedInput.data;
     const existing = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
     });
@@ -443,38 +449,38 @@ router.patch("/:id", async (req, res) => {
     }
 
     const payload = {
-      patientName: req.body.patientName,
-      payerName: req.body.payerName,
-      policyNo: req.body.policyNo || null,
-      memberId: req.body.memberId || null,
+      patientName: input.patientName,
+      payerName: input.payerName,
+      policyNo: input.policyNo || null,
+      memberId: input.memberId || null,
       patientDob:
-        req.body.patientDob
-          ? new Date(req.body.patientDob)
+        input.patientDob
+          ? new Date(input.patientDob)
           : null,
-      hospitalName: req.body.hospitalName || null,
-      diagnosisText: req.body.diagnosisText || null,
-      claimType: req.body.claimType,
-      dateOfService: req.body.dateOfService ? new Date(req.body.dateOfService) : null,
-      admissionDate: req.body.admissionDate ? new Date(req.body.admissionDate) : null,
-      dischargeDate: req.body.dischargeDate ? new Date(req.body.dischargeDate) : null,
-      admissionType: req.body.admissionType || null,
-      roomCategory: req.body.roomCategory || null,
+      hospitalName: input.hospitalName || null,
+      diagnosisText: input.diagnosisText || null,
+      claimType: input.claimType,
+      dateOfService: input.dateOfService ? new Date(input.dateOfService) : null,
+      admissionDate: input.admissionDate ? new Date(input.admissionDate) : null,
+      dischargeDate: input.dischargeDate ? new Date(input.dischargeDate) : null,
+      admissionType: input.admissionType || null,
+      roomCategory: input.roomCategory || null,
       icuDays:
-        req.body.icuDays != null && req.body.icuDays !== ""
-          ? Number(req.body.icuDays)
+        input.icuDays != null && input.icuDays !== ""
+          ? Number(input.icuDays)
           : null,
-      procedureText: req.body.procedureText || null,
-      procedureDate: req.body.procedureDate ? new Date(req.body.procedureDate) : null,
-      icd10Codes: Array.isArray(req.body.icd10Codes)
-        ? req.body.icd10Codes
+      procedureText: input.procedureText || null,
+      procedureDate: input.procedureDate ? new Date(input.procedureDate) : null,
+      icd10Codes: Array.isArray(input.icd10Codes)
+        ? input.icd10Codes
         : [],
-      amount: req.body.amount != null && req.body.amount !== ""
-        ? validMoney(req.body.amount)
+      amount: input.amount != null && input.amount !== ""
+        ? validMoney(input.amount)
         : null,
       totalBilledAmount:
-        req.body.totalBilledAmount != null &&
-        req.body.totalBilledAmount !== ""
-          ? validMoney(req.body.totalBilledAmount)
+        input.totalBilledAmount != null &&
+        input.totalBilledAmount !== ""
+          ? validMoney(input.totalBilledAmount)
           : null
     };
 
@@ -630,6 +636,10 @@ router.delete("/documents/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =
 
 router.post("/:id/check", async (req, res) => {
   try {
+    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    if (!parsedInput.ok) {
+      return res.status(400).json(parsedInput.response);
+    }
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: { documents: true }
@@ -827,6 +837,10 @@ router.post("/:id/check", async (req, res) => {
 
 router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
   try {
+    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    if (!parsedInput.ok) {
+      return res.status(400).json(parsedInput.response);
+    }
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
