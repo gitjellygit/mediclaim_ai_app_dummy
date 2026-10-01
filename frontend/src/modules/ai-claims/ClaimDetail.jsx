@@ -16,105 +16,21 @@ import { AuthApi } from "../../api/auth.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import AICheckProgress from "../../components/AICheckProgress.jsx";
 import { api } from "../../api/client.js";
+import ClaimSummaryCard from "./claim-detail/ClaimSummaryCard.jsx";
+import { useClaimDetailData } from "./claim-detail/useClaimDetailData.js";
+import {
+  DOC_TYPES,
+  DOC_TYPE_LABELS,
+  pct,
+  formatDate,
+  formatMoney,
+  riskChipColor,
+  readinessColor,
+  readinessTextColor,
+  provenanceChipColor
+} from "./claim-detail/claimDetailUtils.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
-
-const DOC_TYPES = [
-  "DISCHARGE_SUMMARY",
-  "FINAL_BILL",
-  "BREAKUP_BILL",
-  "LAB_REPORT",
-  "RADIOLOGY",
-  "PRESCRIPTION",
-  "ID_PROOF",
-  "INSURANCE_CARD",
-  "PRIOR_AUTHORIZATION",
-  "OPERATIVE_NOTE",
-  "PROGRESS_NOTE",
-  "EOB",
-  "OTHER"
-];
-
-const DOC_TYPE_LABELS = {
-  DISCHARGE_SUMMARY: "Discharge Summary",
-  FINAL_BILL: "Final Bill",
-  BREAKUP_BILL: "Itemized / Breakup Bill",
-  LAB_REPORT: "Lab Report",
-  RADIOLOGY: "Radiology Report",
-  PRESCRIPTION: "Prescription",
-  ID_PROOF: "ID Proof",
-  INSURANCE_CARD: "Insurance Card",
-  PRIOR_AUTHORIZATION: "Prior Authorization",
-  OPERATIVE_NOTE: "Operative Note",
-  PROGRESS_NOTE: "Progress Note",
-  EOB: "Explanation of Benefits (EOB)",
-  OTHER: "Other"
-};
-
-const STATUS_COLOR = {
-  DRAFT: "default",
-  READY: "primary",
-  SUBMITTED: "warning",
-  PAID: "success",
-  REJECTED: "error"
-};
-
-function pct(x) {
-  if (typeof x !== "number") return "—";
-  return `${Math.round(x * 100)}%`;
-}
-
-function formatDate(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "2-digit",
-    day: "2-digit",
-    year: "numeric"
-  }).format(date);
-}
-
-function formatMoney(value) {
-  if (value == null || value === "") return "—";
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2
-  }).format(amount);
-}
-
-function riskChipColor(level) {
-  if (level === "HIGH") return "error";
-  if (level === "MED") return "warning";
-  if (level === "LOW") return "success";
-  return "default";
-}
-
-function readinessColor(score) {
-  const value = Number(score || 0);
-  if (value < 40) return "error";
-  if (value < 70) return "warning";
-  return "success";
-}
-
-function readinessTextColor(score) {
-  const value = Number(score || 0);
-  if (value < 40) return "error.main";
-  if (value < 70) return "warning.dark";
-  return "success.main";
-}
-
-
-function provenanceChipColor(source) {
-  if (source === "DOCUMENT_AI") return "secondary";
-  if (source === "CALCULATED_ESTIMATE") return "warning";
-  if (source === "LOCAL_PRECHECK" || source === "DERIVED") return "info";
-  if (source === "USER" || source === "USER_RECORDED") return "default";
-  return "default";
-}
 
 function SourceBadge({ claim, field }) {
   const source = claim?.fieldProvenance?.[field];
@@ -163,6 +79,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const returnTo = location.state?.from || "/claims";
   const backLabel = location.state?.backLabel || "Back to Claims";
   const onBack = onBackProp ?? (() => navigate(returnTo));
+  const { claim, setClaim, loading, load } = useClaimDetailData(id, location.key);
 
   const { showToast, showDialog, confirmDialog } = useToast();
   const user = AuthApi.getUser();
@@ -171,8 +88,6 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const canDeleteDoc = user?.role === "ADMIN" || user?.role === "CASHIER";
   const canEditClaim = !!user;
 
-  const [claim, setClaim] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
   const [docType, setDocType] = React.useState("AUTO");
   const [aiRunning, setAiRunning] = React.useState(false);
   const [submittingClaim, setSubmittingClaim] = React.useState(false);
@@ -194,58 +109,6 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const patientPolicyRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
-
-  async function load({ silent = false } = {}) {
-    if (!id) {
-      setLoading(false);
-      return;
-    }
-
-    if (!silent) setLoading(true);
-
-    try {
-      const data = await ClaimsApi.get(id);
-      setClaim(data);
-      return data;
-    } catch (e) {
-      if (!silent) setClaim(null);
-      throw e;
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }
-
-  React.useEffect(() => {
-    load();
-  }, [id]);
-
-  // Keep Claim Detail synchronized with updates performed on Claim Journey.
-  // Browser back/forward and tab focus can return to an already-mounted page,
-  // so refresh silently instead of showing stale eligibility/auth values.
-  React.useEffect(() => {
-    if (!id) return;
-
-    const refresh = () => {
-      load({ silent: true }).catch(() => {});
-    };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    return () => {
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [id]);
-
-  React.useEffect(() => {
-    if (!id) return;
-    load({ silent: true }).catch(() => {});
-  }, [location.key]);
 
   React.useEffect(() => {
     if (!claim) return;
@@ -1062,25 +925,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         )}
       </Stack>
 
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h5">{claim.patientName}</Typography>
-          <Typography color="text.secondary">
-            {claim.hospitalName || "Hospital"} • {claim.payerName}
-          </Typography>
-          <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: "wrap", gap: 1 }}>
-            <Chip label={claim.status} color={STATUS_COLOR[claim.status]} />
-            <Chip label={claim.claimType} variant="outlined" />
-            {claim.documents?.length > 1 && (
-              <Chip
-                label={`${claim.documents.length} documents consolidated in this claim`}
-                color="success"
-                variant="outlined"
-              />
-            )}
-          </Stack>
-        </CardContent>
-      </Card>
+      <ClaimSummaryCard claim={claim} />
 
       {claim.automationSummary && (
         <Card sx={{ mb: 3 }}>
