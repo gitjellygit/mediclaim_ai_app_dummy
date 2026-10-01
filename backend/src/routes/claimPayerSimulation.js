@@ -9,6 +9,7 @@ import {
 } from "../services/claimFieldProvenance.js";
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { createPayerConnector } from "../services/payerGateway.js";
+import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import {
   getMockPayer,
   listMockPayers,
@@ -122,7 +123,7 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
 
     await markReadinessChecksStale(prisma, claim.id, "Payer profile changed");
     if (claim.status === "READY") {
-      await prisma.claim.update({ where: { id: claim.id }, data: { status: "DRAFT" } });
+      await prisma.claim.update({ where: { id: claim.id }, data: { status: assertClaimTransition(claim.status, "DRAFT") } });
     }
 
     res.json({
@@ -450,7 +451,7 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
       data: {
         payerClaimStatus: result.status,
         claimStatusCheckedAt: new Date(),
-        status: overallStatus,
+        status: assertClaimTransition(claim.status, overallStatus),
         allowedAmount:
           result.allowedAmount != null ? result.allowedAmount : claim.allowedAmount,
         approvedAmount:
@@ -546,7 +547,7 @@ router.post("/:id/payer-simulation/remittance", async (req, res) => {
         paidAmount: result.paidAmount,
         patientResponsibility: result.patientResponsibility,
         paymentReference: result.paymentReference,
-        status: result.paidAmount > 0 ? "PAID" : claim.status,
+        status: assertClaimTransition(claim.status, result.paidAmount > 0 ? "PAID" : claim.status),
         payerClaimStatus: result.paidAmount > 0 ? "PAID" : claim.payerClaimStatus,
         fieldProvenance: mergeProvenance(
           claim.fieldProvenance,
