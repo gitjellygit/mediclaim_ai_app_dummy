@@ -1,6 +1,6 @@
 import React from "react";
 import { Card, CardContent, Chip, Stack, Typography } from "@mui/material";
-import { STATUS_COLOR } from "./claimDetailUtils.js";
+import { STATUS_COLOR, claimTypeLabel } from "./claimDetailUtils.js";
 
 export default function ClaimSummaryCard({ claim }) {
   return (
@@ -16,7 +16,7 @@ export default function ClaimSummaryCard({ claim }) {
           sx={{ mt: 2, flexWrap: "wrap", gap: 1 }}
         >
           <Chip label={claim.status} color={STATUS_COLOR[claim.status] || "default"} />
-          <Chip label={claim.claimType} variant="outlined" />
+          <Chip label={claimTypeLabel(claim.claimType)} variant="outlined" />
           {claim.documents?.length > 1 && (
             <Chip
               label={`${claim.documents.length} documents consolidated in this claim`}
