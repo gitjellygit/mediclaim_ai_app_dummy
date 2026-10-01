@@ -2735,6 +2735,71 @@ test("F3 - organization isolation blocks cross-tenant claim, document and denial
   await prisma.claim.deleteMany({ where: { id: foreignClaim.id } });
 });
 
+test("F4 - claim delete is soft, hidden from normal APIs, and retains an audit trail", { concurrency: false }, async () => {
+  const createResponse = await authFetch("/api/claims", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patientName: "Lifecycle Test F4 Soft Delete",
+      payerName: "Lifecycle Test Payer",
+      amount: "123.45",
+      totalBilledAmount: "123.45",
+      icd10Codes: []
+    })
+  });
+  assert.equal(createResponse.status, 200);
+  const claim = await createResponse.json();
+  const { doc } = await createDocument(claim.id, {
+    fileName: "f4-retained-document.txt",
+    contents: "soft delete retention"
+  });
+
+  const patchResponse = await authFetch(`/api/claims/${claim.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patientName: "Lifecycle Test F4 Updated",
+      payerName: "Lifecycle Test Payer",
+      amount: "123.45",
+      totalBilledAmount: "123.45",
+      icd10Codes: []
+    })
+  });
+  assert.equal(patchResponse.status, 200);
+
+  const auditBeforeDelete = await authFetch(`/api/claims/${claim.id}/audit`);
+  assert.equal(auditBeforeDelete.status, 200);
+  const beforeItems = (await auditBeforeDelete.json()).items;
+  assert.ok(beforeItems.some((event) => event.action === "CLAIM_CREATED"));
+  assert.ok(beforeItems.some((event) => event.action === "CLAIM_UPDATED"));
+
+  const deleteResponse = await authFetch(`/api/claims/${claim.id}`, { method: "DELETE" });
+  assert.equal(deleteResponse.status, 200);
+  assert.equal((await deleteResponse.json()).softDeleted, true);
+
+  const persisted = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.ok(persisted);
+  assert.ok(persisted.deletedAt instanceof Date);
+  assert.ok(await prisma.document.findUnique({ where: { id: doc.id } }));
+
+  assert.equal((await authFetch(`/api/claims/${claim.id}`)).status, 404);
+  const docsResponse = await authFetch(`/api/documents/claim/${claim.id}`);
+  assert.equal(docsResponse.status, 200);
+  assert.deepEqual(await docsResponse.json(), []);
+
+  const listResponse = await authFetch("/api/claims");
+  assert.equal(listResponse.status, 200);
+  assert.equal((await listResponse.json()).some((item) => item.id === claim.id), false);
+
+  const auditEvents = await prisma.auditEvent.findMany({
+    where: { claimId: claim.id },
+    orderBy: { createdAt: "asc" }
+  });
+  assert.ok(auditEvents.some((event) => event.action === "CLAIM_SOFT_DELETED"));
+  assert.ok(auditEvents.every((event) => event.organizationId === TEST_ORG_ID));
+  assert.ok(auditEvents.every((event) => event.actorUserId === testAdminId));
+});
+
 test("B7 - API errors retain consistent fields without database exception details", { concurrency: false }, async () => {
   const notFound = await authFetch("/api/rules/definitely-missing-rule");
   assert.equal(notFound.status, 404);
