@@ -360,7 +360,7 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
     if (claim.status === "READY") {
       await prisma.claim.update({
         where: { id: claim.id },
-        data: { status: "DRAFT" }
+        data: { status: assertClaimTransition(claim.status, "DRAFT") }
       });
     }
 
