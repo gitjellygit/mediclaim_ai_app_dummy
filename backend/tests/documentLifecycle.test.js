@@ -2749,6 +2749,89 @@ test("F3 - organization isolation blocks cross-tenant claim, document and denial
   await prisma.claim.deleteMany({ where: { id: foreignClaim.id } });
 });
 
+test("F6 - remaining claim and journey mutations reject unsupported fields", { concurrency: false }, async () => {
+  const claim = await createClaim();
+
+  const patch = await authFetch(`/api/claims/${claim.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      patientName: claim.patientName,
+      payerName: claim.payerName,
+      policyNo: claim.policyNo,
+      memberId: claim.memberId,
+      amount: "1200.00",
+      totalBilledAmount: "1200.00",
+      icd10Codes: ["Z00.00"],
+      status: "PAID"
+    })
+  });
+  assert.equal(patch.status, 400);
+  assert.equal((await patch.json()).code, "INVALID_REQUEST_INPUT");
+
+  const eligibility = await authFetch(`/api/claims/${claim.id}/journey/eligibility/precheck`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ organizationId: "attacker-controlled-org" })
+  });
+  assert.equal(eligibility.status, 400);
+  assert.equal((await eligibility.json()).code, "INVALID_REQUEST_INPUT");
+
+  const priorAuth = await authFetch(`/api/claims/${claim.id}/journey/prior-auth/evaluate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ required: false, createdById: "other-user" })
+  });
+  assert.equal(priorAuth.status, 400);
+  assert.equal((await priorAuth.json()).code, "INVALID_REQUEST_INPUT");
+
+  const payerConnect = await authFetch(`/api/claims/${claim.id}/payer-simulation/connect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payerCode: "BLUE_HORIZON", status: "PAID" })
+  });
+  assert.equal(payerConnect.status, 400);
+  assert.equal((await payerConnect.json()).code, "INVALID_REQUEST_INPUT");
+
+  const readiness = await authFetch(`/api/claims/${claim.id}/check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ score: 100 })
+  });
+  assert.equal(readiness.status, 400);
+  assert.equal((await readiness.json()).code, "INVALID_REQUEST_INPUT");
+
+  const unchanged = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(unchanged.status, "DRAFT");
+  assert.equal(unchanged.organizationId, TEST_ORG_ID);
+});
+
+test("F6 - valid normalized journey payloads still pass the validation boundary", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: {
+      memberId: "F6-MEMBER",
+      policyNo: "F6-POLICY",
+      eligibilityStatus: "VERIFIED"
+    }
+  });
+
+  const response = await authFetch(`/api/claims/${claim.id}/journey/prior-auth/evaluate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      required: true,
+      authorizationNo: "AUTH-F6-100",
+      expiry: "2026-12-31"
+    })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "APPROVED");
+});
+
 test("F4 - claim delete is soft, hidden from normal APIs, and retains an audit trail", { concurrency: false }, async () => {
   const createResponse = await authFetch("/api/claims", {
     method: "POST",
