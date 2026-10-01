@@ -1,25 +1,19 @@
-import { validMoney, moneyCents, differenceMoney } from "../utils/money.js";
+import { validMoney } from "../utils/money.js";
 import { z } from "zod";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
 import express from "express";
 import { requireRoles } from "../middleware/auth.js";
-import fs from "fs";
 import { prisma } from "../db.js";
 import claimPayerSimulationRouter from "./claimPayerSimulation.js";
 import claimJourneyRouter from "./claimJourney.js";
-import {
-  removeManuallyEditedFields,
-  recomputeDerivedClaimPatch
-} from "../services/claimDocumentProvenance.js";
+import { removeManuallyEditedFields } from "../services/claimDocumentProvenance.js";
 import {
   buildAutomationSummary,
   changedFields,
   manualProvenance,
-  mergeProvenance,
-  removeProvenanceFields,
-  systemProvenance
+  mergeProvenance
 } from "../services/claimFieldProvenance.js";
 import {
   compareReadinessChecks,
@@ -31,17 +25,6 @@ import {
 } from "../services/claimCompleteness.js";
 import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
-import { createPayerConnector } from "../services/payerGateway.js";
-import {
-  getMockPayer,
-  listMockPayers,
-  simulateEligibility,
-  simulatePriorAuth,
-  simulateSubmission,
-  simulateStatus,
-  simulateRemittance,
-  payerInputFingerprint
-} from "../services/payerSimulator.js";
 
 const router = express.Router();
 
