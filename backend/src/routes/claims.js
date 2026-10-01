@@ -1,6 +1,7 @@
 import { validMoney } from "../utils/money.js";
 import { z } from "zod";
 import { claimUpdateSchema, emptyMutationSchema, parseMutation } from "../validation/claimMutations.js";
+import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
@@ -548,13 +549,14 @@ router.patch("/:id", async (req, res) => {
       manualProvenance(manuallyChangedFields)
     );
 
+    const editStatus = assertClaimTransition(existing.status, "DRAFT");
     await prisma.claim.update({
       where: { id: req.params.id },
       data: {
         ...payload,
         documentDerivedFields,
         fieldProvenance,
-        status: "DRAFT"
+        status: editStatus
       }
     });
 
@@ -809,11 +811,13 @@ router.post("/:id/check", async (req, res) => {
       }
     });
 
+    const readinessStatus = assertClaimTransition(
+      claim.status,
+      !hasBlock && readinessScore >= 80 ? "READY" : "DRAFT"
+    );
     await prisma.claim.update({
       where: { id: claim.id },
-      data: {
-        status: !hasBlock && readinessScore >= 80 ? "READY" : "DRAFT"
-      }
+      data: { status: readinessStatus }
     });
 
     res.json({
@@ -906,10 +910,11 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       });
     }
 
+    const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED");
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
-        status: "SUBMITTED",
+        status: submittedStatus,
         claimSubmissionDate: new Date(),
         payerClaimStatus: "SUBMITTED",
         claimStatusCheckedAt: new Date(),
