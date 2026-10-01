@@ -36,6 +36,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 import { useToast } from "../../context/ToastContext.jsx";
+import { formatUSD } from "../../utils/currency.js";
 
 const statusColor = {
   DRAFT: "default",
@@ -477,7 +478,7 @@ export default function ClaimsList() {
                 </TableCell>
 
                 <TableCell>
-                  {claim.amount == null ? "—" : `${claim.amount}`}
+                  {formatUSD(claim.amount)}
                 </TableCell>
 
                 <TableCell>
