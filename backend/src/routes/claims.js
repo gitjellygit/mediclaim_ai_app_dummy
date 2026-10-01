@@ -360,7 +360,7 @@ router.post("/", async (req, res) => {
       admissionType: z.enum(["PLANNED", "EMERGENCY"]).nullish(),
       roomCategory: z.enum(["GENERAL", "SEMI_PRIVATE", "PRIVATE", "ICU"]).nullish(),
       icuDays: z.coerce.number().int().nonnegative().nullish(),
-      claimType: z.enum(["CASHLESS", "REIMBURSEMENT"]).optional()
+      claimType: z.enum(["PROVIDER_BILLED", "MEMBER_REIMBURSEMENT"]).optional()
     }).strict();
     const parsed = claimCreateSchema.safeParse(req.body);
     if (!parsed.success) {
