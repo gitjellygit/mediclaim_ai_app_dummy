@@ -1,4 +1,5 @@
 import express from "express";
+import { emptyMutationSchema, parseMutation, payerConnectSchema, payerPriorAuthSchema } from "../validation/claimMutations.js";
 import { prisma } from "../db.js";
 import { differenceMoney } from "../utils/money.js";
 import {
@@ -55,7 +56,9 @@ async function getSimulationClaim(id, organizationId) {
 
 router.post("/:id/payer-simulation/connect", async (req, res) => {
   try {
-    const payerCode = String(req.body.payerCode || "").trim().toUpperCase();
+    const parsedInput = parseMutation(payerConnectSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
+    const { payerCode } = parsedInput.data;
     const payer = getMockPayer(payerCode);
     if (!payer) return res.status(400).json({ error: "Unknown mock payer" });
 
@@ -138,6 +141,8 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
 
 router.post("/:id/payer-simulation/eligibility", async (req, res) => {
   try {
+    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
     const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
@@ -220,6 +225,9 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
 
 router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
   try {
+    const parsedInput = parseMutation(payerPriorAuthSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
+    const input = parsedInput.data;
     const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
@@ -234,8 +242,8 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
     }
 
     const requestedAuthorizationNo =
-      typeof req.body?.authorizationNo === "string"
-        ? req.body.authorizationNo.trim() || null
+      typeof input.authorizationNo === "string"
+        ? input.authorizationNo.trim() || null
         : claim.authorizationNo;
 
     const claimForAuth = {
@@ -309,6 +317,8 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
 
 router.post("/:id/payer-simulation/submission", async (req, res) => {
   try {
+    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
     const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
@@ -386,6 +396,8 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
 
 router.post("/:id/payer-simulation/status", async (req, res) => {
   try {
+    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
     const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
@@ -501,6 +513,8 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
 
 router.post("/:id/payer-simulation/remittance", async (req, res) => {
   try {
+    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
     const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
