@@ -1392,6 +1392,7 @@ router.get("/medical-consistency/summary", async (req, res) => {
 
     const where = q
       ? {
+          organizationId: orgId(req),
           OR: [
             { id: { equals: q } },
             { patientName: { contains: q, mode: "insensitive" } },
@@ -1400,7 +1401,7 @@ router.get("/medical-consistency/summary", async (req, res) => {
             { memberId: { contains: q, mode: "insensitive" } }
           ]
         }
-      : {};
+      : { organizationId: orgId(req) };
 
     const claims = await prisma.claim.findMany({
       where,
