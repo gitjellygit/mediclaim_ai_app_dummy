@@ -2500,9 +2500,23 @@ test("97 - payer Journey UI uses one action surface and client-facing wording", 
 });
 
 
+test("F5 - claims router delegates payer simulation and journey concerns to focused modules", () => {
+  const claimsSource = fs.readFileSync(path.join(backendRoot, "src/routes/claims.js"), "utf8");
+  const payerSource = fs.readFileSync(path.join(backendRoot, "src/routes/claimPayerSimulation.js"), "utf8");
+  const journeySource = fs.readFileSync(path.join(backendRoot, "src/routes/claimJourney.js"), "utf8");
+
+  assert.match(claimsSource, /router\.use\(claimPayerSimulationRouter\)/);
+  assert.match(claimsSource, /router\.use\(claimJourneyRouter\)/);
+  assert.doesNotMatch(claimsSource, /router\.post\("\/:id\/payer-simulation/);
+  assert.doesNotMatch(claimsSource, /router\.post\("\/:id\/journey\/eligibility/);
+  assert.match(payerSource, /router\.post\("\/:id\/payer-simulation\/eligibility/);
+  assert.match(journeySource, /router\.post\("\/:id\/journey\/eligibility\/precheck/);
+  assert.ok(claimsSource.split("\n").length < 1200);
+});
+
 test("98 - payer switch requires fresh eligibility and authorization", { concurrency: false }, () => {
   const routeSource = fs.readFileSync(
-    path.join(backendRoot, "src/routes/claims.js"),
+    path.join(backendRoot, "src/routes/claimPayerSimulation.js"),
     "utf8"
   );
   assert.match(routeSource, /simulatedPayerCode: payer.code,[\s\S]*eligibilityStatus: "NOT_CHECKED"/);
@@ -2511,7 +2525,7 @@ test("98 - payer switch requires fresh eligibility and authorization", { concurr
 
 test("99 - status polling requires acknowledged transmission", { concurrency: false }, () => {
   const routeSource = fs.readFileSync(
-    path.join(backendRoot, "src/routes/claims.js"),
+    path.join(backendRoot, "src/routes/claimPayerSimulation.js"),
     "utf8"
   );
   assert.match(routeSource, /Wait until the claim has been transmitted and acknowledged/);
