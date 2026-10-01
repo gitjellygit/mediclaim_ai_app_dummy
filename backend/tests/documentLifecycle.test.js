@@ -1041,10 +1041,15 @@ test("31 - claim journey renders human-readable status labels and actionable eli
 });
 
 test("32 - document type selector uses Material menu items and supports radiology and prescription", { concurrency: false }, () => {
-  const source = fs.readFileSync(
+  const detailSource = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
+  const utilsSource = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/claimDetailUtils.js"),
+    "utf8"
+  );
+  const source = `${detailSource}\n${utilsSource}`;
 
   assert.match(source, /<MenuItem/);
   assert.match(source, /RADIOLOGY:\s*"Radiology Report"/);
@@ -1241,15 +1246,20 @@ test("39 - automation summary separates automatic, manual, review and missing fi
 });
 
 test("40 - claim detail exposes automation summary and visible source badges", { concurrency: false }, () => {
-  const source = fs.readFileSync(
+  const detailSource = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
+  const automationSource = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimAutomationCard.jsx"),
+    "utf8"
+  );
+  const source = `${detailSource}\n${automationSource}`;
 
   assert.match(source, /Claim Automation/);
   assert.match(source, /View Field Sources/);
   assert.match(source, /source\.label/);
-  assert.match(source, /automationSummary\.automationRate/);
+  assert.match(source, /automationRate/);
   assert.match(source, /SourceBadge/);
 });
 
@@ -1747,10 +1757,15 @@ test("61 - stale AI check cannot be used for claim submission", { concurrency: f
 });
 
 test("62 - readiness UI uses red yellow green thresholds and history", { concurrency: false }, () => {
-  const source = fs.readFileSync(
+  const detailSource = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
+  const utilsSource = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/claimDetailUtils.js"),
+    "utf8"
+  );
+  const source = `${detailSource}\n${utilsSource}`;
 
   assert.match(source, /if \(value < 40\) return "error"/);
   assert.match(source, /if \(value < 70\) return "warning"/);
@@ -1827,14 +1842,19 @@ test("66 - AI analysis dialog shows domain-specific staged workflow", { concurre
 
 
 test("67 - claim detail silently refreshes after journey navigation or tab focus", { concurrency: false }, () => {
-  const source = fs.readFileSync(
+  const detailSource = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
+  const hookSource = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/useClaimDetailData.js"),
+    "utf8"
+  );
+  const source = `${detailSource}\n${hookSource}`;
 
   assert.match(source, /window\.addEventListener\("focus", refresh\)/);
   assert.match(source, /document\.addEventListener\("visibilitychange", handleVisibility\)/);
-  assert.match(source, /\[location\.key\]/);
+  assert.match(detailSource, /useClaimDetailData\(id, location\.key\)/);
   assert.match(source, /load\(\{ silent: true \}\)/);
 });
 
