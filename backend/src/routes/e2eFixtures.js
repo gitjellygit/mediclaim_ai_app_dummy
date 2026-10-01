@@ -345,6 +345,8 @@ router.post("/e2e/payer-journey/seed", async (req, res) => {
       const claim = await prisma.claim.create({
         data: {
           ...scenario.claim,
+          organizationId: req.user.organizationId,
+          createdById: req.user.id,
           documents: { create: scenario.documents }
         }
       });
