@@ -347,6 +347,11 @@ router.post("/", async (req, res) => {
       totalBilledAmount: z.coerce.number().positive().finite().nullish(),
       policyNo: z.string().trim().max(100).nullish(),
       memberId: z.string().trim().max(100).nullish(),
+      medicalRecordNumber: z.string().trim().max(100).nullish(),
+      planAdministratorName: z.string().trim().max(250).nullish(),
+      coverageLimit: z.coerce.number().nonnegative().finite().nullish(),
+      remainingCoverageLimit: z.coerce.number().nonnegative().finite().nullish(),
+      payerReferenceNo: z.string().trim().max(100).nullish(),
       patientDob: z.string().nullish(),
       hospitalName: z.string().trim().max(250).nullish(),
       doctorName: z.string().trim().max(250).nullish(),
@@ -374,7 +379,7 @@ router.post("/", async (req, res) => {
       ...parsed.data,
       status: "DRAFT"
     };
-    for (const key of ["amount", "totalBilledAmount"]) {
+    for (const key of ["amount", "totalBilledAmount", "coverageLimit", "remainingCoverageLimit"]) {
       if (createPayload[key] == null) continue;
       const canonical = validMoney(createPayload[key]);
       if (canonical == null) {
@@ -454,6 +459,17 @@ router.patch("/:id", async (req, res) => {
       payerName: input.payerName,
       policyNo: input.policyNo || null,
       memberId: input.memberId || null,
+      medicalRecordNumber: input.medicalRecordNumber || null,
+      planAdministratorName: input.planAdministratorName || null,
+      coverageLimit:
+        input.coverageLimit != null && input.coverageLimit !== ""
+          ? validMoney(input.coverageLimit)
+          : null,
+      remainingCoverageLimit:
+        input.remainingCoverageLimit != null && input.remainingCoverageLimit !== ""
+          ? validMoney(input.remainingCoverageLimit)
+          : null,
+      payerReferenceNo: input.payerReferenceNo || null,
       patientDob:
         input.patientDob
           ? new Date(input.patientDob)
@@ -530,7 +546,7 @@ router.patch("/:id", async (req, res) => {
     }
 
     // Reject invalid money before writing or changing provenance.
-    for (const name of ["amount", "totalBilledAmount"]) {
+    for (const name of ["amount", "totalBilledAmount", "coverageLimit", "remainingCoverageLimit"]) {
       const supplied = req.body[name];
       if (supplied != null && supplied !== "" && validMoney(supplied) == null) {
         return res.status(400).json({ error: "Invalid money", message: `${name} must have at most two decimal places`, code: "INVALID_MONEY" });
