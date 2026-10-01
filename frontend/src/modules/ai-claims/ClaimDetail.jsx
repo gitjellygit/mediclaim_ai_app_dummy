@@ -138,7 +138,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       procedureDate: claim.procedureDate
         ? new Date(claim.procedureDate).toISOString().slice(0, 10)
         : "",
-      claimType: claim.claimType || "REIMBURSEMENT"
+      claimType: claim.claimType || "MEMBER_REIMBURSEMENT"
     });
   }, [claim]);
 
@@ -177,7 +177,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       procedureDate: claim.procedureDate
         ? new Date(claim.procedureDate).toISOString().slice(0, 10)
         : "",
-      claimType: claim.claimType || "REIMBURSEMENT"
+      claimType: claim.claimType || "MEMBER_REIMBURSEMENT"
     });
   }
 
@@ -1000,7 +1000,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   <FieldLine claim={claim} field="patientDob" label="DOB">{formatDate(claim.patientDob)}</FieldLine>
                   <FieldLine claim={claim} field="policyNo" label="Policy No">{claim.policyNo || "—"}</FieldLine>
                   <FieldLine claim={claim} field="payerName" label="Payer">{claim.payerName || "—"}</FieldLine>
-                  <Typography><b>TPA:</b> {claim.tpaName || "—"}</Typography>
+                  <Typography><b>Plan Administrator:</b> {claim.planAdministratorName || "—"}</Typography>
                   <Typography><b>Policy Type:</b> {claim.productType || "—"}</Typography>
                 </Box>
               </Box>
