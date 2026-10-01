@@ -9,7 +9,9 @@ export async function serveStoredDocument(prisma, req, res, {
   download = false,
   uploadDir = process.env.UPLOAD_DIR || "uploads"
 } = {}) {
-  const doc = await prisma.document.findUnique({ where: { id: req.params.id } });
+  const doc = await prisma.document.findFirst({
+    where: { id: req.params.id, claim: { organizationId: req.user.organizationId } }
+  });
   if (!doc) return res.status(404).json({ error: "Document not found" });
 
   const filePath = resolveStoredDocument(doc.path, uploadDir);
