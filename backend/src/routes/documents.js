@@ -20,7 +20,7 @@ import { parseClaimDate } from "../utils/claimDate.js";
 import { selectSmartUploadMatch } from "../services/smartUploadMatch.js";
 import { resolveStoredDocument } from "../services/storedDocumentPath.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
-import { analyzeDocument, DOC_TYPES } from "../services/docIntel.js";
+import { analyzeDocument, DOC_TYPES, getFileHash } from "../services/docIntel.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
 import {
   getExtractedPatientName,
@@ -160,6 +160,8 @@ export function documentsRouter(prisma, uploadDir) {
 
       const recentClaims = await prisma.claim.findMany({
         where: {
+          organizationId: req.user.organizationId,
+          deletedAt: null,
           patientName: {
             equals: patientName,
             mode: "insensitive"
@@ -178,6 +180,8 @@ export function documentsRouter(prisma, uploadDir) {
 
       if (!claim) {
         const claimData = {
+          organizationId: req.user.organizationId,
+          createdById: req.user.id,
           patientName,
           payerName,
           amount,
@@ -520,6 +524,25 @@ export function documentsRouter(prisma, uploadDir) {
       });
     }
 
+    const fileHash = getFileHash(req.file.path);
+
+    const duplicateInClaim = await prisma.document.findFirst({
+      where: { claimId, fileHash },
+      select: { id: true }
+    });
+
+    if (duplicateInClaim) {
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+
+      return res.status(409).json({
+        error: "Duplicate document",
+        message: "This document is already attached to this claim.",
+        code: "DOCUMENT_DUPLICATE"
+      });
+    }
+
     const intel = await analyzeDocument({
       fileName: req.file.originalname,
       mimeType: req.file.mimetype,
@@ -562,6 +585,7 @@ export function documentsRouter(prisma, uploadDir) {
         mimeType: req.file.mimetype,
         sizeBytes: req.file.size,
         path: req.file.filename,
+        fileHash,
         suggestedType: intel.suggestedType,
         confidence: intel.confidence,
         extracted: intel.extracted,
@@ -649,6 +673,14 @@ export function documentsRouter(prisma, uploadDir) {
       } catch {
         // Best-effort cleanup; do not expose filesystem details to the client.
       }
+    }
+
+    if (e?.code === "P2002") {
+      return res.status(409).json({
+        error: "Duplicate document",
+        message: "This document is already attached to this claim.",
+        code: "DOCUMENT_DUPLICATE"
+      });
     }
 
     console.error("[claim-document] upload failed", {
