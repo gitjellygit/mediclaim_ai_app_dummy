@@ -44,8 +44,8 @@ function clean(value) {
 }
 
 function hasAny(text, keywords) {
-  // Whole word/phrase boundaries prevent "ct" matching "doctor" or
-  // "pan" matching "panel". Treat filename hyphens/underscores as spaces.
+  // Whole word/phrase boundaries prevent short clinical terms from matching
+  // unrelated words. Treat filename hyphens/underscores as spaces.
   const tokens = norm(text).replace(/[_-]/g, " ");
   return keywords.some((keyword) => {
     const phrase = norm(keyword).replace(/[_-]/g, " ");
