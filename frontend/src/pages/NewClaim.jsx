@@ -254,7 +254,7 @@ export default function NewClaim() {
                 value={form.claimType}
                 onChange={(e) => update("claimType", e.target.value)}
               >
-                <MenuItem value="MEMBER_REIMBURSEMENT">Reimbursement</MenuItem>
+                <MenuItem value="MEMBER_REIMBURSEMENT">Member Reimbursement</MenuItem>
                 <MenuItem value="PROVIDER_BILLED">Provider Billed</MenuItem>
               </TextField>
 
