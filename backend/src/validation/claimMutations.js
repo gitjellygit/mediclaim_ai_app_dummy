@@ -13,7 +13,7 @@ export const claimUpdateSchema = z.object({
   patientDob: optionalDateString,
   hospitalName: z.string().trim().max(250).nullish(),
   diagnosisText: z.string().max(6000).nullish(),
-  claimType: z.enum(["CASHLESS", "REIMBURSEMENT"]).optional(),
+  claimType: z.enum(["PROVIDER_BILLED", "MEMBER_REIMBURSEMENT"]).optional(),
   dateOfService: optionalDateString,
   admissionDate: optionalDateString,
   dischargeDate: optionalDateString,
