@@ -7,8 +7,7 @@ import {
 } from "@mui/material";
 import {
   DeleteForever, ExpandMore, ExpandLess, Visibility, Download, 
-  SelectAll, CheckBox, CheckBoxOutlineBlank, DeleteSweep, FolderOpen, BuildCircle,
-  AutoAwesome, Person, Calculate, FactCheck
+  SelectAll, CheckBox, CheckBoxOutlineBlank, DeleteSweep, FolderOpen, BuildCircle
 } from "@mui/icons-material";
 import { useLocation, useParams, useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
@@ -17,6 +16,8 @@ import { useToast } from "../../context/ToastContext.jsx";
 import AICheckProgress from "../../components/AICheckProgress.jsx";
 import { api } from "../../api/client.js";
 import ClaimSummaryCard from "./claim-detail/ClaimSummaryCard.jsx";
+import ClaimAutomationCard from "./claim-detail/ClaimAutomationCard.jsx";
+import ClaimCompletenessCard from "./claim-detail/ClaimCompletenessCard.jsx";
 import { useClaimDetailData } from "./claim-detail/useClaimDetailData.js";
 import {
   DOC_TYPES,
@@ -102,10 +103,6 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
   const [bulkDeleteLoading, setBulkDeleteLoading] = React.useState(false);
   const [fixFocus, setFixFocus] = React.useState("");
-  const [automationExpanded, setAutomationExpanded] = React.useState(false);
-  const [automationFilter, setAutomationFilter] = React.useState("all");
-  const [completenessExpanded, setCompletenessExpanded] = React.useState(false);
-  const [completenessFilter, setCompletenessFilter] = React.useState("all");
   const patientPolicyRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
@@ -440,11 +437,6 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       }
     });
   }, [claim?.id]);
-
-  function showAutomationBucket(bucket) {
-    setAutomationFilter(bucket);
-    setAutomationExpanded(true);
-  }
 
   function automationFieldAction(item) {
     if (!item) return;
@@ -879,11 +871,6 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     return formatter(value);
   }
 
-  function openCompletenessBucket(bucket) {
-    setCompletenessFilter(bucket);
-    setCompletenessExpanded(true);
-  }
-
   function fixCompletenessItem(item) {
     if (!item) return;
     if (["eligibility", "prior-auth"].includes(item.fixTarget)) {
@@ -927,407 +914,16 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
       <ClaimSummaryCard claim={claim} />
 
-      {claim.automationSummary && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              justifyContent="space-between"
-              alignItems={{ xs: "stretch", md: "center" }}
-              spacing={2}
-            >
-              <Box>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <AutoAwesome color="secondary" />
-                  <Typography variant="h6" fontWeight={700}>
-                    Claim Automation
-                  </Typography>
-                </Stack>
-                <Typography variant="body2" color="text.secondary">
-                  Shows what the system populated automatically, what staff entered,
-                  and what still needs review.
-                </Typography>
-              </Box>
+      <ClaimAutomationCard
+        summary={claim.automationSummary}
+        onFieldAction={automationFieldAction}
+        actionLabel={automationActionLabel}
+      />
 
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Chip
-                  icon={<AutoAwesome />}
-                  color="success"
-                  clickable
-                  onClick={() => showAutomationBucket("automated")}
-                  label={`${claim.automationSummary.automatedFields} auto-populated`}
-                  sx={{ cursor: "pointer" }}
-                />
-                <Chip
-                  icon={<FactCheck />}
-                  color="warning"
-                  clickable
-                  onClick={() => showAutomationBucket("review")}
-                  label={`${claim.automationSummary.reviewFields} need review`}
-                  sx={{ cursor: "pointer" }}
-                />
-                <Chip
-                  icon={<Person />}
-                  variant="outlined"
-                  clickable
-                  onClick={() => showAutomationBucket("manual")}
-                  label={`${claim.automationSummary.manualFields} manual`}
-                  sx={{ cursor: "pointer" }}
-                />
-                <Chip
-                  icon={<Calculate />}
-                  color={claim.automationSummary.missingFields ? "error" : "default"}
-                  variant={claim.automationSummary.missingFields ? "filled" : "outlined"}
-                  clickable
-                  onClick={() => showAutomationBucket("missing")}
-                  label={`${claim.automationSummary.missingFields} missing`}
-                  sx={{ cursor: "pointer" }}
-                />
-              </Stack>
-            </Stack>
-
-            <Box sx={{ mt: 2 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="body2" fontWeight={600}>
-                  Automation rate: {claim.automationSummary.automationRate}%
-                  {" "}of currently populated tracked fields
-                </Typography>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    setAutomationFilter("all");
-                    setAutomationExpanded((value) => !value);
-                  }}
-                >
-                  {automationExpanded ? "Hide Field Sources" : "View Field Sources"}
-                </Button>
-              </Stack>
-              <LinearProgress
-                variant="determinate"
-                value={claim.automationSummary.automationRate}
-                color={
-                  claim.automationSummary.automationRate >= 70
-                    ? "success"
-                    : claim.automationSummary.automationRate >= 40
-                    ? "warning"
-                    : "primary"
-                }
-                sx={{ mt: 1, height: 8, borderRadius: 4 }}
-              />
-            </Box>
-
-            <Collapse in={automationExpanded}>
-              <Divider sx={{ my: 2 }} />
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                justifyContent="space-between"
-                alignItems={{ xs: "stretch", sm: "center" }}
-                spacing={1}
-                sx={{ mb: 1.5 }}
-              >
-                <Typography variant="subtitle2" fontWeight={700}>
-                  {automationFilter === "missing"
-                    ? "Missing fields — click a field to complete it"
-                    : automationFilter === "review"
-                    ? "Fields needing review — click a field to resolve it"
-                    : automationFilter === "manual"
-                    ? "Manually entered fields"
-                    : automationFilter === "automated"
-                    ? "Auto-populated fields and their sources"
-                    : "All tracked fields"}
-                </Typography>
-                {automationFilter !== "all" && (
-                  <Button
-                    size="small"
-                    variant="text"
-                    onClick={() => setAutomationFilter("all")}
-                  >
-                    Show all fields
-                  </Button>
-                )}
-              </Stack>
-
-              <Box
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: {
-                    xs: "1fr",
-                    sm: "repeat(2, minmax(0, 1fr))",
-                    lg: "repeat(3, minmax(0, 1fr))"
-                  },
-                  gap: 1
-                }}
-              >
-                {claim.automationSummary.fields
-                  .filter(
-                    (item) =>
-                      automationFilter === "all" ||
-                      item.bucket === automationFilter
-                  )
-                  .map((item) => (
-                  <Paper
-                    key={item.field}
-                    variant="outlined"
-                    onClick={() =>
-                      ["missing", "review"].includes(item.bucket)
-                        ? automationFieldAction(item)
-                        : undefined
-                    }
-                    sx={{
-                      p: 1.25,
-                      cursor: ["missing", "review"].includes(item.bucket)
-                        ? "pointer"
-                        : "default",
-                      transition: "all 0.15s ease",
-                      "&:hover": ["missing", "review"].includes(item.bucket)
-                        ? {
-                            borderColor:
-                              item.bucket === "missing"
-                                ? "error.main"
-                                : "warning.main",
-                            boxShadow: 2,
-                            transform: "translateY(-1px)"
-                          }
-                        : undefined
-                    }}
-                  >
-                    <Stack
-                      direction="row"
-                      justifyContent="space-between"
-                      alignItems="center"
-                      spacing={1}
-                    >
-                      <Typography variant="body2" fontWeight={600}>
-                        {item.label}
-                      </Typography>
-                      {["missing", "review"].includes(item.bucket) && (
-                        <Button
-                          size="small"
-                          variant="text"
-                          color={item.bucket === "missing" ? "error" : "warning"}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            automationFieldAction(item);
-                          }}
-                        >
-                          {automationActionLabel(item)}
-                        </Button>
-                      )}
-                    </Stack>
-                    <Stack direction="row" spacing={0.75} sx={{ mt: 0.75 }} flexWrap="wrap">
-                      <Chip
-                        size="small"
-                        label={
-                          item.bucket === "automated"
-                            ? "Auto-populated"
-                            : item.bucket === "manual"
-                            ? "Manual"
-                            : item.bucket === "review"
-                            ? "Needs Review"
-                            : "Missing"
-                        }
-                        color={
-                          item.bucket === "automated"
-                            ? "success"
-                            : item.bucket === "review"
-                            ? "warning"
-                            : item.bucket === "missing"
-                            ? "error"
-                            : "default"
-                        }
-                        variant={item.bucket === "manual" ? "outlined" : "filled"}
-                      />
-                      {item.source && (
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          color={provenanceChipColor(item.source.source)}
-                          label={
-                            item.source.confidence != null
-                              ? `${item.source.label} • ${item.source.confidence}%`
-                              : item.source.label
-                          }
-                        />
-                      )}
-                    </Stack>
-                  </Paper>
-                ))}
-              </Box>
-            </Collapse>
-          </CardContent>
-        </Card>
-      )}
-
-      {completeness && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              justifyContent="space-between"
-              alignItems={{ xs: "stretch", md: "center" }}
-              spacing={2}
-            >
-              <Box>
-                <Typography variant="h6" fontWeight={700}>
-                  Claim Completeness
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Context-aware: only fields applicable to this encounter count against completeness.
-                </Typography>
-              </Box>
-
-              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                <Chip
-                  color={completeness.score >= 90 ? "success" : completeness.score >= 70 ? "warning" : "error"}
-                  label={`${completeness.score}% complete`}
-                />
-                <Chip
-                  clickable
-                  color={completeness.missingFields ? "error" : "default"}
-                  onClick={() => openCompletenessBucket("missing")}
-                  label={`${completeness.missingFields} missing`}
-                />
-                <Chip
-                  clickable
-                  color={completeness.reviewFields ? "warning" : "default"}
-                  onClick={() => openCompletenessBucket("review")}
-                  label={`${completeness.reviewFields} need review`}
-                />
-                <Chip
-                  clickable
-                  variant="outlined"
-                  onClick={() => openCompletenessBucket("not_applicable")}
-                  label={`${completeness.notApplicableFields} N/A`}
-                />
-              </Stack>
-            </Stack>
-
-            <LinearProgress
-              variant="determinate"
-              value={completeness.score}
-              color={completeness.score >= 90 ? "success" : completeness.score >= 70 ? "warning" : "error"}
-              sx={{ mt: 2, height: 8, borderRadius: 4 }}
-            />
-
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                {completeness.completeFields} of {completeness.applicableFields} applicable fields complete
-              </Typography>
-              <Button
-                size="small"
-                onClick={() => {
-                  setCompletenessFilter("all");
-                  setCompletenessExpanded((value) => !value);
-                }}
-              >
-                {completenessExpanded ? "Hide Details" : "View Details"}
-              </Button>
-            </Stack>
-
-            <Collapse in={completenessExpanded}>
-              <Divider sx={{ my: 2 }} />
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                justifyContent="space-between"
-                alignItems={{ xs: "stretch", sm: "center" }}
-                spacing={1}
-                sx={{ mb: 1.5 }}
-              >
-                <Typography variant="subtitle2" fontWeight={700}>
-                  {completenessFilter === "missing"
-                    ? "Missing required fields"
-                    : completenessFilter === "review"
-                    ? "Applicable fields needing review"
-                    : completenessFilter === "not_applicable"
-                    ? "Fields not applicable to this encounter"
-                    : "All completeness fields"}
-                </Typography>
-                {completenessFilter !== "all" && (
-                  <Button size="small" onClick={() => setCompletenessFilter("all")}>
-                    Show all
-                  </Button>
-                )}
-              </Stack>
-
-              <Box
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: {
-                    xs: "1fr",
-                    sm: "repeat(2, minmax(0, 1fr))",
-                    lg: "repeat(3, minmax(0, 1fr))"
-                  },
-                  gap: 1
-                }}
-              >
-                {completeness.fields
-                  .filter(
-                    (item) =>
-                      completenessFilter === "all" ||
-                      item.state === completenessFilter
-                  )
-                  .map((item) => (
-                    <Paper
-                      key={item.field}
-                      variant="outlined"
-                      sx={{
-                        p: 1.25,
-                        borderColor:
-                          item.state === "missing"
-                            ? "error.light"
-                            : item.state === "review"
-                            ? "warning.light"
-                            : undefined
-                      }}
-                    >
-                      <Stack direction="row" justifyContent="space-between" spacing={1}>
-                        <Box>
-                          <Typography variant="body2" fontWeight={700}>
-                            {item.label}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {item.reason || (item.conditional ? "Conditional" : "Applicable")}
-                          </Typography>
-                        </Box>
-                        <Chip
-                          size="small"
-                          color={
-                            item.state === "complete"
-                              ? "success"
-                              : item.state === "missing"
-                              ? "error"
-                              : item.state === "review"
-                              ? "warning"
-                              : "info"
-                          }
-                          variant={item.state === "not_applicable" ? "outlined" : "filled"}
-                          label={
-                            item.state === "complete"
-                              ? "Complete"
-                              : item.state === "missing"
-                              ? "Missing"
-                              : item.state === "review"
-                              ? "Review"
-                              : "N/A"
-                          }
-                        />
-                      </Stack>
-                      {["missing", "review"].includes(item.state) && (
-                        <Button
-                          size="small"
-                          sx={{ mt: 1 }}
-                          onClick={() => fixCompletenessItem(item)}
-                        >
-                          Fix
-                        </Button>
-                      )}
-                    </Paper>
-                  ))}
-              </Box>
-            </Collapse>
-          </CardContent>
-        </Card>
-      )}
+      <ClaimCompletenessCard
+        completeness={completeness}
+        onFixItem={fixCompletenessItem}
+      />
 
       <Card
         ref={patientPolicyRef}
