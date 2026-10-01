@@ -1517,6 +1517,42 @@ router.get("/:id/medical-consistency", async (req, res) => {
   }
 });
 
+router.get("/:id/audit", async (req, res) => {
+  const claim = await prisma.claim.findFirst({
+    where: {
+      id: req.params.id,
+      organizationId: orgId(req),
+      deletedAt: null
+    },
+    select: { id: true }
+  });
+
+  if (!claim) {
+    return res.status(404).json({ error: "Claim not found" });
+  }
+
+  const events = await prisma.auditEvent.findMany({
+    where: {
+      organizationId: orgId(req),
+      claimId: claim.id
+    },
+    select: {
+      id: true,
+      createdAt: true,
+      actorUserId: true,
+      action: true,
+      entityType: true,
+      entityId: true,
+      outcome: true,
+      metadata: true
+    },
+    orderBy: { createdAt: "desc" },
+    take: 250
+  });
+
+  res.json({ items: events });
+});
+
 router.get("/:id", async (req, res) => {
   const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
