@@ -52,6 +52,7 @@ test("F2 - valid enum defaults round-trip and invalid states are rejected", asyn
   assert.equal(claim.priorAuthStatus, "NOT_CHECKED");
   assert.equal(claim.remittanceStatus, "NOT_AVAILABLE");
   assert.equal(claim.payerConnectionMode, "LOCAL");
+  assert.equal(claim.claimType, "MEMBER_REIMBURSEMENT");
 
   await assert.rejects(
     prisma.claim.update({
