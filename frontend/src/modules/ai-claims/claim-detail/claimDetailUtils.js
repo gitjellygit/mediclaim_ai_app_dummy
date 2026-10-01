@@ -87,3 +87,10 @@ export function provenanceChipColor(source) {
   if (source === "USER" || source === "USER_RECORDED") return "default";
   return "default";
 }
+
+
+export function claimTypeLabel(value) {
+  if (value === "PROVIDER_BILLED") return "Provider Billed";
+  if (value === "MEMBER_REIMBURSEMENT") return "Member Reimbursement";
+  return String(value || "—").replaceAll("_", " ");
+}
