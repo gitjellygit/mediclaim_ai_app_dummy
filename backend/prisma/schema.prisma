@@ -70,6 +70,7 @@ enum PriorAuthStatus {
 enum PayerClaimStatus {
   SUBMITTED
   ACKNOWLEDGED
+  RECEIVED
   IN_REVIEW
   PENDED
   APPROVED
