@@ -43,6 +43,8 @@ const baseUrl = "http://127.0.0.1:4100";
 const prisma = new PrismaClient();
 let server;
 let token;
+const TEST_ORG_ID = "org_test_lifecycle";
+let testAdminId;
 
 async function waitForServer() {
   const deadline = Date.now() + 15000;
@@ -94,6 +96,8 @@ async function createClaim({
 } = {}) {
   return prisma.claim.create({
     data: {
+      organizationId: TEST_ORG_ID,
+      createdById: testAdminId || null,
       patientName: "Lifecycle Test Patient",
       payerName: "Lifecycle Test Payer",
       policyNo: "POL-TEST-001",
@@ -179,21 +183,30 @@ async function removeTestData() {
 before(async () => {
   await removeTestData();
 
+  await prisma.organization.upsert({
+    where: { id: TEST_ORG_ID },
+    update: {},
+    create: { id: TEST_ORG_ID, name: "Lifecycle Test Hospital", slug: "lifecycle-test-hospital" }
+  });
+
   const passwordHash = await bcrypt.hash("test-admin-password", 10);
-  await prisma.user.upsert({
+  const testAdmin = await prisma.user.upsert({
     where: { email: "test-admin@hospital.local" },
     update: {
       passwordHash,
       role: "ADMIN",
+      organizationId: TEST_ORG_ID,
       failedLoginAttempts: 0,
       lockedUntil: null
     },
     create: {
       email: "test-admin@hospital.local",
       passwordHash,
-      role: "ADMIN"
+      role: "ADMIN",
+      organizationId: TEST_ORG_ID
     }
   });
+  testAdminId = testAdmin.id;
 
   server = spawn(process.execPath, ["src/index.js"], {
     cwd: backendRoot,
