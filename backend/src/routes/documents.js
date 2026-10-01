@@ -20,7 +20,7 @@ import { parseClaimDate } from "../utils/claimDate.js";
 import { selectSmartUploadMatch } from "../services/smartUploadMatch.js";
 import { resolveStoredDocument } from "../services/storedDocumentPath.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
-import { analyzeDocument } from "../services/docIntel.js";
+import { analyzeDocument, DOC_TYPES } from "../services/docIntel.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
 import {
   getExtractedPatientName,
@@ -490,6 +490,16 @@ export function documentsRouter(prisma, uploadDir) {
       return res.status(400).json({ error: "File is required" });
     }
 
+    const requestedType = type ? String(type).toUpperCase() : null;
+    if (requestedType && !DOC_TYPES.includes(requestedType)) {
+      if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      return res.status(400).json({
+        error: "Invalid document type",
+        message: "Document type is not supported",
+        code: "INVALID_DOCUMENT_TYPE"
+      });
+    }
+
     const claim = await prisma.claim.findUnique({
       where: { id: claimId }
     });
@@ -547,7 +557,7 @@ export function documentsRouter(prisma, uploadDir) {
     const doc = await prisma.document.create({
       data: {
         claimId,
-        type: type || intel.suggestedType || "OTHER",
+        type: requestedType || intel.suggestedType || "OTHER",
         fileName: req.file.originalname,
         mimeType: req.file.mimetype,
         sizeBytes: req.file.size,

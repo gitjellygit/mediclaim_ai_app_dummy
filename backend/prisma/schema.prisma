@@ -42,6 +42,97 @@ enum UserRole {
   RECEPTIONIST
 }
 
+enum ClaimStatus {
+  DRAFT
+  NEEDS_REVIEW
+  READY
+  SUBMITTED
+  DENIED
+  PAID
+}
+
+enum EligibilityStatus {
+  NOT_CHECKED
+  VERIFIED
+  NEEDS_REVIEW
+  FAILED
+}
+
+enum PriorAuthStatus {
+  NOT_CHECKED
+  NEEDS_REVIEW
+  NOT_REQUIRED
+  REQUIRED
+  APPROVED
+  DENIED
+}
+
+enum PayerClaimStatus {
+  SUBMITTED
+  ACKNOWLEDGED
+  RECEIVED
+  IN_REVIEW
+  PENDED
+  APPROVED
+  PARTIALLY_APPROVED
+  REJECTED
+  DENIED
+  PAID
+}
+
+enum RemittanceStatus {
+  NOT_AVAILABLE
+  AWAITING
+  RECEIVED
+  POSTED
+}
+
+enum PayerConnectionMode {
+  LOCAL
+  SIMULATED
+  LIVE
+}
+
+enum DocumentType {
+  DISCHARGE_SUMMARY
+  FINAL_BILL
+  BREAKUP_BILL
+  LAB_REPORT
+  RADIOLOGY
+  PRESCRIPTION
+  ID_PROOF
+  INSURANCE_CARD
+  PRIOR_AUTHORIZATION
+  OPERATIVE_NOTE
+  PROGRESS_NOTE
+  EOB
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+enum DenialCaseStatus {
+  OPEN
+  ANALYZED
+  CORRECTION_REQUIRED
+  APPEAL_PREPARED
+  APPEAL_SUBMITTED
+  RESUBMITTED
+  OVERTURNED
+  UPHELD
+  CLOSED
+}
+
+enum DenialCaseSource {
+  MANUAL
+  PAYER_STATUS
+  SIMULATED_PAYER_STATUS
+}
+
 model Claim {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
@@ -50,7 +141,7 @@ model Claim {
   payerName   String
   policyNo    String?
   amount      Decimal? @db.Decimal(14,2)
-  status      String  @default("DRAFT")
+  status      ClaimStatus @default(DRAFT)
 
   patientAge    Int?
   patientGender Gender?
@@ -97,7 +188,7 @@ model Claim {
 
   // Revenue-cycle journey: eligibility -> prior auth -> claim -> status -> remittance.
   // These fields are deliberately explicit so each stage can be audited and gated.
-  eligibilityStatus       String   @default("NOT_CHECKED")
+  eligibilityStatus       EligibilityStatus @default(NOT_CHECKED)
   eligibilityCheckedAt    DateTime?
   coverageStatus          String?
   deductibleRemaining     Decimal? @db.Decimal(14,2)
@@ -105,14 +196,14 @@ model Claim {
   networkStatus           String?
 
   priorAuthRequired       Boolean?
-  priorAuthStatus         String   @default("NOT_CHECKED")
+  priorAuthStatus         PriorAuthStatus @default(NOT_CHECKED)
   priorAuthCheckedAt      DateTime?
   priorAuthExpiry         DateTime?
 
-  payerClaimStatus        String?
+  payerClaimStatus        PayerClaimStatus?
   claimStatusCheckedAt    DateTime?
 
-  remittanceStatus        String   @default("NOT_AVAILABLE")
+  remittanceStatus        RemittanceStatus @default(NOT_AVAILABLE)
   remittanceReceivedAt    DateTime?
   allowedAmount           Decimal? @db.Decimal(14,2)
   patientResponsibility   Decimal? @db.Decimal(14,2)
@@ -121,7 +212,7 @@ model Claim {
 
   // Connector abstraction: LOCAL today, SIMULATED for demo/testing, LIVE for
   // future clearinghouse/payer integrations. Simulated payer codes are synthetic.
-  payerConnectionMode String @default("LOCAL")
+  payerConnectionMode PayerConnectionMode @default(LOCAL)
   simulatedPayerCode   String?
 
   // Fields currently supported by uploaded documents. This lets document
@@ -148,7 +239,7 @@ model Document {
   claimId String
   claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
-  type      String
+  type      DocumentType
   fileName  String
   mimeType  String
   sizeBytes Int
@@ -165,7 +256,7 @@ model Document {
   suggestedType String?
   confidence    Int? // 0..100
   extracted     Json? // { patientName?, amount?, dates?, ... }
-  status        String  @default("PENDING") // PENDING, PROCESSED, FAILED
+  status        DocumentStatus @default(PENDING)
 
   @@unique([claimId, fileHash])
 }
@@ -266,8 +357,8 @@ model DenialCase {
   claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
   // Payer/remittance source data. CARC/RARC fields map to standard adjustment/remark concepts.
-  source          String   @default("MANUAL")
-  status          String   @default("OPEN")
+  source          DenialCaseSource @default(MANUAL)
+  status          DenialCaseStatus @default(OPEN)
   denialCategory  String?
   groupCode       String?
   carcCode        String?
