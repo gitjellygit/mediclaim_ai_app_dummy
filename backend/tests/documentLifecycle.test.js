@@ -2585,6 +2585,7 @@ test("103 - receptionist cannot submit or delete claims or supporting documents"
     sub: admin.id,
     email: admin.email,
     role: "RECEPTIONIST",
+    organizationId: admin.organizationId,
     type: "access"
   }, process.env.JWT_SECRET || "claim-app-ci-only-signing-secret-32-characters", { expiresIn: "5m" });
   const claim = await createClaim();
