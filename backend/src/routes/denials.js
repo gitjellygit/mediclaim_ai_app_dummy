@@ -109,6 +109,7 @@ router.get("/", async (req, res) => {
     );
 
     const where = {
+      claim: { is: { organizationId: req.user.organizationId } },
       ...(status && status !== "ALL" ? { status } : {}),
       ...(q
         ? {
@@ -159,7 +160,8 @@ router.get("/", async (req, res) => {
 
     const metricsSource = await prisma.denialCase.findMany({
       where: {
-        status: { in: ACTIVE_STATUSES }
+        status: { in: ACTIVE_STATUSES },
+        claim: { is: { organizationId: req.user.organizationId } }
       },
       select: {
         revenueAtRisk: true,
@@ -206,8 +208,8 @@ router.get("/", async (req, res) => {
 
 router.get("/:id", async (req, res) => {
   try {
-    const denial = await prisma.denialCase.findUnique({
-      where: { id: req.params.id },
+    const denial = await prisma.denialCase.findFirst({
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId } },
       include: {
         claim: {
           include: {
@@ -240,8 +242,8 @@ router.get("/:id", async (req, res) => {
 
 router.post("/from-claim/:claimId", requireManager, async (req, res) => {
   try {
-    const claim = await prisma.claim.findUnique({
-      where: { id: req.params.claimId }
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.claimId, organizationId: req.user.organizationId }
     });
 
     if (!claim) {
@@ -334,8 +336,8 @@ router.post("/from-claim/:claimId", requireManager, async (req, res) => {
 
 router.patch("/:id", requireManager, async (req, res) => {
   try {
-    const existing = await prisma.denialCase.findUnique({
-      where: { id: req.params.id }
+    const existing = await prisma.denialCase.findFirst({
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId } }
     });
     if (!existing) {
       return res.status(404).json({ error: "Denial case not found" });
@@ -426,8 +428,8 @@ router.patch("/:id", requireManager, async (req, res) => {
 
 router.post("/:id/analyze", requireManager, async (req, res) => {
   try {
-    const denial = await prisma.denialCase.findUnique({
-      where: { id: req.params.id },
+    const denial = await prisma.denialCase.findFirst({
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId } },
       include: {
         claim: {
           include: {

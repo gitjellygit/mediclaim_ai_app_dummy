@@ -43,6 +43,11 @@ import {
 
 const router = express.Router();
 
+function orgId(req) {
+  return req.user.organizationId;
+}
+
+
 // Journey logs intentionally avoid patient/member data so PHI is not written to logs.
 function logJourneyEvent(claimId, action, result, extra = {}) {
   console.info("[claim-journey]", {
@@ -135,6 +140,9 @@ function buildJourneyState(claim) {
 router.get("/", async (req, res) => {
   try {
     const claims = await prisma.claim.findMany({
+      where: {
+        organizationId: orgId(req)
+      },
       include: {
         documents: {
           orderBy: { createdAt: "desc" }
@@ -170,6 +178,7 @@ router.get("/search", async (req, res) => {
 
     const where = q
       ? {
+          organizationId: orgId(req),
           OR: [
             { id: { equals: q } },
             { patientName: { contains: q, mode: "insensitive" } },
@@ -180,7 +189,7 @@ router.get("/search", async (req, res) => {
             { authorizationNo: { contains: q, mode: "insensitive" } }
           ]
         }
-      : {};
+      : { organizationId: orgId(req) };
 
     const claims = await prisma.claim.findMany({
       where,
@@ -238,9 +247,9 @@ async function createPayerTransaction(claimId, payerCode, transactionType, resul
   });
 }
 
-async function getSimulationClaim(id) {
-  return prisma.claim.findUnique({
-    where: { id },
+async function getSimulationClaim(id, organizationId) {
+  return prisma.claim.findFirst({
+    where: { id, organizationId },
     include: {
       documents: { orderBy: { createdAt: "desc" } },
       payerTransactions: { orderBy: { createdAt: "desc" } }
@@ -254,7 +263,8 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
     const payer = getMockPayer(payerCode);
     if (!payer) return res.status(400).json({ error: "Unknown mock payer" });
 
-    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
@@ -332,7 +342,7 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
 
 router.post("/:id/payer-simulation/eligibility", async (req, res) => {
   try {
-    const claim = await getSimulationClaim(req.params.id);
+    const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     const payer = getMockPayer(claim.simulatedPayerCode);
@@ -414,7 +424,7 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
 
 router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
   try {
-    const claim = await getSimulationClaim(req.params.id);
+    const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
@@ -503,7 +513,7 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
 
 router.post("/:id/payer-simulation/submission", async (req, res) => {
   try {
-    const claim = await getSimulationClaim(req.params.id);
+    const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
@@ -580,7 +590,7 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
 
 router.post("/:id/payer-simulation/status", async (req, res) => {
   try {
-    const claim = await getSimulationClaim(req.params.id);
+    const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
@@ -695,7 +705,7 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
 
 router.post("/:id/payer-simulation/remittance", async (req, res) => {
   try {
-    const claim = await getSimulationClaim(req.params.id);
+    const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
@@ -763,8 +773,8 @@ router.post("/:id/payer-simulation/remittance", async (req, res) => {
 
 router.get("/:id/journey", async (req, res) => {
   try {
-    const claim = await prisma.claim.findUnique({
-      where: { id: req.params.id },
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) },
       include: {
         documents: { orderBy: { createdAt: "desc" } },
         checks: { orderBy: { createdAt: "desc" }, take: 1 },
@@ -803,7 +813,8 @@ router.get("/:id/journey", async (req, res) => {
 
 router.post("/:id/journey/eligibility/precheck", async (req, res) => {
   try {
-    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     // Completed eligibility is idempotent. Re-clicking the same action should
@@ -902,7 +913,8 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
 
 router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
   try {
-    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     if (
@@ -1045,7 +1057,8 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       return res.status(400).json({ error: "Invalid payer claim status" });
     }
 
-    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     if (
@@ -1197,7 +1210,8 @@ router.patch("/:id/journey/remittance", async (req, res) => {
       return res.status(400).json({ error: "Invalid remittance status" });
     }
 
-    const claim = await prisma.claim.findUnique({ where: { id: req.params.id } });
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     if (
@@ -1378,6 +1392,7 @@ router.get("/medical-consistency/summary", async (req, res) => {
 
     const where = q
       ? {
+          organizationId: orgId(req),
           OR: [
             { id: { equals: q } },
             { patientName: { contains: q, mode: "insensitive" } },
@@ -1386,7 +1401,7 @@ router.get("/medical-consistency/summary", async (req, res) => {
             { memberId: { contains: q, mode: "insensitive" } }
           ]
         }
-      : {};
+      : { organizationId: orgId(req) };
 
     const claims = await prisma.claim.findMany({
       where,
@@ -1445,8 +1460,8 @@ router.get("/medical-consistency/summary", async (req, res) => {
 
 router.get("/:id/medical-consistency", async (req, res) => {
   try {
-    const claim = await prisma.claim.findUnique({
-      where: { id: req.params.id },
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) },
       include: {
         documents: {
           orderBy: { createdAt: "desc" }
@@ -1475,8 +1490,8 @@ router.get("/:id/medical-consistency", async (req, res) => {
 });
 
 router.get("/:id", async (req, res) => {
-  const claim = await prisma.claim.findUnique({
-    where: { id: req.params.id },
+  const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) },
     include: {
       documents: true,
       checks: { orderBy: { createdAt: "desc" } }
@@ -1584,6 +1599,8 @@ router.post("/", async (req, res) => {
     const claim = await prisma.claim.create({
       data: {
         ...createPayload,
+        organizationId: orgId(req),
+        createdById: req.user.id,
         fieldProvenance: manualProvenance(
           manuallyEnteredFields,
           "Entered at Claim Creation"
@@ -1600,8 +1617,8 @@ router.post("/", async (req, res) => {
 
 router.patch("/:id", async (req, res) => {
   try {
-    const existing = await prisma.claim.findUnique({
-      where: { id: req.params.id }
+    const existing = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) }
     });
 
     if (!existing) {
@@ -1732,8 +1749,8 @@ router.patch("/:id", async (req, res) => {
       );
     }
 
-    const updated = await prisma.claim.findUnique({
-      where: { id: req.params.id },
+    const updated = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) },
       include: {
         documents: true,
         checks: { orderBy: { createdAt: "desc" } }
@@ -1755,7 +1772,7 @@ router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
   try {
     const id = req.params.id;
 
-    const claim = await prisma.claim.findUnique({ where: { id } });
+    const claim = await prisma.claim.findFirst({ where: { id, organizationId: orgId(req) } });
     if (!claim) {
       return res.status(404).json({ error: "Claim not found" });
     }
@@ -1799,8 +1816,8 @@ router.delete("/documents/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =
 
 router.post("/:id/check", async (req, res) => {
   try {
-    const claim = await prisma.claim.findUnique({
-      where: { id: req.params.id },
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) },
       include: { documents: true }
     });
 
@@ -1996,8 +2013,8 @@ router.post("/:id/check", async (req, res) => {
 
 router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
   try {
-    const claim = await prisma.claim.findUnique({
-      where: { id: req.params.id },
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req) },
       include: {
         checks: { orderBy: { createdAt: "desc" }, take: 1 }
       }

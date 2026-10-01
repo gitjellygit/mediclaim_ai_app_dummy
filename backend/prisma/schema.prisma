@@ -133,9 +133,25 @@ enum DenialCaseSource {
   SIMULATED_PAYER_STATUS
 }
 
+model Organization {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  name      String
+  slug      String   @unique
+
+  users     User[]
+  claims    Claim[]
+}
+
 model Claim {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  createdById    String?
+  createdBy      User? @relation("ClaimCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   patientName String
   payerName   String
@@ -230,6 +246,9 @@ model Claim {
   denialCases DenialCase[]
   auditEvents AuditEvent[]
   payerTransactions PayerTransaction[]
+
+  @@index([organizationId, createdAt])
+  @@index([createdById])
 }
 
 model Document {
@@ -321,6 +340,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
   email        String   @unique
   passwordHash String
   role         UserRole @default(RECEPTIONIST)
@@ -331,6 +353,9 @@ model User {
   lastLoginAt         DateTime?
 
   refreshTokens RefreshToken[]
+  createdClaims Claim[] @relation("ClaimCreatedBy")
+
+  @@index([organizationId])
 }
 
 model RefreshToken {

@@ -105,6 +105,7 @@ export function authRouter(prisma) {
           sub: user.id, 
           email: user.email, 
           role: user.role,
+          organizationId: user.organizationId,
           type: "access"
         },
         process.env.JWT_SECRET,
@@ -131,7 +132,8 @@ export function authRouter(prisma) {
         user: {
           id: user.id,
           email: user.email,
-          role: user.role
+          role: user.role,
+          organizationId: user.organizationId
         },
         expiresIn: 15 * 60 // 15 minutes in seconds
       });
@@ -196,6 +198,7 @@ export function authRouter(prisma) {
           sub: tokenRecord.user.id,
           email: tokenRecord.user.email,
           role: tokenRecord.user.role,
+          organizationId: tokenRecord.user.organizationId,
           type: "access"
         },
         process.env.JWT_SECRET,

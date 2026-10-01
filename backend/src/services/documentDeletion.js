@@ -9,8 +9,8 @@ export async function deleteStoredDocument(prisma, req, res, {
   uploadDir = process.env.UPLOAD_DIR || "uploads"
 } = {}) {
   try {
-    const doc = await prisma.document.findUnique({
-      where: { id: req.params.id },
+    const doc = await prisma.document.findFirst({
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId } },
       include: { claim: true }
     });
     if (!doc) return res.status(404).json({ error: "Document not found" });

@@ -183,7 +183,7 @@ router.post("/e2e/medical-consistency/seed", async (req, res) => {
 
   try {
     const existing = await prisma.claim.findMany({
-      where: { patientName: { startsWith: prefix } },
+      where: { organizationId: req.user.organizationId, patientName: { startsWith: prefix } },
       select: { id: true }
     });
 
@@ -199,6 +199,8 @@ router.post("/e2e/medical-consistency/seed", async (req, res) => {
       const claim = await prisma.claim.create({
         data: {
           ...scenario.claim,
+          organizationId: req.user.organizationId,
+          createdById: req.user.id,
           documents: {
             create: scenario.documents
           }
@@ -235,7 +237,7 @@ router.delete("/e2e/medical-consistency/cleanup", async (req, res) => {
 
   try {
     const result = await prisma.claim.deleteMany({
-      where: { patientName: { startsWith: "E2E-MC-" } }
+      where: { organizationId: req.user.organizationId, patientName: { startsWith: "E2E-MC-" } }
     });
 
     res.json({ deleted: result.count });
@@ -335,7 +337,7 @@ router.post("/e2e/payer-journey/seed", async (req, res) => {
 
   try {
     await prisma.claim.deleteMany({
-      where: { patientName: { startsWith: prefix } }
+      where: { organizationId: req.user.organizationId, patientName: { startsWith: prefix } }
     });
 
     const created = [];
@@ -343,6 +345,8 @@ router.post("/e2e/payer-journey/seed", async (req, res) => {
       const claim = await prisma.claim.create({
         data: {
           ...scenario.claim,
+          organizationId: req.user.organizationId,
+          createdById: req.user.id,
           documents: { create: scenario.documents }
         }
       });
@@ -371,7 +375,7 @@ router.delete("/e2e/payer-journey/cleanup", async (req, res) => {
 
   try {
     const result = await prisma.claim.deleteMany({
-      where: { patientName: { startsWith: "E2E-PAYER-" } }
+      where: { organizationId: req.user.organizationId, patientName: { startsWith: "E2E-PAYER-" } }
     });
     res.json({ deleted: result.count });
   } catch (error) {

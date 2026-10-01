@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { prisma } from "../src/db.js";
 
 const createdClaimIds = [];
+const TEST_ORG_ID = "org_test_status_enums";
 
 after(async () => {
   if (createdClaimIds.length) {
@@ -36,8 +37,10 @@ test("F2 - workflow fields are modeled as Prisma enums instead of free-text stri
 });
 
 test("F2 - valid enum defaults round-trip and invalid states are rejected", async () => {
+  await prisma.organization.upsert({ where: { id: TEST_ORG_ID }, update: {}, create: { id: TEST_ORG_ID, name: "Status Enum Test", slug: "status-enum-test" } });
   const claim = await prisma.claim.create({
     data: {
+      organizationId: TEST_ORG_ID,
       patientName: "F2 Enum Regression Patient",
       payerName: "F2 Test Payer"
     }

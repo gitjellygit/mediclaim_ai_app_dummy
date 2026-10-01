@@ -500,8 +500,8 @@ export function documentsRouter(prisma, uploadDir) {
       });
     }
 
-    const claim = await prisma.claim.findUnique({
-      where: { id: claimId }
+    const claim = await prisma.claim.findFirst({
+      where: { id: claimId, organizationId: req.user.organizationId }
     });
 
     if (!claim) {
@@ -670,7 +670,7 @@ export function documentsRouter(prisma, uploadDir) {
   // List docs for a claim
   router.get("/claim/:claimId", async (req, res) => {
     const docs = await prisma.document.findMany({
-      where: { claimId: req.params.claimId },
+      where: { claimId: req.params.claimId, claim: { organizationId: req.user.organizationId } },
       orderBy: { createdAt: "desc" }
     });
     res.json(docs);
@@ -692,8 +692,8 @@ export function documentsRouter(prisma, uploadDir) {
   // Process document with AI
   router.post("/:id/process", async (req, res) => {
     try {
-      const doc = await prisma.document.findUnique({
-        where: { id: req.params.id },
+      const doc = await prisma.document.findFirst({
+        where: { id: req.params.id, claim: { organizationId: req.user.organizationId } },
         include: { claim: true }
       });
       
@@ -771,8 +771,8 @@ export function documentsRouter(prisma, uploadDir) {
   // Canonical document operations; legacy /api/claims/documents URLs share this router.
   router.post("/:id/apply-suggestion", async (req, res) => {
   try {
-    const doc = await prisma.document.findUnique({
-      where: { id: req.params.id },
+    const doc = await prisma.document.findFirst({
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId } },
       include: { claim: true }
     });
 
@@ -851,7 +851,7 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     const docs = await prisma.document.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, claim: { organizationId: req.user.organizationId } },
       include: { claim: true }
     });
 
@@ -865,7 +865,7 @@ export function documentsRouter(prisma, uploadDir) {
     const deletingIds = new Set(ids);
 
     const claims = await prisma.claim.findMany({
-      where: { id: { in: claimIds } },
+      where: { id: { in: claimIds }, organizationId: req.user.organizationId },
       select: {
         id: true,
         documentDerivedFields: true,
