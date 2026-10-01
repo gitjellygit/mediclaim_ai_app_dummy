@@ -29,9 +29,14 @@ test("U2 - claim schema uses US insurance terminology and claim types", () => {
     assert.ok(schema.includes(expected), expected);
   }
 
+  assert.equal(/\bCASHLESS\b/.test(schema), false, "CASHLESS");
+  assert.equal(
+    /(^|\n)\s*REIMBURSEMENT\s*($|\n)/m.test(schema),
+    false,
+    "legacy REIMBURSEMENT enum value"
+  );
+
   for (const legacy of [
-    "CASHLESS",
-    "REIMBURSEMENT\n",
     "uhid",
     "tpaName",
     "sumInsured",
