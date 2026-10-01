@@ -2,6 +2,17 @@
 -- Existing records are assigned to a single legacy organization so the migration
 -- is backward-compatible. New authenticated writes must provide organizationId.
 
+CREATE TABLE "Organization" (
+  "id" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  "name" TEXT NOT NULL,
+  "slug" TEXT NOT NULL,
+  CONSTRAINT "Organization_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "Organization_slug_key" ON "Organization"("slug");
+
 INSERT INTO "Organization" ("id", "createdAt", "updatedAt", "name", "slug")
 VALUES ('org_legacy_default', NOW(), NOW(), 'Legacy Organization', 'legacy-default');
 
