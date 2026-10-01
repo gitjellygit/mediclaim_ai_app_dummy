@@ -2659,6 +2659,81 @@ test("B8 - claim creation rejects lifecycle, payment and identity-field mass ass
   assert.equal(claim.patientName, base.patientName);
 });
 
+test("F3 - organization isolation blocks cross-tenant claim, document and denial access", { concurrency: false }, async () => {
+  const otherOrg = await prisma.organization.upsert({
+    where: { slug: "f3-other-hospital" },
+    update: {},
+    create: { name: "F3 Other Hospital", slug: "f3-other-hospital" }
+  });
+  const otherUser = await prisma.user.upsert({
+    where: { email: "f3-other-admin@hospital.local" },
+    update: { organizationId: otherOrg.id, role: "ADMIN" },
+    create: {
+      email: "f3-other-admin@hospital.local",
+      passwordHash: await bcrypt.hash("unused-test-password", 10),
+      role: "ADMIN",
+      organizationId: otherOrg.id
+    }
+  });
+  const foreignClaim = await prisma.claim.create({
+    data: {
+      organizationId: otherOrg.id,
+      createdById: otherUser.id,
+      patientName: "Lifecycle Test Other Tenant",
+      payerName: "Other Tenant Payer",
+      amount: 100,
+      totalBilledAmount: 100
+    }
+  });
+  const foreignDoc = await prisma.document.create({
+    data: {
+      claimId: foreignClaim.id,
+      type: "OTHER",
+      fileName: "foreign.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 10,
+      path: "foreign.pdf"
+    }
+  });
+  const foreignDenial = await prisma.denialCase.create({
+    data: { claimId: foreignClaim.id, source: "MANUAL" }
+  });
+
+  const claimResponse = await authFetch(`/api/claims/${foreignClaim.id}`);
+  assert.equal(claimResponse.status, 404);
+
+  const documentsResponse = await authFetch(`/api/documents/claim/${foreignClaim.id}`);
+  assert.equal(documentsResponse.status, 200);
+  assert.deepEqual(await documentsResponse.json(), []);
+
+  const denialResponse = await authFetch(`/api/denials/${foreignDenial.id}`);
+  assert.equal(denialResponse.status, 404);
+
+  const listResponse = await authFetch("/api/claims");
+  const visibleClaims = await listResponse.json();
+  assert.equal(visibleClaims.some((claim) => claim.id === foreignClaim.id), false);
+
+  const otherToken = jwt.sign(
+    {
+      sub: otherUser.id,
+      email: otherUser.email,
+      role: otherUser.role,
+      organizationId: otherOrg.id,
+      type: "access"
+    },
+    process.env.JWT_SECRET || "claim-app-test-secret",
+    { expiresIn: "5m" }
+  );
+  const ownResponse = await fetch(`${baseUrl}/api/claims/${foreignClaim.id}`, {
+    headers: { Authorization: `Bearer ${otherToken}` }
+  });
+  assert.equal(ownResponse.status, 200);
+
+  await prisma.document.deleteMany({ where: { id: foreignDoc.id } });
+  await prisma.denialCase.deleteMany({ where: { id: foreignDenial.id } });
+  await prisma.claim.deleteMany({ where: { id: foreignClaim.id } });
+});
+
 test("B7 - API errors retain consistent fields without database exception details", { concurrency: false }, async () => {
   const notFound = await authFetch("/api/rules/definitely-missing-rule");
   assert.equal(notFound.status, 404);
