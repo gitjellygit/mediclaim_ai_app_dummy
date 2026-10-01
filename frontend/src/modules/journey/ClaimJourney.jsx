@@ -29,6 +29,7 @@ import {
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 import { useToast } from "../../context/ToastContext.jsx";
+import { formatUSD } from "../../utils/currency.js";
 
 const STAGE_LABELS = {
   eligibility: "1. Eligibility",
@@ -38,16 +39,7 @@ const STAGE_LABELS = {
   remittance: "5. Remittance"
 };
 
-function money(value) {
-  if (value == null || value === "") return "—";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0
-  }).format(n);
-}
+const money = formatUSD;
 
 function date(value) {
   if (!value) return "—";
