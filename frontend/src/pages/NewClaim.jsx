@@ -52,7 +52,7 @@ export default function NewClaim() {
     policyNo: "",
 
     // Financials
-    claimType: "REIMBURSEMENT",
+    claimType: "MEMBER_REIMBURSEMENT",
     totalBilledAmount: "",
     amount: ""
   });
@@ -254,8 +254,8 @@ export default function NewClaim() {
                 value={form.claimType}
                 onChange={(e) => update("claimType", e.target.value)}
               >
-                <MenuItem value="REIMBURSEMENT">Reimbursement</MenuItem>
-                <MenuItem value="CASHLESS">Cashless</MenuItem>
+                <MenuItem value="MEMBER_REIMBURSEMENT">Reimbursement</MenuItem>
+                <MenuItem value="PROVIDER_BILLED">Provider Billed</MenuItem>
               </TextField>
 
               <TextField
