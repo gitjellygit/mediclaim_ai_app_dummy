@@ -47,6 +47,30 @@ function orgId(req) {
   return req.user.organizationId;
 }
 
+async function auditClaim(req, { claimId, action, outcome = "SUCCESS", metadata = {} }) {
+  try {
+    await prisma.auditEvent.create({
+      data: {
+        organizationId: orgId(req),
+        claimId,
+        actorUserId: req.user?.id || null,
+        action,
+        entityType: "Claim",
+        entityId: claimId,
+        outcome,
+        metadata
+      }
+    });
+  } catch (error) {
+    console.error("[audit] claim event write failed", {
+      claimId,
+      action,
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+  }
+}
+
 
 // Journey logs intentionally avoid patient/member data so PHI is not written to logs.
 function logJourneyEvent(claimId, action, result, extra = {}) {
@@ -141,7 +165,8 @@ router.get("/", async (req, res) => {
   try {
     const claims = await prisma.claim.findMany({
       where: {
-        organizationId: orgId(req)
+        organizationId: orgId(req),
+        deletedAt: null
       },
       include: {
         documents: {
@@ -179,6 +204,7 @@ router.get("/search", async (req, res) => {
     const where = q
       ? {
           organizationId: orgId(req),
+          deletedAt: null,
           OR: [
             { id: { equals: q } },
             { patientName: { contains: q, mode: "insensitive" } },
@@ -189,7 +215,7 @@ router.get("/search", async (req, res) => {
             { authorizationNo: { contains: q, mode: "insensitive" } }
           ]
         }
-      : { organizationId: orgId(req) };
+      : { organizationId: orgId(req), deletedAt: null };
 
     const claims = await prisma.claim.findMany({
       where,
@@ -249,7 +275,7 @@ async function createPayerTransaction(claimId, payerCode, transactionType, resul
 
 async function getSimulationClaim(id, organizationId) {
   return prisma.claim.findFirst({
-    where: { id, organizationId },
+    where: { id, organizationId, deletedAt: null },
     include: {
       documents: { orderBy: { createdAt: "desc" } },
       payerTransactions: { orderBy: { createdAt: "desc" } }
@@ -264,7 +290,7 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
     if (!payer) return res.status(400).json({ error: "Unknown mock payer" });
 
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) } });
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
@@ -774,7 +800,7 @@ router.post("/:id/payer-simulation/remittance", async (req, res) => {
 router.get("/:id/journey", async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) },
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
         documents: { orderBy: { createdAt: "desc" } },
         checks: { orderBy: { createdAt: "desc" }, take: 1 },
@@ -814,7 +840,7 @@ router.get("/:id/journey", async (req, res) => {
 router.post("/:id/journey/eligibility/precheck", async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) } });
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     // Completed eligibility is idempotent. Re-clicking the same action should
@@ -914,7 +940,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
 router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) } });
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     if (
@@ -1058,7 +1084,7 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
     }
 
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) } });
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     if (
@@ -1167,6 +1193,7 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
         try {
           await prisma.auditEvent.create({
             data: {
+              organizationId: orgId(req),
               claimId: claim.id,
               actorUserId: req.user?.id || null,
               action: "DENIAL_CASE_AUTO_CREATED",
@@ -1211,7 +1238,7 @@ router.patch("/:id/journey/remittance", async (req, res) => {
     }
 
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) } });
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     if (
@@ -1393,6 +1420,7 @@ router.get("/medical-consistency/summary", async (req, res) => {
     const where = q
       ? {
           organizationId: orgId(req),
+          deletedAt: null,
           OR: [
             { id: { equals: q } },
             { patientName: { contains: q, mode: "insensitive" } },
@@ -1401,7 +1429,7 @@ router.get("/medical-consistency/summary", async (req, res) => {
             { memberId: { contains: q, mode: "insensitive" } }
           ]
         }
-      : { organizationId: orgId(req) };
+      : { organizationId: orgId(req), deletedAt: null };
 
     const claims = await prisma.claim.findMany({
       where,
@@ -1461,7 +1489,7 @@ router.get("/medical-consistency/summary", async (req, res) => {
 router.get("/:id/medical-consistency", async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) },
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
         documents: {
           orderBy: { createdAt: "desc" }
@@ -1491,7 +1519,7 @@ router.get("/:id/medical-consistency", async (req, res) => {
 
 router.get("/:id", async (req, res) => {
   const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) },
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
     include: {
       documents: true,
       checks: { orderBy: { createdAt: "desc" } }
@@ -1608,6 +1636,12 @@ router.post("/", async (req, res) => {
       }
     });
 
+    await auditClaim(req, {
+      claimId: claim.id,
+      action: "CLAIM_CREATED",
+      metadata: { status: claim.status }
+    });
+
     res.json(claim);
   } catch (e) {
     console.error("[claim-create] failed", { name: e.name, code: e.code || null });
@@ -1618,7 +1652,7 @@ router.post("/", async (req, res) => {
 router.patch("/:id", async (req, res) => {
   try {
     const existing = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) }
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
     });
 
     if (!existing) {
@@ -1750,11 +1784,17 @@ router.patch("/:id", async (req, res) => {
     }
 
     const updated = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) },
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
         documents: true,
         checks: { orderBy: { createdAt: "desc" } }
       }
+    });
+
+    await auditClaim(req, {
+      claimId: updated.id,
+      action: "CLAIM_UPDATED",
+      metadata: { changedFields: manuallyChangedFields }
     });
 
     res.json({
@@ -1772,32 +1812,29 @@ router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
   try {
     const id = req.params.id;
 
-    const claim = await prisma.claim.findFirst({ where: { id, organizationId: orgId(req) } });
+    const claim = await prisma.claim.findFirst({ where: { id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) {
       return res.status(404).json({ error: "Claim not found" });
     }
 
     if (claim.status === "SUBMITTED") {
       return res.status(409).json({
-        error: "Submitted claims are locked and cannot be permanently deleted."
+        error: "Submitted claims are locked and cannot be deleted."
       });
     }
 
-    const documents = await prisma.document.findMany({
-      where: { claimId: id }
+    await prisma.claim.update({
+      where: { id },
+      data: { deletedAt: new Date() }
     });
 
-    for (const doc of documents) {
-      if (doc.path && fs.existsSync(doc.path)) {
-        fs.unlinkSync(doc.path);
-      }
-    }
+    await auditClaim(req, {
+      claimId: id,
+      action: "CLAIM_SOFT_DELETED",
+      metadata: { previousStatus: claim.status }
+    });
 
-    await prisma.document.deleteMany({ where: { claimId: id } });
-    await prisma.check.deleteMany({ where: { claimId: id } });
-    await prisma.claim.delete({ where: { id } });
-
-    res.json({ success: true });
+    res.json({ success: true, softDeleted: true });
   } catch (error) {
     console.error("Delete claim error:", error);
     res.status(400).json({ error: "Unable to delete claim" });
@@ -1817,7 +1854,7 @@ router.delete("/documents/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =
 router.post("/:id/check", async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) },
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: { documents: true }
     });
 
@@ -2014,7 +2051,7 @@ router.post("/:id/check", async (req, res) => {
 router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req) },
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
         checks: { orderBy: { createdAt: "desc" }, take: 1 }
       }
@@ -2091,6 +2128,12 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
         documents: true,
         checks: { orderBy: { createdAt: "desc" } }
       }
+    });
+
+    await auditClaim(req, {
+      claimId: claim.id,
+      action: "CLAIM_SUBMITTED",
+      metadata: { payerClaimStatus: updated.payerClaimStatus }
     });
 
     res.json({
