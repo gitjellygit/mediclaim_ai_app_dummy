@@ -1,4 +1,5 @@
 import React from "react";
+import { Outlet } from "react-router-dom";
 import { AppBar, Box, IconButton, Toolbar, Typography } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import LeftNav from "./LeftNav";
@@ -53,7 +54,7 @@ export default function MainLayout({ children }) {
           minHeight: "100vh"
         }}
       >
-        {children}
+        {children ?? <Outlet />}
       </Box>
     </Box>
   );
