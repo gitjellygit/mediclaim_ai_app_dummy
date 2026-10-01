@@ -31,18 +31,9 @@ import {
 } from "@mui/icons-material";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
+import { formatUSD } from "../../utils/currency.js";
 
-function money(value) {
-  if (value == null || value === "") return "—";
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "—";
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0
-  }).format(n);
-}
+const money = formatUSD;
 
 function percent(value) {
   const n = Number(value);
