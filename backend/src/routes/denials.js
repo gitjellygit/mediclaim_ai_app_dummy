@@ -1,5 +1,6 @@
 import { validMoney, differenceMoney, moneyCents, moneyFromCents } from "../utils/money.js";
 import express from "express";
+import { assertDenialTransition } from "../services/workflowStateMachine.js";
 import { prisma } from "../db.js";
 import { analyzeDenial } from "../services/denialIntelligence.js";
 
@@ -344,25 +345,11 @@ router.patch("/:id", requireManager, async (req, res) => {
       return res.status(404).json({ error: "Denial case not found" });
     }
 
-    const allowedStatuses = new Set([
-      "OPEN",
-      "ANALYZED",
-      "CORRECTION_REQUIRED",
-      "APPEAL_PREPARED",
-      "APPEAL_SUBMITTED",
-      "RESUBMITTED",
-      "OVERTURNED",
-      "UPHELD",
-      "CLOSED"
-    ]);
-
     const nextStatus = req.body.status
       ? String(req.body.status).toUpperCase()
       : existing.status;
 
-    if (!allowedStatuses.has(nextStatus)) {
-      return res.status(400).json({ error: "Invalid denial case status" });
-    }
+    assertDenialTransition(existing.status, nextStatus);
 
     const updated = await prisma.denialCase.update({
       where: { id: existing.id },
@@ -454,8 +441,10 @@ router.post("/:id/analyze", requireManager, async (req, res) => {
     const updated = await prisma.denialCase.update({
       where: { id: denial.id },
       data: {
-        status:
-          denial.status === "OPEN" ? "ANALYZED" : denial.status,
+        status: assertDenialTransition(
+          denial.status,
+          denial.status === "OPEN" ? "ANALYZED" : denial.status
+        ),
         denialCategory: denial.denialCategory || analysis.category,
         correctable:
           denial.correctable == null

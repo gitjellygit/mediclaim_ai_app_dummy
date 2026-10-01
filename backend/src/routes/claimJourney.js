@@ -11,6 +11,7 @@ import {
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { buildClaimCompleteness } from "../services/claimCompleteness.js";
 import { getMockPayer } from "../services/payerSimulator.js";
+import { assertClaimTransition } from "../services/workflowStateMachine.js";
 
 const router = express.Router();
 
@@ -221,7 +222,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
     if (claim.status === "READY") {
       await prisma.claim.update({
         where: { id: claim.id },
-        data: { status: "DRAFT" }
+        data: { status: assertClaimTransition(claim.status, "DRAFT") }
       });
     }
 
@@ -359,7 +360,7 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
     if (claim.status === "READY") {
       await prisma.claim.update({
         where: { id: claim.id },
-        data: { status: "DRAFT" }
+        data: { status: assertClaimTransition(claim.status, "DRAFT") }
       });
     }
 
@@ -430,12 +431,14 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       data: {
         payerClaimStatus,
         claimStatusCheckedAt: new Date(),
-        status:
+        status: assertClaimTransition(
+          claim.status,
           payerClaimStatus === "DENIED"
             ? "DENIED"
             : payerClaimStatus === "PAID"
             ? "PAID"
-            : claim.status,
+            : claim.status
+        ),
         fieldProvenance: mergeProvenance(
           claim.fieldProvenance,
           systemProvenance(
@@ -687,12 +690,14 @@ router.patch("/:id/journey/remittance", async (req, res) => {
           claim.fieldProvenance,
           remittanceProvenance
         ),
-        status:
+        status: assertClaimTransition(
+          claim.status,
           remittanceStatus === "POSTED" && paidAmount != null && paidAmount > 0
             ? "PAID"
             : claim.payerClaimStatus === "DENIED"
             ? "DENIED"
             : claim.status
+        )
       }
     });
 

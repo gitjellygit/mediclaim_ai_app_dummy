@@ -2749,6 +2749,30 @@ test("F3 - organization isolation blocks cross-tenant claim, document and denial
   await prisma.claim.deleteMany({ where: { id: foreignClaim.id } });
 });
 
+test("F7 - denial API rejects skipped lifecycle transitions", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  const denial = await prisma.denialCase.create({
+    data: {
+      claimId: claim.id,
+      source: "MANUAL",
+      status: "OPEN"
+    }
+  });
+
+  const response = await authFetch(`/api/denials/${denial.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: "APPEAL_SUBMITTED" })
+  });
+
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.match(body.error, /Invalid denial case status transition/);
+
+  const persisted = await prisma.denialCase.findUnique({ where: { id: denial.id } });
+  assert.equal(persisted.status, "OPEN");
+});
+
 test("F6 - remaining claim and journey mutations reject unsupported fields", { concurrency: false }, async () => {
   const claim = await createClaim();
 
