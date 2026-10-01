@@ -16,6 +16,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../api/claims.js";
 import { useToast } from "../context/ToastContext.jsx";
+import { formatUSD } from "../utils/currency.js";
 
 const steps = [
   "Patient & Hospital",
@@ -258,7 +259,7 @@ export default function NewClaim() {
               </TextField>
 
               <TextField
-                label="Total Billed Amount (₹)"
+                label="Total Billed Amount (USD)"
                 type="number"
                 value={form.totalBilledAmount}
                 onChange={(e) =>
@@ -267,7 +268,7 @@ export default function NewClaim() {
               />
 
               <TextField
-                label="Total Claimed Amount (₹)"
+                label="Total Claimed Amount (USD)"
                 type="number"
                 value={form.amount}
                 onChange={(e) => update("amount", e.target.value)}
@@ -296,8 +297,8 @@ export default function NewClaim() {
 
               <Divider />
               <Typography>
-                <b>Billed:</b> ₹{form.totalBilledAmount || "—"} &nbsp; | &nbsp;
-                <b> Claimed:</b> ₹{form.amount}
+                <b>Billed:</b> {formatUSD(form.totalBilledAmount)} &nbsp; | &nbsp;
+                <b> Claimed:</b> {formatUSD(form.amount)}
               </Typography>
             </Stack>
           )}
