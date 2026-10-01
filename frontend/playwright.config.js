@@ -15,7 +15,7 @@ export default defineConfig({
   ],
   use: {
     baseURL: "http://127.0.0.1:5174",
-    channel: process.env.PW_CHANNEL || "chrome",
+    channel: process.env.PW_CHANNEL || undefined,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -25,18 +25,28 @@ export default defineConfig({
   },
   webServer: [
     {
-      command:
-        "cd ../backend && PORT=4101 E2E_TEST_MODE=true npm run dev",
+      command: "cd ../backend && npm run dev",
       url: "http://127.0.0.1:4101/health",
       timeout: 60_000,
-      reuseExistingServer: false
+      reuseExistingServer: false,
+      env: {
+        ...process.env,
+        PORT: "4101",
+        E2E_TEST_MODE: "true",
+        JWT_SECRET:
+          process.env.JWT_SECRET ||
+          "claim-app-e2e-local-signing-secret-32-characters"
+      }
     },
     {
-      command:
-        "VITE_API_URL=http://127.0.0.1:4101 npm run dev -- --host 127.0.0.1 --port 5174",
+      command: "npm run dev -- --host 127.0.0.1 --port 5174",
       url: "http://127.0.0.1:5174",
       timeout: 60_000,
-      reuseExistingServer: false
+      reuseExistingServer: false,
+      env: {
+        ...process.env,
+        VITE_API_URL: "http://127.0.0.1:4101"
+      }
     }
   ]
 });
