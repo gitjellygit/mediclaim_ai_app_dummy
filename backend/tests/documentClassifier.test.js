@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { classifyDocument } from "../src/services/docIntel.js";
 
-// Include negative substrings (doctor/ct, electric/ct, panel/pan) and supported types.
+// Include negative substrings and U.S.-oriented supported document types.
 const fixtures = [
   [
     "doctor_notes.pdf",
@@ -85,7 +85,7 @@ const fixtures = [
     "PRESCRIPTION"
   ],
   [
-    "pan_card.pdf",
+    "state_id.pdf",
     "",
     "ID_PROOF"
   ],
