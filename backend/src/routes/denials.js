@@ -6,6 +6,7 @@ import { analyzeDenial } from "../services/denialIntelligence.js";
 const router = express.Router();
 
 const MANAGER_ROLES = new Set(["ADMIN", "CASHIER"]);
+const DENIAL_SOURCES = new Set(["MANUAL", "PAYER_STATUS", "SIMULATED_PAYER_STATUS"]);
 const ACTIVE_STATUSES = [
   "OPEN",
   "ANALYZED",
@@ -262,6 +263,11 @@ router.post("/from-claim/:claimId", requireManager, async (req, res) => {
       });
     }
 
+    const source = String(req.body.source || "MANUAL").toUpperCase();
+    if (!DENIAL_SOURCES.has(source)) {
+      return res.status(400).json({ error: "Invalid denial case source" });
+    }
+
     const denialDate = parseOptionalDate(req.body.denialDate, "Denial date");
     const appealDeadline = parseOptionalDate(
       req.body.appealDeadline,
@@ -271,7 +277,7 @@ router.post("/from-claim/:claimId", requireManager, async (req, res) => {
     const created = await prisma.denialCase.create({
       data: {
         claimId: claim.id,
-        source: String(req.body.source || "MANUAL").toUpperCase(),
+        source,
         status: "OPEN",
         denialCategory: req.body.denialCategory
           ? String(req.body.denialCategory).toUpperCase()
