@@ -141,7 +141,8 @@ router.get("/", async (req, res) => {
   try {
     const claims = await prisma.claim.findMany({
       where: {
-        organizationId: orgId(req), organizationId: orgId(req) },
+        organizationId: orgId(req)
+      },
       include: {
         documents: {
           orderBy: { createdAt: "desc" }
@@ -246,9 +247,9 @@ async function createPayerTransaction(claimId, payerCode, transactionType, resul
   });
 }
 
-async function getSimulationClaim(id) {
-  return prisma.claim.findUnique({
-    where: { id },
+async function getSimulationClaim(id, organizationId) {
+  return prisma.claim.findFirst({
+    where: { id, organizationId },
     include: {
       documents: { orderBy: { createdAt: "desc" } },
       payerTransactions: { orderBy: { createdAt: "desc" } }
@@ -341,7 +342,7 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
 
 router.post("/:id/payer-simulation/eligibility", async (req, res) => {
   try {
-    const claim = await getSimulationClaim(req.params.id);
+    const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
     const payer = getMockPayer(claim.simulatedPayerCode);
@@ -423,7 +424,7 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
 
 router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
   try {
-    const claim = await getSimulationClaim(req.params.id);
+    const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
@@ -512,7 +513,7 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
 
 router.post("/:id/payer-simulation/submission", async (req, res) => {
   try {
-    const claim = await getSimulationClaim(req.params.id);
+    const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
@@ -589,7 +590,7 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
 
 router.post("/:id/payer-simulation/status", async (req, res) => {
   try {
-    const claim = await getSimulationClaim(req.params.id);
+    const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
@@ -704,7 +705,7 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
 
 router.post("/:id/payer-simulation/remittance", async (req, res) => {
   try {
-    const claim = await getSimulationClaim(req.params.id);
+    const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
     const payer = getMockPayer(claim.simulatedPayerCode);
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
