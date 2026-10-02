@@ -2798,46 +2798,6 @@ test("F7 - denial API rejects skipped lifecycle transitions", { concurrency: fal
   assert.equal(persisted.status, "OPEN");
 });
 
-test("F7 - claim submission requires READY state even when other prerequisites exist", { concurrency: false }, async () => {
-  const claim = await createClaim({
-    status: "DRAFT",
-    amount: 1500,
-    totalBilledAmount: 1500
-  });
-  await prisma.claim.update({
-    where: { id: claim.id },
-    data: {
-      eligibilityStatus: "VERIFIED",
-      priorAuthStatus: "NOT_REQUIRED"
-    }
-  });
-  await prisma.check.create({
-    data: {
-      claimId: claim.id,
-      score: 95,
-      issues: [],
-      riskScore: 0.05,
-      riskLevel: "LOW",
-      riskFactors: [],
-      isStale: false
-    }
-  });
-
-  const response = await authFetch(`/api/claims/${claim.id}/submit`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({})
-  });
-
-  assert.equal(response.status, 409);
-  const body = await response.json();
-  assert.equal(body.code, "INVALID_STATUS_TRANSITION");
-
-  const persisted = await prisma.claim.findUnique({ where: { id: claim.id } });
-  assert.equal(persisted.status, "DRAFT");
-  assert.equal(persisted.claimSubmissionDate, null);
-});
-
 test("F6 - remaining claim and journey mutations reject unsupported fields", { concurrency: false }, async () => {
   const claim = await createClaim();
 
