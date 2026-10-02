@@ -116,6 +116,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       memberId: claim.memberId || "",
       medicalRecordNumber: claim.medicalRecordNumber || "",
       planAdministratorName: claim.planAdministratorName || "",
+      groupNumber: claim.groupNumber || "",
+      subscriberId: claim.subscriberId || "",
+      subscriberName: claim.subscriberName || "",
+      subscriberRelationship: claim.subscriberRelationship || "",
+      coordinationOfBenefits: claim.coordinationOfBenefits || "",
+      payerEdiId: claim.payerEdiId || "",
       coverageLimit: claim.coverageLimit != null ? String(claim.coverageLimit) : "",
       remainingCoverageLimit:
         claim.remainingCoverageLimit != null ? String(claim.remainingCoverageLimit) : "",
@@ -124,8 +130,16 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         ? new Date(claim.patientDob).toISOString().slice(0, 10)
         : "",
       hospitalName: claim.hospitalName || "",
+      billingProviderNpi: claim.billingProviderNpi || "",
+      renderingProviderNpi: claim.renderingProviderNpi || "",
+      referringProviderNpi: claim.referringProviderNpi || "",
+      providerTin: claim.providerTin || "",
+      providerTaxonomyCode: claim.providerTaxonomyCode || "",
       diagnosisText: claim.diagnosisText || "",
       icd10Codes: claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "",
+      inpatientProcedureCodes: claim.inpatientProcedureCodes?.length
+        ? claim.inpatientProcedureCodes.join(", ")
+        : "",
       amount: claim.amount != null ? String(claim.amount) : "",
       totalBilledAmount: claim.totalBilledAmount != null ? String(claim.totalBilledAmount) : "",
       dateOfService: claim.dateOfService
@@ -144,6 +158,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       procedureDate: claim.procedureDate
         ? new Date(claim.procedureDate).toISOString().slice(0, 10)
         : "",
+      typeOfBill: claim.typeOfBill || "",
+      drgCode: claim.drgCode || "",
+      claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
+      timelyFilingDeadline: claim.timelyFilingDeadline
+        ? new Date(claim.timelyFilingDeadline).toISOString().slice(0, 10)
+        : "",
+      serviceLines: (claim.serviceLines || []).map(serviceLineToForm),
       claimType: claim.claimType || "MEMBER_REIMBURSEMENT"
     });
   }, [claim]);
@@ -161,6 +182,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       memberId: claim.memberId || "",
       medicalRecordNumber: claim.medicalRecordNumber || "",
       planAdministratorName: claim.planAdministratorName || "",
+      groupNumber: claim.groupNumber || "",
+      subscriberId: claim.subscriberId || "",
+      subscriberName: claim.subscriberName || "",
+      subscriberRelationship: claim.subscriberRelationship || "",
+      coordinationOfBenefits: claim.coordinationOfBenefits || "",
+      payerEdiId: claim.payerEdiId || "",
       coverageLimit: claim.coverageLimit != null ? String(claim.coverageLimit) : "",
       remainingCoverageLimit:
         claim.remainingCoverageLimit != null ? String(claim.remainingCoverageLimit) : "",
@@ -169,8 +196,16 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         ? new Date(claim.patientDob).toISOString().slice(0, 10)
         : "",
       hospitalName: claim.hospitalName || "",
+      billingProviderNpi: claim.billingProviderNpi || "",
+      renderingProviderNpi: claim.renderingProviderNpi || "",
+      referringProviderNpi: claim.referringProviderNpi || "",
+      providerTin: claim.providerTin || "",
+      providerTaxonomyCode: claim.providerTaxonomyCode || "",
       diagnosisText: claim.diagnosisText || "",
       icd10Codes: claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "",
+      inpatientProcedureCodes: claim.inpatientProcedureCodes?.length
+        ? claim.inpatientProcedureCodes.join(", ")
+        : "",
       amount: claim.amount != null ? String(claim.amount) : "",
       totalBilledAmount: claim.totalBilledAmount != null ? String(claim.totalBilledAmount) : "",
       dateOfService: claim.dateOfService
@@ -189,6 +224,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       procedureDate: claim.procedureDate
         ? new Date(claim.procedureDate).toISOString().slice(0, 10)
         : "",
+      typeOfBill: claim.typeOfBill || "",
+      drgCode: claim.drgCode || "",
+      claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
+      timelyFilingDeadline: claim.timelyFilingDeadline
+        ? new Date(claim.timelyFilingDeadline).toISOString().slice(0, 10)
+        : "",
+      serviceLines: (claim.serviceLines || []).map(serviceLineToForm),
       claimType: claim.claimType || "MEMBER_REIMBURSEMENT"
     });
   }
@@ -209,6 +251,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       memberId: editForm.memberId || null,
       medicalRecordNumber: editForm.medicalRecordNumber || null,
       planAdministratorName: editForm.planAdministratorName || null,
+      groupNumber: editForm.groupNumber || null,
+      subscriberId: editForm.subscriberId || null,
+      subscriberName: editForm.subscriberName || null,
+      subscriberRelationship: editForm.subscriberRelationship || null,
+      coordinationOfBenefits: editForm.coordinationOfBenefits || null,
+      payerEdiId: editForm.payerEdiId || null,
       coverageLimit:
         editForm.coverageLimit !== "" ? Number(editForm.coverageLimit) : null,
       remainingCoverageLimit:
@@ -218,6 +266,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       payerReferenceNo: editForm.payerReferenceNo || null,
       patientDob: editForm.patientDob || null,
       hospitalName: editForm.hospitalName || null,
+      billingProviderNpi: editForm.billingProviderNpi || null,
+      renderingProviderNpi: editForm.renderingProviderNpi || null,
+      referringProviderNpi: editForm.referringProviderNpi || null,
+      providerTin: editForm.providerTin || null,
+      providerTaxonomyCode: editForm.providerTaxonomyCode || null,
       diagnosisText: editForm.diagnosisText || null,
       claimType: editForm.claimType,
       dateOfService: editForm.dateOfService || null,
@@ -235,7 +288,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       totalBilledAmount: parseFloat(editForm.totalBilledAmount) || null,
       icd10Codes: editForm.icd10Codes
         ? editForm.icd10Codes.split(",").map((c) => c.trim()).filter(Boolean)
-        : []
+        : [],
+      inpatientProcedureCodes: editForm.inpatientProcedureCodes
+        ? editForm.inpatientProcedureCodes.split(",").map((c) => c.trim()).filter(Boolean)
+        : [],
+      typeOfBill: editForm.typeOfBill || null,
+      drgCode: editForm.drgCode || null,
+      claimFrequencyCode: editForm.claimFrequencyCode || "ORIGINAL",
+      timelyFilingDeadline: editForm.timelyFilingDeadline || null,
+      serviceLines: (editForm.serviceLines || [])
+        .filter((line) => line.cptHcpcsCode?.trim())
+        .map(serviceLineToPayload)
     };
 
     if (!payload.patientName || payload.patientName.length === 0) {
@@ -1007,6 +1070,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   <FieldLine claim={claim} field="icd10Codes" label="ICD-10">{claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "—"}</FieldLine>
                   <FieldLine claim={claim} field="doctorName" label="Doctor">{claim.doctorName || "—"}</FieldLine>
                   <FieldLine claim={claim} field="hospitalName" label="Hospital">{claim.hospitalName || "—"}</FieldLine>
+                  <Typography><b>Billing NPI:</b> {claim.billingProviderNpi || "—"}</Typography>
+                  <Typography><b>Rendering NPI:</b> {claim.renderingProviderNpi || "—"}</Typography>
+                  <Typography><b>Referring NPI:</b> {claim.referringProviderNpi || "—"}</Typography>
+                  <Typography><b>Provider TIN:</b> {claim.providerTin || "—"}</Typography>
+                  <Typography><b>Taxonomy:</b> {claim.providerTaxonomyCode || "—"}</Typography>
                 </Box>
               </Box>
 
@@ -1025,6 +1093,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   <FieldLine claim={claim} field="planAdministratorName" label="Plan Administrator">{claim.planAdministratorName || "—"}</FieldLine>
                   <Typography><b>Policy Type:</b> {claim.productType || "—"}</Typography>
                   <Typography><b>Payer Reference:</b> {claim.payerReferenceNo || "—"}</Typography>
+                  <Typography><b>Group Number:</b> {claim.groupNumber || "—"}</Typography>
+                  <Typography><b>Subscriber ID:</b> {claim.subscriberId || "—"}</Typography>
+                  <Typography><b>Subscriber:</b> {claim.subscriberName || "—"}</Typography>
+                  <Typography><b>Relationship:</b> {claim.subscriberRelationship || "—"}</Typography>
+                  <Typography><b>COB:</b> {claim.coordinationOfBenefits || "—"}</Typography>
+                  <Typography><b>Payer EDI ID:</b> {claim.payerEdiId || "—"}</Typography>
                 </Box>
               </Box>
 
@@ -1041,6 +1115,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   <Typography><b>Admission Type:</b> {completenessValue("admissionType", claim.admissionType)}</Typography>
                   <Typography><b>Room Category:</b> {completenessValue("roomCategory", claim.roomCategory)}</Typography>
                   <Typography><b>ICU Days:</b> {completenessValue("icuDays", claim.icuDays)}</Typography>
+                  <Typography><b>ICD-10-PCS:</b> {claim.inpatientProcedureCodes?.length ? claim.inpatientProcedureCodes.join(", ") : "—"}</Typography>
+                  <Typography><b>Type of Bill:</b> {claim.typeOfBill || "—"}</Typography>
+                  <Typography><b>DRG:</b> {claim.drgCode || "—"}</Typography>
                 </Box>
               </Box>
 
@@ -1059,7 +1136,18 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   <Typography><b>Insurer Claim No:</b> {claim.insurerClaimNo || "—"}</Typography>
                   <FieldLine claim={claim} field="authorizationNo" label="Authorization No">{claim.authorizationNo || "—"}</FieldLine>
                   <Typography><b>Submission Date:</b> {formatDate(claim.claimSubmissionDate)}</Typography>
+                  <Typography><b>Frequency:</b> {claim.claimFrequencyCode || "ORIGINAL"}</Typography>
+                  <Typography><b>Timely Filing Deadline:</b> {formatDate(claim.timelyFilingDeadline)}</Typography>
                 </Box>
+              </Box>
+
+              <Divider />
+
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                  Service Lines
+                </Typography>
+                <ServiceLinesEditor lines={claim.serviceLines || []} readOnly />
               </Box>
             </Stack>
           )}
@@ -1084,6 +1172,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 onChange={(e) => updateEditField("hospitalName", e.target.value)}
                 fullWidth
               />
+              <TextField label="Billing Provider NPI" value={editForm.billingProviderNpi} onChange={(e) => updateEditField("billingProviderNpi", e.target.value)} fullWidth />
+              <TextField label="Rendering Provider NPI" value={editForm.renderingProviderNpi} onChange={(e) => updateEditField("renderingProviderNpi", e.target.value)} fullWidth />
+              <TextField label="Referring Provider NPI" value={editForm.referringProviderNpi} onChange={(e) => updateEditField("referringProviderNpi", e.target.value)} fullWidth />
+              <TextField label="Provider TIN" value={editForm.providerTin} onChange={(e) => updateEditField("providerTin", e.target.value)} fullWidth />
+              <TextField label="Provider Taxonomy Code" value={editForm.providerTaxonomyCode} onChange={(e) => updateEditField("providerTaxonomyCode", e.target.value)} fullWidth />
               <TextField
                 label="Diagnosis"
                 value={editForm.diagnosisText}
