@@ -51,7 +51,7 @@ export default function ClaimCompletenessCard({ completeness, onFixItem, claimSt
   }
 
   return (
-    <Card sx={{ mb: 3 }}>
+    <Card sx={{ mb: 3 }} data-testid="claim-completeness-card">
       <CardContent>
         <Stack
           direction={{ xs: "column", md: "row" }}
