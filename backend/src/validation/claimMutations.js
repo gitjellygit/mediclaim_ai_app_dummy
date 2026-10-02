@@ -3,6 +3,19 @@ import { z } from "zod";
 const optionalDateString = z.string().trim().max(64).nullish();
 const optionalMoneyInput = z.union([z.string().trim().max(40), z.number().finite()]).nullish();
 
+export const serviceLineInputSchema = z.object({
+  cptHcpcsCode: z.string().trim().min(1).max(20),
+  modifiers: z.array(z.string().trim().min(1).max(4)).max(4).optional(),
+  units: z.union([z.string().trim().max(20), z.number().finite()]).nullish(),
+  charge: optionalMoneyInput,
+  diagnosisPointers: z.array(z.string().trim().min(1).max(20)).max(12).optional(),
+  placeOfService: z.string().trim().max(4).nullish(),
+  serviceDateFrom: optionalDateString,
+  serviceDateTo: optionalDateString,
+  revenueCode: z.string().trim().max(8).nullish(),
+  poaIndicator: z.string().trim().max(2).nullish()
+}).strict();
+
 export const emptyMutationSchema = z.object({}).strict();
 
 export const claimUpdateSchema = z.object({
@@ -12,11 +25,22 @@ export const claimUpdateSchema = z.object({
   memberId: z.string().trim().max(100).nullish(),
   medicalRecordNumber: z.string().trim().max(100).nullish(),
   planAdministratorName: z.string().trim().max(250).nullish(),
+  groupNumber: z.string().trim().max(100).nullish(),
+  subscriberId: z.string().trim().max(100).nullish(),
+  subscriberName: z.string().trim().max(250).nullish(),
+  subscriberRelationship: z.enum(["SELF", "SPOUSE", "CHILD", "OTHER"]).nullish(),
+  coordinationOfBenefits: z.enum(["PRIMARY", "SECONDARY", "TERTIARY"]).nullish(),
+  payerEdiId: z.string().trim().max(100).nullish(),
   coverageLimit: optionalMoneyInput,
   remainingCoverageLimit: optionalMoneyInput,
   payerReferenceNo: z.string().trim().max(100).nullish(),
   patientDob: optionalDateString,
   hospitalName: z.string().trim().max(250).nullish(),
+  billingProviderNpi: z.string().trim().max(10).nullish(),
+  renderingProviderNpi: z.string().trim().max(10).nullish(),
+  referringProviderNpi: z.string().trim().max(10).nullish(),
+  providerTin: z.string().trim().max(20).nullish(),
+  providerTaxonomyCode: z.string().trim().max(20).nullish(),
   diagnosisText: z.string().max(6000).nullish(),
   claimType: z.enum(["PROVIDER_BILLED", "MEMBER_REIMBURSEMENT"]).optional(),
   dateOfService: optionalDateString,
@@ -28,8 +52,14 @@ export const claimUpdateSchema = z.object({
   procedureText: z.string().max(6000).nullish(),
   procedureDate: optionalDateString,
   icd10Codes: z.array(z.string().trim().max(20)).max(100).optional(),
+  inpatientProcedureCodes: z.array(z.string().trim().max(20)).max(100).optional(),
+  typeOfBill: z.string().trim().max(10).nullish(),
+  drgCode: z.string().trim().max(10).nullish(),
+  claimFrequencyCode: z.enum(["ORIGINAL", "CORRECTED", "VOID"]).optional(),
+  timelyFilingDeadline: optionalDateString,
   amount: optionalMoneyInput,
-  totalBilledAmount: optionalMoneyInput
+  totalBilledAmount: optionalMoneyInput,
+  serviceLines: z.array(serviceLineInputSchema).max(500).optional()
 }).strict();
 
 export const priorAuthEvaluationSchema = z.object({
