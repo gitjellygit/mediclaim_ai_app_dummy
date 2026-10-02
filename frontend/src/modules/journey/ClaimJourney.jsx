@@ -1363,7 +1363,18 @@ export default function ClaimJourney() {
                 )}
                 {payerConnected && claim.remittanceStatus === "POSTED" &&
                   Number(latestRemittance?.responsePayload?.potentialUnderpayment || 0) > 0 && (
-                    <Alert severity="warning">
+                    <Alert
+                      severity="warning"
+                      action={
+                        <Button
+                          color="inherit"
+                          size="small"
+                          onClick={() => navigate("/payments")}
+                        >
+                          Review Recovery
+                        </Button>
+                      }
+                    >
                       Potential payer underpayment:{" "}
                       {money(latestRemittance.responsePayload.potentialUnderpayment)}.
                       This amount is not patient responsibility.
