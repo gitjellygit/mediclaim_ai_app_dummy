@@ -1234,6 +1234,55 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                label="Group Number"
+                value={editForm.groupNumber}
+                onChange={(e) => updateEditField("groupNumber", e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Subscriber ID"
+                value={editForm.subscriberId}
+                onChange={(e) => updateEditField("subscriberId", e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Subscriber Name"
+                value={editForm.subscriberName}
+                onChange={(e) => updateEditField("subscriberName", e.target.value)}
+                fullWidth
+              />
+              <TextField
+                select
+                label="Subscriber Relationship"
+                value={editForm.subscriberRelationship}
+                onChange={(e) => updateEditField("subscriberRelationship", e.target.value)}
+                fullWidth
+              >
+                <MenuItem value="">Not specified</MenuItem>
+                <MenuItem value="SELF">Self</MenuItem>
+                <MenuItem value="SPOUSE">Spouse</MenuItem>
+                <MenuItem value="CHILD">Child</MenuItem>
+                <MenuItem value="OTHER">Other</MenuItem>
+              </TextField>
+              <TextField
+                select
+                label="Coordination of Benefits"
+                value={editForm.coordinationOfBenefits}
+                onChange={(e) => updateEditField("coordinationOfBenefits", e.target.value)}
+                fullWidth
+              >
+                <MenuItem value="">Not specified</MenuItem>
+                <MenuItem value="PRIMARY">Primary</MenuItem>
+                <MenuItem value="SECONDARY">Secondary</MenuItem>
+                <MenuItem value="TERTIARY">Tertiary</MenuItem>
+              </TextField>
+              <TextField
+                label="Payer EDI ID"
+                value={editForm.payerEdiId}
+                onChange={(e) => updateEditField("payerEdiId", e.target.value)}
+                fullWidth
+              />
+              <TextField
                 label="Payer Reference Number"
                 value={editForm.payerReferenceNo}
                 onChange={(e) => updateEditField("payerReferenceNo", e.target.value)}
@@ -1349,6 +1398,50 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 focused={fixFocus === "amount"}
                 onChange={(e) => updateEditField("amount", e.target.value)}
                 fullWidth
+              />
+              <Divider />
+              <Typography variant="subtitle2">U.S. Claim Details</Typography>
+              <TextField
+                label="ICD-10-PCS Codes (comma separated)"
+                value={editForm.inpatientProcedureCodes}
+                onChange={(e) => updateEditField("inpatientProcedureCodes", e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Type of Bill"
+                value={editForm.typeOfBill}
+                onChange={(e) => updateEditField("typeOfBill", e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="DRG"
+                value={editForm.drgCode}
+                onChange={(e) => updateEditField("drgCode", e.target.value)}
+                fullWidth
+              />
+              <TextField
+                select
+                label="Claim Frequency"
+                value={editForm.claimFrequencyCode}
+                onChange={(e) => updateEditField("claimFrequencyCode", e.target.value)}
+                fullWidth
+              >
+                <MenuItem value="ORIGINAL">Original</MenuItem>
+                <MenuItem value="CORRECTED">Corrected</MenuItem>
+                <MenuItem value="VOID">Void</MenuItem>
+              </TextField>
+              <TextField
+                label="Timely Filing Deadline"
+                type="date"
+                InputLabelProps={{ shrink: true }}
+                value={editForm.timelyFilingDeadline}
+                onChange={(e) => updateEditField("timelyFilingDeadline", e.target.value)}
+                fullWidth
+              />
+              <Typography variant="subtitle2">Service Lines</Typography>
+              <ServiceLinesEditor
+                lines={editForm.serviceLines || []}
+                onChange={(serviceLines) => updateEditField("serviceLines", serviceLines)}
               />
             </Stack>
           )}
