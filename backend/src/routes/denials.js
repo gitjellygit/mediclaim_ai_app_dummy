@@ -471,7 +471,9 @@ router.patch("/:id", requireManager, async (req, res) => {
         recommendedAction:
           req.body.recommendedAction !== undefined
             ? String(req.body.recommendedAction || "").trim().slice(0, 2000) || null
-            : existing.recommendedAction || codeReference.recommendedAction || undefined,
+            : req.body.carcCode !== undefined || req.body.rarcCode !== undefined
+            ? codeReference.recommendedAction || existing.recommendedAction || undefined
+            : undefined,
         recoveredAmount:
           req.body.recoveredAmount !== undefined
             ? parseOptionalMoney(req.body.recoveredAmount, "Recovered amount")
