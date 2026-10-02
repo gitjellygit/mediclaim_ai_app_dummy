@@ -6,6 +6,8 @@ import {
   simulateStatus,
   simulateRemittance
 } from "./payerSimulator.js";
+import { createLocalPayerConnector } from "./localPayerConnector.js";
+import { assertPayerConnector } from "./payerConnector.js";
 
 export class PayerConnectorNotConfiguredError extends Error {
   constructor(mode) {
@@ -14,37 +16,70 @@ export class PayerConnectorNotConfiguredError extends Error {
   }
 }
 
-/**
- * Standard payer contract. Each implementation must provide the same five
- * operations and normalize its result into the existing claim-journey shape.
- * These are structured demo objects, NOT actual HIPAA EDI transactions.
- */
-export function createPayerConnector(mode, payerCode) {
-  if (mode !== "SIMULATED") {
-    // LOCAL remains the existing standalone journey flow. LIVE must be
-    // explicitly configured and tested; never fall back to synthetic results.
-    throw new PayerConnectorNotConfiguredError(mode);
-  }
+function createSimulatedPayerConnector(payerCode) {
   const payer = getMockPayer(payerCode);
   if (!payer) throw new PayerConnectorNotConfiguredError(payerCode);
 
   return Object.freeze({
-    mode,
+    mode: "SIMULATED",
     payer,
-    checkEligibility(claim, sequence) {
-      return simulateEligibility(payer, claim, sequence);
+    checkEligibility(claim, context = {}) {
+      return simulateEligibility(payer, claim, context.sequence || 1);
     },
-    requestPriorAuth(claim, sequence) {
-      return simulatePriorAuth(payer, claim, sequence);
+    requestPriorAuth(claim, context = {}) {
+      return simulatePriorAuth(payer, claim, context.sequence || 1);
     },
-    submitClaim(claim, sequence) {
-      return simulateSubmission(payer, claim, sequence);
+    submitClaim(claim, context = {}) {
+      return simulateSubmission(payer, claim, context.sequence || 1);
     },
-    getStatus(claim, previousChecks, sequence) {
-      return simulateStatus(payer, claim, previousChecks, sequence);
+    getStatus(claim, context = {}) {
+      return simulateStatus(
+        payer,
+        claim,
+        context.previousChecks || 0,
+        context.sequence || 1
+      );
     },
-    getRemittance(claim, sequence) {
-      return simulateRemittance(payer, claim, sequence);
+    getRemittance(claim, context = {}) {
+      return simulateRemittance(payer, claim, context.sequence || 1);
     }
   });
+}
+
+export function resolvePayerConnectorMode(claim, env = process.env) {
+  const requested = String(
+    claim?.payerConnectionMode || env.PAYER_CONNECTOR_MODE || "LOCAL"
+  ).toUpperCase();
+
+  if (!["LOCAL", "SIMULATED", "LIVE"].includes(requested)) {
+    throw new PayerConnectorNotConfiguredError(requested);
+  }
+
+  return requested;
+}
+
+/**
+ * Standard payer contract used by all journey integrations.
+ *
+ * LOCAL:
+ *   deterministic/manual workflow used during local development.
+ * SIMULATED:
+ *   synthetic payer responses used by demo and automated tests.
+ * LIVE:
+ *   reserved for a future clearinghouse/payer implementation and deliberately
+ *   fails closed until explicitly configured.
+ */
+export function createPayerConnector(mode, payerCode) {
+  const normalizedMode = String(mode || "LOCAL").toUpperCase();
+
+  let connector;
+  if (normalizedMode === "LOCAL") {
+    connector = createLocalPayerConnector();
+  } else if (normalizedMode === "SIMULATED") {
+    connector = createSimulatedPayerConnector(payerCode);
+  } else {
+    throw new PayerConnectorNotConfiguredError(normalizedMode);
+  }
+
+  return assertPayerConnector(connector);
 }
