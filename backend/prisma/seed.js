@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
+import { US_READINESS_RULE_DEFAULTS } from "../src/services/usReadinessRules.js";
 
 if (process.env.NODE_ENV === "production") {
   throw new Error("Demo seed is disabled in production");
@@ -32,6 +33,15 @@ async function main() {
     create: { name: "Demo Hospital", slug: "demo-hospital" }
   });
   const results = [];
+
+  for (const rule of US_READINESS_RULE_DEFAULTS) {
+    await prisma.rule.upsert({
+      where: { code: rule.code },
+      update: {},
+      create: rule
+    });
+  }
+
   results.push(await seedUser("admin@hospital.com", "ADMIN", "DEV_ADMIN_PASSWORD", organization.id));
   results.push(await seedUser("cashier@hospital.com", "CASHIER", "DEV_CASHIER_PASSWORD", organization.id));
   results.push(await seedUser("reception@hospital.com", "RECEPTIONIST", "DEV_RECEPTION_PASSWORD", organization.id));
