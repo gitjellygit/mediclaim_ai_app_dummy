@@ -179,6 +179,11 @@ router.get("/search", async (req, res) => {
             { payerName: { contains: q, mode: "insensitive" } },
             { policyNo: { contains: q, mode: "insensitive" } },
             { memberId: { contains: q, mode: "insensitive" } },
+            { medicalRecordNumber: { contains: q, mode: "insensitive" } },
+            { payerReferenceNo: { contains: q, mode: "insensitive" } },
+            { groupNumber: { contains: q, mode: "insensitive" } },
+            { subscriberId: { contains: q, mode: "insensitive" } },
+            { payerEdiId: { contains: q, mode: "insensitive" } },
             { insurerClaimNo: { contains: q, mode: "insensitive" } },
             { authorizationNo: { contains: q, mode: "insensitive" } }
           ]
@@ -193,6 +198,11 @@ router.get("/search", async (req, res) => {
         payerName: true,
         policyNo: true,
         memberId: true,
+        medicalRecordNumber: true,
+        payerReferenceNo: true,
+        groupNumber: true,
+        subscriberId: true,
+        payerEdiId: true,
         insurerClaimNo: true,
         authorizationNo: true,
         status: true,
