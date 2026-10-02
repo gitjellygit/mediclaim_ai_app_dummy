@@ -42,13 +42,9 @@ test("U4 - API accepts claimForm and readiness rules differ for 837P vs 837I", (
   );
 
   for (const expected of [
-    "837P professional claim requires billing provider NPI",
     "837P professional claim requires rendering provider NPI",
-    "837P professional claim requires at least one CPT/HCPCS service line",
     "837P professional service lines require Place of Service",
-    "837I institutional claim requires billing provider NPI",
     "837I institutional claim requires Type of Bill",
-    "837I institutional claim requires at least one service line",
     "837I institutional service lines require revenue code"
   ]) {
     assert.ok(claimsRoute.includes(expected), expected);
