@@ -29,6 +29,25 @@ enum ClaimStage {
   FINAL
 }
 
+enum SubscriberRelationship {
+  SELF
+  SPOUSE
+  CHILD
+  OTHER
+}
+
+enum CoordinationOfBenefits {
+  PRIMARY
+  SECONDARY
+  TERTIARY
+}
+
+enum ClaimFrequencyCode {
+  ORIGINAL
+  CORRECTED
+  VOID
+}
+
 enum RoomCategory {
   GENERAL
   SEMI_PRIVATE
@@ -174,6 +193,13 @@ model Claim {
   doctorName      String?
   doctorRegNo     String?
 
+  // U.S. provider identifiers.
+  billingProviderNpi   String?
+  renderingProviderNpi String?
+  referringProviderNpi String?
+  providerTin          String?
+  providerTaxonomyCode String?
+
   admissionDate DateTime?
   dischargeDate DateTime?
   admissionType AdmissionType?
@@ -182,6 +208,7 @@ model Claim {
   procedureText String?
   procedureDate DateTime?
   dateOfService DateTime?
+  inpatientProcedureCodes String[] @default([])
 
   planAdministratorName String?
   policyStartDate   DateTime?
@@ -189,6 +216,14 @@ model Claim {
   productType       String?
   coverageLimit      Decimal? @db.Decimal(14,2)
   remainingCoverageLimit Decimal? @db.Decimal(14,2)
+
+  // U.S. coverage and subscriber information.
+  groupNumber              String?
+  subscriberId             String?
+  subscriberName           String?
+  subscriberRelationship   SubscriberRelationship?
+  coordinationOfBenefits   CoordinationOfBenefits?
+  payerEdiId               String?
 
   claimType         ClaimType     @default(MEMBER_REIMBURSEMENT)
   claimStage        ClaimStage    @default(INITIAL)
@@ -198,6 +233,12 @@ model Claim {
   copayAmount       Decimal? @db.Decimal(14,2)
   roomCategory      RoomCategory?
   icuDays           Int?
+
+  // Institutional / claim-level U.S. billing metadata.
+  typeOfBill             String?
+  drgCode                String?
+  claimFrequencyCode     ClaimFrequencyCode @default(ORIGINAL)
+  timelyFilingDeadline   DateTime?
 
   payerReferenceNo    String?
   insurerClaimNo      String?
@@ -244,6 +285,7 @@ model Claim {
   fieldProvenance Json?
 
   documents   Document[]
+  serviceLines ServiceLine[]
   checks      Check[]
   denialCases DenialCase[]
   auditEvents AuditEvent[]
@@ -251,6 +293,29 @@ model Claim {
 
   @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
+}
+
+model ServiceLine {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  claimId String
+  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  cptHcpcsCode      String
+  modifiers         String[] @default([])
+  units             Decimal? @db.Decimal(10,2)
+  charge            Decimal? @db.Decimal(14,2)
+  diagnosisPointers String[] @default([])
+  placeOfService    String?
+  serviceDateFrom   DateTime?
+  serviceDateTo     DateTime?
+  revenueCode       String?
+  poaIndicator      String?
+
+  @@index([claimId])
+  @@index([cptHcpcsCode])
 }
 
 model Document {
