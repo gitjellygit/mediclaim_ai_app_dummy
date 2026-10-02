@@ -181,8 +181,8 @@ test("2 - claim detail renders U.S. terminology and USD formatting", async ({ pa
   await expect(page.getByText("Provider Billed", { exact: true })).toBeVisible();
   await expect(page.getByText(/MRN:\s*MRN-US-1001/)).toBeVisible();
   await expect(page.getByText(/Plan Administrator:\s*Northwest Benefit Services/)).toBeVisible();
-  await expect(page.getByText(/Claimed Amount:\s*\$1,234\.56/)).toBeVisible();
-  await expect(page.getByText(/Coverage Limit:\s*\$10,000\.00/)).toBeVisible();
+  await expect(page.getByText("Claimed Amount:", { exact: true }).locator("..")).toContainText("$1,234.56");
+  await expect(page.getByText("Coverage Limit:", { exact: true }).locator("..")).toContainText("$10,000.00");
 
   await expect(page.getByText("TPA:", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Cashless", { exact: true })).toHaveCount(0);
@@ -207,8 +207,8 @@ test("3 - edit U.S. claim fields and confirm they persist after reload", async (
   await page.reload();
   await expect(page.getByText(/MRN:\s*MRN-US-2002/)).toBeVisible();
   await expect(page.getByText(/Plan Administrator:\s*Pacific Plan Administrators/)).toBeVisible();
-  await expect(page.getByText(/Coverage Limit:\s*\$12,500\.50/)).toBeVisible();
-  await expect(page.getByText(/Remaining Coverage:\s*\$11,000\.25/)).toBeVisible();
+  await expect(page.getByText("Coverage Limit:", { exact: true }).locator("..")).toContainText("$12,500.50");
+  await expect(page.getByText("Remaining Coverage:", { exact: true }).locator("..")).toContainText("$11,000.25");
 
   const claim = await getClaim(primaryClaimId);
   expect(claim.medicalRecordNumber).toBe("MRN-US-2002");
