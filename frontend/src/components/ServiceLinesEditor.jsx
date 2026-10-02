@@ -8,6 +8,7 @@ import {
   Typography
 } from "@mui/material";
 import { formatUSD } from "../utils/currency.js";
+import { toDateInputValue } from "../utils/dateOnly.js";
 
 export function emptyServiceLine() {
   return {
@@ -34,12 +35,8 @@ export function serviceLineToForm(line = {}) {
       ? line.diagnosisPointers.join(", ")
       : (line.diagnosisPointers || ""),
     placeOfService: line.placeOfService || "",
-    serviceDateFrom: line.serviceDateFrom
-      ? new Date(line.serviceDateFrom).toISOString().slice(0, 10)
-      : "",
-    serviceDateTo: line.serviceDateTo
-      ? new Date(line.serviceDateTo).toISOString().slice(0, 10)
-      : "",
+    serviceDateFrom: toDateInputValue(line.serviceDateFrom),
+    serviceDateTo: toDateInputValue(line.serviceDateTo),
     revenueCode: line.revenueCode || "",
     poaIndicator: line.poaIndicator || ""
   };
