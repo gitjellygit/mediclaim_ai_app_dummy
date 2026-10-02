@@ -30,6 +30,7 @@ import {
   readinessTextColor,
   provenanceChipColor
 } from "./claim-detail/claimDetailUtils.js";
+import ServiceLinesEditor, { serviceLineToForm, serviceLineToPayload } from "../../components/ServiceLinesEditor.jsx";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
