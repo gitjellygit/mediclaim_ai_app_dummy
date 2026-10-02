@@ -332,7 +332,10 @@ export function extractFields(text) {
   ]);
 
   const icd10Codes = extractCodes(t, /ICD[-\s]*10\s*[:\-]?\s*([A-Z]\d{2}(?:\.\d{1,4})?(?:\s*,\s*[A-Z]\d{2}(?:\.\d{1,4})?)*)/i);
-  const cptCodes = extractCodes(t, /CPT\s*(?:Code|Codes)?\s*[:\-]?\s*(\d{5}(?:\s*,\s*\d{5})*)/i);
+  const cptCodes = extractCodes(
+    t,
+    /(?:CPT|HCPCS)\s*(?:Code|Codes)?\s*[:\-]?\s*((?:\d{5}|[A-Z]\d{4})(?:\s*,\s*(?:\d{5}|[A-Z]\d{4}))*)/i
+  );
 
   return {
     patientName,
