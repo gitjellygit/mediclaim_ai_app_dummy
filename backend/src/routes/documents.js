@@ -31,6 +31,43 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function extractedServiceLines(extracted = {}) {
+  const codes = Array.isArray(extracted.cptCodes)
+    ? [...new Set(extracted.cptCodes.map((code) => String(code).trim().toUpperCase()).filter(Boolean))]
+    : [];
+
+  const serviceDate = extracted.dateOfService
+    ? parseClaimDate(extracted.dateOfService)
+    : null;
+
+  return codes.map((cptHcpcsCode) => ({
+    cptHcpcsCode,
+    units: 1,
+    diagnosisPointers: Array.isArray(extracted.icd10Codes)
+      ? extracted.icd10Codes.filter(Boolean)
+      : [],
+    serviceDateFrom: serviceDate || undefined
+  }));
+}
+
+async function persistExtractedServiceLines(prismaClient, claimId, extracted = {}) {
+  const candidates = extractedServiceLines(extracted);
+  if (candidates.length === 0) return;
+
+  const existing = await prismaClient.serviceLine.findMany({
+    where: { claimId },
+    select: { cptHcpcsCode: true }
+  });
+  const existingCodes = new Set(existing.map((line) => line.cptHcpcsCode));
+
+  const missing = candidates.filter((line) => !existingCodes.has(line.cptHcpcsCode));
+  if (missing.length === 0) return;
+
+  await prismaClient.serviceLine.createMany({
+    data: missing.map((line) => ({ ...line, claimId }))
+  });
+}
+
 function calculateMatchScore(extracted, existingClaim) {
   let score = 0;
   
@@ -207,6 +244,9 @@ export function documentsRouter(prisma, uploadDir) {
             fileName: req.file.originalname,
             documentType: intel.suggestedType || "OTHER"
           }),
+          serviceLines: extractedServiceLines(extracted).length
+            ? { create: extractedServiceLines(extracted) }
+            : undefined,
           status: "DRAFT"
         };
 
@@ -346,7 +386,11 @@ export function documentsRouter(prisma, uploadDir) {
             }
           });
         }
+
+        await persistExtractedServiceLines(prisma, claim.id, extracted);
       }
+
+      await persistExtractedServiceLines(prisma, claim.id, extracted);
 
       const duplicateInClaim = await prisma.document.findFirst({
         where: { claimId: claim.id, fileHash },
@@ -424,6 +468,9 @@ export function documentsRouter(prisma, uploadDir) {
         include: {
           documents: {
             orderBy: { createdAt: "desc" }
+          },
+          serviceLines: {
+            orderBy: { createdAt: "asc" }
           },
           checks: {
             orderBy: { createdAt: "desc" }
@@ -596,6 +643,8 @@ export function documentsRouter(prisma, uploadDir) {
     const extractedPatientName = getExtractedPatientName(intel.extracted);
     const extractedAmount = getExtractedAmount(intel.extracted);
 
+    await persistExtractedServiceLines(prisma, claimId, intel.extracted || {});
+
     const updatePayload = {};
 
     if (
@@ -653,6 +702,7 @@ export function documentsRouter(prisma, uploadDir) {
       where: { id: claimId },
       include: {
         documents: { orderBy: { createdAt: "desc" } },
+        serviceLines: { orderBy: { createdAt: "asc" } },
         checks: { orderBy: { createdAt: "desc" } }
       }
     });
