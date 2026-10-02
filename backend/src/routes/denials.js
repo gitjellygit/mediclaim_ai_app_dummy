@@ -3,6 +3,13 @@ import express from "express";
 import { assertDenialTransition } from "../services/workflowStateMachine.js";
 import { prisma } from "../db.js";
 import { analyzeDenial } from "../services/denialIntelligence.js";
+import {
+  DEFAULT_APPEAL_WINDOW_DAYS,
+  computeAppealDeadline,
+  enrichDenialCase,
+  interpretDenialCodes,
+  parseAppealWindowDays
+} from "../services/denialCodes.js";
 
 const router = express.Router();
 
@@ -188,18 +195,23 @@ router.get("/", async (req, res) => {
 
     const revenueAtRisk = Number(moneyFromCents(revenueAtRiskCents));
     const recoveredAmount = Number(moneyFromCents(recoveredAmountCents));
+    const enrichedCases = cases.map(enrichDenialCase);
+    const overdueAppeals = enrichedCases.filter((item) => item.deadline?.state === "OVERDUE").length;
+    const appealsDueSoon = enrichedCases.filter((item) => item.deadline?.state === "DUE_SOON").length;
 
     const topCategory =
       Object.entries(categories).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
 
     res.json({
-      items: cases,
+      items: enrichedCases,
       metrics: {
         openCases: metricsSource.length,
         revenueAtRisk,
         appealEligible,
         recoveredAmount,
-        topCategory
+        topCategory,
+        overdueAppeals,
+        appealsDueSoon
       }
     });
   } catch (error) {
@@ -232,13 +244,43 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Denial case not found" });
     }
 
-    res.json(denial);
+    res.json(enrichDenialCase(denial));
   } catch (error) {
     console.error("[denials] get failed", {
       denialId: req.params.id,
       message: error.message
     });
     res.status(500).json({ error: "Unable to load denial case" });
+  }
+});
+
+router.get("/codes/lookup", async (req, res) => {
+  const result = interpretDenialCodes({
+    carcCode: req.query.carc,
+    rarcCode: req.query.rarc
+  });
+  res.json(result);
+});
+
+router.post("/deadline-preview", requireManager, async (req, res) => {
+  try {
+    const denialDate = parseOptionalDate(req.body.denialDate, "Denial date");
+    if (!denialDate) {
+      return res.status(400).json({ error: "Denial date is required" });
+    }
+    const appealWindowDays = parseAppealWindowDays(
+      req.body.appealWindowDays,
+      Number(process.env.DEFAULT_APPEAL_WINDOW_DAYS || DEFAULT_APPEAL_WINDOW_DAYS)
+    );
+    const appealDeadline = computeAppealDeadline(denialDate, appealWindowDays);
+    res.json({
+      denialDate,
+      appealWindowDays,
+      appealDeadline,
+      note: "Planning deadline only. Verify the payer contract, plan, remittance notice, and applicable appeal rules."
+    });
+  } catch (error) {
+    res.status(error.status || 400).json({ error: error.message });
   }
 });
 
@@ -273,10 +315,20 @@ router.post("/from-claim/:claimId", requireManager, async (req, res) => {
     }
 
     const denialDate = parseOptionalDate(req.body.denialDate, "Denial date");
-    const appealDeadline = parseOptionalDate(
+    const explicitAppealDeadline = parseOptionalDate(
       req.body.appealDeadline,
       "Appeal deadline"
     );
+    const appealWindowDays = parseAppealWindowDays(
+      req.body.appealWindowDays,
+      Number(process.env.DEFAULT_APPEAL_WINDOW_DAYS || DEFAULT_APPEAL_WINDOW_DAYS)
+    );
+    const appealDeadline =
+      explicitAppealDeadline || computeAppealDeadline(denialDate || new Date(), appealWindowDays);
+    const codeReference = interpretDenialCodes({
+      carcCode: req.body.carcCode,
+      rarcCode: req.body.rarcCode
+    });
 
     const created = await prisma.denialCase.create({
       data: {
@@ -285,7 +337,7 @@ router.post("/from-claim/:claimId", requireManager, async (req, res) => {
         status: "OPEN",
         denialCategory: req.body.denialCategory
           ? String(req.body.denialCategory).toUpperCase()
-          : null,
+          : codeReference.category,
         groupCode: req.body.groupCode
           ? String(req.body.groupCode).toUpperCase()
           : null,
@@ -301,7 +353,8 @@ router.post("/from-claim/:claimId", requireManager, async (req, res) => {
             : null,
         denialDate: denialDate || new Date(),
         appealDeadline,
-        revenueAtRisk: revenueAtRiskForClaim(claim)
+        revenueAtRisk: revenueAtRiskForClaim(claim),
+        recommendedAction: codeReference.recommendedAction
       }
     });
 
@@ -351,6 +404,25 @@ router.patch("/:id", requireManager, async (req, res) => {
 
     assertDenialTransition(existing.status, nextStatus);
 
+    const requestedDenialDate =
+      req.body.denialDate !== undefined
+        ? parseOptionalDate(req.body.denialDate, "Denial date")
+        : existing.denialDate;
+    const requestedAppealWindowDays =
+      req.body.appealWindowDays !== undefined
+        ? parseAppealWindowDays(req.body.appealWindowDays)
+        : null;
+    const explicitDeadline =
+      req.body.appealDeadline !== undefined
+        ? parseOptionalDate(req.body.appealDeadline, "Appeal deadline")
+        : undefined;
+    const shouldRecomputeDeadline =
+      requestedAppealWindowDays != null || req.body.denialDate !== undefined;
+    const codeReference = interpretDenialCodes({
+      carcCode: req.body.carcCode !== undefined ? req.body.carcCode : existing.carcCode,
+      rarcCode: req.body.rarcCode !== undefined ? req.body.rarcCode : existing.rarcCode
+    });
+
     const updated = await prisma.denialCase.update({
       where: { id: existing.id },
       data: {
@@ -358,7 +430,7 @@ router.patch("/:id", requireManager, async (req, res) => {
         denialCategory:
           req.body.denialCategory !== undefined
             ? String(req.body.denialCategory || "").toUpperCase() || null
-            : undefined,
+            : existing.denialCategory || codeReference.category || undefined,
         groupCode:
           req.body.groupCode !== undefined
             ? String(req.body.groupCode || "").toUpperCase() || null
@@ -383,10 +455,21 @@ router.patch("/:id", requireManager, async (req, res) => {
           typeof req.body.appealEligible === "boolean"
             ? req.body.appealEligible
             : undefined,
+        denialDate:
+          req.body.denialDate !== undefined ? requestedDenialDate : undefined,
         appealDeadline:
-          req.body.appealDeadline !== undefined
-            ? parseOptionalDate(req.body.appealDeadline, "Appeal deadline")
+          explicitDeadline !== undefined
+            ? explicitDeadline
+            : shouldRecomputeDeadline && requestedDenialDate
+            ? computeAppealDeadline(
+                requestedDenialDate,
+                requestedAppealWindowDays || DEFAULT_APPEAL_WINDOW_DAYS
+              )
             : undefined,
+        recommendedAction:
+          req.body.recommendedAction !== undefined
+            ? String(req.body.recommendedAction || "").trim().slice(0, 2000) || null
+            : existing.recommendedAction || codeReference.recommendedAction || undefined,
         recoveredAmount:
           req.body.recoveredAmount !== undefined
             ? parseOptionalMoney(req.body.recoveredAmount, "Recovered amount")
@@ -464,7 +547,15 @@ router.post("/:id/analyze", requireManager, async (req, res) => {
         aiConfidence: analysis.confidence,
         aiProvider: analysis.provider,
         aiModel: analysis.model,
-        aiAnalyzedAt: new Date()
+        aiAnalyzedAt: new Date(),
+        appealDeadline:
+          denial.appealDeadline ||
+          (denial.denialDate
+            ? computeAppealDeadline(
+                denial.denialDate,
+                Number(process.env.DEFAULT_APPEAL_WINDOW_DAYS || DEFAULT_APPEAL_WINDOW_DAYS)
+              )
+            : undefined)
       }
     });
 
