@@ -126,8 +126,12 @@ test("1 - create U.S. claim with U.S. claim types, fields and USD labels", async
   await page.goto("/claims/new");
   await expect(page.getByRole("heading", { name: "New Medical Claim" })).toBeVisible();
 
+  await page.getByLabel("Claim Form").click();
+  await page.getByRole("option", { name: "Professional (837P)" }).click();
   await page.getByLabel("Patient Name").fill(PRIMARY_PATIENT);
   await page.getByLabel("Hospital Name").fill("Seattle General Hospital");
+  await page.getByLabel("Billing Provider NPI").fill("1234567890");
+  await page.getByLabel("Rendering Provider NPI").fill("1987654321");
   await page.getByRole("button", { name: "Next" }).click();
 
   await page.getByLabel("Diagnosis").fill("Routine outpatient evaluation");
@@ -155,6 +159,12 @@ test("1 - create U.S. claim with U.S. claim types, fields and USD labels", async
   await page.getByLabel("Coverage Limit (USD, optional)", { exact: true }).fill("10000");
   await page.getByLabel("Remaining Coverage Limit (USD, optional)", { exact: true }).fill("8765.44");
   await page.getByLabel("Total Claimed Amount (USD)").fill("1234.56");
+
+  await page.getByRole("button", { name: "Add Service Line" }).click();
+  await page.getByLabel("CPT / HCPCS").fill("99213");
+  await page.getByLabel("Units").fill("1");
+  await page.getByLabel("Charge (USD)").fill("1234.56");
+  await page.getByLabel("Place of Service").fill("11");
 
   await expect(page.getByText("₹")).toHaveCount(0);
   await page.getByRole("button", { name: "Next" }).click();
