@@ -172,7 +172,7 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
       });
     }
 
-    const result = createPayerConnector(claim.payerConnectionMode, payer.code).checkEligibility(claim, priorCount + 1);
+    const result = createPayerConnector(claim.payerConnectionMode, payer.code).checkEligibility(claim, { sequence: priorCount + 1 });
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
     const verified = result.status === "ACTIVE";
@@ -270,7 +270,7 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
       });
     }
 
-    const result = createPayerConnector(claim.payerConnectionMode, payer.code).requestPriorAuth(claimForAuth, priorCount + 1);
+    const result = createPayerConnector(claim.payerConnectionMode, payer.code).requestPriorAuth(claimForAuth, { sequence: priorCount + 1 });
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
     const updated = await prisma.claim.update({
@@ -348,7 +348,7 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
       });
     }
 
-    const result = createPayerConnector(claim.payerConnectionMode, payer.code).submitClaim(claim, priorCount + 1);
+    const result = createPayerConnector(claim.payerConnectionMode, payer.code).submitClaim(claim, { sequence: priorCount + 1 });
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
     const payerClaimStatus =
@@ -426,7 +426,7 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
       });
     }
 
-    const result = createPayerConnector(claim.payerConnectionMode, payer.code).getStatus(claim, statusTransactions.length, statusTransactions.length + 1);
+    const result = createPayerConnector(claim.payerConnectionMode, payer.code).getStatus(claim, { previousChecks: statusTransactions.length, sequence: statusTransactions.length + 1 });
 
     // Polling may legitimately happen more than once, but do not create an
     // endless activity feed when the payer returns the same state repeatedly.
@@ -534,7 +534,7 @@ router.post("/:id/payer-simulation/remittance", async (req, res) => {
     }
 
     const priorCount = claim.payerTransactions.filter((x) => x.transactionType === "REMITTANCE").length;
-    const result = createPayerConnector(claim.payerConnectionMode, payer.code).getRemittance(claim, priorCount + 1);
+    const result = createPayerConnector(claim.payerConnectionMode, payer.code).getRemittance(claim, { sequence: priorCount + 1 });
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
     const updated = await prisma.claim.update({
