@@ -71,17 +71,26 @@ async function cleanupTestClaims() {
 }
 
 async function uploadDocument({ claimId, name, buffer }) {
-  return apiContext.post("/api/documents/upload", {
+  const form = new FormData();
+  form.append("claimId", claimId);
+  form.append(
+    "file",
+    new Blob([buffer], { type: "image/png" }),
+    name
+  );
+
+  const response = await fetch(`${backendURL}/api/documents/upload`, {
+    method: "POST",
     headers: { Authorization: `Bearer ${auth.accessToken}` },
-    multipart: {
-      claimId,
-      file: {
-        name,
-        mimeType: "image/png",
-        buffer
-      }
-    }
+    body: form
   });
+
+  return {
+    status: () => response.status,
+    ok: () => response.ok,
+    json: () => response.json(),
+    text: () => response.text()
+  };
 }
 
 test.beforeAll(async () => {
