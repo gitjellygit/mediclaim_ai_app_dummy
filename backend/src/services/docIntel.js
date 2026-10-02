@@ -1,3 +1,4 @@
+import { toDateOnlyString } from "../utils/claimDate.js";
 import fs from "fs";
 import { validMoney } from "../utils/money.js";
 import crypto from "crypto";
@@ -309,27 +310,31 @@ export function extractFields(text) {
     /Pre\s*Auth\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
-  const dateOfBirth = firstMatch(t, [
-    /Date\s*of\s*Birth\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
-    /DOB\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
-    /Birth\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+  const dateOfBirthRaw = firstMatch(t, [
+    /Date\s*of\s*Birth\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
+    /DOB\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
+    /Birth\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i
   ]);
+  const dateOfBirth = toDateOnlyString(dateOfBirthRaw);
 
-  const dateOfService = firstMatch(t, [
-    /Date\s*of\s*Service\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
-    /Service\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
-    /DOS\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+  const dateOfServiceRaw = firstMatch(t, [
+    /Date\s*of\s*Service\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
+    /Service\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
+    /DOS\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i
   ]);
+  const dateOfService = toDateOnlyString(dateOfServiceRaw);
 
-  const admissionDate = firstMatch(t, [
-    /Admission\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
-    /Date\s*of\s*Admission\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+  const admissionDateRaw = firstMatch(t, [
+    /Admission\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
+    /Date\s*of\s*Admission\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i
   ]);
+  const admissionDate = toDateOnlyString(admissionDateRaw);
 
-  const dischargeDate = firstMatch(t, [
-    /Discharge\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
-    /Date\s*of\s*Discharge\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i
+  const dischargeDateRaw = firstMatch(t, [
+    /Discharge\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
+    /Date\s*of\s*Discharge\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i
   ]);
+  const dischargeDate = toDateOnlyString(dischargeDateRaw);
 
   const icd10Codes = extractCodes(t, /ICD[-\s]*10\s*[:\-]?\s*([A-Z]\d{2}(?:\.\d{1,4})?(?:\s*,\s*[A-Z]\d{2}(?:\.\d{1,4})?)*)/i);
   const cptCodes = extractCodes(
