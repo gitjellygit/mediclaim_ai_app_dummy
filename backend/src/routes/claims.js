@@ -27,6 +27,7 @@ import {
 } from "../services/claimCompleteness.js";
 import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
+import { evaluateUsReadinessRules, usReadinessRuleCodes } from "../services/usReadinessRules.js";
 
 const router = express.Router();
 
@@ -829,7 +830,11 @@ router.post("/:id/check", async (req, res) => {
 
     // Only recognized rule codes alter live readiness. Mandatory gates remain mandatory.
     const rules = await prisma.rule.findMany({
-      where: { code: { in: ["REQ_POLICY_NO", "RECOMMENDED_ICD"] } }
+      where: {
+        code: {
+          in: ["REQ_POLICY_NO", "RECOMMENDED_ICD", ...usReadinessRuleCodes()]
+        }
+      }
     });
     const issues = [];
 
@@ -866,14 +871,6 @@ router.post("/:id/check", async (req, res) => {
     }
 
     if (claim.claimForm === "PROFESSIONAL") {
-      if (!claim.billingProviderNpi) {
-        issues.push({
-          severity: "BLOCK",
-          message: "837P professional claim requires billing provider NPI",
-          source: "CLAIM_FORM",
-          fixTarget: "claim"
-        });
-      }
       if (!claim.renderingProviderNpi) {
         issues.push({
           severity: "BLOCK",
@@ -882,14 +879,7 @@ router.post("/:id/check", async (req, res) => {
           fixTarget: "claim"
         });
       }
-      if (!claim.serviceLines?.length) {
-        issues.push({
-          severity: "BLOCK",
-          message: "837P professional claim requires at least one CPT/HCPCS service line",
-          source: "CLAIM_FORM",
-          fixTarget: "claim"
-        });
-      } else if (claim.serviceLines.some((line) => !line.placeOfService)) {
+      if (claim.serviceLines?.length && claim.serviceLines.some((line) => !line.placeOfService)) {
         issues.push({
           severity: "BLOCK",
           message: "837P professional service lines require Place of Service",
@@ -900,14 +890,6 @@ router.post("/:id/check", async (req, res) => {
     }
 
     if (claim.claimForm === "INSTITUTIONAL") {
-      if (!claim.billingProviderNpi) {
-        issues.push({
-          severity: "BLOCK",
-          message: "837I institutional claim requires billing provider NPI",
-          source: "CLAIM_FORM",
-          fixTarget: "claim"
-        });
-      }
       if (!claim.typeOfBill) {
         issues.push({
           severity: "BLOCK",
@@ -916,14 +898,7 @@ router.post("/:id/check", async (req, res) => {
           fixTarget: "claim"
         });
       }
-      if (!claim.serviceLines?.length) {
-        issues.push({
-          severity: "BLOCK",
-          message: "837I institutional claim requires at least one service line",
-          source: "CLAIM_FORM",
-          fixTarget: "claim"
-        });
-      } else if (claim.serviceLines.some((line) => !line.revenueCode)) {
+      if (claim.serviceLines?.length && claim.serviceLines.some((line) => !line.revenueCode)) {
         issues.push({
           severity: "BLOCK",
           message: "837I institutional service lines require revenue code",
@@ -941,14 +916,16 @@ router.post("/:id/check", async (req, res) => {
     }
 
     if (
-      claim.priorAuthStatus !== "APPROVED" &&
-      claim.priorAuthStatus !== "NOT_REQUIRED"
+      claim.priorAuthRequired == null ||
+      (claim.priorAuthRequired === false && claim.priorAuthStatus !== "NOT_REQUIRED")
     ) {
       issues.push({
         severity: "BLOCK",
         message: "Prior authorization requirement is unresolved"
       });
     }
+
+    issues.push(...evaluateUsReadinessRules(claim, rules));
 
     const completeness = completenessReadinessIssues(claim);
     issues.push(...completeness.issues);
