@@ -187,7 +187,7 @@ model Claim {
 
   patientAge    Int?
   patientGender Gender?
-  patientDob    DateTime?
+  patientDob    DateTime? @db.Date
   medicalRecordNumber String?
   patientMobile String?
   memberId      String?
@@ -205,19 +205,19 @@ model Claim {
   providerTin          String?
   providerTaxonomyCode String?
 
-  admissionDate DateTime?
-  dischargeDate DateTime?
+  admissionDate DateTime? @db.Date
+  dischargeDate DateTime? @db.Date
   admissionType AdmissionType?
   diagnosisText String?
   icd10Codes    String[]       @default([])
   procedureText String?
-  procedureDate DateTime?
-  dateOfService DateTime?
+  procedureDate DateTime? @db.Date
+  dateOfService DateTime? @db.Date
   inpatientProcedureCodes String[] @default([])
 
   planAdministratorName String?
-  policyStartDate   DateTime?
-  policyEndDate     DateTime?
+  policyStartDate   DateTime? @db.Date
+  policyEndDate     DateTime? @db.Date
   productType       String?
   coverageLimit      Decimal? @db.Decimal(14,2)
   remainingCoverageLimit Decimal? @db.Decimal(14,2)
@@ -244,7 +244,7 @@ model Claim {
   typeOfBill             String?
   drgCode                String?
   claimFrequencyCode     ClaimFrequencyCode @default(ORIGINAL)
-  timelyFilingDeadline   DateTime?
+  timelyFilingDeadline   DateTime? @db.Date
 
   payerReferenceNo    String?
   insurerClaimNo      String?
@@ -315,8 +315,8 @@ model ServiceLine {
   charge            Decimal? @db.Decimal(14,2)
   diagnosisPointers String[] @default([])
   placeOfService    String?
-  serviceDateFrom   DateTime?
-  serviceDateTo     DateTime?
+  serviceDateFrom   DateTime? @db.Date
+  serviceDateTo     DateTime? @db.Date
   revenueCode       String?
   poaIndicator      String?
 
