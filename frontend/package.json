@@ -22,7 +22,9 @@
     "test:us:u4": "playwright test tests/us-claim-form.e2e.spec.js --headed",
     "test:us:u4:fast": "playwright test tests/us-claim-form.e2e.spec.js",
     "test:us:u5": "playwright test tests/us-date-handling.e2e.spec.js --headed",
-    "test:us:u5:fast": "playwright test tests/us-date-handling.e2e.spec.js"
+    "test:us:u5:fast": "playwright test tests/us-date-handling.e2e.spec.js",
+    "test:us:u6": "playwright test tests/payer-connector.e2e.spec.js --headed",
+    "test:us:u6:fast": "playwright test tests/payer-connector.e2e.spec.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
