@@ -1,6 +1,6 @@
 import { validMoney } from "../utils/money.js";
 import { z } from "zod";
-import { claimUpdateSchema, emptyMutationSchema, parseMutation } from "../validation/claimMutations.js";
+import { claimUpdateSchema, emptyMutationSchema, parseMutation, serviceLineInputSchema } from "../validation/claimMutations.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
@@ -32,6 +32,73 @@ const router = express.Router();
 
 function orgId(req) {
   return req.user.organizationId;
+}
+
+function normalizeServiceLines(lines = []) {
+  const parsed = z.array(serviceLineInputSchema).max(500).safeParse(lines);
+  if (!parsed.success) {
+    return { ok: false, response: { error: "Invalid service line input", code: "INVALID_SERVICE_LINE" } };
+  }
+
+  const normalized = [];
+  for (const line of parsed.data) {
+    const charge =
+      line.charge == null || line.charge === ""
+        ? null
+        : validMoney(line.charge);
+    if (line.charge != null && line.charge !== "" && charge == null) {
+      return {
+        ok: false,
+        response: {
+          error: "Invalid service line charge",
+          message: "Service line charge must have at most two decimal places",
+          code: "INVALID_SERVICE_LINE_CHARGE"
+        }
+      };
+    }
+
+    const units =
+      line.units == null || line.units === ""
+        ? null
+        : Number(line.units);
+    if (units != null && (!Number.isFinite(units) || units <= 0)) {
+      return {
+        ok: false,
+        response: {
+          error: "Invalid service line units",
+          message: "Service line units must be greater than 0",
+          code: "INVALID_SERVICE_LINE_UNITS"
+        }
+      };
+    }
+
+    const serviceDateFrom = line.serviceDateFrom ? parseClaimDate(line.serviceDateFrom) : null;
+    const serviceDateTo = line.serviceDateTo ? parseClaimDate(line.serviceDateTo) : null;
+    if ((line.serviceDateFrom && !serviceDateFrom) || (line.serviceDateTo && !serviceDateTo)) {
+      return {
+        ok: false,
+        response: {
+          error: "Invalid service line date",
+          code: "INVALID_SERVICE_LINE_DATE"
+        }
+      };
+    }
+
+    normalized.push({
+      cptHcpcsCode: line.cptHcpcsCode.toUpperCase(),
+      modifiers: line.modifiers || [],
+      units,
+      charge,
+      diagnosisPointers: line.diagnosisPointers || [],
+      placeOfService: line.placeOfService || null,
+      serviceDateFrom,
+      serviceDateTo,
+      revenueCode: line.revenueCode || null,
+      poaIndicator: line.poaIndicator || null
+    });
+  }
+
+  return { ok: true, data: normalized };
 }
 
 async function auditClaim(req, { claimId, action, outcome = "SUCCESS", metadata = {} }) {
@@ -69,6 +136,9 @@ router.get("/", async (req, res) => {
       include: {
         documents: {
           orderBy: { createdAt: "desc" }
+        },
+        serviceLines: {
+          orderBy: { createdAt: "asc" }
         }
       },
       orderBy: { createdAt: "desc" }
@@ -301,6 +371,7 @@ router.get("/:id", async (req, res) => {
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
     include: {
       documents: true,
+      serviceLines: { orderBy: { createdAt: "asc" } },
       checks: { orderBy: { createdAt: "desc" } }
     }
   });
@@ -349,14 +420,26 @@ router.post("/", async (req, res) => {
       memberId: z.string().trim().max(100).nullish(),
       medicalRecordNumber: z.string().trim().max(100).nullish(),
       planAdministratorName: z.string().trim().max(250).nullish(),
+      groupNumber: z.string().trim().max(100).nullish(),
+      subscriberId: z.string().trim().max(100).nullish(),
+      subscriberName: z.string().trim().max(250).nullish(),
+      subscriberRelationship: z.enum(["SELF", "SPOUSE", "CHILD", "OTHER"]).nullish(),
+      coordinationOfBenefits: z.enum(["PRIMARY", "SECONDARY", "TERTIARY"]).nullish(),
+      payerEdiId: z.string().trim().max(100).nullish(),
       coverageLimit: z.coerce.number().nonnegative().finite().nullish(),
       remainingCoverageLimit: z.coerce.number().nonnegative().finite().nullish(),
       payerReferenceNo: z.string().trim().max(100).nullish(),
       patientDob: z.string().nullish(),
       hospitalName: z.string().trim().max(250).nullish(),
       doctorName: z.string().trim().max(250).nullish(),
+      billingProviderNpi: z.string().trim().max(10).nullish(),
+      renderingProviderNpi: z.string().trim().max(10).nullish(),
+      referringProviderNpi: z.string().trim().max(10).nullish(),
+      providerTin: z.string().trim().max(20).nullish(),
+      providerTaxonomyCode: z.string().trim().max(20).nullish(),
       diagnosisText: z.string().max(6000).nullish(),
       icd10Codes: z.array(z.string().max(20)).max(100).optional(),
+      inpatientProcedureCodes: z.array(z.string().max(20)).max(100).optional(),
       procedureText: z.string().max(6000).nullish(),
       dateOfService: z.string().nullish(),
       admissionDate: z.string().nullish(),
@@ -365,6 +448,11 @@ router.post("/", async (req, res) => {
       admissionType: z.enum(["PLANNED", "EMERGENCY"]).nullish(),
       roomCategory: z.enum(["GENERAL", "SEMI_PRIVATE", "PRIVATE", "ICU"]).nullish(),
       icuDays: z.coerce.number().int().nonnegative().nullish(),
+      typeOfBill: z.string().trim().max(10).nullish(),
+      drgCode: z.string().trim().max(10).nullish(),
+      claimFrequencyCode: z.enum(["ORIGINAL", "CORRECTED", "VOID"]).optional(),
+      timelyFilingDeadline: z.string().nullish(),
+      serviceLines: z.array(serviceLineInputSchema).max(500).optional(),
       claimType: z.enum(["PROVIDER_BILLED", "MEMBER_REIMBURSEMENT"]).optional()
     }).strict();
     const parsed = claimCreateSchema.safeParse(req.body);
@@ -375,8 +463,14 @@ router.post("/", async (req, res) => {
         code: "INVALID_CLAIM_INPUT"
       });
     }
+    const { serviceLines: rawServiceLines = [], ...claimInput } = parsed.data;
+    const normalizedServiceLines = normalizeServiceLines(rawServiceLines);
+    if (!normalizedServiceLines.ok) {
+      return res.status(400).json(normalizedServiceLines.response);
+    }
+
     const createPayload = {
-      ...parsed.data,
+      ...claimInput,
       status: "DRAFT"
     };
     for (const key of ["amount", "totalBilledAmount", "coverageLimit", "remainingCoverageLimit"]) {
@@ -391,7 +485,7 @@ router.post("/", async (req, res) => {
       }
       createPayload[key] = canonical;
     }
-    for (const field of ["patientDob", "dateOfService", "admissionDate", "dischargeDate", "procedureDate"]) {
+    for (const field of ["patientDob", "dateOfService", "admissionDate", "dischargeDate", "procedureDate", "timelyFilingDeadline"]) {
       if (!createPayload[field]) continue;
       const parsedDate = parseClaimDate(createPayload[field]);
       if (!parsedDate) {
@@ -426,7 +520,12 @@ router.post("/", async (req, res) => {
       metadata: { status: claim.status }
     });
 
-    res.json(claim);
+    const createdClaim = await prisma.claim.findUnique({
+      where: { id: claim.id },
+      include: { serviceLines: { orderBy: { createdAt: "asc" } } }
+    });
+
+    res.json(createdClaim);
   } catch (e) {
     console.error("[claim-create] failed", { name: e.name, code: e.code || null });
     res.status(500).json({ error: "Unable to create claim", code: "CLAIM_CREATE_FAILED" });
@@ -461,6 +560,12 @@ router.patch("/:id", async (req, res) => {
       memberId: input.memberId || null,
       medicalRecordNumber: input.medicalRecordNumber || null,
       planAdministratorName: input.planAdministratorName || null,
+      groupNumber: input.groupNumber || null,
+      subscriberId: input.subscriberId || null,
+      subscriberName: input.subscriberName || null,
+      subscriberRelationship: input.subscriberRelationship || null,
+      coordinationOfBenefits: input.coordinationOfBenefits || null,
+      payerEdiId: input.payerEdiId || null,
       coverageLimit:
         input.coverageLimit != null && input.coverageLimit !== ""
           ? validMoney(input.coverageLimit)
@@ -475,6 +580,11 @@ router.patch("/:id", async (req, res) => {
           ? new Date(input.patientDob)
           : null,
       hospitalName: input.hospitalName || null,
+      billingProviderNpi: input.billingProviderNpi || null,
+      renderingProviderNpi: input.renderingProviderNpi || null,
+      referringProviderNpi: input.referringProviderNpi || null,
+      providerTin: input.providerTin || null,
+      providerTaxonomyCode: input.providerTaxonomyCode || null,
       diagnosisText: input.diagnosisText || null,
       claimType: input.claimType,
       dateOfService: input.dateOfService ? new Date(input.dateOfService) : null,
@@ -517,6 +627,7 @@ router.patch("/:id", async (req, res) => {
     }
 
     for (const [label, value] of [
+      ["Timely filing deadline", payload.timelyFilingDeadline],
       ["Date of service", payload.dateOfService],
       ["Admission date", payload.admissionDate],
       ["Discharge date", payload.dischargeDate],
@@ -553,6 +664,13 @@ router.patch("/:id", async (req, res) => {
       }
     }
 
+    const normalizedServiceLines = input.serviceLines === undefined
+      ? null
+      : normalizeServiceLines(input.serviceLines);
+    if (normalizedServiceLines && !normalizedServiceLines.ok) {
+      return res.status(400).json(normalizedServiceLines.response);
+    }
+
     const manuallyChangedFields = changedFields(existing, payload);
     const documentDerivedFields = removeManuallyEditedFields(
       existing.documentDerivedFields,
@@ -566,13 +684,27 @@ router.patch("/:id", async (req, res) => {
     );
 
     const editStatus = assertClaimTransition(existing.status, "DRAFT");
-    await prisma.claim.update({
-      where: { id: req.params.id },
-      data: {
-        ...payload,
-        documentDerivedFields,
-        fieldProvenance,
-        status: editStatus
+    await prisma.$transaction(async (tx) => {
+      await tx.claim.update({
+        where: { id: req.params.id },
+        data: {
+          ...payload,
+          documentDerivedFields,
+          fieldProvenance,
+          status: editStatus
+        }
+      });
+
+      if (normalizedServiceLines) {
+        await tx.serviceLine.deleteMany({ where: { claimId: req.params.id } });
+        if (normalizedServiceLines.data.length > 0) {
+          await tx.serviceLine.createMany({
+            data: normalizedServiceLines.data.map((line) => ({
+              ...line,
+              claimId: req.params.id
+            }))
+          });
+        }
       }
     });
 
@@ -588,6 +720,7 @@ router.patch("/:id", async (req, res) => {
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
         documents: true,
+        serviceLines: { orderBy: { createdAt: "asc" } },
         checks: { orderBy: { createdAt: "desc" } }
       }
     });
