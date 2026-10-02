@@ -40,6 +40,20 @@ export const DenialsApi = {
     return withReadRetry(() => api(`${BASE}/${id}`));
   },
 
+  lookupCodes({ carc = "", rarc = "" } = {}) {
+    const params = new URLSearchParams();
+    if (carc) params.set("carc", carc);
+    if (rarc) params.set("rarc", rarc);
+    return withReadRetry(() => api(`${BASE}/reference/codes?${params.toString()}`));
+  },
+
+  previewDeadline({ denialDate, appealWindowDays = 180 }) {
+    return api(`${BASE}/deadline-preview`, {
+      method: "POST",
+      body: JSON.stringify({ denialDate, appealWindowDays })
+    });
+  },
+
   createFromClaim(claimId, data = {}) {
     return api(`${BASE}/from-claim/${claimId}`, {
       method: "POST",
