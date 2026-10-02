@@ -14,6 +14,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import LogoutIcon from "@mui/icons-material/Logout";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -106,6 +107,12 @@ export default function LeftNav({
           label="Denial Intelligence"
           path="/denials"
           isActive={isActivePath("/denials")}
+        />
+        <NavItem
+          icon={<AccountBalanceWalletIcon />}
+          label="Payment Variance"
+          path="/payments"
+          isActive={isActivePath("/payments")}
         />
         <NavItem
           icon={<VerifiedIcon />}
