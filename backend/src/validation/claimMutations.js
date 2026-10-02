@@ -43,6 +43,7 @@ export const claimUpdateSchema = z.object({
   providerTaxonomyCode: z.string().trim().max(20).nullish(),
   diagnosisText: z.string().max(6000).nullish(),
   claimType: z.enum(["PROVIDER_BILLED", "MEMBER_REIMBURSEMENT"]).optional(),
+  claimForm: z.enum(["PROFESSIONAL", "INSTITUTIONAL"]).nullish(),
   dateOfService: optionalDateString,
   admissionDate: optionalDateString,
   dischargeDate: optionalDateString,
