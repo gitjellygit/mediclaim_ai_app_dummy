@@ -17,6 +17,7 @@ import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../api/claims.js";
 import { useToast } from "../context/ToastContext.jsx";
 import { formatUSD } from "../utils/currency.js";
+import ServiceLinesEditor, { serviceLineToPayload } from "../components/ServiceLinesEditor.jsx";
 
 const steps = [
   "Patient & Hospital",
@@ -45,8 +46,14 @@ export default function NewClaim() {
 
     // Hospital / admission
     hospitalName: "",
+    billingProviderNpi: "",
+    renderingProviderNpi: "",
+    referringProviderNpi: "",
+    providerTin: "",
+    providerTaxonomyCode: "",
     diagnosisText: "",
     icd10Codes: "",
+    inpatientProcedureCodes: "",
 
     // Policy
     payerName: "",
@@ -54,13 +61,24 @@ export default function NewClaim() {
     memberId: "",
     planAdministratorName: "",
     payerReferenceNo: "",
+    groupNumber: "",
+    subscriberId: "",
+    subscriberName: "",
+    subscriberRelationship: "",
+    coordinationOfBenefits: "",
+    payerEdiId: "",
 
     // Financials
     claimType: "MEMBER_REIMBURSEMENT",
     totalBilledAmount: "",
     amount: "",
     coverageLimit: "",
-    remainingCoverageLimit: ""
+    remainingCoverageLimit: "",
+    typeOfBill: "",
+    drgCode: "",
+    claimFrequencyCode: "ORIGINAL",
+    timelyFilingDeadline: "",
+    serviceLines: []
   });
 
   function update(key, value) {
@@ -161,20 +179,41 @@ export default function NewClaim() {
         medicalRecordNumber: form.medicalRecordNumber || null,
         planAdministratorName: form.planAdministratorName || null,
         payerReferenceNo: form.payerReferenceNo || null,
+        groupNumber: form.groupNumber || null,
+        subscriberId: form.subscriberId || null,
+        subscriberName: form.subscriberName || null,
+        subscriberRelationship: form.subscriberRelationship || null,
+        coordinationOfBenefits: form.coordinationOfBenefits || null,
+        payerEdiId: form.payerEdiId || null,
         coverageLimit: form.coverageLimit ? Number(form.coverageLimit) : null,
         remainingCoverageLimit: form.remainingCoverageLimit
           ? Number(form.remainingCoverageLimit)
           : null,
         hospitalName: form.hospitalName || null,
+        billingProviderNpi: form.billingProviderNpi || null,
+        renderingProviderNpi: form.renderingProviderNpi || null,
+        referringProviderNpi: form.referringProviderNpi || null,
+        providerTin: form.providerTin || null,
+        providerTaxonomyCode: form.providerTaxonomyCode || null,
         diagnosisText: form.diagnosisText || null,
         claimType: form.claimType,
+        typeOfBill: form.typeOfBill || null,
+        drgCode: form.drgCode || null,
+        claimFrequencyCode: form.claimFrequencyCode || "ORIGINAL",
+        timelyFilingDeadline: form.timelyFilingDeadline || null,
   
         amount,
         totalBilledAmount: billed,
   
         icd10Codes: form.icd10Codes
           ? form.icd10Codes.split(",").map(c => c.trim())
-          : []
+          : [],
+        inpatientProcedureCodes: form.inpatientProcedureCodes
+          ? form.inpatientProcedureCodes.split(",").map(c => c.trim()).filter(Boolean)
+          : [],
+        serviceLines: form.serviceLines
+          .filter((line) => line.cptHcpcsCode?.trim())
+          .map(serviceLineToPayload)
       };
   
       await ClaimsApi.create(payload);
@@ -220,6 +259,31 @@ export default function NewClaim() {
                 value={form.hospitalName}
                 onChange={(e) => update("hospitalName", e.target.value)}
               />
+              <TextField
+                label="Billing Provider NPI"
+                value={form.billingProviderNpi}
+                onChange={(e) => update("billingProviderNpi", e.target.value)}
+              />
+              <TextField
+                label="Rendering Provider NPI"
+                value={form.renderingProviderNpi}
+                onChange={(e) => update("renderingProviderNpi", e.target.value)}
+              />
+              <TextField
+                label="Referring Provider NPI"
+                value={form.referringProviderNpi}
+                onChange={(e) => update("referringProviderNpi", e.target.value)}
+              />
+              <TextField
+                label="Provider TIN"
+                value={form.providerTin}
+                onChange={(e) => update("providerTin", e.target.value)}
+              />
+              <TextField
+                label="Provider Taxonomy Code"
+                value={form.providerTaxonomyCode}
+                onChange={(e) => update("providerTaxonomyCode", e.target.value)}
+              />
             </Stack>
           )}
 
@@ -237,6 +301,11 @@ export default function NewClaim() {
                 onChange={(e) => update("icd10Codes", e.target.value)}
                 error={!!errors.icd10Codes}
                 helperText={errors.icd10Codes}
+              />
+              <TextField
+                label="ICD-10-PCS Codes (inpatient, comma separated)"
+                value={form.inpatientProcedureCodes}
+                onChange={(e) => update("inpatientProcedureCodes", e.target.value)}
               />
             </Stack>
           )}
@@ -275,6 +344,49 @@ export default function NewClaim() {
                 label="Payer Reference Number (optional)"
                 value={form.payerReferenceNo}
                 onChange={(e) => update("payerReferenceNo", e.target.value)}
+              />
+              <TextField
+                label="Group Number (optional)"
+                value={form.groupNumber}
+                onChange={(e) => update("groupNumber", e.target.value)}
+              />
+              <TextField
+                label="Subscriber ID (optional)"
+                value={form.subscriberId}
+                onChange={(e) => update("subscriberId", e.target.value)}
+              />
+              <TextField
+                label="Subscriber Name (optional)"
+                value={form.subscriberName}
+                onChange={(e) => update("subscriberName", e.target.value)}
+              />
+              <TextField
+                label="Subscriber Relationship"
+                select
+                value={form.subscriberRelationship}
+                onChange={(e) => update("subscriberRelationship", e.target.value)}
+              >
+                <MenuItem value="">Not specified</MenuItem>
+                <MenuItem value="SELF">Self</MenuItem>
+                <MenuItem value="SPOUSE">Spouse</MenuItem>
+                <MenuItem value="CHILD">Child</MenuItem>
+                <MenuItem value="OTHER">Other</MenuItem>
+              </TextField>
+              <TextField
+                label="Coordination of Benefits"
+                select
+                value={form.coordinationOfBenefits}
+                onChange={(e) => update("coordinationOfBenefits", e.target.value)}
+              >
+                <MenuItem value="">Not specified</MenuItem>
+                <MenuItem value="PRIMARY">Primary</MenuItem>
+                <MenuItem value="SECONDARY">Secondary</MenuItem>
+                <MenuItem value="TERTIARY">Tertiary</MenuItem>
+              </TextField>
+              <TextField
+                label="Payer EDI ID (optional)"
+                value={form.payerEdiId}
+                onChange={(e) => update("payerEdiId", e.target.value)}
               />
             </Stack>
           )}
@@ -323,6 +435,44 @@ export default function NewClaim() {
                 error={!!errors.amount}
                 helperText={errors.amount}
               />
+
+              <TextField
+                label="Claim Frequency"
+                select
+                value={form.claimFrequencyCode}
+                onChange={(e) => update("claimFrequencyCode", e.target.value)}
+              >
+                <MenuItem value="ORIGINAL">Original</MenuItem>
+                <MenuItem value="CORRECTED">Corrected</MenuItem>
+                <MenuItem value="VOID">Void</MenuItem>
+              </TextField>
+
+              <TextField
+                label="Timely Filing Deadline"
+                type="date"
+                InputLabelProps={{ shrink: true }}
+                value={form.timelyFilingDeadline}
+                onChange={(e) => update("timelyFilingDeadline", e.target.value)}
+              />
+
+              <TextField
+                label="Type of Bill"
+                value={form.typeOfBill}
+                onChange={(e) => update("typeOfBill", e.target.value)}
+              />
+
+              <TextField
+                label="DRG"
+                value={form.drgCode}
+                onChange={(e) => update("drgCode", e.target.value)}
+              />
+
+              <Divider />
+              <Typography variant="h6">Service Lines</Typography>
+              <ServiceLinesEditor
+                lines={form.serviceLines}
+                onChange={(serviceLines) => update("serviceLines", serviceLines)}
+              />
             </Stack>
           )}
 
@@ -334,10 +484,13 @@ export default function NewClaim() {
               <Divider />
               <Typography><b>Patient:</b> {form.patientName}</Typography>
               <Typography><b>Hospital:</b> {form.hospitalName || "—"}</Typography>
+              <Typography><b>Billing NPI:</b> {form.billingProviderNpi || "—"}</Typography>
+              <Typography><b>Rendering NPI:</b> {form.renderingProviderNpi || "—"}</Typography>
 
               <Divider />
               <Typography><b>Diagnosis:</b> {form.diagnosisText || "—"}</Typography>
-              <Typography><b>ICD-10:</b> {form.icd10Codes || "—"}</Typography>
+              <Typography><b>ICD-10-CM:</b> {form.icd10Codes || "—"}</Typography>
+              <Typography><b>ICD-10-PCS:</b> {form.inpatientProcedureCodes || "—"}</Typography>
 
               <Divider />
               <Typography><b>Insurance:</b> {form.payerName}</Typography>
@@ -346,6 +499,10 @@ export default function NewClaim() {
               <Typography><b>MRN:</b> {form.medicalRecordNumber || "—"}</Typography>
               <Typography><b>Plan Administrator:</b> {form.planAdministratorName || "—"}</Typography>
               <Typography><b>Payer Reference:</b> {form.payerReferenceNo || "—"}</Typography>
+              <Typography><b>Group Number:</b> {form.groupNumber || "—"}</Typography>
+              <Typography><b>Subscriber:</b> {form.subscriberName || "—"} ({form.subscriberRelationship || "—"})</Typography>
+              <Typography><b>COB:</b> {form.coordinationOfBenefits || "—"}</Typography>
+              <Typography><b>Payer EDI ID:</b> {form.payerEdiId || "—"}</Typography>
 
               <Divider />
               <Typography>
@@ -353,6 +510,9 @@ export default function NewClaim() {
                 <b> Claimed:</b> {formatUSD(form.amount)} &nbsp; | &nbsp;
                 <b> Coverage:</b> {formatUSD(form.coverageLimit)}
               </Typography>
+              <Typography><b>Frequency:</b> {form.claimFrequencyCode}</Typography>
+              <Typography><b>Type of Bill:</b> {form.typeOfBill || "—"} | <b>DRG:</b> {form.drgCode || "—"}</Typography>
+              <Typography><b>Service Lines:</b> {form.serviceLines.filter((line) => line.cptHcpcsCode?.trim()).length}</Typography>
             </Stack>
           )}
 
