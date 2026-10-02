@@ -572,7 +572,27 @@ router.post("/:id/payer-simulation/remittance", async (req, res) => {
       { transaction: "835-style", payerClaimNo: claim.insurerClaimNo || null }
     );
 
-    res.json({ result, transaction, claim: updated });
+    let underpaymentCase = null;
+    if (Number(result.potentialUnderpayment || 0) > 0) {
+      underpaymentCase = await prisma.underpaymentCase.upsert({
+        where: { claimId: claim.id },
+        create: {
+          claimId: claim.id,
+          expectedPayerPayment: result.expectedPayerPayment,
+          actualPaidAmount: result.paidAmount,
+          varianceAmount: result.potentialUnderpayment,
+          sourceTransactionId: transaction.transactionId
+        },
+        update: {
+          expectedPayerPayment: result.expectedPayerPayment,
+          actualPaidAmount: result.paidAmount,
+          varianceAmount: result.potentialUnderpayment,
+          sourceTransactionId: transaction.transactionId
+        }
+      });
+    }
+
+    res.json({ result, transaction, claim: updated, underpaymentCase });
   } catch (error) {
     console.error("[payer-simulation] remittance failed", {
       claimId: req.params.id,
