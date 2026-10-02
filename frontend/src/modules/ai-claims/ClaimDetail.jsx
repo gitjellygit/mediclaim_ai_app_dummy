@@ -111,6 +111,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   React.useEffect(() => {
     if (!claim) return;
     setEditForm({
+      claimForm: claim.claimForm || "",
       patientName: claim.patientName || "",
       payerName: claim.payerName || "",
       policyNo: claim.policyNo || "",
@@ -177,6 +178,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   function resetEditForm() {
     if (!claim) return;
     setEditForm({
+      claimForm: claim.claimForm || "",
       patientName: claim.patientName || "",
       payerName: claim.payerName || "",
       policyNo: claim.policyNo || "",
@@ -246,6 +248,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
 
     const payload = {
+      claimForm: editForm.claimForm || null,
       patientName: editForm.patientName?.trim(),
       payerName: editForm.payerName?.trim(),
       policyNo: editForm.policyNo || null,
@@ -1129,6 +1132,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   Claim & financials
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
+                  <Typography><b>Claim Form:</b> {claim.claimForm === "PROFESSIONAL" ? "Professional (837P)" : claim.claimForm === "INSTITUTIONAL" ? "Institutional (837I)" : "Legacy / not specified"}</Typography>
                   <FieldLine claim={claim} field="totalBilledAmount" label="Total Billed">{formatMoney(claim.totalBilledAmount)}</FieldLine>
                   <FieldLine claim={claim} field="amount" label="Claimed Amount">{formatMoney(claim.amount)}</FieldLine>
                   <FieldLine claim={claim} field="approvedAmount" label="Approved Amount">{formatMoney(claim.approvedAmount)}</FieldLine>
@@ -1162,6 +1166,18 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Alert>
               )}
               <TextField
+                select
+                label="Claim Form"
+                value={editForm.claimForm}
+                onChange={(e) => updateEditField("claimForm", e.target.value)}
+                helperText="837P = Professional | 837I = Institutional"
+                fullWidth
+              >
+                <MenuItem value="">Legacy / not specified</MenuItem>
+                <MenuItem value="PROFESSIONAL">Professional (837P)</MenuItem>
+                <MenuItem value="INSTITUTIONAL">Institutional (837I)</MenuItem>
+              </TextField>
+              <TextField
                 label="Patient Name"
                 value={editForm.patientName}
                 onChange={(e) => updateEditField("patientName", e.target.value)}
@@ -1174,8 +1190,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField label="Billing Provider NPI" value={editForm.billingProviderNpi} onChange={(e) => updateEditField("billingProviderNpi", e.target.value)} fullWidth />
-              <TextField label="Rendering Provider NPI" value={editForm.renderingProviderNpi} onChange={(e) => updateEditField("renderingProviderNpi", e.target.value)} fullWidth />
-              <TextField label="Referring Provider NPI" value={editForm.referringProviderNpi} onChange={(e) => updateEditField("referringProviderNpi", e.target.value)} fullWidth />
+              {editForm.claimForm === "PROFESSIONAL" && (
+                <>
+                  <TextField label="Rendering Provider NPI" value={editForm.renderingProviderNpi} onChange={(e) => updateEditField("renderingProviderNpi", e.target.value)} fullWidth />
+                  <TextField label="Referring Provider NPI" value={editForm.referringProviderNpi} onChange={(e) => updateEditField("referringProviderNpi", e.target.value)} fullWidth />
+                </>
+              )}
               <TextField label="Provider TIN" value={editForm.providerTin} onChange={(e) => updateEditField("providerTin", e.target.value)} fullWidth />
               <TextField label="Provider Taxonomy Code" value={editForm.providerTaxonomyCode} onChange={(e) => updateEditField("providerTaxonomyCode", e.target.value)} fullWidth />
               <TextField
