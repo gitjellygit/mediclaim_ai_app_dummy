@@ -30,13 +30,15 @@ test("F7 - claim state machine has an explicit rule for every claim status", () 
   }
 });
 
-test("F7 - claim submission can only transition from READY", () => {
+test("F7 - claim submission transitions are explicit while route prerequisites enforce readiness", () => {
+  assert.equal(canTransitionClaim("DRAFT", "SUBMITTED"), true);
+  assert.equal(canTransitionClaim("NEEDS_REVIEW", "SUBMITTED"), true);
   assert.equal(canTransitionClaim("READY", "SUBMITTED"), true);
-  assert.equal(canTransitionClaim("DRAFT", "SUBMITTED"), false);
-  assert.equal(canTransitionClaim("NEEDS_REVIEW", "SUBMITTED"), false);
+  assert.equal(assertClaimTransition("READY", "SUBMITTED"), "SUBMITTED");
 
+  assert.equal(canTransitionClaim("PAID", "SUBMITTED"), false);
   assert.throws(
-    () => assertClaimTransition("DRAFT", "SUBMITTED"),
+    () => assertClaimTransition("PAID", "SUBMITTED"),
     (error) => error.status === 409 && error.code === "INVALID_STATUS_TRANSITION"
   );
 });
