@@ -589,10 +589,7 @@ router.patch("/:id", async (req, res) => {
           ? validMoney(input.remainingCoverageLimit)
           : null,
       payerReferenceNo: input.payerReferenceNo || null,
-      patientDob:
-        input.patientDob
-          ? new Date(input.patientDob)
-          : null,
+      patientDob: input.patientDob ? parseClaimDate(input.patientDob) : null,
       hospitalName: input.hospitalName || null,
       billingProviderNpi: input.billingProviderNpi || null,
       renderingProviderNpi: input.renderingProviderNpi || null,
@@ -602,9 +599,9 @@ router.patch("/:id", async (req, res) => {
       diagnosisText: input.diagnosisText || null,
       claimType: input.claimType,
       claimForm: input.claimForm || null,
-      dateOfService: input.dateOfService ? new Date(input.dateOfService) : null,
-      admissionDate: input.admissionDate ? new Date(input.admissionDate) : null,
-      dischargeDate: input.dischargeDate ? new Date(input.dischargeDate) : null,
+      dateOfService: input.dateOfService ? parseClaimDate(input.dateOfService) : null,
+      admissionDate: input.admissionDate ? parseClaimDate(input.admissionDate) : null,
+      dischargeDate: input.dischargeDate ? parseClaimDate(input.dischargeDate) : null,
       admissionType: input.admissionType || null,
       roomCategory: input.roomCategory || null,
       icuDays:
@@ -612,7 +609,7 @@ router.patch("/:id", async (req, res) => {
           ? Number(input.icuDays)
           : null,
       procedureText: input.procedureText || null,
-      procedureDate: input.procedureDate ? new Date(input.procedureDate) : null,
+      procedureDate: input.procedureDate ? parseClaimDate(input.procedureDate) : null,
       icd10Codes: Array.isArray(input.icd10Codes)
         ? input.icd10Codes
         : [],
@@ -643,21 +640,18 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json({ error: "Insurance company is required" });
     }
 
-    if (
-      payload.patientDob &&
-      Number.isNaN(new Date(payload.patientDob).getTime())
-    ) {
+    if (input.patientDob && !payload.patientDob) {
       return res.status(400).json({ error: "Patient date of birth is invalid" });
     }
 
-    for (const [label, value] of [
-      ["Timely filing deadline", payload.timelyFilingDeadline],
-      ["Date of service", payload.dateOfService],
-      ["Admission date", payload.admissionDate],
-      ["Discharge date", payload.dischargeDate],
-      ["Procedure date", payload.procedureDate]
+    for (const [label, inputValue, parsedValue] of [
+      ["Timely filing deadline", input.timelyFilingDeadline, payload.timelyFilingDeadline],
+      ["Date of service", input.dateOfService, payload.dateOfService],
+      ["Admission date", input.admissionDate, payload.admissionDate],
+      ["Discharge date", input.dischargeDate, payload.dischargeDate],
+      ["Procedure date", input.procedureDate, payload.procedureDate]
     ]) {
-      if (value && Number.isNaN(new Date(value).getTime())) {
+      if (inputValue && !parsedValue) {
         return res.status(400).json({ error: `${label} is invalid` });
       }
     }
