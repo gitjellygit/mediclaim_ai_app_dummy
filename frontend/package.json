@@ -18,7 +18,9 @@
     "test:us:all": "playwright test tests/us-localization.e2e.spec.js tests/us-advanced-regression.e2e.spec.js --headed",
     "test:us:all:fast": "playwright test tests/us-localization.e2e.spec.js tests/us-advanced-regression.e2e.spec.js",
     "test:us:u3": "playwright test tests/us-claim-data-model.e2e.spec.js --headed",
-    "test:us:u3:fast": "playwright test tests/us-claim-data-model.e2e.spec.js"
+    "test:us:u3:fast": "playwright test tests/us-claim-data-model.e2e.spec.js",
+    "test:us:u4": "playwright test tests/us-claim-form.e2e.spec.js --headed",
+    "test:us:u4:fast": "playwright test tests/us-claim-form.e2e.spec.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
