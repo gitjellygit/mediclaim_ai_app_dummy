@@ -157,6 +157,16 @@ enum DenialCaseSource {
   SIMULATED_PAYER_STATUS
 }
 
+enum UnderpaymentCaseStatus {
+  OPEN
+  REVIEWING
+  DISPUTE_PREPARED
+  DISPUTE_SUBMITTED
+  RECOVERED
+  WRITTEN_OFF
+  CLOSED
+}
+
 model Organization {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
@@ -294,6 +304,7 @@ model Claim {
   serviceLines ServiceLine[]
   checks      Check[]
   denialCases DenialCase[]
+  underpaymentCase UnderpaymentCase?
   auditEvents AuditEvent[]
   payerTransactions PayerTransaction[]
 
@@ -485,6 +496,30 @@ model DenialCase {
   @@index([claimId])
   @@index([status])
   @@index([denialCategory])
+}
+
+model UnderpaymentCase {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  claimId String @unique
+  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  status UnderpaymentCaseStatus @default(OPEN)
+  expectedPayerPayment Decimal @db.Decimal(14,2)
+  actualPaidAmount     Decimal @db.Decimal(14,2)
+  varianceAmount       Decimal @db.Decimal(14,2)
+  recoveredAmount      Decimal @default(0) @db.Decimal(14,2)
+
+  reasonCategory     String? @default("PAYER_PAYMENT_BELOW_EXPECTED")
+  sourceTransactionId String?
+  notes              String?
+  detectedAt         DateTime @default(now())
+  resolvedAt         DateTime?
+
+  @@index([status])
+  @@index([detectedAt])
 }
 
 model AuditEvent {
