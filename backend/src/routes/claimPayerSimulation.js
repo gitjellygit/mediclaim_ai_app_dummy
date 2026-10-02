@@ -508,7 +508,7 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
       claimId: req.params.id,
       name: error?.name || "Error"
     });
-    res.status(500).json({ error: "Mock payer status request failed" });
+    res.status(error?.status || 500).json({ error: error?.status ? error.message : "Mock payer status request failed", code: error?.code || "PAYER_STATUS_FAILED" });
   }
 });
 
@@ -578,7 +578,7 @@ router.post("/:id/payer-simulation/remittance", async (req, res) => {
       claimId: req.params.id,
       name: error?.name || "Error"
     });
-    res.status(500).json({ error: "Mock remittance request failed" });
+    res.status(error?.status || 500).json({ error: error?.status ? error.message : "Mock remittance request failed", code: error?.code || "PAYER_REMITTANCE_FAILED" });
   }
 });
 
