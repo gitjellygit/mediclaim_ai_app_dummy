@@ -359,10 +359,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   function openClaimEdit(focus = "claim") {
-    if (claim?.status === "SUBMITTED") {
+    if (["SUBMITTED", "DENIED", "PAID"].includes(claim?.status)) {
       showDialog(
-        "Submitted claims are locked. This issue cannot be edited unless the claim is reopened or amended.",
-        { title: "Claim is locked", severity: "warning" }
+        "This claim is locked after submission. This data gap is informational unless the claim is reopened or amended.",
+        { title: "Claim is locked", severity: "info" }
       );
       return;
     }
@@ -988,6 +988,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       <ClaimCompletenessCard
         completeness={completeness}
         onFixItem={fixCompletenessItem}
+        claimStatus={claim.status}
       />
 
       <Card
@@ -1007,10 +1008,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Typography variant="h6">Patient & Policy</Typography>
 
-            {canEditClaim && claim.status !== "SUBMITTED" && !editMode && (
+            {canEditClaim && !["SUBMITTED", "DENIED", "PAID"].includes(claim.status) && !editMode && (
               <Button size="small" onClick={() => setEditMode(true)}>Edit</Button>
             )}
-            {claim.status === "SUBMITTED" && (
+            {["SUBMITTED", "DENIED", "PAID"].includes(claim.status) && (
               <Chip size="small" label="Locked after submission" variant="outlined" />
             )}
 
