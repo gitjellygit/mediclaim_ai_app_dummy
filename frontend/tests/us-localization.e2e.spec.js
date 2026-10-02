@@ -141,10 +141,10 @@ test("1 - create U.S. claim with U.S. claim types, fields and USD labels", async
 
   await expect(page.getByLabel("Total Billed Amount (USD)")).toBeVisible();
   await expect(page.getByLabel("Total Claimed Amount (USD)")).toBeVisible();
-  await expect(page.getByLabel("Coverage Limit (USD, optional)")).toBeVisible();
+  await expect(page.getByLabel("Coverage Limit (USD, optional)", { exact: true })).toBeVisible();
   await page.getByLabel("Total Billed Amount (USD)").fill("1500");
-  await page.getByLabel("Coverage Limit (USD, optional)").fill("10000");
-  await page.getByLabel("Remaining Coverage Limit (USD, optional)").fill("8765.44");
+  await page.getByLabel("Coverage Limit (USD, optional)", { exact: true }).fill("10000");
+  await page.getByLabel("Remaining Coverage Limit (USD, optional)", { exact: true }).fill("8765.44");
   await page.getByLabel("Total Claimed Amount (USD)").fill("1234.56");
 
   await expect(page.getByText("₹")).toHaveCount(0);
@@ -198,8 +198,8 @@ test("3 - edit U.S. claim fields and confirm they persist after reload", async (
   await page.getByLabel("Medical Record Number (MRN)").fill("MRN-US-2002");
   await page.getByLabel("Plan Administrator").fill("Pacific Plan Administrators");
   await page.getByLabel("Payer Reference Number").fill("PAYER-REF-2002");
-  await page.getByLabel("Coverage Limit (USD)").fill("12500.50");
-  await page.getByLabel("Remaining Coverage Limit (USD)").fill("11000.25");
+  await page.getByLabel("Coverage Limit (USD)", { exact: true }).fill("12500.50");
+  await page.getByLabel("Remaining Coverage Limit (USD)", { exact: true }).fill("11000.25");
 
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Pacific Plan Administrators", { exact: true })).toBeVisible();
