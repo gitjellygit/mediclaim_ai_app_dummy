@@ -155,3 +155,288 @@ test("U4-3 - readiness applies form-specific blockers only to explicitly classif
   expect(iMessages).toContain("837I institutional claim requires at least one service line");
   expect(iMessages.some((message) => message.includes("837P professional"))).toBeFalsy();
 });
+
+
+test("U4-4 - valid 837P data removes all professional claim-form blockers", async () => {
+  const response = await apiContext.post("/api/claims", {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {
+      patientName: "E2E-U4-HAPPY-P",
+      payerName: "U4 Health",
+      policyNo: "U4-HAPPY-POL-P",
+      amount: 150,
+      claimForm: "PROFESSIONAL",
+      billingProviderNpi: "1234567890",
+      renderingProviderNpi: "1987654321",
+      icd10Codes: ["M54.50"],
+      serviceLines: [
+        {
+          cptHcpcsCode: "99213",
+          units: 1,
+          charge: 150,
+          diagnosisPointers: ["M54.50"],
+          placeOfService: "11"
+        }
+      ]
+    }
+  });
+  const claim = await apiJson(response, "837P happy-path create");
+  createdClaimIds.push(claim.id);
+
+  const checkResponse = await apiContext.post(`/api/claims/${claim.id}/check`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {}
+  });
+  const check = await apiJson(checkResponse, "837P happy-path readiness");
+  const formIssues = check.issues.filter((issue) => issue.source === "CLAIM_FORM");
+
+  expect(formIssues).toEqual([]);
+});
+
+test("U4-5 - valid 837I data removes all institutional claim-form blockers", async () => {
+  const response = await apiContext.post("/api/claims", {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {
+      patientName: "E2E-U4-HAPPY-I",
+      payerName: "U4 Health",
+      policyNo: "U4-HAPPY-POL-I",
+      amount: 250,
+      claimForm: "INSTITUTIONAL",
+      billingProviderNpi: "1234567890",
+      typeOfBill: "131",
+      icd10Codes: ["J18.9"],
+      serviceLines: [
+        {
+          cptHcpcsCode: "0450",
+          units: 1,
+          charge: 250,
+          diagnosisPointers: ["J18.9"],
+          revenueCode: "0450"
+        }
+      ]
+    }
+  });
+  const claim = await apiJson(response, "837I happy-path create");
+  createdClaimIds.push(claim.id);
+
+  const checkResponse = await apiContext.post(`/api/claims/${claim.id}/check`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {}
+  });
+  const check = await apiJson(checkResponse, "837I happy-path readiness");
+  const formIssues = check.issues.filter((issue) => issue.source === "CLAIM_FORM");
+
+  expect(formIssues).toEqual([]);
+});
+
+test("U4-6 - API accepts only PROFESSIONAL or INSTITUTIONAL claimForm values", async () => {
+  for (const claimForm of ["PROFESSIONAL", "INSTITUTIONAL"]) {
+    const response = await apiContext.post("/api/claims", {
+      headers: { Authorization: `Bearer ${auth.accessToken}` },
+      data: {
+        patientName: `E2E-U4-VALID-${claimForm}`,
+        payerName: "U4 Health",
+        policyNo: `U4-${claimForm}`,
+        amount: 100,
+        claimForm
+      }
+    });
+
+    const claim = await apiJson(response, `${claimForm} create`);
+    createdClaimIds.push(claim.id);
+    expect(claim.claimForm).toBe(claimForm);
+  }
+
+  const invalid = await apiContext.post("/api/claims", {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {
+      patientName: "E2E-U4-INVALID-FORM",
+      payerName: "U4 Health",
+      amount: 100,
+      claimForm: "DENTAL_837D"
+    }
+  });
+
+  expect(invalid.status()).toBe(400);
+  const body = await invalid.json();
+  expect(body.code).toBe("INVALID_CLAIM_INPUT");
+});
+
+test("U4-7 - legacy claim without claimForm remains compatible and gets no form-specific blockers", async () => {
+  const response = await apiContext.post("/api/claims", {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {
+      patientName: "E2E-U4-LEGACY-NULL",
+      payerName: "Legacy Health",
+      policyNo: "LEGACY-POL-1",
+      amount: 100
+    }
+  });
+  const claim = await apiJson(response, "legacy claim create");
+  createdClaimIds.push(claim.id);
+
+  expect(claim.claimForm).toBeNull();
+
+  const detailResponse = await apiContext.get(`/api/claims/${claim.id}`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` }
+  });
+  const detail = await apiJson(detailResponse, "legacy claim detail");
+  expect(detail.claimForm).toBeNull();
+
+  const checkResponse = await apiContext.post(`/api/claims/${claim.id}/check`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {}
+  });
+  const check = await apiJson(checkResponse, "legacy claim readiness");
+
+  expect(check.issues.some((issue) => issue.source === "CLAIM_FORM")).toBeFalsy();
+  expect(
+    check.issues.some((issue) => /837P|837I/.test(issue.message))
+  ).toBeFalsy();
+});
+
+test("U4-8 - switching 837P to 837I preserves shared provider coverage and service-line data", async () => {
+  const createResponse = await apiContext.post("/api/claims", {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {
+      patientName: "E2E-U4-SWITCH-P-TO-I",
+      payerName: "Switch Health",
+      policyNo: "SWITCH-POL-1",
+      memberId: "SWITCH-MEMBER-1",
+      groupNumber: "SWITCH-GROUP-1",
+      subscriberId: "SWITCH-SUB-1",
+      amount: 400,
+      totalBilledAmount: 450,
+      claimForm: "PROFESSIONAL",
+      claimType: "PROVIDER_BILLED",
+      billingProviderNpi: "1234567890",
+      renderingProviderNpi: "1987654321",
+      providerTin: "91-1234567",
+      providerTaxonomyCode: "207Q00000X",
+      icd10Codes: ["M54.50"],
+      serviceLines: [
+        {
+          cptHcpcsCode: "99214",
+          modifiers: ["25"],
+          units: 1,
+          charge: 400,
+          diagnosisPointers: ["M54.50"],
+          placeOfService: "11",
+          revenueCode: "0510"
+        }
+      ]
+    }
+  });
+  const created = await apiJson(createResponse, "switch claim create");
+  createdClaimIds.push(created.id);
+
+  const patchResponse = await apiContext.patch(`/api/claims/${created.id}`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {
+      patientName: created.patientName,
+      payerName: created.payerName,
+      policyNo: created.policyNo,
+      memberId: created.memberId,
+      groupNumber: created.groupNumber,
+      subscriberId: created.subscriberId,
+      amount: Number(created.amount),
+      totalBilledAmount: Number(created.totalBilledAmount),
+      claimType: created.claimType,
+      claimForm: "INSTITUTIONAL",
+      billingProviderNpi: created.billingProviderNpi,
+      renderingProviderNpi: created.renderingProviderNpi,
+      providerTin: created.providerTin,
+      providerTaxonomyCode: created.providerTaxonomyCode,
+      icd10Codes: created.icd10Codes,
+      typeOfBill: "131",
+      serviceLines: created.serviceLines.map((line) => ({
+        cptHcpcsCode: line.cptHcpcsCode,
+        modifiers: line.modifiers,
+        units: Number(line.units),
+        charge: Number(line.charge),
+        diagnosisPointers: line.diagnosisPointers,
+        placeOfService: line.placeOfService,
+        revenueCode: line.revenueCode
+      }))
+    }
+  });
+  const updated = await apiJson(patchResponse, "switch claim update");
+
+  expect(updated.claimForm).toBe("INSTITUTIONAL");
+  expect(updated.billingProviderNpi).toBe("1234567890");
+  expect(updated.renderingProviderNpi).toBe("1987654321");
+  expect(updated.providerTin).toBe("91-1234567");
+  expect(updated.groupNumber).toBe("SWITCH-GROUP-1");
+  expect(updated.subscriberId).toBe("SWITCH-SUB-1");
+  expect(updated.serviceLines).toHaveLength(1);
+  expect(updated.serviceLines[0].cptHcpcsCode).toBe("99214");
+  expect(updated.serviceLines[0].placeOfService).toBe("11");
+  expect(updated.serviceLines[0].revenueCode).toBe("0510");
+});
+
+test("U4-9 - switching 837I back to 837P changes readiness rules without deleting shared data", async () => {
+  const createResponse = await apiContext.post("/api/claims", {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {
+      patientName: "E2E-U4-SWITCH-I-TO-P",
+      payerName: "Switch Health",
+      policyNo: "SWITCH-POL-2",
+      amount: 300,
+      claimForm: "INSTITUTIONAL",
+      billingProviderNpi: "1234567890",
+      renderingProviderNpi: "1987654321",
+      typeOfBill: "131",
+      serviceLines: [
+        {
+          cptHcpcsCode: "99213",
+          units: 1,
+          charge: 300,
+          placeOfService: "11",
+          revenueCode: "0510"
+        }
+      ]
+    }
+  });
+  const created = await apiJson(createResponse, "reverse switch create");
+  createdClaimIds.push(created.id);
+
+  const patchResponse = await apiContext.patch(`/api/claims/${created.id}`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {
+      patientName: created.patientName,
+      payerName: created.payerName,
+      policyNo: created.policyNo,
+      amount: Number(created.amount),
+      claimForm: "PROFESSIONAL",
+      billingProviderNpi: created.billingProviderNpi,
+      renderingProviderNpi: created.renderingProviderNpi,
+      typeOfBill: created.typeOfBill,
+      serviceLines: created.serviceLines.map((line) => ({
+        cptHcpcsCode: line.cptHcpcsCode,
+        units: Number(line.units),
+        charge: Number(line.charge),
+        placeOfService: line.placeOfService,
+        revenueCode: line.revenueCode
+      }))
+    }
+  });
+  const updated = await apiJson(patchResponse, "reverse switch update");
+
+  expect(updated.claimForm).toBe("PROFESSIONAL");
+  expect(updated.typeOfBill).toBe("131");
+  expect(updated.serviceLines[0].revenueCode).toBe("0510");
+  expect(updated.serviceLines[0].placeOfService).toBe("11");
+
+  const checkResponse = await apiContext.post(`/api/claims/${created.id}/check`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {}
+  });
+  const check = await apiJson(checkResponse, "reverse switch readiness");
+  const formMessages = check.issues
+    .filter((issue) => issue.source === "CLAIM_FORM")
+    .map((issue) => issue.message);
+
+  expect(formMessages.some((message) => message.includes("837I institutional"))).toBeFalsy();
+  expect(formMessages).not.toContain("837P professional claim requires rendering provider NPI");
+  expect(formMessages).not.toContain("837P professional service lines require Place of Service");
+});
