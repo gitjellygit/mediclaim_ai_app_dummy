@@ -80,12 +80,24 @@ test("Payer adapter preserves the five-operation contract across all five profil
     for (const method of ["checkEligibility", "requestPriorAuth", "submitClaim", "getStatus", "getRemittance"]) {
       assert.equal(typeof gateway[method], "function");
     }
-    assert.equal(gateway.checkEligibility(claim, 1).status, "ACTIVE");
-    assert.ok(gateway.requestPriorAuth(claim, 1).status);
-    assert.ok(gateway.submitClaim({ ...claim, priorAuthStatus: "NOT_REQUIRED" }, 1).status);
-    assert.equal(gateway.getStatus(claim, 0, 1).status, "RECEIVED");
-    assert.ok(Number.isFinite(gateway.getRemittance(claim, 1).paidAmount));
+    assert.equal(gateway.checkEligibility(claim, { sequence: 1 }).status, "ACTIVE");
+    assert.ok(gateway.requestPriorAuth(claim, { sequence: 1 }).status);
+    assert.ok(gateway.submitClaim({ ...claim, priorAuthStatus: "NOT_REQUIRED" }, { sequence: 1 }).status);
+    assert.equal(
+      gateway.getStatus(claim, { previousChecks: 0, sequence: 1 }).status,
+      "RECEIVED"
+    );
+    assert.ok(Number.isFinite(gateway.getRemittance(claim, { sequence: 1 }).paidAmount));
   }
-  assert.throws(() => createPayerConnector("LIVE", "BLUE_HORIZON"), PayerConnectorNotConfiguredError);
-  assert.throws(() => createPayerConnector("LOCAL", "BLUE_HORIZON"), PayerConnectorNotConfiguredError);
+
+  const local = createPayerConnector("LOCAL", "BLUE_HORIZON");
+  for (const method of ["checkEligibility", "requestPriorAuth", "submitClaim", "getStatus", "getRemittance"]) {
+    assert.equal(typeof local[method], "function");
+  }
+
+  const live = createPayerConnector("LIVE", "BLUE_HORIZON");
+  assert.throws(
+    () => live.checkEligibility({ id: "live-not-configured" }),
+    (error) => error?.code === "LIVE_PAYER_CONNECTOR_NOT_CONFIGURED"
+  );
 });
