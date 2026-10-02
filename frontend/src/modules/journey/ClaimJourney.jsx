@@ -9,6 +9,10 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControl,
   InputLabel,
   MenuItem,
@@ -348,6 +352,8 @@ export default function ClaimJourney() {
   const [patientResponsibilityManual, setPatientResponsibilityManual] = React.useState(false);
   const [paidAmount, setPaidAmount] = React.useState("");
   const [paymentReference, setPaymentReference] = React.useState("");
+  const [remittanceDialogOpen, setRemittanceDialogOpen] = React.useState(false);
+  const [remittanceDialogData, setRemittanceDialogData] = React.useState(null);
 
   /**
    * Search claims on the server so this selector stays fast with tens of
@@ -605,6 +611,57 @@ export default function ClaimJourney() {
   const finalPayerStatus = ["APPROVED", "PARTIALLY_APPROVED", "DENIED", "PAID"].includes(
     claim?.payerClaimStatus || ""
   );
+
+  function remittanceDisplayData(result = null) {
+    const response = result?.result || result || latestRemittance?.responsePayload || {};
+    return {
+      billedAmount: Number(claim?.amount ?? claim?.totalBilledAmount ?? 0),
+      allowedAmount: Number(response.allowedAmount ?? claim?.allowedAmount ?? 0),
+      expectedPayerPayment: Number(
+        response.expectedPayerPayment ??
+          response.approvedAmount ??
+          claim?.approvedAmount ??
+          0
+      ),
+      patientResponsibility: Number(
+        response.patientResponsibility ?? claim?.patientResponsibility ?? 0
+      ),
+      paidAmount: Number(response.paidAmount ?? claim?.paidAmount ?? 0),
+      paymentReference:
+        response.paymentReference || claim?.paymentReference || "—",
+      potentialUnderpayment: Number(response.potentialUnderpayment || 0),
+      sourceLabel:
+        journey?.payerConnection?.mode === "SIMULATED"
+          ? "Simulated 835 payer response"
+          : "Recorded remittance",
+      receivedAt: claim?.remittanceReceivedAt || latestRemittance?.createdAt || null
+    };
+  }
+
+  async function checkConnectedRemittance() {
+    setAction("remittance");
+    setPageError("");
+    try {
+      const result = await ClaimsApi.simulatePayerRemittance(claim.id);
+      await loadJourney(claim.id);
+      setRemittanceDialogData(remittanceDisplayData(result));
+      setRemittanceDialogOpen(true);
+      if (!result?.unchanged) {
+        showToast("Remittance received and posted", "success");
+      }
+    } catch (error) {
+      const message = error.message || "Unable to check remittance";
+      setPageError(message);
+      showToast(message, "error");
+    } finally {
+      setAction("");
+    }
+  }
+
+  function viewPostedRemittance() {
+    setRemittanceDialogData(remittanceDisplayData());
+    setRemittanceDialogOpen(true);
+  }
 
   async function submitConnectedClaim() {
     setAction("payer-submit");
@@ -1351,174 +1408,223 @@ export default function ClaimJourney() {
               actionable={stages.remittance.actionable}
               blockedReason={stages.remittance.blockedReason}
             >
-              <Stack spacing={1.2}>
-                {payerConnected && claim.approvedAmount != null && claim.remittanceStatus !== "POSTED" && (
-                  <Alert severity="info">
-                    Approval recorded. Expected payer payment: {money(claim.approvedAmount)}.
-                    {estimatedPatientResponsibility != null
-                      ? ` Estimated patient share: ${money(estimatedPatientResponsibility)}.`
-                      : ""}
-                    Actual paid amount and payment reference will populate when remittance arrives.
-                  </Alert>
-                )}
-                {payerConnected && claim.remittanceStatus === "POSTED" &&
-                  Number(latestRemittance?.responsePayload?.potentialUnderpayment || 0) > 0 && (
-                    <Alert
-                      severity="warning"
-                      action={
-                        <Button
-                          color="inherit"
-                          size="small"
-                          onClick={() => navigate("/payments")}
-                        >
-                          Review Recovery
-                        </Button>
-                      }
-                    >
-                      Potential payer underpayment:{" "}
-                      {money(latestRemittance.responsePayload.potentialUnderpayment)}.
-                      This amount is not patient responsibility.
+              <Stack spacing={1.5}>
+                {claim.remittanceStatus === "POSTED" ? (
+                  <>
+                    <Alert severity="success">
+                      Remittance received and posted. Payer-reported values are locked.
                     </Alert>
-                  )}
-                <FormControl size="small" fullWidth disabled={!stages.remittance.actionable || payerConnected}>
-                  <InputLabel>Remittance *</InputLabel>
-                  <Select
-                    label="Remittance *"
-                    value={remittanceStatus}
-                    onChange={(e) => setRemittanceStatus(e.target.value)}
-                  >
-                    <MenuItem value="AWAITING">Awaiting</MenuItem>
-                    <MenuItem value="RECEIVED">Received</MenuItem>
-                    <MenuItem value="POSTED">Posted</MenuItem>
-                  </Select>
-                </FormControl>
-                <TextField
-                  size="small"
-                  type="number"
-                  label={
-                    ["RECEIVED", "POSTED"].includes(remittanceStatus)
-                      ? "Allowed Amount *"
-                      : "Allowed Amount"
-                  }
-                  value={allowedAmount}
-                  color={
-                    ["RECEIVED", "POSTED"].includes(remittanceStatus) &&
-                    allowedAmount === ""
-                      ? "warning"
-                      : "primary"
-                  }
-                  focused={
-                    ["RECEIVED", "POSTED"].includes(remittanceStatus) &&
-                    allowedAmount === ""
-                  }
-                  onChange={(e) => setAllowedAmount(e.target.value)}
-                  disabled={!stages.remittance.actionable || payerConnected}
-                />
-                {claim.approvedAmount != null && (
-                  <TextField
-                    size="small"
-                    type="number"
-                    label="Expected Payer Payment"
-                    value={claim.approvedAmount}
-                    disabled
-                  />
-                )}
-                <TextField
-                  size="small"
-                  type="number"
-                  label={
-                    patientResponsibilityManual
-                      ? "Patient Responsibility"
-                      : "Patient Responsibility (estimated)"
-                  }
-                  value={patientResponsibility}
-                  onChange={(e) => {
-                    setPatientResponsibility(e.target.value);
-                    setPatientResponsibilityManual(true);
-                  }}
-                  disabled={!stages.remittance.actionable || payerConnected}
-                  helperText={
-                    patientResponsibilityManual
-                      ? "Entered value"
-                      : "Auto-calculated; editable"
-                  }
-                />
-                <TextField
-                  size="small"
-                  type="number"
-                  label={
-                    ["RECEIVED", "POSTED"].includes(remittanceStatus)
-                      ? "Paid Amount *"
-                      : "Paid Amount"
-                  }
-                  value={paidAmount}
-                  color={
-                    ["RECEIVED", "POSTED"].includes(remittanceStatus) &&
-                    paidAmount === ""
-                      ? "warning"
-                      : "primary"
-                  }
-                  focused={
-                    ["RECEIVED", "POSTED"].includes(remittanceStatus) &&
-                    paidAmount === ""
-                  }
-                  onChange={(e) => setPaidAmount(e.target.value)}
-                  disabled={!stages.remittance.actionable || payerConnected}
-                />
-                {patientResponsibilityManual && stages.remittance.actionable && (
-                  <Button
-                    size="small"
-                    variant="text"
-                    onClick={() => setPatientResponsibilityManual(false)}
-                  >
-                    Recalculate patient responsibility
-                  </Button>
-                )}
-                <TextField
-                  size="small"
-                  label="Payment Reference"
-                  value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
-                  disabled={!stages.remittance.actionable || payerConnected}
-                />
-                <Button
-                  variant="contained"
-                  size="small"
-                  disabled={
-                    !stages.remittance.actionable ||
-                    action !== "" ||
-                    (payerConnected
-                      ? !["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(claim.payerClaimStatus || "") ||
-                        claim.remittanceStatus === "POSTED"
-                      : !remittanceDirty)
-                  }
-                  onClick={() =>
-                    runAction(
-                      "remittance",
-                      () =>
-                        payerConnected
-                          ? ClaimsApi.simulatePayerRemittance(claim.id)
-                          : ClaimsApi.updateRemittance(claim.id, {
+
+                    <Paper variant="outlined" sx={{ p: 2 }}>
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+                          gap: 1.5
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Allowed Amount
+                          </Typography>
+                          <Typography fontWeight={700}>{money(claim.allowedAmount)}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Expected Payer Payment
+                          </Typography>
+                          <Typography fontWeight={700}>{money(claim.approvedAmount)}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Patient Responsibility
+                          </Typography>
+                          <Typography fontWeight={700}>{money(claim.patientResponsibility)}</Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">
+                            Payer Paid
+                          </Typography>
+                          <Typography fontWeight={700}>{money(claim.paidAmount)}</Typography>
+                        </Box>
+                        <Box sx={{ gridColumn: { sm: "1 / -1" } }}>
+                          <Typography variant="caption" color="text.secondary">
+                            Payment Reference
+                          </Typography>
+                          <Typography fontWeight={700}>{claim.paymentReference || "—"}</Typography>
+                        </Box>
+                      </Box>
+                    </Paper>
+
+                    {payerConnected &&
+                      Number(latestRemittance?.responsePayload?.potentialUnderpayment || 0) > 0 && (
+                        <Alert
+                          severity="warning"
+                          action={
+                            <Button
+                              color="inherit"
+                              size="small"
+                              onClick={() => navigate("/payments")}
+                            >
+                              Review Recovery
+                            </Button>
+                          }
+                        >
+                          Potential payer underpayment:{" "}
+                          {money(latestRemittance.responsePayload.potentialUnderpayment)}.
+                          This amount is not patient responsibility.
+                        </Alert>
+                      )}
+
+                    <Button variant="outlined" size="small" onClick={viewPostedRemittance}>
+                      View Remittance Details
+                    </Button>
+                  </>
+                ) : payerConnected ? (
+                  <>
+                    <Alert severity="info">
+                      {claim.approvedAmount != null
+                        ? `Claim adjudication is complete. Expected payer payment: ${money(claim.approvedAmount)}.`
+                        : "Claim adjudication is complete."}
+                      {" "}Check the payer when you are ready to retrieve the remittance.
+                    </Alert>
+
+                    <Button
+                      variant="contained"
+                      size="small"
+                      disabled={
+                        !stages.remittance.actionable ||
+                        action !== "" ||
+                        !["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(
+                          claim.payerClaimStatus || ""
+                        )
+                      }
+                      onClick={checkConnectedRemittance}
+                    >
+                      {action === "remittance" ? "Checking Remittance..." : "Check Remittance"}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Alert severity="info">
+                      Enter the remittance values below. Posting the remittance locks the payment values.
+                    </Alert>
+
+                    <FormControl size="small" fullWidth disabled={!stages.remittance.actionable}>
+                      <InputLabel>Remittance *</InputLabel>
+                      <Select
+                        label="Remittance *"
+                        value={remittanceStatus}
+                        onChange={(e) => setRemittanceStatus(e.target.value)}
+                      >
+                        <MenuItem value="AWAITING">Awaiting</MenuItem>
+                        <MenuItem value="RECEIVED">Received</MenuItem>
+                        <MenuItem value="POSTED">Posted</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Allowed Amount"
+                      value={allowedAmount}
+                      onChange={(e) => setAllowedAmount(e.target.value)}
+                      disabled={!stages.remittance.actionable}
+                    />
+
+                    {claim.approvedAmount != null && (
+                      <TextField
+                        size="small"
+                        type="number"
+                        label="Expected Payer Payment"
+                        value={claim.approvedAmount}
+                        disabled
+                      />
+                    )}
+
+                    <TextField
+                      size="small"
+                      type="number"
+                      label={
+                        patientResponsibilityManual
+                          ? "Patient Responsibility"
+                          : "Patient Responsibility (estimated)"
+                      }
+                      value={patientResponsibility}
+                      onChange={(e) => {
+                        setPatientResponsibility(e.target.value);
+                        setPatientResponsibilityManual(true);
+                      }}
+                      disabled={!stages.remittance.actionable}
+                      helperText={
+                        patientResponsibilityManual
+                          ? "Entered value"
+                          : "Auto-calculated; editable"
+                      }
+                    />
+
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Paid Amount"
+                      value={paidAmount}
+                      onChange={(e) => setPaidAmount(e.target.value)}
+                      disabled={!stages.remittance.actionable}
+                    />
+
+                    {patientResponsibilityManual && stages.remittance.actionable && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => setPatientResponsibilityManual(false)}
+                      >
+                        Recalculate patient responsibility
+                      </Button>
+                    )}
+
+                    <TextField
+                      size="small"
+                      label="Payment Reference"
+                      value={paymentReference}
+                      onChange={(e) => setPaymentReference(e.target.value)}
+                      disabled={!stages.remittance.actionable}
+                    />
+
+                    <Button
+                      variant="contained"
+                      size="small"
+                      disabled={
+                        !stages.remittance.actionable ||
+                        action !== "" ||
+                        !remittanceDirty
+                      }
+                      onClick={() =>
+                        runAction(
+                          "remittance",
+                          () =>
+                            ClaimsApi.updateRemittance(claim.id, {
                               remittanceStatus,
                               allowedAmount,
                               patientResponsibility,
                               paidAmount,
                               paymentReference
                             }),
-                      "Remittance updated"
-                    )
-                  }
-                >
-                  {action === "remittance"
-                    ? "Processing..."
-                    : claim.remittanceStatus === "POSTED"
-                    ? "Remittance Posted"
-                    : payerConnected
-                    ? "Get Remittance"
-                    : !remittanceDirty
-                    ? "Remittance up to date"
-                    : "Record Remittance"}
-                </Button>
+                          remittanceStatus === "POSTED"
+                            ? "Remittance posted"
+                            : "Remittance updated"
+                        )
+                      }
+                    >
+                      {action === "remittance"
+                        ? "Saving..."
+                        : remittanceStatus === "POSTED"
+                        ? "Post Remittance"
+                        : !remittanceDirty
+                        ? "Remittance up to date"
+                        : "Save Remittance"}
+                    </Button>
+                  </>
+                )}
               </Stack>
             </StageCard>
           </Box>
@@ -1530,6 +1636,75 @@ export default function ClaimJourney() {
           </Alert>
         </>
       )}
+
+      <Dialog
+        open={remittanceDialogOpen}
+        onClose={() => setRemittanceDialogOpen(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Remittance Received</DialogTitle>
+        <DialogContent dividers>
+          {remittanceDialogData && (
+            <Stack spacing={2}>
+              <Alert severity="info">
+                Payer-reported values have been posted and locked. They are not manually editable.
+              </Alert>
+
+              <Paper variant="outlined" sx={{ p: 2 }}>
+                <Stack spacing={1.25}>
+                  {[
+                    ["Billed Amount", remittanceDialogData.billedAmount],
+                    ["Allowed Amount", remittanceDialogData.allowedAmount],
+                    ["Expected Payer Payment", remittanceDialogData.expectedPayerPayment],
+                    ["Patient Responsibility", remittanceDialogData.patientResponsibility],
+                    ["Payer Paid", remittanceDialogData.paidAmount]
+                  ].map(([label, value]) => (
+                    <Stack key={label} direction="row" justifyContent="space-between" spacing={2}>
+                      <Typography color="text.secondary">{label}</Typography>
+                      <Typography fontWeight={700}>{money(value)}</Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Paper>
+
+              <Box>
+                <Typography variant="body2">
+                  <b>Payment Reference:</b> {remittanceDialogData.paymentReference}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Source: {remittanceDialogData.sourceLabel}
+                  {remittanceDialogData.receivedAt
+                    ? ` • Received ${new Date(remittanceDialogData.receivedAt).toLocaleString("en-US")}`
+                    : ""}
+                </Typography>
+              </Box>
+
+              {remittanceDialogData.potentialUnderpayment > 0 && (
+                <Alert severity="warning">
+                  Potential payer underpayment: {money(remittanceDialogData.potentialUnderpayment)}.
+                  This amount is not patient responsibility.
+                </Alert>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {remittanceDialogData?.potentialUnderpayment > 0 && (
+            <Button
+              onClick={() => {
+                setRemittanceDialogOpen(false);
+                navigate("/payments");
+              }}
+            >
+              Review Recovery
+            </Button>
+          )}
+          <Button variant="contained" onClick={() => setRemittanceDialogOpen(false)}>
+            Done
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {!loadingJourney && !claim && !pageError && !loadingClaims && (
         <Alert severity="info">
