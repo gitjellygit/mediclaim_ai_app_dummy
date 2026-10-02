@@ -203,6 +203,17 @@ test("A6 - protected claim API rejects an unauthenticated request", async () => 
 });
 
 test("A7 - direct claim URL and browser refresh preserve authenticated claim detail", async ({ page }) => {
+  const directClaim = await apiContext.get(`/api/claims/${seededClaimId}`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` }
+  });
+  expect(directClaim.status()).toBe(200);
+  const directBody = await directClaim.json();
+  expect(directBody.patientName).toBe(ADVANCED_PATIENT);
+
+  page.on("pageerror", (error) => {
+    console.log("[A7 pageerror]", error?.stack || error?.message || String(error));
+  });
+
   await page.goto(`/claims/${seededClaimId}`);
 
   await expect(page.getByText(ADVANCED_PATIENT, { exact: true })).toBeVisible();
