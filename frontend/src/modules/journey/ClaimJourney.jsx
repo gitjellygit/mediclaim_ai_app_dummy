@@ -1412,7 +1412,9 @@ export default function ClaimJourney() {
                 {claim.remittanceStatus === "POSTED" ? (
                   <>
                     <Alert severity="success">
-                      Remittance received and posted. Payer-reported values are locked.
+                      {payerConnected
+                        ? "Remittance received and posted. Payer-reported values are locked."
+                        : "Remittance posted. Posted payment values are locked."}
                     </Alert>
 
                     <Paper variant="outlined" sx={{ p: 2 }}>
@@ -1648,7 +1650,9 @@ export default function ClaimJourney() {
           {remittanceDialogData && (
             <Stack spacing={2}>
               <Alert severity="info">
-                Payer-reported values have been posted and locked. They are not manually editable.
+                {payerConnected
+                  ? "Payer-reported values have been posted and locked. They are not manually editable."
+                  : "This remittance has been posted and locked. Use the amendment workflow for any correction."}
               </Alert>
 
               <Paper variant="outlined" sx={{ p: 2 }}>
