@@ -12,7 +12,11 @@
     "test:e2e": "playwright test --headed",
     "test:e2e:fast": "playwright test",
     "test:us": "playwright test tests/us-localization.e2e.spec.js --headed",
-    "test:us:fast": "playwright test tests/us-localization.e2e.spec.js"
+    "test:us:fast": "playwright test tests/us-localization.e2e.spec.js",
+    "test:us:advanced": "playwright test tests/us-advanced-regression.e2e.spec.js --headed",
+    "test:us:advanced:fast": "playwright test tests/us-advanced-regression.e2e.spec.js",
+    "test:us:all": "playwright test tests/us-localization.e2e.spec.js tests/us-advanced-regression.e2e.spec.js --headed",
+    "test:us:all:fast": "playwright test tests/us-localization.e2e.spec.js tests/us-advanced-regression.e2e.spec.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
