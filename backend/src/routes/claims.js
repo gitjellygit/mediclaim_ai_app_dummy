@@ -1048,7 +1048,10 @@ router.post("/:id/check", async (req, res) => {
     });
   } catch (e) {
     console.error("[claim-readiness] failed", { name: e?.name, code: e?.code || null });
-    res.status(500).json({ error: "Unable to check claim readiness", code: "CLAIM_READINESS_FAILED" });
+    res.status(e?.status || 500).json({
+      error: e?.status ? e.message : "Unable to check claim readiness",
+      code: e?.code || "CLAIM_READINESS_FAILED"
+    });
   }
 });
 
@@ -1154,7 +1157,10 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
     });
   } catch (e) {
     console.error("[claim-submit] failed", { name: e?.name, code: e?.code || null });
-    res.status(500).json({ error: "Unable to submit claim", code: "CLAIM_SUBMISSION_FAILED" });
+    res.status(e?.status || 500).json({
+      error: e?.status ? e.message : "Unable to submit claim",
+      code: e?.code || "CLAIM_SUBMISSION_FAILED"
+    });
   }
 });
 
