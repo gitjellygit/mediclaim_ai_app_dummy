@@ -13,11 +13,37 @@ import {
   Typography
 } from "@mui/material";
 
-export default function ClaimCompletenessCard({ completeness, onFixItem }) {
+export default function ClaimCompletenessCard({ completeness, onFixItem, claimStatus }) {
   const [expanded, setExpanded] = React.useState(false);
   const [filter, setFilter] = React.useState("all");
 
   if (!completeness) return null;
+
+  const claimLocked = ["SUBMITTED", "DENIED", "PAID"].includes(claimStatus || "");
+
+  function actionMeta(item) {
+    if (item.fixTarget === "eligibility") {
+      return {
+        workflowManaged: true,
+        label: "Go to Eligibility",
+        note: "System-managed. Resolve this from the Eligibility stage in Claim Journey."
+      };
+    }
+    if (item.fixTarget === "prior-auth") {
+      return {
+        workflowManaged: true,
+        label: "Go to Prior Auth",
+        note: "System-managed. Resolve this from the Prior Authorization stage in Claim Journey."
+      };
+    }
+    return {
+      workflowManaged: false,
+      label: "Fix",
+      note: claimLocked
+        ? "Informational after submission. Reopen or amend the claim before changing this field."
+        : null
+    };
+  }
 
   function showBucket(bucket) {
     setFilter(bucket);
@@ -57,7 +83,7 @@ export default function ClaimCompletenessCard({ completeness, onFixItem }) {
               clickable
               color={completeness.missingFields ? "error" : "default"}
               onClick={() => showBucket("missing")}
-              label={`${completeness.missingFields} missing`}
+              label={`${completeness.missingFields} ${claimLocked ? "data gaps" : "missing"}`}
             />
             <Chip
               clickable
@@ -113,7 +139,9 @@ export default function ClaimCompletenessCard({ completeness, onFixItem }) {
           >
             <Typography variant="subtitle2" fontWeight={700}>
               {filter === "missing"
-                ? "Missing required fields"
+                ? claimLocked
+                  ? "Incomplete / unavailable fields"
+                  : "Missing required fields"
                 : filter === "review"
                 ? "Applicable fields needing review"
                 : filter === "not_applicable"
@@ -187,11 +215,28 @@ export default function ClaimCompletenessCard({ completeness, onFixItem }) {
                     />
                   </Stack>
 
-                  {["missing", "review"].includes(item.state) && (
-                    <Button size="small" sx={{ mt: 1 }} onClick={() => onFixItem(item)}>
-                      Fix
-                    </Button>
-                  )}
+                  {["missing", "review"].includes(item.state) && (() => {
+                    const action = actionMeta(item);
+                    return (
+                      <Box sx={{ mt: 1 }}>
+                        {action.note && (
+                          <Typography
+                            variant="caption"
+                            color={action.workflowManaged ? "info.main" : "text.secondary"}
+                            display="block"
+                            sx={{ mb: action.workflowManaged || !claimLocked ? 0.75 : 0 }}
+                          >
+                            {action.note}
+                          </Typography>
+                        )}
+                        {(action.workflowManaged || !claimLocked) && (
+                          <Button size="small" onClick={() => onFixItem(item)}>
+                            {action.label}
+                          </Button>
+                        )}
+                      </Box>
+                    );
+                  })()}
                 </Paper>
               ))}
           </Box>
