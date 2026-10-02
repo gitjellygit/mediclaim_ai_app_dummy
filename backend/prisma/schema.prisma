@@ -23,6 +23,11 @@ enum ClaimType {
   MEMBER_REIMBURSEMENT
 }
 
+enum ClaimForm {
+  PROFESSIONAL
+  INSTITUTIONAL
+}
+
 enum ClaimStage {
   INITIAL
   ENHANCEMENT
@@ -226,6 +231,7 @@ model Claim {
   payerEdiId               String?
 
   claimType         ClaimType     @default(MEMBER_REIMBURSEMENT)
+  claimForm         ClaimForm?
   claimStage        ClaimStage    @default(INITIAL)
   totalBilledAmount Decimal? @db.Decimal(14,2)
   approvedAmount    Decimal? @db.Decimal(14,2)
