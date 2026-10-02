@@ -270,7 +270,7 @@ test("4 - document duplicate scope and U.S. ID classification", async () => {
 test("5 - Journey, Approval and Denials render USD with no legacy enum leakage", async ({ page }) => {
   await page.goto(`/journey?claimId=${primaryClaimId}`);
   await expect(page.getByRole("heading", { name: "Claim Journey" })).toBeVisible();
-  await expect(page.getByText(/Claimed Amount:\s*\$1,234\.56/)).toBeVisible();
+  await expect(page.getByText("Claimed *:", { exact: true }).locator("..")).toContainText("$1,234.56");
   await expect(page.getByText("₹")).toHaveCount(0);
 
   await page.goto("/approval");
