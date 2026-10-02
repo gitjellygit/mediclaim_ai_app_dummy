@@ -59,8 +59,8 @@ test("U6 - LOCAL connector implements the shared payer contract", () => {
     paymentReference: "PAY-1"
   });
   assert.equal(remittance.status, "POSTED");
-  assert.equal(remittance.allowedAmount, 800);
-  assert.equal(remittance.paidAmount, 700);
+  assert.equal(remittance.allowedAmount, "800.00");
+  assert.equal(remittance.paidAmount, "700.00");
   assert.equal(remittance.patientResponsibility, 100);
 });
 
