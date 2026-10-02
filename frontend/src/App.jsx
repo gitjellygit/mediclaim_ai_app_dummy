@@ -32,6 +32,9 @@ const ClaimJourney = lazy(() => import("./modules/journey/ClaimJourney.jsx"));
 const DenialIntelligence = lazy(() =>
   import("./modules/denials/DenialIntelligence.jsx")
 );
+const UnderpaymentIntelligence = lazy(() =>
+  import("./modules/payments/UnderpaymentIntelligence.jsx")
+);
 
 const protectedRoutes = [
   { path: "/claims", Component: ClaimsList },
@@ -39,6 +42,7 @@ const protectedRoutes = [
   { path: "/claims/:id", Component: ClaimDetail },
   { path: "/journey", Component: ClaimJourney },
   { path: "/denials", Component: DenialIntelligence },
+  { path: "/payments", Component: UnderpaymentIntelligence },
   { path: "/medical-ai", Component: MedicalConsistency },
   { path: "/documents", Component: DocumentIntelligence },
   { path: "/approval", Component: ApprovalIntelligence },
