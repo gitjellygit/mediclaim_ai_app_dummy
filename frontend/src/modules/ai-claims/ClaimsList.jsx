@@ -82,6 +82,13 @@ export default function ClaimsList() {
       return (
         claim.patientName?.toLowerCase().includes(search) ||
         claim.payerName?.toLowerCase().includes(search) ||
+        claim.policyNo?.toLowerCase().includes(search) ||
+        claim.memberId?.toLowerCase().includes(search) ||
+        claim.medicalRecordNumber?.toLowerCase().includes(search) ||
+        claim.payerReferenceNo?.toLowerCase().includes(search) ||
+        claim.groupNumber?.toLowerCase().includes(search) ||
+        claim.subscriberId?.toLowerCase().includes(search) ||
+        claim.payerEdiId?.toLowerCase().includes(search) ||
         claim.status?.toLowerCase().includes(search) ||
         String(claim.amount || "").includes(search)
       );
