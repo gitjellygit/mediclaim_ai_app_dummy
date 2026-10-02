@@ -77,7 +77,11 @@ async function gotoFinancialStep(page, { patientName = "E2E-US-ADVANCED-VALIDATI
   await page.goto("/claims/new");
   await expect(page.getByRole("heading", { name: "New Medical Claim" })).toBeVisible();
 
+  await page.getByLabel("Claim Form").click();
+  await page.getByRole("option", { name: "Professional (837P)" }).click();
   await page.getByLabel("Patient Name").fill(patientName);
+  await page.getByLabel("Billing Provider NPI").fill("1234567890");
+  await page.getByLabel("Rendering Provider NPI").fill("1987654321");
   await page.getByRole("button", { name: "Next" }).click();
 
   await page.getByRole("button", { name: "Next" }).click();
@@ -86,6 +90,11 @@ async function gotoFinancialStep(page, { patientName = "E2E-US-ADVANCED-VALIDATI
   await page.getByRole("button", { name: "Next" }).click();
 
   await expect(page.getByLabel("Total Claimed Amount (USD)")).toBeVisible();
+  await page.getByRole("button", { name: "Add Service Line" }).click();
+  await page.getByLabel("CPT / HCPCS").fill("99213");
+  await page.getByLabel("Units").fill("1");
+  await page.getByLabel("Charge (USD)").fill("100");
+  await page.getByLabel("Place of Service").fill("11");
 }
 
 test.beforeAll(async () => {
@@ -124,7 +133,11 @@ test("A1 - required patient and payer fields block progression", async ({ page }
   await page.getByRole("button", { name: "Next" }).click();
   await expect(page.getByText("Patient name is required", { exact: true })).toBeVisible();
 
+  await page.getByLabel("Claim Form").click();
+  await page.getByRole("option", { name: "Professional (837P)" }).click();
   await page.getByLabel("Patient Name").fill("E2E-US-ADVANCED-REQUIRED");
+  await page.getByLabel("Billing Provider NPI").fill("1234567890");
+  await page.getByLabel("Rendering Provider NPI").fill("1987654321");
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByRole("button", { name: "Next" }).click();
 
@@ -134,7 +147,11 @@ test("A1 - required patient and payer fields block progression", async ({ page }
 
 test("A2 - invalid ICD-10 code blocks clinical step", async ({ page }) => {
   await page.goto("/claims/new");
+  await page.getByLabel("Claim Form").click();
+  await page.getByRole("option", { name: "Professional (837P)" }).click();
   await page.getByLabel("Patient Name").fill("E2E-US-ADVANCED-ICD");
+  await page.getByLabel("Billing Provider NPI").fill("1234567890");
+  await page.getByLabel("Rendering Provider NPI").fill("1987654321");
   await page.getByRole("button", { name: "Next" }).click();
 
   await page.getByLabel("ICD-10 Codes (comma separated)").fill("NOT-A-CODE");
