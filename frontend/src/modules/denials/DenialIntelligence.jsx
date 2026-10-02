@@ -82,7 +82,9 @@ export default function DenialIntelligence() {
     revenueAtRisk: 0,
     appealEligible: 0,
     recoveredAmount: 0,
-    topCategory: "—"
+    topCategory: "—",
+    overdueAppeals: 0,
+    appealsDueSoon: 0
   });
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("ALL");
@@ -125,7 +127,9 @@ export default function DenialIntelligence() {
         revenueAtRisk: 0,
         appealEligible: 0,
         recoveredAmount: 0,
-        topCategory: "—"
+        topCategory: "—",
+        overdueAppeals: 0,
+        appealsDueSoon: 0
       });
     } catch (error) {
       if (requestId !== requestRef.current) return;
@@ -439,6 +443,7 @@ export default function DenialIntelligence() {
                 <TableCell><b>CARC / RARC</b></TableCell>
                 <TableCell><b>Revenue at Risk</b></TableCell>
                 <TableCell><b>Appeal</b></TableCell>
+                <TableCell><b>Deadline</b></TableCell>
                 <TableCell><b>Status</b></TableCell>
                 <TableCell><b>AI</b></TableCell>
                 <TableCell align="right"><b>Action</b></TableCell>
@@ -500,6 +505,32 @@ export default function DenialIntelligence() {
                         color={row.appealEligible ? "success" : "default"}
                       />
                     )}
+                  </TableCell>
+
+                  <TableCell>
+                    <Stack spacing={0.5} alignItems="flex-start">
+                      <Typography variant="body2">{date(row.appealDeadline)}</Typography>
+                      {row.deadline?.state && row.deadline.state !== "NOT_SET" && (
+                        <Chip
+                          size="small"
+                          label={
+                            row.deadline.state === "OVERDUE"
+                              ? "Overdue"
+                              : row.deadline.state === "DUE_SOON"
+                              ? `Due in ${row.deadline.daysRemaining} days`
+                              : `${row.deadline.daysRemaining} days left`
+                          }
+                          color={
+                            row.deadline.state === "OVERDUE"
+                              ? "error"
+                              : row.deadline.state === "DUE_SOON"
+                              ? "warning"
+                              : "default"
+                          }
+                          variant={row.deadline.state === "OPEN" ? "outlined" : "filled"}
+                        />
+                      )}
+                    </Stack>
                   </TableCell>
 
                   <TableCell>
@@ -650,6 +681,19 @@ export default function DenialIntelligence() {
               />
             </Box>
 
+            {(detail.codeReference?.carc || detail.codeReference?.rarc) && (
+              <Alert severity="info">
+                <b>Code reference:</b>{" "}
+                {detail.codeReference?.carc
+                  ? `CARC ${detail.codeReference.carc.code}: ${detail.codeReference.carc.label}`
+                  : ""}
+                {detail.codeReference?.carc && detail.codeReference?.rarc ? " • " : ""}
+                {detail.codeReference?.rarc
+                  ? `RARC ${detail.codeReference.rarc.code}: ${detail.codeReference.rarc.label}`
+                  : ""}
+              </Alert>
+            )}
+
             {detail.reasonText && (
               <Alert severity="warning">
                 <b>Payer reason:</b> {detail.reasonText}
@@ -659,6 +703,28 @@ export default function DenialIntelligence() {
             <Divider />
 
             <Typography variant="h6">Appeal Workflow</Typography>
+
+            {detail.appealDeadline && (
+              <Alert
+                severity={
+                  detail.deadline?.state === "OVERDUE"
+                    ? "error"
+                    : detail.deadline?.state === "DUE_SOON"
+                    ? "warning"
+                    : "info"
+                }
+              >
+                <b>Appeal deadline: {date(detail.appealDeadline)}</b>
+                {detail.deadline?.daysRemaining != null
+                  ? detail.deadline.daysRemaining < 0
+                    ? ` • overdue by ${Math.abs(detail.deadline.daysRemaining)} days`
+                    : ` • ${detail.deadline.daysRemaining} days remaining`
+                  : ""}
+                <br />
+                Planning deadline only — verify the payer contract, plan, remittance notice,
+                and applicable appeal rules.
+              </Alert>
+            )}
 
             <Box
               sx={{
