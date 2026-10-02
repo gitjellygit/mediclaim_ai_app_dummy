@@ -179,10 +179,10 @@ test("2 - claim detail renders U.S. terminology and USD formatting", async ({ pa
   await expect(page.getByText(PRIMARY_PATIENT, { exact: true })).toBeVisible();
 
   await expect(page.getByText("Provider Billed", { exact: true })).toBeVisible();
-  await expect(page.getByText("MRN-US-1001", { exact: true })).toBeVisible();
-  await expect(page.getByText("Northwest Benefit Services", { exact: true })).toBeVisible();
-  await expect(page.getByText("$1,234.56", { exact: true })).toBeVisible();
-  await expect(page.getByText("$10,000.00", { exact: true })).toBeVisible();
+  await expect(page.getByText(/MRN:\s*MRN-US-1001/)).toBeVisible();
+  await expect(page.getByText(/Plan Administrator:\s*Northwest Benefit Services/)).toBeVisible();
+  await expect(page.getByText(/Claimed Amount:\s*\$1,234\.56/)).toBeVisible();
+  await expect(page.getByText(/Coverage Limit:\s*\$10,000\.00/)).toBeVisible();
 
   await expect(page.getByText("TPA:", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Cashless", { exact: true })).toHaveCount(0);
@@ -202,13 +202,13 @@ test("3 - edit U.S. claim fields and confirm they persist after reload", async (
   await page.getByLabel("Remaining Coverage Limit (USD)", { exact: true }).fill("11000.25");
 
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByText("Pacific Plan Administrators", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Plan Administrator:\s*Pacific Plan Administrators/)).toBeVisible();
 
   await page.reload();
-  await expect(page.getByText("MRN-US-2002", { exact: true })).toBeVisible();
-  await expect(page.getByText("Pacific Plan Administrators", { exact: true })).toBeVisible();
-  await expect(page.getByText("$12,500.50", { exact: true })).toBeVisible();
-  await expect(page.getByText("$11,000.25", { exact: true })).toBeVisible();
+  await expect(page.getByText(/MRN:\s*MRN-US-2002/)).toBeVisible();
+  await expect(page.getByText(/Plan Administrator:\s*Pacific Plan Administrators/)).toBeVisible();
+  await expect(page.getByText(/Coverage Limit:\s*\$12,500\.50/)).toBeVisible();
+  await expect(page.getByText(/Remaining Coverage:\s*\$11,000\.25/)).toBeVisible();
 
   const claim = await getClaim(primaryClaimId);
   expect(claim.medicalRecordNumber).toBe("MRN-US-2002");
@@ -270,7 +270,7 @@ test("4 - document duplicate scope and U.S. ID classification", async () => {
 test("5 - Journey, Approval and Denials render USD with no legacy enum leakage", async ({ page }) => {
   await page.goto(`/journey?claimId=${primaryClaimId}`);
   await expect(page.getByRole("heading", { name: "Claim Journey" })).toBeVisible();
-  await expect(page.getByText("$1,234.56", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Claimed Amount:\s*\$1,234\.56/)).toBeVisible();
   await expect(page.getByText("₹")).toHaveCount(0);
 
   await page.goto("/approval");
