@@ -44,7 +44,8 @@ export default function NewClaim() {
     patientGender: "",
     medicalRecordNumber: "",
 
-    // Hospital / admission
+    // Claim form / hospital / admission
+    claimForm: "",
     hospitalName: "",
     billingProviderNpi: "",
     renderingProviderNpi: "",
@@ -94,6 +95,11 @@ export default function NewClaim() {
 
     if (step === 0) {
       if (!form.patientName) e.patientName = "Patient name is required";
+      if (!form.claimForm) e.claimForm = "Select Professional (837P) or Institutional (837I)";
+      if (!form.billingProviderNpi) e.billingProviderNpi = "Billing provider NPI is required";
+      if (form.claimForm === "PROFESSIONAL" && !form.renderingProviderNpi) {
+        e.renderingProviderNpi = "Rendering provider NPI is required for 837P";
+      }
     }
 
     if (step === 1 && form.icd10Codes) {
@@ -121,6 +127,19 @@ export default function NewClaim() {
 
       if (billed && claimed > billed) {
         e.amount = "Claimed amount cannot exceed billed amount";
+      }
+
+      const activeLines = form.serviceLines.filter((line) => line.cptHcpcsCode?.trim());
+      if (activeLines.length === 0) {
+        e.serviceLines = "At least one service line is required";
+      } else if (form.claimForm === "PROFESSIONAL" && activeLines.some((line) => !line.placeOfService?.trim())) {
+        e.serviceLines = "Place of Service is required on every 837P service line";
+      } else if (form.claimForm === "INSTITUTIONAL" && activeLines.some((line) => !line.revenueCode?.trim())) {
+        e.serviceLines = "Revenue Code is required on every 837I service line";
+      }
+
+      if (form.claimForm === "INSTITUTIONAL" && !form.typeOfBill?.trim()) {
+        e.typeOfBill = "Type of Bill is required for 837I";
       }
     }
 
@@ -189,6 +208,7 @@ export default function NewClaim() {
         remainingCoverageLimit: form.remainingCoverageLimit
           ? Number(form.remainingCoverageLimit)
           : null,
+        claimForm: form.claimForm,
         hospitalName: form.hospitalName || null,
         billingProviderNpi: form.billingProviderNpi || null,
         renderingProviderNpi: form.renderingProviderNpi || null,
@@ -248,6 +268,17 @@ export default function NewClaim() {
           {activeStep === 0 && (
             <Stack spacing={2}>
               <TextField
+                label="Claim Form"
+                select
+                value={form.claimForm}
+                onChange={(e) => update("claimForm", e.target.value)}
+                error={!!errors.claimForm}
+                helperText={errors.claimForm || "837P = Professional | 837I = Institutional"}
+              >
+                <MenuItem value="PROFESSIONAL">Professional (837P)</MenuItem>
+                <MenuItem value="INSTITUTIONAL">Institutional (837I)</MenuItem>
+              </TextField>
+              <TextField
                 label="Patient Name"
                 value={form.patientName}
                 onChange={(e) => update("patientName", e.target.value)}
@@ -263,17 +294,25 @@ export default function NewClaim() {
                 label="Billing Provider NPI"
                 value={form.billingProviderNpi}
                 onChange={(e) => update("billingProviderNpi", e.target.value)}
+                error={!!errors.billingProviderNpi}
+                helperText={errors.billingProviderNpi}
               />
-              <TextField
-                label="Rendering Provider NPI"
-                value={form.renderingProviderNpi}
-                onChange={(e) => update("renderingProviderNpi", e.target.value)}
-              />
-              <TextField
-                label="Referring Provider NPI"
-                value={form.referringProviderNpi}
-                onChange={(e) => update("referringProviderNpi", e.target.value)}
-              />
+              {form.claimForm === "PROFESSIONAL" && (
+                <>
+                  <TextField
+                    label="Rendering Provider NPI"
+                    value={form.renderingProviderNpi}
+                    onChange={(e) => update("renderingProviderNpi", e.target.value)}
+                    error={!!errors.renderingProviderNpi}
+                    helperText={errors.renderingProviderNpi}
+                  />
+                  <TextField
+                    label="Referring Provider NPI"
+                    value={form.referringProviderNpi}
+                    onChange={(e) => update("referringProviderNpi", e.target.value)}
+                  />
+                </>
+              )}
               <TextField
                 label="Provider TIN"
                 value={form.providerTin}
@@ -455,17 +494,23 @@ export default function NewClaim() {
                 onChange={(e) => update("timelyFilingDeadline", e.target.value)}
               />
 
-              <TextField
-                label="Type of Bill"
-                value={form.typeOfBill}
-                onChange={(e) => update("typeOfBill", e.target.value)}
-              />
+              {form.claimForm === "INSTITUTIONAL" && (
+                <>
+                  <TextField
+                    label="Type of Bill"
+                    value={form.typeOfBill}
+                    onChange={(e) => update("typeOfBill", e.target.value)}
+                    error={!!errors.typeOfBill}
+                    helperText={errors.typeOfBill}
+                  />
 
-              <TextField
-                label="DRG"
-                value={form.drgCode}
-                onChange={(e) => update("drgCode", e.target.value)}
-              />
+                  <TextField
+                    label="DRG"
+                    value={form.drgCode}
+                    onChange={(e) => update("drgCode", e.target.value)}
+                  />
+                </>
+              )}
 
               <Divider />
               <Typography variant="h6">Service Lines</Typography>
@@ -473,6 +518,9 @@ export default function NewClaim() {
                 lines={form.serviceLines}
                 onChange={(serviceLines) => update("serviceLines", serviceLines)}
               />
+              {errors.serviceLines && (
+                <Typography color="error" variant="body2">{errors.serviceLines}</Typography>
+              )}
             </Stack>
           )}
 
@@ -482,6 +530,7 @@ export default function NewClaim() {
               <Typography variant="h6">Review Summary</Typography>
 
               <Divider />
+              <Typography><b>Claim Form:</b> {form.claimForm === "PROFESSIONAL" ? "Professional (837P)" : "Institutional (837I)"}</Typography>
               <Typography><b>Patient:</b> {form.patientName}</Typography>
               <Typography><b>Hospital:</b> {form.hospitalName || "—"}</Typography>
               <Typography><b>Billing NPI:</b> {form.billingProviderNpi || "—"}</Typography>
