@@ -368,6 +368,105 @@ router.post("/e2e/payer-journey/seed", async (req, res) => {
   }
 });
 
+router.post("/e2e/payment-variance/seed", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const patientName = "E2E-PAYMENT-VARIANCE";
+
+  try {
+    await prisma.claim.deleteMany({
+      where: {
+        organizationId: req.user.organizationId,
+        patientName
+      }
+    });
+
+    const claim = await prisma.claim.create({
+      data: {
+        organizationId: req.user.organizationId,
+        createdById: req.user.id,
+        patientName,
+        payerName: "Payer Setup",
+        policyNo: "PAY-VAR-100",
+        memberId: "APEX-MEMBER-100",
+        amount: 1000,
+        totalBilledAmount: 1000,
+        claimForm: "PROFESSIONAL",
+        billingProviderNpi: "1234567890",
+        renderingProviderNpi: "1234567890",
+        diagnosisText: "Routine outpatient evaluation",
+        icd10Codes: ["M54.50"],
+        dateOfService: new Date("2026-10-01T00:00:00.000Z"),
+        timelyFilingDeadline: new Date("2027-12-31T00:00:00.000Z"),
+        status: "DRAFT",
+        eligibilityStatus: "NOT_CHECKED",
+        priorAuthStatus: "NOT_CHECKED",
+        remittanceStatus: "NOT_AVAILABLE",
+        documents: {
+          create: [{
+            type: "FINAL_BILL",
+            fileName: "payment-variance-final-bill.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 1024,
+            path: "e2e-fixture://payment-variance-final-bill.pdf",
+            status: "PROCESSED",
+            confidence: 99
+          }]
+        },
+        serviceLines: {
+          create: [{
+            cptHcpcsCode: "99213",
+            units: 1,
+            charge: 1000,
+            diagnosisPointers: ["M54.50"],
+            placeOfService: "11",
+            serviceDateFrom: new Date("2026-10-01T00:00:00.000Z"),
+            serviceDateTo: new Date("2026-10-01T00:00:00.000Z")
+          }]
+        }
+      },
+      include: {
+        documents: true,
+        serviceLines: true
+      }
+    });
+
+    res.json({
+      id: claim.id,
+      patientName: claim.patientName
+    });
+  } catch (error) {
+    console.error("[e2e-payment-variance] seed failed", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({ error: "Unable to seed payment variance scenario" });
+  }
+});
+
+router.delete("/e2e/payment-variance/cleanup", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  try {
+    const result = await prisma.claim.deleteMany({
+      where: {
+        organizationId: req.user.organizationId,
+        patientName: "E2E-PAYMENT-VARIANCE"
+      }
+    });
+    res.json({ deleted: result.count });
+  } catch (error) {
+    console.error("[e2e-payment-variance] cleanup failed", {
+      name: error?.name || "Error"
+    });
+    res.status(500).json({ error: "Unable to clean payment variance scenario" });
+  }
+});
+
 router.delete("/e2e/payer-journey/cleanup", async (req, res) => {
   if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
     return res.status(404).json({ error: "Not found" });
