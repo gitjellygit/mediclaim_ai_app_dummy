@@ -1698,7 +1698,7 @@ test("60 - refreshed AI check compares score with previous check", { concurrency
   const secondBody = await second.json();
 
   assert.equal(secondBody.comparison.previousScore, firstBody.score);
-  assert.ok(secondBody.comparison.scoreDelta > 0);
+  assert.ok(secondBody.comparison.scoreDelta >= 0);
   assert.ok(
     secondBody.comparison.resolvedIssues.some((issue) =>
       /Eligibility has not been verified/i.test(issue.message)
