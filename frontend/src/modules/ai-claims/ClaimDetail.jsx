@@ -31,6 +31,7 @@ import {
   provenanceChipColor
 } from "./claim-detail/claimDetailUtils.js";
 import ServiceLinesEditor, { serviceLineToForm, serviceLineToPayload } from "../../components/ServiceLinesEditor.jsx";
+import { formatUSDateOnly, toDateInputValue } from "../../utils/dateOnly.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
@@ -128,9 +129,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       remainingCoverageLimit:
         claim.remainingCoverageLimit != null ? String(claim.remainingCoverageLimit) : "",
       payerReferenceNo: claim.payerReferenceNo || "",
-      patientDob: claim.patientDob
-        ? new Date(claim.patientDob).toISOString().slice(0, 10)
-        : "",
+      patientDob: toDateInputValue(claim.patientDob),
       hospitalName: claim.hospitalName || "",
       billingProviderNpi: claim.billingProviderNpi || "",
       renderingProviderNpi: claim.renderingProviderNpi || "",
@@ -144,28 +143,18 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         : "",
       amount: claim.amount != null ? String(claim.amount) : "",
       totalBilledAmount: claim.totalBilledAmount != null ? String(claim.totalBilledAmount) : "",
-      dateOfService: claim.dateOfService
-        ? new Date(claim.dateOfService).toISOString().slice(0, 10)
-        : "",
-      admissionDate: claim.admissionDate
-        ? new Date(claim.admissionDate).toISOString().slice(0, 10)
-        : "",
-      dischargeDate: claim.dischargeDate
-        ? new Date(claim.dischargeDate).toISOString().slice(0, 10)
-        : "",
+      dateOfService: toDateInputValue(claim.dateOfService),
+      admissionDate: toDateInputValue(claim.admissionDate),
+      dischargeDate: toDateInputValue(claim.dischargeDate),
       admissionType: claim.admissionType || "",
       roomCategory: claim.roomCategory || "",
       icuDays: claim.icuDays != null ? String(claim.icuDays) : "",
       procedureText: claim.procedureText || "",
-      procedureDate: claim.procedureDate
-        ? new Date(claim.procedureDate).toISOString().slice(0, 10)
-        : "",
+      procedureDate: toDateInputValue(claim.procedureDate),
       typeOfBill: claim.typeOfBill || "",
       drgCode: claim.drgCode || "",
       claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
-      timelyFilingDeadline: claim.timelyFilingDeadline
-        ? new Date(claim.timelyFilingDeadline).toISOString().slice(0, 10)
-        : "",
+      timelyFilingDeadline: toDateInputValue(claim.timelyFilingDeadline),
       serviceLines: (claim.serviceLines || []).map(serviceLineToForm),
       claimType: claim.claimType || "MEMBER_REIMBURSEMENT"
     });
@@ -195,9 +184,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       remainingCoverageLimit:
         claim.remainingCoverageLimit != null ? String(claim.remainingCoverageLimit) : "",
       payerReferenceNo: claim.payerReferenceNo || "",
-      patientDob: claim.patientDob
-        ? new Date(claim.patientDob).toISOString().slice(0, 10)
-        : "",
+      patientDob: toDateInputValue(claim.patientDob),
       hospitalName: claim.hospitalName || "",
       billingProviderNpi: claim.billingProviderNpi || "",
       renderingProviderNpi: claim.renderingProviderNpi || "",
@@ -211,28 +198,18 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         : "",
       amount: claim.amount != null ? String(claim.amount) : "",
       totalBilledAmount: claim.totalBilledAmount != null ? String(claim.totalBilledAmount) : "",
-      dateOfService: claim.dateOfService
-        ? new Date(claim.dateOfService).toISOString().slice(0, 10)
-        : "",
-      admissionDate: claim.admissionDate
-        ? new Date(claim.admissionDate).toISOString().slice(0, 10)
-        : "",
-      dischargeDate: claim.dischargeDate
-        ? new Date(claim.dischargeDate).toISOString().slice(0, 10)
-        : "",
+      dateOfService: toDateInputValue(claim.dateOfService),
+      admissionDate: toDateInputValue(claim.admissionDate),
+      dischargeDate: toDateInputValue(claim.dischargeDate),
       admissionType: claim.admissionType || "",
       roomCategory: claim.roomCategory || "",
       icuDays: claim.icuDays != null ? String(claim.icuDays) : "",
       procedureText: claim.procedureText || "",
-      procedureDate: claim.procedureDate
-        ? new Date(claim.procedureDate).toISOString().slice(0, 10)
-        : "",
+      procedureDate: toDateInputValue(claim.procedureDate),
       typeOfBill: claim.typeOfBill || "",
       drgCode: claim.drgCode || "",
       claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
-      timelyFilingDeadline: claim.timelyFilingDeadline
-        ? new Date(claim.timelyFilingDeadline).toISOString().slice(0, 10)
-        : "",
+      timelyFilingDeadline: toDateInputValue(claim.timelyFilingDeadline),
       serviceLines: (claim.serviceLines || []).map(serviceLineToForm),
       claimType: claim.claimType || "MEMBER_REIMBURSEMENT"
     });
@@ -1091,7 +1068,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
                   <FieldLine claim={claim} field="memberId" label="Member ID">{claim.memberId || "—"}</FieldLine>
                   <FieldLine claim={claim} field="medicalRecordNumber" label="MRN">{claim.medicalRecordNumber || "—"}</FieldLine>
-                  <FieldLine claim={claim} field="patientDob" label="DOB">{formatDate(claim.patientDob)}</FieldLine>
+                  <FieldLine claim={claim} field="patientDob" label="DOB">{formatUSDateOnly(claim.patientDob)}</FieldLine>
                   <FieldLine claim={claim} field="policyNo" label="Policy No">{claim.policyNo || "—"}</FieldLine>
                   <FieldLine claim={claim} field="payerName" label="Payer">{claim.payerName || "—"}</FieldLine>
                   <FieldLine claim={claim} field="planAdministratorName" label="Plan Administrator">{claim.planAdministratorName || "—"}</FieldLine>
@@ -1113,9 +1090,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   Encounter
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
-                  <FieldLine claim={claim} field="dateOfService" label="Date of Service">{completenessValue("dateOfService", claim.dateOfService, formatDate)}</FieldLine>
-                  <Typography><b>Admission:</b> {completenessValue("admissionDate", claim.admissionDate, formatDate)}</Typography>
-                  <Typography><b>Discharge:</b> {completenessValue("dischargeDate", claim.dischargeDate, formatDate)}</Typography>
+                  <FieldLine claim={claim} field="dateOfService" label="Date of Service">{completenessValue("dateOfService", claim.dateOfService, formatUSDateOnly)}</FieldLine>
+                  <Typography><b>Admission:</b> {completenessValue("admissionDate", claim.admissionDate, formatUSDateOnly)}</Typography>
+                  <Typography><b>Discharge:</b> {completenessValue("dischargeDate", claim.dischargeDate, formatUSDateOnly)}</Typography>
                   <Typography><b>Admission Type:</b> {completenessValue("admissionType", claim.admissionType)}</Typography>
                   <Typography><b>Room Category:</b> {completenessValue("roomCategory", claim.roomCategory)}</Typography>
                   <Typography><b>ICU Days:</b> {completenessValue("icuDays", claim.icuDays)}</Typography>
@@ -1142,7 +1119,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   <FieldLine claim={claim} field="authorizationNo" label="Authorization No">{claim.authorizationNo || "—"}</FieldLine>
                   <Typography><b>Submission Date:</b> {formatDate(claim.claimSubmissionDate)}</Typography>
                   <Typography><b>Frequency:</b> {claim.claimFrequencyCode || "ORIGINAL"}</Typography>
-                  <Typography><b>Timely Filing Deadline:</b> {formatDate(claim.timelyFilingDeadline)}</Typography>
+                  <Typography><b>Timely Filing Deadline:</b> {formatUSDateOnly(claim.timelyFilingDeadline)}</Typography>
                 </Box>
               </Box>
 
