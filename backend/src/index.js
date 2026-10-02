@@ -11,6 +11,7 @@ import rulesRouter from "./routes/rules.js";
 import { authRouter } from "./routes/auth.js";
 import { documentsRouter } from "./routes/documents.js";
 import denialsRouter from "./routes/denials.js";
+import underpaymentsRouter from "./routes/underpayments.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 dotenv.config();
 
@@ -72,6 +73,7 @@ if (process.env.E2E_TEST_MODE === "true") {
   app.use("/api/claims", requireAuth, requireRoles(["ADMIN"]), captureAsyncRouter(e2eFixturesRouter(prisma)));
 }
 app.use("/api/denials", requireAuth, captureAsyncRouter(denialsRouter));
+app.use("/api/underpayments", requireAuth, captureAsyncRouter(underpaymentsRouter));
 
 /**
  * DOCUMENT ROUTES
