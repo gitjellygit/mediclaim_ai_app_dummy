@@ -176,7 +176,8 @@ router.get("/", async (req, res) => {
         revenueAtRisk: true,
         appealEligible: true,
         recoveredAmount: true,
-        denialCategory: true
+        denialCategory: true,
+        appealDeadline: true
       }
     });
 
@@ -196,8 +197,9 @@ router.get("/", async (req, res) => {
     const revenueAtRisk = Number(moneyFromCents(revenueAtRiskCents));
     const recoveredAmount = Number(moneyFromCents(recoveredAmountCents));
     const enrichedCases = cases.map(enrichDenialCase);
-    const overdueAppeals = enrichedCases.filter((item) => item.deadline?.state === "OVERDUE").length;
-    const appealsDueSoon = enrichedCases.filter((item) => item.deadline?.state === "DUE_SOON").length;
+    const activeDeadlineStates = metricsSource.map((item) => enrichDenialCase(item).deadline);
+    const overdueAppeals = activeDeadlineStates.filter((item) => item?.state === "OVERDUE").length;
+    const appealsDueSoon = activeDeadlineStates.filter((item) => item?.state === "DUE_SOON").length;
 
     const topCategory =
       Object.entries(categories).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
@@ -254,7 +256,7 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-router.get("/codes/lookup", async (req, res) => {
+router.get("/reference/codes", async (req, res) => {
   const result = interpretDenialCodes({
     carcCode: req.query.carc,
     rarcCode: req.query.rarc
