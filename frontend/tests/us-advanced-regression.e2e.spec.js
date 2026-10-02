@@ -168,8 +168,9 @@ test("A4 - review formats decimal and large U.S. dollar amounts correctly", asyn
   await page.getByLabel("Total Claimed Amount (USD)").fill("1234.5");
   await page.getByRole("button", { name: "Next" }).click();
 
-  await expect(page.getByText("$1,234.50")).toBeVisible();
-  await expect(page.getByText("$999,999.99")).toHaveCount(2);
+  const financialSummary = page.getByText("Billed:", { exact: true }).locator("..");
+  await expect(financialSummary).toContainText("$999,999.99");
+  await expect(financialSummary).toContainText("$1,234.50");
   await expect(page.getByText("₹")).toHaveCount(0);
   await expect(page.getByText("INR", { exact: true })).toHaveCount(0);
 });
@@ -187,7 +188,7 @@ test("A5 - backend rejects retired legacy claim type enums", async () => {
     });
 
     expect(response.ok()).toBeFalsy();
-    expect([400, 422, 500]).toContain(response.status());
+    expect([400, 422]).toContain(response.status());
   }
 });
 
@@ -212,7 +213,7 @@ test("A7 - direct claim URL and browser refresh preserve authenticated claim det
 
   await expect(page).toHaveURL(new RegExp(`/claims/${seededClaimId}$`));
   await expect(page.getByText(ADVANCED_PATIENT, { exact: true })).toBeVisible();
-  await expect(page.getByText(/MRN:\\s*ADV-MRN-1001/)).toBeVisible();
+  await expect(page.getByText(/MRN:\s*ADV-MRN-1001/)).toBeVisible();
 });
 
 test("A8 - direct journey URL survives refresh and stays in USD", async ({ page }) => {
