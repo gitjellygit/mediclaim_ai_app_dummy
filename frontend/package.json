@@ -26,7 +26,9 @@
     "test:us:u6": "playwright test tests/payer-connector.e2e.spec.js --headed",
     "test:us:u6:fast": "playwright test tests/payer-connector.e2e.spec.js",
     "test:us:u7": "playwright test tests/us-readiness-rules.e2e.spec.js --headed",
-    "test:us:u7:fast": "playwright test tests/us-readiness-rules.e2e.spec.js"
+    "test:us:u7:fast": "playwright test tests/us-readiness-rules.e2e.spec.js",
+    "test:us:u8": "playwright test tests/us-denial-appeals.e2e.spec.js --headed",
+    "test:us:u8:fast": "playwright test tests/us-denial-appeals.e2e.spec.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
