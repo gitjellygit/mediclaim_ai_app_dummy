@@ -68,11 +68,11 @@ test.beforeEach(async ({ page }) => {
 test("U3-1 - create US claim with provider coverage institutional and service-line data", async ({ page }) => {
   await page.goto("/claims/new");
 
+  await page.getByLabel("Claim Form").click();
+  await page.getByRole("option", { name: "Institutional (837I)" }).click();
   await page.getByLabel("Patient Name").fill(PATIENT);
   await page.getByLabel("Hospital Name").fill("Seattle General Hospital");
   await page.getByLabel("Billing Provider NPI").fill("1234567890");
-  await page.getByLabel("Rendering Provider NPI").fill("1987654321");
-  await page.getByLabel("Referring Provider NPI").fill("1112223334");
   await page.getByLabel("Provider TIN").fill("91-1234567");
   await page.getByLabel("Provider Taxonomy Code").fill("207Q00000X");
   await page.getByRole("button", { name: "Next" }).click();
@@ -133,7 +133,7 @@ test("U3-1 - create US claim with provider coverage institutional and service-li
 
   const claim = await getClaim(claimId);
   expect(claim.billingProviderNpi).toBe("1234567890");
-  expect(claim.renderingProviderNpi).toBe("1987654321");
+  expect(claim.claimForm).toBe("INSTITUTIONAL");
   expect(claim.groupNumber).toBe("GRP-777");
   expect(claim.subscriberRelationship).toBe("SELF");
   expect(claim.coordinationOfBenefits).toBe("PRIMARY");
@@ -154,7 +154,7 @@ test("U3-2 - claim detail displays US provider coverage and service-line data", 
   await page.goto(`/claims/${claimId}`);
 
   await expect(page.getByText(/Billing NPI:/).locator("..")).toContainText("1234567890");
-  await expect(page.getByText(/Rendering NPI:/).locator("..")).toContainText("1987654321");
+  await expect(page.getByText(/Claim Form:/).locator("..")).toContainText("Institutional (837I)");
   await expect(page.getByText(/Group Number:/).locator("..")).toContainText("GRP-777");
   await expect(page.getByText(/Subscriber ID:/).locator("..")).toContainText("SUB-1001");
   await expect(page.getByText(/Payer EDI ID:/).locator("..")).toContainText("842610001");
