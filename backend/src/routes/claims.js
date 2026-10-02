@@ -463,7 +463,8 @@ router.post("/", async (req, res) => {
       claimFrequencyCode: z.enum(["ORIGINAL", "CORRECTED", "VOID"]).optional(),
       timelyFilingDeadline: z.string().nullish(),
       serviceLines: z.array(serviceLineInputSchema).max(500).optional(),
-      claimType: z.enum(["PROVIDER_BILLED", "MEMBER_REIMBURSEMENT"]).optional()
+      claimType: z.enum(["PROVIDER_BILLED", "MEMBER_REIMBURSEMENT"]).optional(),
+      claimForm: z.enum(["PROFESSIONAL", "INSTITUTIONAL"]).nullish()
     }).strict();
     const parsed = claimCreateSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -600,6 +601,7 @@ router.patch("/:id", async (req, res) => {
       providerTaxonomyCode: input.providerTaxonomyCode || null,
       diagnosisText: input.diagnosisText || null,
       claimType: input.claimType,
+      claimForm: input.claimForm || null,
       dateOfService: input.dateOfService ? new Date(input.dateOfService) : null,
       admissionDate: input.admissionDate ? new Date(input.admissionDate) : null,
       dischargeDate: input.dischargeDate ? new Date(input.dischargeDate) : null,
@@ -815,7 +817,10 @@ router.post("/:id/check", async (req, res) => {
     }
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
-      include: { documents: true }
+      include: {
+        documents: true,
+        serviceLines: { orderBy: { createdAt: "asc" } }
+      }
     });
 
     if (!claim) {
@@ -864,6 +869,74 @@ router.post("/:id/check", async (req, res) => {
         severity: "BLOCK",
         message: "Claimed amount missing or invalid"
       });
+    }
+
+    if (claim.claimForm === "PROFESSIONAL") {
+      if (!claim.billingProviderNpi) {
+        issues.push({
+          severity: "BLOCK",
+          message: "837P professional claim requires billing provider NPI",
+          source: "CLAIM_FORM",
+          fixTarget: "claim"
+        });
+      }
+      if (!claim.renderingProviderNpi) {
+        issues.push({
+          severity: "BLOCK",
+          message: "837P professional claim requires rendering provider NPI",
+          source: "CLAIM_FORM",
+          fixTarget: "claim"
+        });
+      }
+      if (!claim.serviceLines?.length) {
+        issues.push({
+          severity: "BLOCK",
+          message: "837P professional claim requires at least one CPT/HCPCS service line",
+          source: "CLAIM_FORM",
+          fixTarget: "claim"
+        });
+      } else if (claim.serviceLines.some((line) => !line.placeOfService)) {
+        issues.push({
+          severity: "BLOCK",
+          message: "837P professional service lines require Place of Service",
+          source: "CLAIM_FORM",
+          fixTarget: "claim"
+        });
+      }
+    }
+
+    if (claim.claimForm === "INSTITUTIONAL") {
+      if (!claim.billingProviderNpi) {
+        issues.push({
+          severity: "BLOCK",
+          message: "837I institutional claim requires billing provider NPI",
+          source: "CLAIM_FORM",
+          fixTarget: "claim"
+        });
+      }
+      if (!claim.typeOfBill) {
+        issues.push({
+          severity: "BLOCK",
+          message: "837I institutional claim requires Type of Bill",
+          source: "CLAIM_FORM",
+          fixTarget: "claim"
+        });
+      }
+      if (!claim.serviceLines?.length) {
+        issues.push({
+          severity: "BLOCK",
+          message: "837I institutional claim requires at least one service line",
+          source: "CLAIM_FORM",
+          fixTarget: "claim"
+        });
+      } else if (claim.serviceLines.some((line) => !line.revenueCode)) {
+        issues.push({
+          severity: "BLOCK",
+          message: "837I institutional service lines require revenue code",
+          source: "CLAIM_FORM",
+          fixTarget: "claim"
+        });
+      }
     }
 
     if (claim.eligibilityStatus !== "VERIFIED") {
