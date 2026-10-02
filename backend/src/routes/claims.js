@@ -510,7 +510,10 @@ router.post("/", async (req, res) => {
         fieldProvenance: manualProvenance(
           manuallyEnteredFields,
           "Entered at Claim Creation"
-        )
+        ),
+        serviceLines: normalizedServiceLines.data.length
+          ? { create: normalizedServiceLines.data }
+          : undefined
       }
     });
 
@@ -601,6 +604,15 @@ router.patch("/:id", async (req, res) => {
       icd10Codes: Array.isArray(input.icd10Codes)
         ? input.icd10Codes
         : [],
+      inpatientProcedureCodes: Array.isArray(input.inpatientProcedureCodes)
+        ? input.inpatientProcedureCodes
+        : [],
+      typeOfBill: input.typeOfBill || null,
+      drgCode: input.drgCode || null,
+      claimFrequencyCode: input.claimFrequencyCode || "ORIGINAL",
+      timelyFilingDeadline: input.timelyFilingDeadline
+        ? parseClaimDate(input.timelyFilingDeadline)
+        : null,
       amount: input.amount != null && input.amount !== ""
         ? validMoney(input.amount)
         : null,
