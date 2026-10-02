@@ -11,7 +11,6 @@ test("F7 - claim lifecycle permits intended forward and readiness reset transiti
   for (const [from, to] of [
     ["DRAFT", "READY"],
     ["READY", "DRAFT"],
-    ["DRAFT", "SUBMITTED"],
     ["READY", "SUBMITTED"],
     ["SUBMITTED", "DENIED"],
     ["SUBMITTED", "PAID"],
@@ -23,8 +22,10 @@ test("F7 - claim lifecycle permits intended forward and readiness reset transiti
   }
 });
 
-test("F7 - claim lifecycle blocks reopening terminal states implicitly", () => {
+test("F7 - claim lifecycle blocks skipped readiness and reopening terminal states", () => {
   for (const [from, to] of [
+    ["DRAFT", "SUBMITTED"],
+    ["NEEDS_REVIEW", "SUBMITTED"],
     ["SUBMITTED", "DRAFT"],
     ["DENIED", "DRAFT"],
     ["PAID", "SUBMITTED"],
