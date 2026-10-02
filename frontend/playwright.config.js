@@ -25,7 +25,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "cd ../backend && npm run dev",
+      command: "cd ../backend && npx prisma generate && npx prisma migrate deploy && npm run dev",
       url: "http://127.0.0.1:4101/health",
       timeout: 60_000,
       reuseExistingServer: false,
