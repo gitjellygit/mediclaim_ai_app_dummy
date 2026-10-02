@@ -236,7 +236,7 @@ function extractCodes(text, pattern) {
   return codesStr.split(/[,;\s]+/).filter(code => code.trim().length > 0);
 }
 
-function extractFields(text) {
+export function extractFields(text) {
   const t = text || "";
 
   const patientName = firstMatch(t, [
