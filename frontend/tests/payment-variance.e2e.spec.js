@@ -8,6 +8,8 @@ let apiContext;
 let auth;
 let claimId;
 
+test.describe.configure({ mode: "serial" });
+
 async function apiJson(response, label) {
   if (!response.ok()) {
     throw new Error(`${label} failed (${response.status()}): ${await response.text()}`);
@@ -22,37 +24,18 @@ test.beforeAll(async () => {
     "login"
   );
 
-  const claim = await apiJson(
-    await apiContext.post("/api/claims", {
-      headers: { Authorization: `Bearer ${auth.accessToken}` },
-      data: {
-        patientName: "E2E-PAYMENT-VARIANCE",
-        payerName: "Apex Benefit Network",
-        policyNo: "PAY-VAR-100",
-        memberId: "APEX-MEMBER-100",
-        amount: 1000,
-        claimForm: "PROFESSIONAL",
-        billingProviderNpi: "1234567890",
-        renderingProviderNpi: "1234567890",
-        icd10Codes: ["M54.50"],
-        timelyFilingDeadline: "12/31/2027",
-        serviceLines: [{
-          cptHcpcsCode: "99213",
-          units: 1,
-          charge: 1000,
-          diagnosisPointers: ["M54.50"],
-          placeOfService: "11"
-        }]
-      }
+  const seeded = await apiJson(
+    await apiContext.post("/api/claims/e2e/payment-variance/seed", {
+      headers: { Authorization: `Bearer ${auth.accessToken}` }
     }),
-    "create claim"
+    "seed payment variance claim"
   );
-  claimId = claim.id;
+  claimId = seeded.id;
 });
 
 test.afterAll(async () => {
-  if (claimId) {
-    await apiContext.delete(`/api/claims/${claimId}`, {
+  if (auth?.accessToken) {
+    await apiContext.delete("/api/claims/e2e/payment-variance/cleanup", {
       headers: { Authorization: `Bearer ${auth.accessToken}` }
     });
   }
