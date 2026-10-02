@@ -8,6 +8,7 @@ import {
 } from "./payerSimulator.js";
 import { createLocalPayerConnector } from "./localPayerConnector.js";
 import { assertPayerConnector } from "./payerConnector.js";
+import { createLivePayerConnector } from "./livePayerConnector.js";
 
 export class PayerConnectorNotConfiguredError extends Error {
   constructor(mode) {
@@ -77,9 +78,18 @@ export function createPayerConnector(mode, payerCode) {
     connector = createLocalPayerConnector();
   } else if (normalizedMode === "SIMULATED") {
     connector = createSimulatedPayerConnector(payerCode);
+  } else if (normalizedMode === "LIVE") {
+    connector = createLivePayerConnector();
   } else {
     throw new PayerConnectorNotConfiguredError(normalizedMode);
   }
 
   return assertPayerConnector(connector);
+}
+
+export function createPayerConnectorForClaim(claim, payerCode, env = process.env) {
+  return createPayerConnector(
+    resolvePayerConnectorMode(claim, env),
+    payerCode || claim?.simulatedPayerCode
+  );
 }
