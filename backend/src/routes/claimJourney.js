@@ -12,6 +12,7 @@ import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { buildClaimCompleteness } from "../services/claimCompleteness.js";
 import { getMockPayer } from "../services/payerSimulator.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
+import { createPayerConnector } from "../services/payerGateway.js";
 
 const router = express.Router();
 
@@ -169,28 +170,17 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
       });
     }
 
+    const connector = createPayerConnector("LOCAL");
+    const eligibility = connector.checkEligibility(claim);
     const now = new Date();
-    const missing = [];
-    if (!claim.memberId) missing.push("memberId");
-    if (!claim.policyNo) missing.push("policyNo");
-    if (!claim.payerName) missing.push("payerName");
-
-    let eligibilityStatus = "VERIFIED";
-    // A local pre-check can validate that we have the minimum identity/policy
-    // information required to query a payer, but it cannot prove active coverage.
-    // Keep coverage UNKNOWN until a real 271/payer response is recorded.
-    let coverageStatus = "UNKNOWN";
-
-    if (missing.length > 0) {
-      eligibilityStatus = "NEEDS_REVIEW";
-      coverageStatus = "UNKNOWN";
-    } else if (claim.policyEndDate && new Date(claim.policyEndDate) < now) {
-      eligibilityStatus = "FAILED";
-      coverageStatus = "INACTIVE";
-    } else if (claim.policyStartDate && new Date(claim.policyStartDate) > now) {
-      eligibilityStatus = "FAILED";
-      coverageStatus = "NOT_YET_ACTIVE";
-    }
+    const missing = eligibility.missingFields || [];
+    const eligibilityStatus =
+      eligibility.status === "ACTIVE"
+        ? "VERIFIED"
+        : eligibility.status === "NEEDS_REVIEW"
+        ? "NEEDS_REVIEW"
+        : "FAILED";
+    const coverageStatus = eligibility.coverageStatus || "UNKNOWN";
 
     const updated = await prisma.claim.update({
       where: { id: claim.id },
@@ -274,24 +264,19 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
       });
     }
 
-    const required =
-      typeof input.required === "boolean"
-        ? input.required
-        : claim.priorAuthRequired;
-
-    const authorizationNo =
-      typeof input.authorizationNo === "string"
-        ? input.authorizationNo.trim() || null
-        : claim.authorizationNo;
-
-    let priorAuthStatus = "NEEDS_REVIEW";
-    if (required === false) priorAuthStatus = "NOT_REQUIRED";
-    if (required === true && authorizationNo) priorAuthStatus = "APPROVED";
-    if (required === true && !authorizationNo) priorAuthStatus = "REQUIRED";
+    const connector = createPayerConnector("LOCAL");
+    const priorAuth = connector.requestPriorAuth(claim, {
+      required: input.required,
+      authorizationNo: input.authorizationNo,
+      expiry: input.expiry
+    });
+    const required = priorAuth.required;
+    const authorizationNo = priorAuth.authorizationNo;
+    const priorAuthStatus = priorAuth.status;
 
     const expiry =
-      input.expiry != null && input.expiry !== ""
-        ? new Date(input.expiry)
+      priorAuth.expiry != null && priorAuth.expiry !== ""
+        ? new Date(priorAuth.expiry)
         : claim.priorAuthExpiry;
 
     if (expiry && Number.isNaN(new Date(expiry).getTime())) {
@@ -417,7 +402,11 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       });
     }
 
-    if ((claim.payerClaimStatus || null) === payerClaimStatus) {
+    const connector = createPayerConnector("LOCAL");
+    const statusResult = connector.getStatus(claim, { payerClaimStatus });
+    const connectorPayerClaimStatus = statusResult.status;
+
+    if ((claim.payerClaimStatus || null) === connectorPayerClaimStatus) {
       return res.json({
         ...claim,
         unchanged: true,
@@ -429,13 +418,13 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
-        payerClaimStatus,
+        payerClaimStatus: connectorPayerClaimStatus,
         claimStatusCheckedAt: new Date(),
         status: assertClaimTransition(
           claim.status,
-          payerClaimStatus === "DENIED"
+          connectorPayerClaimStatus === "DENIED"
             ? "DENIED"
-            : payerClaimStatus === "PAID"
+            : connectorPayerClaimStatus === "PAID"
             ? "PAID"
             : claim.status
         ),
@@ -457,7 +446,7 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
     // A denial/partial approval automatically opens a denial-workflow case.
     // Re-recording the same payer status does not create duplicate active cases.
     let denialCase = null;
-    if (["DENIED", "PARTIALLY_APPROVED"].includes(payerClaimStatus)) {
+    if (["DENIED", "PARTIALLY_APPROVED"].includes(connectorPayerClaimStatus)) {
       denialCase = await prisma.denialCase.findFirst({
         where: {
           claimId: claim.id,
@@ -521,7 +510,7 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       }
     }
 
-    logJourneyEvent(claim.id, "payer-status-recorded", payerClaimStatus);
+    logJourneyEvent(claim.id, "payer-status-recorded", connectorPayerClaimStatus);
     res.json({
       ...updated,
       denialCase
@@ -621,12 +610,26 @@ router.patch("/:id/journey/remittance", async (req, res) => {
         ? input.paymentReference.trim() || null
         : null;
 
+    const connector = createPayerConnector("LOCAL");
+    const remittance = connector.getRemittance(claim, {
+      remittanceStatus,
+      allowedAmount,
+      paidAmount,
+      patientResponsibility: requestedPatientResponsibility,
+      paymentReference: normalizedPaymentReference
+    });
+
+    const connectorAllowedAmount = remittance.allowedAmount;
+    const connectorPaidAmount = remittance.paidAmount;
+    const connectorPatientResponsibility = remittance.patientResponsibility;
+    const connectorPaymentReference = remittance.paymentReference;
+
     const remittanceUnchanged =
       claim.remittanceStatus === remittanceStatus &&
-      (claim.allowedAmount == null ? null : validMoney(claim.allowedAmount)) === allowedAmount &&
-      (claim.patientResponsibility == null ? null : validMoney(claim.patientResponsibility)) === (patientResponsibility == null ? null : validMoney(patientResponsibility)) &&
-      (claim.paidAmount == null ? null : validMoney(claim.paidAmount)) === paidAmount &&
-      (claim.paymentReference || null) === normalizedPaymentReference;
+      (claim.allowedAmount == null ? null : validMoney(claim.allowedAmount)) === connectorAllowedAmount &&
+      (claim.patientResponsibility == null ? null : validMoney(claim.patientResponsibility)) === (connectorPatientResponsibility == null ? null : validMoney(connectorPatientResponsibility)) &&
+      (claim.paidAmount == null ? null : validMoney(claim.paidAmount)) === connectorPaidAmount &&
+      (claim.paymentReference || null) === connectorPaymentReference;
 
     if (remittanceUnchanged) {
       return res.json({
@@ -681,18 +684,18 @@ router.patch("/:id/journey/remittance", async (req, res) => {
           remittanceStatus === "RECEIVED" || remittanceStatus === "POSTED"
             ? new Date()
             : null,
-        allowedAmount,
-        patientResponsibility,
-        paidAmount,
-        paymentReference: normalizedPaymentReference,
-        approvedAmount: allowedAmount,
+        allowedAmount: connectorAllowedAmount,
+        patientResponsibility: connectorPatientResponsibility,
+        paidAmount: connectorPaidAmount,
+        paymentReference: connectorPaymentReference,
+        approvedAmount: connectorAllowedAmount,
         fieldProvenance: mergeProvenance(
           claim.fieldProvenance,
           remittanceProvenance
         ),
         status: assertClaimTransition(
           claim.status,
-          remittanceStatus === "POSTED" && paidAmount != null && paidAmount > 0
+          remittanceStatus === "POSTED" && connectorPaidAmount != null && connectorPaidAmount > 0
             ? "PAID"
             : claim.payerClaimStatus === "DENIED"
             ? "DENIED"
