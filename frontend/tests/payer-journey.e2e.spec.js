@@ -158,7 +158,7 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
       const activityAfter = await page.locator('[data-testid="payer-connection-card"] .MuiPaper-outlined').count();
       expect(activityAfter).toBe(activityBefore);
 
-      await expect(remittance.getByRole("button", { name: "Get Remittance" })).toBeDisabled();
+      await expect(remittance.getByRole("button", { name: "Check Remittance" })).toBeDisabled();
       return;
     }
 
@@ -168,21 +168,27 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
       await expect(status).toContainText("Approved");
     }
 
-    // Adjudication should pre-fill financial data before remittance arrives.
-    const allowed = remittance.getByLabel("Allowed Amount");
-    await expect(allowed).not.toHaveValue("");
-    const approved = remittance.getByLabel("Expected Payer Payment");
-    await expect(approved).not.toHaveValue("");
+    // Connected-payer remittance is retrieval-based, not an editable disabled form.
+    await expect(remittance).toContainText("Expected payer payment");
+    await expect(remittance.getByLabel("Allowed Amount")).toHaveCount(0);
+    await expect(remittance.getByLabel("Paid Amount")).toHaveCount(0);
+    await expect(remittance.getByLabel("Payment Reference")).toHaveCount(0);
 
     await expect(status.getByRole("button", { name: "Final Status" })).toBeDisabled();
 
-    await clickStageButton(remittance, "Get Remittance");
+    await clickStageButton(remittance, "Check Remittance");
+    const remittanceDialog = page.getByRole("dialog", { name: "Remittance Received" });
+    await expect(remittanceDialog).toBeVisible();
+    await expect(remittanceDialog).toContainText("Payer-reported values have been posted and locked");
+    await expect(remittanceDialog).toContainText("Allowed Amount");
+    await expect(remittanceDialog).toContainText("Payer Paid");
+    await remittanceDialog.getByRole("button", { name: "Done" }).click();
+
     await expect(remittance).toContainText("Posted");
-    await expect(remittance.getByLabel("Paid Amount")).not.toHaveValue("");
-    await expect(remittance.getByLabel("Payment Reference")).not.toHaveValue("");
+    await expect(remittance).toContainText("Payer Paid");
     await expect(
-      remittance.getByRole("button", { name: "Remittance Posted" })
-    ).toBeDisabled();
+      remittance.getByRole("button", { name: "View Remittance Details" })
+    ).toBeVisible();
 
     const duplicateRemittance = await apiContext.post(
       `/api/claims/${scenario.id}/payer-simulation/remittance`,
@@ -205,6 +211,15 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
       expect(era.responsePayload.potentialUnderpayment).toBeGreaterThan(0);
       expect(finalClaim.patientResponsibility).toBeLessThan(era.responsePayload.allowedAmount);
       await expect(remittance).toContainText("Potential payer underpayment");
+    }
+
+    if (expectedKey === "BLUE") {
+      await page.goto(`/claims/${scenario.id}`);
+      const completeness = page.getByTestId("claim-completeness-card");
+      await expect(completeness).toBeVisible();
+      await completeness.getByRole("button", { name: "View Details" }).click();
+      await expect(completeness.getByText(/Informational after submission/).first()).toBeVisible();
+      await expect(completeness.getByRole("button", { name: "Fix", exact: true })).toHaveCount(0);
     }
 
     console.log(`✓ ${expectedKey} full payer lifecycle passed`);
