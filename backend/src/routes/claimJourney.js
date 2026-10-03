@@ -520,7 +520,7 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       claimId: req.params.id,
       message: error.message
     });
-    res.status(500).json({ error: "Unable to record payer claim status" });
+    res.status(error?.status || 500).json({ error: error?.status ? error.message : "Unable to record payer claim status", code: error?.code || "CLAIM_STATUS_UPDATE_FAILED" });
   }
 });
 
@@ -711,8 +711,9 @@ router.patch("/:id/journey/remittance", async (req, res) => {
       claimId: req.params.id,
       message: error.message
     });
-    res.status(error.status || 500).json({
-      error: error.status ? error.message : "Unable to record remittance"
+    res.status(error?.status || 500).json({
+      error: error?.status ? error.message : "Unable to record remittance",
+      code: error?.code || "REMITTANCE_UPDATE_FAILED"
     });
   }
 });

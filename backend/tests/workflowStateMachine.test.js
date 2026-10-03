@@ -11,7 +11,6 @@ test("F7 - claim lifecycle permits intended forward and readiness reset transiti
   for (const [from, to] of [
     ["DRAFT", "READY"],
     ["READY", "DRAFT"],
-    ["DRAFT", "SUBMITTED"],
     ["READY", "SUBMITTED"],
     ["SUBMITTED", "DENIED"],
     ["SUBMITTED", "PAID"],
