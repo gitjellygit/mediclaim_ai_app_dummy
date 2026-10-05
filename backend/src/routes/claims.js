@@ -29,6 +29,7 @@ import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
 import { evaluateUsReadinessRules, usReadinessRuleCodes } from "../services/usReadinessRules.js";
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
+import { isClaimLocked } from "../services/claimLock.js";
 
 const router = express.Router();
 
@@ -567,7 +568,7 @@ router.patch("/:id", async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    if (existing.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(existing.status)) {
+    if (isClaimLocked(existing)) {
       return res.status(409).json({
         error: "Submitted claims are locked. Reopen or amend the claim before editing."
       });
@@ -759,9 +760,9 @@ router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    if (claim.status === "SUBMITTED") {
+    if (isClaimLocked(claim)) {
       return res.status(409).json({
-        error: "Submitted claims are locked and cannot be deleted."
+        error: "Submitted or finalized claims are locked and cannot be deleted."
       });
     }
 
@@ -811,9 +812,9 @@ router.post("/:id/check", async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    if (claim.status === "SUBMITTED") {
+    if (isClaimLocked(claim)) {
       return res.status(409).json({
-        error: "Submitted claims are locked. Reopen the claim before running a new AI check."
+        error: "Submitted or finalized claims are locked. Reopen or amend the claim before running a new AI check."
       });
     }
 
