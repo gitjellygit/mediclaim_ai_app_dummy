@@ -1,5 +1,6 @@
 import express from "express";
 import { prisma } from "../db.js";
+import { writeRequestAudit } from "../services/auditLog.js";
 
 const router = express.Router();
 
@@ -31,6 +32,12 @@ router.get("/", async (req, res) => {
     }),
     prisma.auditEvent.count({ where })
   ]);
+
+  await writeRequestAudit(prisma, req, {
+    action: "AUDIT_TRAIL_VIEWED",
+    entityType: "AuditEvent",
+    metadata: { count: items.length }
+  });
 
   res.json({
     items: items.map((item) => ({
