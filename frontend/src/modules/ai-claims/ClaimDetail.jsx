@@ -1053,7 +1053,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     : [];
   const unresolvedDisplayedIssues = check?.isStale
     ? issues.filter((issue) => !isIssueResolvedByCurrentClaim(issue))
-    : [];
+    : issues;
   const hasBlock = issues.some((i) => i.severity === "BLOCK");
   const eligibilityClear = claim.eligibilityStatus === "VERIFIED";
   const priorAuthClear =
