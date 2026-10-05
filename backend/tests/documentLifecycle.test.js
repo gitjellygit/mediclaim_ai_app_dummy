@@ -2664,6 +2664,152 @@ test("103 - receptionist cannot submit or delete claims or supporting documents"
 });
 
 
+test("H8B-1 - rule APIs hide foreign tenant rules and enforce admin role", { concurrency: false }, async () => {
+  const foreignOrgId = "org_h8b1_api_foreign";
+  await prisma.organization.upsert({
+    where: { id: foreignOrgId },
+    update: {},
+    create: { id: foreignOrgId, name: "H8B1 API Foreign", slug: "h8b1-api-foreign" }
+  });
+
+  const ownRule = await prisma.rule.create({
+    data: {
+      organizationId: TEST_ORG_ID,
+      code: `OWN_${Date.now()}`,
+      name: "Own API rule",
+      severity: "WARN"
+    }
+  });
+  const foreignRule = await prisma.rule.create({
+    data: {
+      organizationId: foreignOrgId,
+      code: `FOREIGN_${Date.now()}`,
+      name: "Foreign API rule",
+      severity: "WARN"
+    }
+  });
+
+  try {
+    assert.equal((await authFetch(`/api/rules/${foreignRule.id}`)).status, 404);
+    assert.equal((await authFetch(`/api/rules/${foreignRule.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Should not change" })
+    })).status, 404);
+    assert.equal((await authFetch(`/api/rules/${foreignRule.id}`, {
+      method: "DELETE"
+    })).status, 404);
+    assert.ok(await prisma.rule.findUnique({ where: { id: foreignRule.id } }));
+
+    const ownDelete = await authFetch(`/api/rules/${ownRule.id}`, { method: "DELETE" });
+    assert.equal(ownDelete.status, 200);
+    assert.equal((await authFetch(`/api/rules/${ownRule.id}`, { method: "DELETE" })).status, 404);
+
+    const cashierToken = jwt.sign({
+      sub: testAdminId,
+      email: "test-admin@hospital.local",
+      role: "CASHIER",
+      organizationId: TEST_ORG_ID,
+      type: "access"
+    }, process.env.JWT_SECRET || "claim-app-ci-only-signing-secret-32-characters", { expiresIn: "5m" });
+
+    const cashierRules = await fetch(`${baseUrl}/api/rules`, {
+      headers: { Authorization: `Bearer ${cashierToken}` }
+    });
+    assert.equal(cashierRules.status, 403);
+  } finally {
+    await prisma.rule.deleteMany({ where: { id: { in: [ownRule.id, foreignRule.id] } } });
+    await prisma.organization.deleteMany({ where: { id: foreignOrgId } });
+  }
+});
+
+test("H8B-1 - foreign denial, underpayment and journey APIs return not found", { concurrency: false }, async () => {
+  const foreignOrgId = "org_h8b1_api_resources";
+  await prisma.organization.upsert({
+    where: { id: foreignOrgId },
+    update: {},
+    create: { id: foreignOrgId, name: "H8B1 Foreign Resources", slug: "h8b1-foreign-resources" }
+  });
+  const foreignClaim = await prisma.claim.create({
+    data: {
+      organizationId: foreignOrgId,
+      patientName: "H8B1 Foreign Patient",
+      payerName: "Foreign Payer",
+      amount: 1000
+    }
+  });
+  const foreignDenial = await prisma.denialCase.create({
+    data: { claimId: foreignClaim.id, status: "OPEN", denialCategory: "OTHER" }
+  });
+  const foreignUnderpayment = await prisma.underpaymentCase.create({
+    data: {
+      claimId: foreignClaim.id,
+      status: "OPEN",
+      expectedPayerPayment: 1000,
+      actualPaidAmount: 800,
+      varianceAmount: 200
+    }
+  });
+  await prisma.payerTransaction.create({
+    data: {
+      claimId: foreignClaim.id,
+      transactionId: `H8B1-${Date.now()}`,
+      mode: "SIMULATED",
+      payerCode: "MOCK",
+      transactionType: "ELIGIBILITY",
+      status: "ACTIVE"
+    }
+  });
+
+  try {
+    assert.equal((await authFetch(`/api/denials/${foreignDenial.id}`)).status, 404);
+    assert.equal((await authFetch(`/api/denials/${foreignDenial.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "ANALYZED" })
+    })).status, 404);
+
+    assert.equal((await authFetch(`/api/underpayments/${foreignUnderpayment.id}`)).status, 404);
+    assert.equal((await authFetch(`/api/underpayments/${foreignUnderpayment.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes: "Should not change" })
+    })).status, 404);
+
+    assert.equal((await authFetch(`/api/claims/${foreignClaim.id}/journey`)).status, 404);
+  } finally {
+    await prisma.payerTransaction.deleteMany({ where: { claimId: foreignClaim.id } });
+    await prisma.underpaymentCase.deleteMany({ where: { claimId: foreignClaim.id } });
+    await prisma.denialCase.deleteMany({ where: { claimId: foreignClaim.id } });
+    await prisma.claim.deleteMany({ where: { id: foreignClaim.id } });
+    await prisma.organization.deleteMany({ where: { id: foreignOrgId } });
+  }
+});
+
+test("H8B-1 - permanent purge is ADMIN-only", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: { deletedAt: new Date() }
+  });
+
+  const cashierToken = jwt.sign({
+    sub: testAdminId,
+    email: "test-admin@hospital.local",
+    role: "CASHIER",
+    organizationId: TEST_ORG_ID,
+    type: "access"
+  }, process.env.JWT_SECRET || "claim-app-ci-only-signing-secret-32-characters", { expiresIn: "5m" });
+
+  const response = await fetch(`${baseUrl}/api/claims/${claim.id}/purge`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${cashierToken}` }
+  });
+
+  assert.equal(response.status, 403);
+  assert.ok(await prisma.claim.findUnique({ where: { id: claim.id } }));
+});
+
 test("103 - document reprocessing cannot mutate transmitted or terminal claims", { concurrency: false }, async () => {
   for (const status of ["SUBMITTED", "DENIED", "PAID"]) {
     const claim = await createClaim({ status });
