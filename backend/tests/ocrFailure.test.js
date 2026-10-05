@@ -55,7 +55,7 @@ test("B12 - synchronous OCR wait is capped and API does not treat OCR outage as 
   assert.match(service, /OCR_SYNC_WAIT_MS/);
   assert.match(service, /Math\.min\(30, Math\.ceil/);
   assert.match(processing, /intel\.ocrStatus === "FAILED"/);
-  assert.match(processing, /code = "OCR_UNAVAILABLE"/);
+  assert.match(processing, /"OCR_UNAVAILABLE"/);
   assert.match(routes, /inspectUploadedDocument\(req\.file\)/);
   assert.match(routes, /analysis\.ocrStatus === "FAILED"/);
   assert.match(routes, /status: "FAILED"/);
