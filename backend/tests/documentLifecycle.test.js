@@ -1074,8 +1074,8 @@ test("33 - AI readiness issues expose contextual fix actions", { concurrency: fa
 
   assert.match(source, /function fixIssue\(issue\)/);
   assert.match(source, /Upload Document/);
-  assert.match(source, /Verify Eligibility/);
-  assert.match(source, /Resolve Auth/);
+  assert.match(source, /Check Eligibility/);
+  assert.match(source, /Review Prior Auth/);
   assert.match(source, /Action required to improve this claim/);
 });
 
