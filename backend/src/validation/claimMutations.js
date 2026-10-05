@@ -1,19 +1,35 @@
 import { z } from "zod";
+import {
+  cptHcpcsSchema,
+  drgSchema,
+  firstZodMessage,
+  icd10CmSchema,
+  icd10PcsSchema,
+  modifierSchema,
+  npiSchema,
+  optional,
+  placeOfServiceSchema,
+  poaIndicatorSchema,
+  revenueCodeSchema,
+  taxonomySchema,
+  tinSchema,
+  typeOfBillSchema
+} from "./usClaimValidation.js";
 
 const optionalDateString = z.string().trim().max(64).nullish();
 const optionalMoneyInput = z.union([z.string().trim().max(40), z.number().finite()]).nullish();
 
 export const serviceLineInputSchema = z.object({
-  cptHcpcsCode: z.string().trim().min(1).max(20),
-  modifiers: z.array(z.string().trim().min(1).max(4)).max(4).optional(),
+  cptHcpcsCode: cptHcpcsSchema,
+  modifiers: z.array(modifierSchema).max(4).optional(),
   units: z.union([z.string().trim().max(20), z.number().finite()]).nullish(),
   charge: optionalMoneyInput,
-  diagnosisPointers: z.array(z.string().trim().min(1).max(20)).max(12).optional(),
-  placeOfService: z.string().trim().max(4).nullish(),
+  diagnosisPointers: z.array(icd10CmSchema).max(12).optional(),
+  placeOfService: optional(placeOfServiceSchema),
   serviceDateFrom: optionalDateString,
   serviceDateTo: optionalDateString,
-  revenueCode: z.string().trim().max(8).nullish(),
-  poaIndicator: z.string().trim().max(2).nullish()
+  revenueCode: optional(revenueCodeSchema),
+  poaIndicator: optional(poaIndicatorSchema)
 }).strict();
 
 export const emptyMutationSchema = z.object({}).strict();
@@ -36,11 +52,11 @@ export const claimUpdateSchema = z.object({
   payerReferenceNo: z.string().trim().max(100).nullish(),
   patientDob: optionalDateString,
   hospitalName: z.string().trim().max(250).nullish(),
-  billingProviderNpi: z.string().trim().max(10).nullish(),
-  renderingProviderNpi: z.string().trim().max(10).nullish(),
-  referringProviderNpi: z.string().trim().max(10).nullish(),
-  providerTin: z.string().trim().max(20).nullish(),
-  providerTaxonomyCode: z.string().trim().max(20).nullish(),
+  billingProviderNpi: optional(npiSchema),
+  renderingProviderNpi: optional(npiSchema),
+  referringProviderNpi: optional(npiSchema),
+  providerTin: optional(tinSchema),
+  providerTaxonomyCode: optional(taxonomySchema),
   diagnosisText: z.string().max(6000).nullish(),
   claimType: z.enum(["PROVIDER_BILLED", "MEMBER_REIMBURSEMENT"]).optional(),
   claimForm: z.enum(["PROFESSIONAL", "INSTITUTIONAL"]).nullish(),
@@ -52,10 +68,10 @@ export const claimUpdateSchema = z.object({
   icuDays: z.union([z.coerce.number().int().nonnegative(), z.literal(""), z.null()]).optional(),
   procedureText: z.string().max(6000).nullish(),
   procedureDate: optionalDateString,
-  icd10Codes: z.array(z.string().trim().max(20)).max(100).optional(),
-  inpatientProcedureCodes: z.array(z.string().trim().max(20)).max(100).optional(),
-  typeOfBill: z.string().trim().max(10).nullish(),
-  drgCode: z.string().trim().max(10).nullish(),
+  icd10Codes: z.array(icd10CmSchema).max(100).optional(),
+  inpatientProcedureCodes: z.array(icd10PcsSchema).max(100).optional(),
+  typeOfBill: optional(typeOfBillSchema),
+  drgCode: optional(drgSchema),
   claimFrequencyCode: z.enum(["ORIGINAL", "CORRECTED", "VOID"]).optional(),
   timelyFilingDeadline: optionalDateString,
   amount: optionalMoneyInput,
@@ -103,7 +119,7 @@ export function parseMutation(schema, body) {
     ok: false,
     response: {
       error: "Invalid request input",
-      message: "Only supported fields with valid values are accepted",
+      message: firstZodMessage(parsed.error, "Only supported fields with valid values are accepted"),
       code: "INVALID_REQUEST_INPUT"
     }
   };
