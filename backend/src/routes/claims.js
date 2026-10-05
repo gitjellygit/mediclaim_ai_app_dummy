@@ -486,9 +486,11 @@ router.post("/", async (req, res) => {
     }).strict();
     const parsed = claimCreateSchema.safeParse(req.body);
     if (!parsed.success) {
+      const firstIssue = parsed.error.issues?.[0];
       return res.status(400).json({
         error: "Invalid claim input",
-        message: firstZodMessage(parsed.error, "Only supported claim-creation fields are accepted"),
+        message: firstZodMessage(parsed.error, "Some claim information is invalid"),
+        field: firstIssue?.path?.length ? firstIssue.path.join(".") : null,
         code: "INVALID_CLAIM_INPUT"
       });
     }
