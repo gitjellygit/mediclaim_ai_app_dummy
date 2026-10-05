@@ -111,6 +111,21 @@ function normalizeComparable(value) {
   return value;
 }
 
+export function changedPatchFields(existing = {}, patch = {}) {
+  const changed = [];
+  for (const [key, value] of Object.entries(patch)) {
+    if (normalizeComparable(existing[key]) !== normalizeComparable(value)) {
+      const left = existing[key];
+      if (Array.isArray(left) || Array.isArray(value)) {
+        if (JSON.stringify(left || []) !== JSON.stringify(value || [])) changed.push(key);
+      } else {
+        changed.push(key);
+      }
+    }
+  }
+  return changed;
+}
+
 export function serviceLinesDiffer(existing = [], next = []) {
   if (existing.length !== next.length) return true;
 
