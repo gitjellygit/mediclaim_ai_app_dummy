@@ -102,12 +102,15 @@ router.patch("/:id", async (req, res) => {
  */
 router.delete("/:id", async (req, res) => {
   try {
-    await prisma.rule.deleteMany({
+    const deleted = await prisma.rule.deleteMany({
       where: { id: req.params.id, organizationId: orgId(req) }
     });
+    if (deleted.count === 0) {
+      return res.status(404).json({ error: "Rule not found" });
+    }
     res.json({ success: true });
   } catch (e) {
-    res.status(404).json({ error: "Rule not found" });
+    res.status(500).json({ error: "Unable to delete rule" });
   }
 });
 
