@@ -20,7 +20,12 @@ import { parseClaimDate } from "../utils/claimDate.js";
 import { selectSmartUploadMatch } from "../services/smartUploadMatch.js";
 import { resolveStoredDocument } from "../services/storedDocumentPath.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
-import { analyzeDocument, DOC_TYPES, getFileHash } from "../services/docIntel.js";
+import { analyzeDocument, DOC_TYPES } from "../services/docIntel.js";
+import {
+  documentCreateData,
+  findDuplicateDocument,
+  inspectUploadedDocument
+} from "../services/documentProcessing.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
 import {
   getExtractedPatientName,
@@ -168,23 +173,8 @@ export function documentsRouter(prisma, uploadDir) {
         });
       }
 
-      const { analyzeDocument, getFileHash } = await import("../services/docIntel.js");
-
-      const fileHash = getFileHash(uploadedFilePath);
-
-      const intel = await analyzeDocument({
-        fileName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        path: uploadedFilePath
-      });
-
-      // A provider outage must not silently create/merge a claim based on guessed OCR data.
-      if (intel.ocrStatus === "FAILED") {
-        if (uploadedFilePath && fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
-        return res.status(503).json({ error: "OCR unavailable", message: "Text extraction failed. Retry this upload later.", code: "OCR_UNAVAILABLE" });
-      }
-
-      const extracted = intel.extracted || {};
+      const { fileHash, intel, extracted } =
+        await inspectUploadedDocument(req.file);
       const patientName = extracted.patientName || "Unknown Patient";
       const parsedAmount = extracted.amount != null ? Number(extracted.amount) : null;
       const amount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : null;
@@ -406,21 +396,12 @@ export function documentsRouter(prisma, uploadDir) {
       }
 
       const doc = await prisma.document.create({
-        data: {
+        data: documentCreateData({
           claimId: claim.id,
-          type: intel.suggestedType || "OTHER",
-          fileName: req.file.originalname,
-          mimeType: req.file.mimetype,
-          sizeBytes: req.file.size,
-          path: req.file.filename,
+          file: req.file,
           fileHash,
-          suggestedType: intel.suggestedType,
-          confidence: intel.confidence,
-          extracted,
-          rawText: intel.rawExtractedText || null,
-          ocrProvider: intel.ocrProvider || intel.extractionSource || null,
-          status: "PROCESSED"
-        }
+          intel
+        })
       });
 
       const documentFields = getDerivedFieldsFromDocument(
@@ -571,12 +552,9 @@ export function documentsRouter(prisma, uploadDir) {
       });
     }
 
-    const fileHash = getFileHash(req.file.path);
+    const { fileHash, intel } = await inspectUploadedDocument(req.file);
 
-    const duplicateInClaim = await prisma.document.findFirst({
-      where: { claimId, fileHash },
-      select: { id: true }
-    });
+    const duplicateInClaim = await findDuplicateDocument(prisma, claimId, fileHash);
 
     if (duplicateInClaim) {
       if (req.file?.path && fs.existsSync(req.file.path)) {
@@ -589,12 +567,6 @@ export function documentsRouter(prisma, uploadDir) {
         code: "DOCUMENT_DUPLICATE"
       });
     }
-
-    const intel = await analyzeDocument({
-      fileName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      path: req.file.path
-    });
 
     // Validate patient/member identity BEFORE persisting the document.
     // This prevents a John Smith document from being attached to Alice's claim.
@@ -625,19 +597,13 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     const doc = await prisma.document.create({
-      data: {
+      data: documentCreateData({
         claimId,
-        type: requestedType || intel.suggestedType || "OTHER",
-        fileName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        sizeBytes: req.file.size,
-        path: req.file.filename,
+        file: req.file,
         fileHash,
-        suggestedType: intel.suggestedType,
-        confidence: intel.confidence,
-        extracted: intel.extracted,
-        status: "PROCESSED"
-      }
+        intel,
+        type: requestedType
+      })
     });
 
     const extractedPatientName = getExtractedPatientName(intel.extracted);
@@ -739,8 +705,10 @@ export function documentsRouter(prisma, uploadDir) {
       message: e?.message || "Unknown error"
     });
 
-    res.status(400).json({
-      error: "Document upload failed", code: "DOCUMENT_UPLOAD_FAILED"
+    res.status(e?.status || 500).json({
+      error: e?.code === "OCR_UNAVAILABLE" ? "OCR unavailable" : "Document upload failed",
+      message: e?.status ? e.message : undefined,
+      code: e?.code || "DOCUMENT_UPLOAD_FAILED"
     });
   }
   }
