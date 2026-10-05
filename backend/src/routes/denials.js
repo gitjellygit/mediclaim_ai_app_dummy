@@ -3,6 +3,7 @@ import express from "express";
 import { assertDenialTransition } from "../services/workflowStateMachine.js";
 import { prisma } from "../db.js";
 import { analyzeDenial } from "../services/denialIntelligence.js";
+import { writeRequestAudit } from "../services/auditLog.js";
 import {
   DEFAULT_APPEAL_WINDOW_DAYS,
   computeAppealDeadline,
@@ -33,11 +34,6 @@ function requireManager(req, res, next) {
   next();
 }
 
-function safeMetadata(metadata = {}) {
-  // Audit metadata must not include patient/member/policy data or payer free text.
-  return metadata;
-}
-
 async function audit(req, {
   claimId = null,
   action,
@@ -46,28 +42,14 @@ async function audit(req, {
   outcome = "SUCCESS",
   metadata = {}
 }) {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        organizationId: req.user.organizationId,
-        claimId,
-        actorUserId: req.user?.id || null,
-        action,
-        entityType,
-        entityId,
-        outcome,
-        metadata: safeMetadata(metadata)
-      }
-    });
-  } catch (error) {
-    // Audit write failures must be visible operationally but must never log PHI.
-    console.error("[audit] write failed", {
-      action,
-      entityType,
-      outcome,
-      message: error.message
-    });
-  }
+  return writeRequestAudit(prisma, req, {
+    claimId,
+    action,
+    entityType,
+    entityId,
+    outcome,
+    metadata
+  });
 }
 
 function parseOptionalDate(value, fieldName) {

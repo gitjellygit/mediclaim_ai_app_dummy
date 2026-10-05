@@ -28,6 +28,7 @@ import {
 } from "../services/documentProcessing.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
 import { isClaimLocked } from "../services/claimLock.js";
+import { writeRequestAudit } from "../services/auditLog.js";
 import {
   getExtractedPatientName,
   getExtractedAmount,
@@ -144,30 +145,16 @@ function calculateMatchScore(extracted, existingClaim) {
 async function auditDocumentEvent(
   prismaClient,
   req,
-  { claimId, documentId = null, action, metadata = {} }
+  { claimId, documentId = null, action, outcome = "SUCCESS", metadata = {} }
 ) {
-  try {
-    await prismaClient.auditEvent.create({
-      data: {
-        organizationId: req.user.organizationId,
-        claimId,
-        actorUserId: req.user?.id || null,
-        action,
-        entityType: "Document",
-        entityId: documentId,
-        outcome: "SUCCESS",
-        metadata
-      }
-    });
-  } catch (error) {
-    console.error("[audit] document event write failed", {
-      claimId,
-      documentId,
-      action,
-      name: error?.name || "Error",
-      code: error?.code || null
-    });
-  }
+  return writeRequestAudit(prismaClient, req, {
+    claimId,
+    action,
+    entityType: "Document",
+    entityId: documentId,
+    outcome,
+    metadata
+  });
 }
 
 async function invalidateClaimReadiness(
@@ -751,16 +738,41 @@ export function documentsRouter(prisma, uploadDir) {
       where: { claimId: req.params.claimId, claim: { organizationId: req.user.organizationId, deletedAt: null } },
       orderBy: { createdAt: "desc" }
     });
+    await writeRequestAudit(prisma, req, {
+      claimId: req.params.claimId,
+      action: "DOCUMENT_LIST_VIEWED",
+      entityType: "Claim",
+      entityId: req.params.claimId,
+      metadata: { count: docs.length }
+    });
     res.json(docs);
   });
 
   // Current document URLs and legacy claim URLs share safe file serving.
-  router.get("/:id/download", (req, res) =>
-    serveStoredDocument(prisma, req, res, { download: true, uploadDir })
-  );
-  router.get("/:id/preview", (req, res) =>
-    serveStoredDocument(prisma, req, res, { uploadDir })
-  );
+  async function serveAuditedDocument(req, res, download = false) {
+    const doc = await prisma.document.findFirst({
+      where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },
+      select: { id: true, claimId: true }
+    });
+    if (!doc) {
+      await writeRequestAudit(prisma, req, {
+        action: download ? "DOCUMENT_DOWNLOAD_DENIED" : "DOCUMENT_PREVIEW_DENIED",
+        entityType: "Document",
+        entityId: req.params.id,
+        outcome: "DENIED"
+      });
+      return res.status(404).json({ error: "Document not found" });
+    }
+    await auditDocumentEvent(prisma, req, {
+      claimId: doc.claimId,
+      documentId: doc.id,
+      action: download ? "DOCUMENT_DOWNLOADED" : "DOCUMENT_PREVIEWED"
+    });
+    return serveStoredDocument(prisma, req, res, { download, uploadDir });
+  }
+
+  router.get("/:id/download", (req, res) => serveAuditedDocument(req, res, true));
+  router.get("/:id/preview", (req, res) => serveAuditedDocument(req, res, false));
 
   // DELETE doc
   router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =>

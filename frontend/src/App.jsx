@@ -35,6 +35,7 @@ const DenialIntelligence = lazy(() =>
 const UnderpaymentIntelligence = lazy(() =>
   import("./modules/payments/UnderpaymentIntelligence.jsx")
 );
+const AuditTrail = lazy(() => import("./modules/audit/AuditTrail.jsx"));
 
 const protectedRoutes = [
   { path: "/claims", Component: ClaimsList },
@@ -52,7 +53,8 @@ const protectedRoutes = [
 const adminRoutes = [
   { path: "/rules", Component: Rules },
   { path: "/rules/new", Component: NewRule },
-  { path: "/rules/:id/edit", Component: EditRule }
+  { path: "/rules/:id/edit", Component: EditRule },
+  { path: "/audit", Component: AuditTrail }
 ];
 
 function RouteFallback() {

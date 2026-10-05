@@ -1112,11 +1112,18 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       >
         <Button onClick={onBack}>← {backLabel}</Button>
 
-        {isAdmin && !claimFinalized && (
-          <Button color="error" startIcon={<DeleteForever />} onClick={deleteClaim}>
-            Delete Claim
-          </Button>
-        )}
+        <Stack direction="row" spacing={1}>
+          {isAdmin && (
+            <Button variant="outlined" onClick={() => navigate(`/audit?claimId=${claim.id}`)}>
+              View Audit Trail
+            </Button>
+          )}
+          {isAdmin && !claimFinalized && (
+            <Button color="error" startIcon={<DeleteForever />} onClick={deleteClaim}>
+              Delete Claim
+            </Button>
+          )}
+        </Stack>
       </Stack>
 
       <ClaimSummaryCard claim={claim} />

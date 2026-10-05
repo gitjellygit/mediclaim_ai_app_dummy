@@ -31,6 +31,7 @@ import { evaluateUsReadinessRules, usReadinessRuleCodes } from "../services/usRe
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
 import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
+import { writeRequestAudit } from "../services/auditLog.js";
 
 const router = express.Router();
 
@@ -109,27 +110,14 @@ function normalizeServiceLines(lines = []) {
 }
 
 async function auditClaim(req, { claimId, action, outcome = "SUCCESS", metadata = {} }) {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        organizationId: orgId(req),
-        claimId,
-        actorUserId: req.user?.id || null,
-        action,
-        entityType: "Claim",
-        entityId: claimId,
-        outcome,
-        metadata
-      }
-    });
-  } catch (error) {
-    console.error("[audit] claim event write failed", {
-      claimId,
-      action,
-      name: error?.name || "Error",
-      code: error?.code || null
-    });
-  }
+  return writeRequestAudit(prisma, req, {
+    claimId,
+    action,
+    entityType: "Claim",
+    entityId: claimId,
+    outcome,
+    metadata
+  });
 }
 
 
@@ -149,6 +137,12 @@ router.get("/", async (req, res) => {
         }
       },
       orderBy: { createdAt: "desc" }
+    });
+
+    await writeRequestAudit(prisma, req, {
+      action: "CLAIM_LIST_VIEWED",
+      entityType: "Claim",
+      metadata: { count: claims.length }
     });
 
     res.json(claims);
@@ -217,6 +211,12 @@ router.get("/search", async (req, res) => {
       },
       orderBy: { createdAt: "desc" },
       take: limit
+    });
+
+    await writeRequestAudit(prisma, req, {
+      action: q ? "CLAIM_SEARCHED" : "RECENT_CLAIMS_VIEWED",
+      entityType: "Claim",
+      metadata: { count: claims.length }
     });
 
     res.json({
@@ -304,6 +304,11 @@ router.get("/medical-consistency/summary", async (req, res) => {
           : 0
     };
 
+    await writeRequestAudit(prisma, req, {
+      action: "MEDICAL_CONSISTENCY_VIEWED",
+      entityType: "Claim",
+      metadata: { count: items.length }
+    });
     res.json({ items, metrics, query: q, limit });
   } catch (error) {
     console.error("[medical-consistency] summary failed", {
@@ -394,8 +399,20 @@ router.get("/:id", async (req, res) => {
   });
 
   if (!claim) {
+    await writeRequestAudit(prisma, req, {
+      claimId: req.params.id,
+      action: "CLAIM_VIEW_DENIED",
+      entityType: "Claim",
+      entityId: req.params.id,
+      outcome: "DENIED"
+    });
     return res.status(404).json({ error: "Claim not found" });
   }
+
+  await auditClaim(req, {
+    claimId: claim.id,
+    action: "CLAIM_VIEWED"
+  });
 
   const checks = (claim.checks || []).map((check, index, all) => ({
     ...check,
@@ -790,9 +807,8 @@ router.delete("/:id/purge", requireRoles(["ADMIN"]), async (req, res) => {
           entityId: claim.id,
           outcome: "SUCCESS",
           metadata: {
-            patientName: claim.patientName,
             previousStatus: claim.status,
-            softDeletedAt: claim.deletedAt,
+            softDeleted: true,
             documentCount: claim.documents.length
           }
         }
@@ -1127,6 +1143,16 @@ router.post("/:id/check", async (req, res) => {
       });
 
       return created;
+    });
+
+    await auditClaim(req, {
+      claimId: claim.id,
+      action: "CLAIM_READINESS_CHECKED",
+      metadata: {
+        score: readinessScore,
+        riskLevel,
+        hasBlockingIssues: hasBlock
+      }
     });
 
     res.json({

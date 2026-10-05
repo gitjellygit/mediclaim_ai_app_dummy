@@ -1,4 +1,5 @@
 import express from "express";
+import { auditOnResponse } from "../services/auditLog.js";
 import { emptyMutationSchema, parseMutation, payerConnectSchema, payerPriorAuthSchema } from "../validation/claimMutations.js";
 import { prisma } from "../db.js";
 import { differenceMoney } from "../utils/money.js";
@@ -18,6 +19,30 @@ import {
 } from "../services/payerSimulator.js";
 
 const router = express.Router();
+
+router.use((req, res, next) => {
+  const match = /^\/([^/]+)\/payer-simulation\/(connect|eligibility|prior-auth|submission|status|remittance)$/.exec(req.path);
+  if (match) {
+    const [, claimId, operation] = match;
+    const actions = {
+      connect: "PAYER_CONNECTED",
+      eligibility: "PAYER_ELIGIBILITY_CHECKED",
+      "prior-auth": "PAYER_PRIOR_AUTH_CHECKED",
+      submission: "PAYER_CLAIM_SUBMITTED",
+      status: "PAYER_STATUS_CHECKED",
+      remittance: "PAYER_REMITTANCE_CHECKED"
+    };
+    auditOnResponse(prisma, req, res, (statusCode) => ({
+      claimId,
+      action: actions[operation],
+      entityType: "Claim",
+      entityId: claimId,
+      outcome: statusCode < 400 ? "SUCCESS" : "DENIED",
+      metadata: { operation }
+    }));
+  }
+  next();
+});
 
 function orgId(req) {
   return req.user.organizationId;

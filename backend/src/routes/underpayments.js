@@ -1,4 +1,5 @@
 import express from "express";
+import { auditOnResponse } from "../services/auditLog.js";
 import { prisma } from "../db.js";
 import { moneyCents, moneyFromCents, validMoney } from "../utils/money.js";
 import {
@@ -7,6 +8,36 @@ import {
 } from "../services/underpaymentRecovery.js";
 
 const router = express.Router();
+
+router.use((req, res, next) => {
+  let action = null;
+  let claimId = null;
+  let entityId = null;
+
+  if (req.method === "GET" && req.path === "/") {
+    action = "UNDERPAYMENT_LIST_VIEWED";
+  } else if (req.method === "GET" && /^\/[^/]+$/.test(req.path)) {
+    action = "UNDERPAYMENT_CASE_VIEWED";
+    entityId = req.path.slice(1);
+  } else if (req.method === "POST" && req.path.startsWith("/detect/")) {
+    action = "UNDERPAYMENT_DETECTION_RUN";
+    claimId = req.path.split("/")[2] || null;
+  } else if (req.method === "PATCH" && /^\/[^/]+$/.test(req.path)) {
+    action = "UNDERPAYMENT_CASE_UPDATED";
+    entityId = req.path.slice(1);
+  }
+
+  if (action) {
+    auditOnResponse(prisma, req, res, (statusCode) => ({
+      claimId,
+      action,
+      entityType: "UnderpaymentCase",
+      entityId,
+      outcome: statusCode < 400 ? "SUCCESS" : "DENIED"
+    }));
+  }
+  next();
+});
 const MANAGER_ROLES = new Set(["ADMIN", "CASHIER"]);
 const ACTIVE_STATUSES = [
   "OPEN",

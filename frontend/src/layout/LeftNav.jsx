@@ -15,6 +15,7 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
+import FactCheckIcon from "@mui/icons-material/FactCheck";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 
@@ -25,7 +26,7 @@ export default function LeftNav({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
 
   async function handleLogout() {
     await logout();
@@ -132,12 +133,22 @@ export default function LeftNav({
           path="/analytics"
           isActive={isActivePath("/analytics")}
         />
-        <NavItem
-          icon={<SettingsIcon />}
-          label="Rules"
-          path="/rules"
-          isActive={isActivePath("/rules")}
-        />
+        {user?.role === "ADMIN" && (
+          <NavItem
+            icon={<FactCheckIcon />}
+            label="Audit Trail"
+            path="/audit"
+            isActive={isActivePath("/audit")}
+          />
+        )}
+        {user?.role === "ADMIN" && (
+          <NavItem
+            icon={<SettingsIcon />}
+            label="Rules"
+            path="/rules"
+            isActive={isActivePath("/rules")}
+          />
+        )}
       </List>
 
       <Box sx={{ p: 1, borderTop: "1px solid rgba(255,255,255,0.2)" }}>
