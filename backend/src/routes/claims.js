@@ -1,6 +1,17 @@
 import { validMoney } from "../utils/money.js";
 import { z } from "zod";
 import { claimUpdateSchema, emptyMutationSchema, parseMutation, serviceLineInputSchema } from "../validation/claimMutations.js";
+import {
+  drgSchema,
+  firstZodMessage,
+  icd10CmSchema,
+  icd10PcsSchema,
+  npiSchema,
+  optional,
+  taxonomySchema,
+  tinSchema,
+  typeOfBillSchema
+} from "../validation/usClaimValidation.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
@@ -89,7 +100,7 @@ function normalizeServiceLines(lines = []) {
     }
 
     normalized.push({
-      cptHcpcsCode: line.cptHcpcsCode.toUpperCase(),
+      cptHcpcsCode: line.cptHcpcsCode,
       modifiers: line.modifiers || [],
       units,
       charge,
@@ -449,14 +460,14 @@ router.post("/", async (req, res) => {
       patientDob: z.string().nullish(),
       hospitalName: z.string().trim().max(250).nullish(),
       doctorName: z.string().trim().max(250).nullish(),
-      billingProviderNpi: z.string().trim().max(10).nullish(),
-      renderingProviderNpi: z.string().trim().max(10).nullish(),
-      referringProviderNpi: z.string().trim().max(10).nullish(),
-      providerTin: z.string().trim().max(20).nullish(),
-      providerTaxonomyCode: z.string().trim().max(20).nullish(),
+      billingProviderNpi: optional(npiSchema),
+      renderingProviderNpi: optional(npiSchema),
+      referringProviderNpi: optional(npiSchema),
+      providerTin: optional(tinSchema),
+      providerTaxonomyCode: optional(taxonomySchema),
       diagnosisText: z.string().max(6000).nullish(),
-      icd10Codes: z.array(z.string().max(20)).max(100).optional(),
-      inpatientProcedureCodes: z.array(z.string().max(20)).max(100).optional(),
+      icd10Codes: z.array(icd10CmSchema).max(100).optional(),
+      inpatientProcedureCodes: z.array(icd10PcsSchema).max(100).optional(),
       procedureText: z.string().max(6000).nullish(),
       dateOfService: z.string().nullish(),
       admissionDate: z.string().nullish(),
@@ -465,8 +476,8 @@ router.post("/", async (req, res) => {
       admissionType: z.enum(["PLANNED", "EMERGENCY"]).nullish(),
       roomCategory: z.enum(["GENERAL", "SEMI_PRIVATE", "PRIVATE", "ICU"]).nullish(),
       icuDays: z.coerce.number().int().nonnegative().nullish(),
-      typeOfBill: z.string().trim().max(10).nullish(),
-      drgCode: z.string().trim().max(10).nullish(),
+      typeOfBill: optional(typeOfBillSchema),
+      drgCode: optional(drgSchema),
       claimFrequencyCode: z.enum(["ORIGINAL", "CORRECTED", "VOID"]).optional(),
       timelyFilingDeadline: z.string().nullish(),
       serviceLines: z.array(serviceLineInputSchema).max(500).optional(),
@@ -477,7 +488,7 @@ router.post("/", async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({
         error: "Invalid claim input",
-        message: "Only supported claim-creation fields are accepted",
+        message: firstZodMessage(parsed.error, "Only supported claim-creation fields are accepted"),
         code: "INVALID_CLAIM_INPUT"
       });
     }
