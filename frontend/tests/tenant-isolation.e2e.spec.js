@@ -144,25 +144,30 @@ test("H8B-1 - foreign claim cannot be deleted by different organization", async 
   expect(deleteForeign.status()).toBe(404);
 });
 
-test("H8B-1 - foreign document cannot be read by different organization", async () => {
+test("H8B-1 - foreign document metadata cannot be read by different organization", async () => {
   const headers = { Authorization: `Bearer ${auth.accessToken}` };
 
-  // Try to read foreign document
-  const foreignDoc = await apiContext.get(`/api/documents/${fixture.foreignDocumentId}`, {
-    headers
-  });
-
-  expect(foreignDoc.status()).toBe(404);
-
-  // Own document is accessible
-  const ownDoc = await json(
-    await apiContext.get(`/api/documents/${fixture.ownDocumentId}`, {
+  // The supported metadata read is claim-scoped. A foreign claim must expose
+  // no document metadata to this organization.
+  const foreignDocs = await json(
+    await apiContext.get(`/api/documents/claim/${fixture.foreignClaimId}`, {
       headers
     }),
-    "read own document"
+    "list foreign claim documents"
   );
 
-  expect(ownDoc.id).toBe(fixture.ownDocumentId);
+  expect(foreignDocs).toEqual([]);
+
+  // The same endpoint must still expose this organization's own document.
+  const ownDocs = await json(
+    await apiContext.get(`/api/documents/claim/${fixture.ownClaimId}`, {
+      headers
+    }),
+    "list own claim documents"
+  );
+
+  expect(ownDocs.some((doc) => doc.id === fixture.ownDocumentId)).toBe(true);
+  expect(ownDocs.some((doc) => doc.id === fixture.foreignDocumentId)).toBe(false);
 });
 
 test("H8B-1 - foreign document cannot be reprocessed by different organization", async () => {
@@ -170,7 +175,7 @@ test("H8B-1 - foreign document cannot be reprocessed by different organization",
 
   // Try to reprocess foreign document
   const reprocessForeign = await apiContext.post(
-    `/api/documents/${fixture.foreignDocumentId}/reprocess`,
+    `/api/documents/${fixture.foreignDocumentId}/process`,
     {
       headers,
       data: { suggestedType: "DISCHARGE_SUMMARY" }
