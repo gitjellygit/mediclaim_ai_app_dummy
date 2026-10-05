@@ -169,7 +169,8 @@ test("1 - create U.S. claim with U.S. claim types, fields and USD labels", async
   await page.getByLabel("CPT / HCPCS").fill("99213");
   await page.getByLabel("Units").fill("1");
   await page.getByLabel("Charge (USD)").fill("1234.56");
-  await page.getByLabel("Place of Service").fill("11");
+  await page.getByLabel("Place of Service").click();
+  await page.getByRole("option", { name: /11.*Office/i }).click();
 
   await expect(page.getByText("₹")).toHaveCount(0);
   await page.getByRole("button", { name: "Next" }).click();
