@@ -246,9 +246,12 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
 
     await expect(remittance).toContainText("Posted");
     await expect(remittance).toContainText("Payer Paid");
-    await expect(
-      remittance.getByRole("button", { name: "View Remittance Details" })
-    ).toBeVisible();
+    const remittanceDetailsButton = remittance.getByRole("button", {
+      name: "View Remittance Details"
+    });
+    await expect(remittanceDetailsButton).toBeVisible();
+    await expect(remittanceDetailsButton).toBeEnabled();
+    await expect(remittance).toHaveCSS("opacity", "1");
 
     const duplicateRemittance = await apiContext.post(
       `/api/claims/${scenario.id}/payer-simulation/remittance`,
