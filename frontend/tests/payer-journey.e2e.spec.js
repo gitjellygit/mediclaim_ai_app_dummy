@@ -67,6 +67,34 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
+test("Journey landing page waits for explicit claim selection", async ({ page }) => {
+  const firstScenario = scenarios[0];
+
+  await page.goto("/journey");
+
+  await expect(page.getByRole("heading", { name: "Claim Journey" })).toBeVisible();
+  await expect(page.getByLabel("Choose a Claim")).toBeVisible();
+  await expect(
+    page.getByText(
+      /Choose a claim above to view its complete lifecycle/i
+    )
+  ).toBeVisible();
+
+  await expect(page.getByTestId("journey-stage-eligibility")).toHaveCount(0);
+  await expect(page.getByTestId("journey-stage-claim")).toHaveCount(0);
+  await expect(page.getByText(firstScenario.patientName, { exact: true })).toHaveCount(0);
+});
+
+test("Journey deep link loads the requested claim and uses clear claim-detail labels", async ({ page }) => {
+  const scenario = scenarios[0];
+
+  await page.goto(`/journey?claimId=${scenario.id}`);
+
+  await expect(page.getByText(scenario.patientName, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "View Claim Details" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Claim" })).toHaveCount(0);
+});
+
 for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
   test(`payer Journey end-to-end: ${expectedKey}`, async ({ page }) => {
     const scenario = scenarios.find((item) => item.key === expectedKey);
