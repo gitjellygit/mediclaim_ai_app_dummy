@@ -1001,8 +1001,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     openClaimEdit(item.field);
   }
 
+  const claimFinalized =
+    ["SUBMITTED", "DENIED", "PAID"].includes(claim.status) ||
+    Boolean(claim.claimSubmissionDate);
+
   const canSubmit =
-    claim.status !== "SUBMITTED" &&
+    !claimFinalized &&
     eligibilityClear &&
     priorAuthClear &&
     !!check &&
@@ -1021,7 +1025,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       >
         <Button onClick={onBack}>← {backLabel}</Button>
 
-        {isAdmin && claim.status !== "SUBMITTED" && (
+        {isAdmin && !claimFinalized && (
           <Button color="error" startIcon={<DeleteForever />} onClick={deleteClaim}>
             Delete Claim
           </Button>
@@ -1954,12 +1958,16 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               </Button>
 
               <Button
-                variant={claim.status === "SUBMITTED" ? "outlined" : "contained"}
-                color={claim.status === "SUBMITTED" ? "inherit" : "success"}
+                variant={claimFinalized ? "outlined" : "contained"}
+                color={claimFinalized ? "inherit" : "success"}
                 onClick={submitClaim}
-                disabled={!canSubmit || submittingClaim || claim.status === "SUBMITTED"}
+                disabled={!canSubmit || submittingClaim || claimFinalized}
               >
-                {claim.status === "SUBMITTED"
+                {claim.status === "PAID"
+                  ? "Paid"
+                  : claim.status === "DENIED"
+                  ? "Denied"
+                  : claim.status === "SUBMITTED" || claim.claimSubmissionDate
                   ? "Submitted"
                   : submittingClaim
                   ? "Submitting..."
@@ -2099,7 +2107,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   />
                 </Tooltip>
 
-                {canSubmit && claim.status !== "SUBMITTED" && (
+                {canSubmit && (
                   <Chip label="Ready for submission" color="success" />
                 )}
               </Stack>
