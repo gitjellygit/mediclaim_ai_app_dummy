@@ -55,6 +55,12 @@ function extractedServiceLines(extracted = {}) {
   }));
 }
 
+function assignParsedDate(target, field, value) {
+  if (!value) return;
+  const parsed = parseClaimDate(value);
+  if (parsed) target[field] = parsed;
+}
+
 async function persistExtractedServiceLines(prismaClient, claimId, extracted = {}) {
   const candidates = extractedServiceLines(extracted);
   if (candidates.length === 0) return;
@@ -205,6 +211,26 @@ export function documentsRouter(prisma, uploadDir) {
       matchScore = selected.matchScore;
       matchStatus = selected.matchStatus;
 
+      // Duplicate detection must happen before smart-upload mutates an existing
+      // claim, otherwise a duplicate file can still change claim data.
+      if (claim) {
+        const duplicateInClaim = await findDuplicateDocument(
+          prisma,
+          claim.id,
+          fileHash
+        );
+        if (duplicateInClaim) {
+          if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
+            fs.unlinkSync(uploadedFilePath);
+          }
+          return res.status(409).json({
+            error: "Duplicate document",
+            message: "This document is already attached to this claim.",
+            code: "DOCUMENT_DUPLICATE"
+          });
+        }
+      }
+
       if (!claim) {
         const claimData = {
           organizationId: req.user.organizationId,
@@ -240,37 +266,13 @@ export function documentsRouter(prisma, uploadDir) {
           status: "DRAFT"
         };
 
-        if (extracted.dateOfBirth) {
-          try {
-            claimData.patientDob = parseClaimDate(extracted.dateOfBirth) || undefined;
-          } catch (e) {
-            // Invalid date, skip
-          }
-        }
+        assignParsedDate(claimData, "patientDob", extracted.dateOfBirth);
 
-        if (extracted.dateOfService) {
-          try {
-            claimData.dateOfService = parseClaimDate(extracted.dateOfService) || undefined;
-          } catch (e) {
-            // Invalid date, skip
-          }
-        }
+        assignParsedDate(claimData, "dateOfService", extracted.dateOfService);
 
-        if (extracted.admissionDate) {
-          try {
-            claimData.admissionDate = parseClaimDate(extracted.admissionDate) || undefined;
-          } catch (e) {
-            // Invalid date, skip
-          }
-        }
+        assignParsedDate(claimData, "admissionDate", extracted.admissionDate);
 
-        if (extracted.dischargeDate) {
-          try {
-            claimData.dischargeDate = parseClaimDate(extracted.dischargeDate) || undefined;
-          } catch (e) {
-            // Invalid date, skip
-          }
-        }
+        assignParsedDate(claimData, "dischargeDate", extracted.dischargeDate);
 
         if (extracted.authorizationNo) {
           claimData.authorizationNo = extracted.authorizationNo;
@@ -319,37 +321,13 @@ export function documentsRouter(prisma, uploadDir) {
           updatePayload.authorizationNo = extracted.authorizationNo;
         }
 
-        if (!claim.patientDob && extracted.dateOfBirth) {
-          try {
-            updatePayload.patientDob = parseClaimDate(extracted.dateOfBirth) || undefined;
-          } catch (e) {
-            // Invalid date, skip
-          }
-        }
+        if (!claim.patientDob) assignParsedDate(updatePayload, "patientDob", extracted.dateOfBirth);
 
-        if (!claim.dateOfService && extracted.dateOfService) {
-          try {
-            updatePayload.dateOfService = parseClaimDate(extracted.dateOfService) || undefined;
-          } catch (e) {
-            // Invalid date, skip
-          }
-        }
+        if (!claim.dateOfService) assignParsedDate(updatePayload, "dateOfService", extracted.dateOfService);
 
-        if (!claim.admissionDate && extracted.admissionDate) {
-          try {
-            updatePayload.admissionDate = parseClaimDate(extracted.admissionDate) || undefined;
-          } catch (e) {
-            // Invalid date, skip
-          }
-        }
+        if (!claim.admissionDate) assignParsedDate(updatePayload, "admissionDate", extracted.admissionDate);
 
-        if (!claim.dischargeDate && extracted.dischargeDate) {
-          try {
-            updatePayload.dischargeDate = parseClaimDate(extracted.dischargeDate) || undefined;
-          } catch (e) {
-            // Invalid date, skip
-          }
-        }
+        if (!claim.dischargeDate) assignParsedDate(updatePayload, "dischargeDate", extracted.dischargeDate);
 
         if (extracted.icd10Codes && extracted.icd10Codes.length > 0 && (!claim.icd10Codes || claim.icd10Codes.length === 0)) {
           updatePayload.icd10Codes = extracted.icd10Codes;
@@ -377,23 +355,9 @@ export function documentsRouter(prisma, uploadDir) {
           });
         }
 
-        await persistExtractedServiceLines(prisma, claim.id, extracted);
       }
 
       await persistExtractedServiceLines(prisma, claim.id, extracted);
-
-      const duplicateInClaim = await prisma.document.findFirst({
-        where: { claimId: claim.id, fileHash },
-        select: { id: true }
-      });
-      if (duplicateInClaim) {
-        if (uploadedFilePath && fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
-        return res.status(409).json({
-          error: "Duplicate document",
-          message: "This document is already attached to this claim.",
-          code: "DOCUMENT_DUPLICATE"
-        });
-      }
 
       const doc = await prisma.document.create({
         data: documentCreateData({
@@ -505,10 +469,12 @@ export function documentsRouter(prisma, uploadDir) {
         message: error?.message || "Unknown error"
       });
 
-      res.status(500).json({
-        error: "Document processing failed",
-        message:
-          "The document could not be processed because the backend data model is not ready. Please retry after the server has been updated."
+      res.status(error?.status || 500).json({
+        error: error?.code === "OCR_UNAVAILABLE" ? "OCR unavailable" : "Document processing failed",
+        message: error?.status
+          ? error.message
+          : "The document could not be processed. Please retry or contact support if the problem continues.",
+        code: error?.code || "DOCUMENT_PROCESSING_FAILED"
       });
     }
   });
@@ -770,8 +736,7 @@ export function documentsRouter(prisma, uploadDir) {
         });
       }
 
-      // Call the AI analysis service
-      const { analyzeDocument } = await import("../services/docIntel.js");
+      // Call the shared AI analysis service.
       const analysis = await analyzeDocument({
         fileName: doc.fileName,
         mimeType: doc.mimeType,
@@ -790,6 +755,8 @@ export function documentsRouter(prisma, uploadDir) {
           suggestedType: analysis.suggestedType,
           confidence: analysis.confidence,
           extracted: analysis.extracted,
+          rawText: analysis.rawExtractedText || null,
+          ocrProvider: analysis.ocrProvider || analysis.extractionSource || null,
           status: "PROCESSED"
         }
       });
