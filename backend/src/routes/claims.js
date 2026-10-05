@@ -894,6 +894,7 @@ router.post("/:id/check", async (req, res) => {
     // Only recognized rule codes alter live readiness. Mandatory gates remain mandatory.
     const rules = await prisma.rule.findMany({
       where: {
+        organizationId: orgId(req),
         code: {
           in: ["REQ_POLICY_NO", "RECOMMENDED_ICD", ...usReadinessRuleCodes()]
         }

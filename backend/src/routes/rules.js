@@ -3,22 +3,27 @@ import { prisma } from "../db.js";
 
 const router = express.Router();
 
+function orgId(req) {
+  return req.user.organizationId;
+}
+
 /**
- * Get all rules
+ * Get all rules - scoped to caller's organization
  */
 router.get("/", async (req, res) => {
   const rules = await prisma.rule.findMany({
+    where: { organizationId: orgId(req) },
     orderBy: { createdAt: "desc" }
   });
   res.json(rules);
 });
 
 /**
- * Get single rule
+ * Get single rule - scoped to caller's organization
  */
 router.get("/:id", async (req, res) => {
-  const rule = await prisma.rule.findUnique({
-    where: { id: req.params.id }
+  const rule = await prisma.rule.findFirst({
+    where: { id: req.params.id, organizationId: orgId(req) }
   });
   if (!rule) {
     return res.status(404).json({ error: "Rule not found" });
@@ -27,7 +32,7 @@ router.get("/:id", async (req, res) => {
 });
 
 /**
- * Create rule
+ * Create rule - scoped to caller's organization
  */
 router.post("/", async (req, res) => {
   const { code, name, severity } = req.body;
@@ -39,6 +44,7 @@ router.post("/", async (req, res) => {
   try {
     const rule = await prisma.rule.create({
       data: {
+        organizationId: orgId(req),
         code,
         name,
         severity: severity || "WARN"
@@ -46,12 +52,15 @@ router.post("/", async (req, res) => {
     });
     res.json(rule);
   } catch (e) {
-    res.status(400).json({ error: "Rule already exists" });
+    if (e?.code === "P2002") {
+      return res.status(409).json({ error: "Rule code already exists in your organization" });
+    }
+    res.status(400).json({ error: "Failed to create rule" });
   }
 });
 
 /**
- * Update rule
+ * Update rule - scoped to caller's organization
  */
 router.patch("/:id", async (req, res) => {
   const { enabled, severity, name, code } = req.body;
@@ -66,26 +75,43 @@ router.patch("/:id", async (req, res) => {
     return res.status(400).json({ error: "No fields to update" });
   }
 
+  const existing = await prisma.rule.findFirst({
+    where: { id: req.params.id, organizationId: orgId(req) }
+  });
+
+  if (!existing) {
+    return res.status(404).json({ error: "Rule not found" });
+  }
+
   try {
     const rule = await prisma.rule.update({
-      where: { id: req.params.id },
+      where: { id: existing.id },
       data
     });
     res.json(rule);
   } catch (e) {
-    res.status(e?.code === "P2025" ? 404 : e?.code === "P2002" ? 409 : 500).json({ error: e?.code === "P2025" ? "Rule not found" : e?.code === "P2002" ? "Rule already exists" : "Unable to update rule" });
+    if (e?.code === "P2002") {
+      return res.status(409).json({ error: "Rule code already exists in your organization" });
+    }
+    res.status(500).json({ error: "Unable to update rule" });
   }
 });
 
 /**
- * Delete rule
+ * Delete rule - scoped to caller's organization
  */
 router.delete("/:id", async (req, res) => {
-  await prisma.rule.delete({
-    where: { id: req.params.id }
-  });
-
-  res.json({ success: true });
+  try {
+    const deleted = await prisma.rule.deleteMany({
+      where: { id: req.params.id, organizationId: orgId(req) }
+    });
+    if (deleted.count === 0) {
+      return res.status(404).json({ error: "Rule not found" });
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: "Unable to delete rule" });
+  }
 });
 
 export default router;

@@ -177,6 +177,7 @@ model Organization {
   users       User[]
   claims      Claim[]
   auditEvents AuditEvent[]
+  rules       Rule[]
 }
 
 model Claim {
@@ -418,10 +419,16 @@ model Rule {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
 
-  code     String  @unique
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  code     String
   name     String
   severity String  @default("WARN")
   enabled  Boolean @default(true)
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
 }
 
 model User {

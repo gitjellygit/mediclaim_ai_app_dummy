@@ -534,14 +534,24 @@ router.post("/e2e/tenant-isolation/seed", async (req, res) => {
         payerName: "Test Payer",
         status: "DRAFT",
         documents: {
-          create: [{
-            type: "OTHER",
-            fileName: "own.pdf",
-            mimeType: "application/pdf",
-            sizeBytes: 10,
-            path: "e2e-fixture://own.pdf",
-            status: "PROCESSED"
-          }]
+          create: [
+            {
+              type: "OTHER",
+              fileName: "own.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 10,
+              path: "e2e-fixture://own.pdf",
+              status: "PROCESSED"
+            },
+            {
+              type: "OTHER",
+              fileName: "bulk-delete-own.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 10,
+              path: "e2e-fixture://bulk-delete-own.pdf",
+              status: "PROCESSED"
+            }
+          ]
         }
       },
       include: { documents: true }
@@ -568,9 +578,15 @@ router.post("/e2e/tenant-isolation/seed", async (req, res) => {
       include: { documents: true }
     });
 
+    const ownDocument = own.documents.find((doc) => doc.fileName === "own.pdf");
+    const bulkDeleteOwnDocument = own.documents.find(
+      (doc) => doc.fileName === "bulk-delete-own.pdf"
+    );
+
     res.json({
       ownClaimId: own.id,
-      ownDocumentId: own.documents[0].id,
+      ownDocumentId: ownDocument.id,
+      bulkDeleteOwnDocumentId: bulkDeleteOwnDocument.id,
       foreignClaimId: foreign.id,
       foreignDocumentId: foreign.documents[0].id,
       foreignOrganizationId: foreignOrg.id
