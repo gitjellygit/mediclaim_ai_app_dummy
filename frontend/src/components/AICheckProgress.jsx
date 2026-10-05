@@ -121,7 +121,7 @@ export default function AICheckProgress({ open }) {
 
           <Box sx={{ textAlign: "center" }}>
             <Typography variant="h5" fontWeight={800}>
-              AI Claim Readiness Analysis
+              Checking Claim Readiness
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
               Reviewing the claim before submission
@@ -178,7 +178,7 @@ export default function AICheckProgress({ open }) {
                       size="small"
                       color="primary"
                       variant="outlined"
-                      label="Analyzing"
+                      label="Checking"
                     />
                   )}
                 </Stack>

@@ -1176,8 +1176,8 @@ test("33 - AI readiness issues expose contextual fix actions", { concurrency: fa
 
   assert.match(source, /function fixIssue\(issue\)/);
   assert.match(source, /Upload Document/);
-  assert.match(source, /Verify Eligibility/);
-  assert.match(source, /Resolve Auth/);
+  assert.match(source, /Check Eligibility/);
+  assert.match(source, /Review Prior Auth/);
   assert.match(source, /Action required to improve this claim/);
 });
 
@@ -1887,9 +1887,9 @@ test("62 - readiness UI uses red yellow green thresholds and history", { concurr
   assert.match(source, /if \(value < 40\) return "error"/);
   assert.match(source, /if \(value < 70\) return "warning"/);
   assert.match(source, /return "success"/);
-  assert.match(source, /AI Readiness History/);
-  assert.match(source, /Refresh AI Readiness/);
-  assert.match(source, /Claim changed after this AI Check/);
+  assert.match(source, /Claim Readiness History/);
+  assert.match(source, /Recheck Claim Readiness/);
+  assert.match(source, /Claim information changed after this readiness check/);
   assert.match(source, /since previous check/);
 });
 
@@ -1942,13 +1942,13 @@ test("65 - AI check refresh keeps claim detail mounted and returns to readiness 
   assert.match(source, /not a payer probability/);
 });
 
-test("66 - AI analysis dialog shows domain-specific staged workflow", { concurrency: false }, () => {
+test("66 - claim-readiness dialog shows domain-specific staged workflow", { concurrency: false }, () => {
   const source = fs.readFileSync(
     path.join(frontendRoot, "src/components/AICheckProgress.jsx"),
     "utf8"
   );
 
-  assert.match(source, /AI Claim Readiness Analysis/);
+  assert.match(source, /Checking Claim Readiness/);
   assert.match(source, /Reading claim documents/);
   assert.match(source, /Checking clinical & policy data/);
   assert.match(source, /Reviewing payer & authorization rules/);
@@ -1984,8 +1984,8 @@ test("68 - stale readiness issues are reconciled against current eligibility and
   assert.match(source, /function isIssueResolvedByCurrentClaim\(issue\)/);
   assert.match(source, /claim\?\.eligibilityStatus === "VERIFIED"/);
   assert.match(source, /\["APPROVED", "NOT_REQUIRED"\]\.includes\(claim\?\.priorAuthStatus\)/);
-  assert.match(source, /Resolved since the last AI Check/);
-  assert.match(source, /Resolved — refresh AI/);
+  assert.match(source, /Completed since the last readiness check/);
+  assert.match(source, /Completed — recheck readiness/);
 });
 
 test("69 - journey fix workflow provides contextual return to claim detail", { concurrency: false }, () => {

@@ -117,11 +117,87 @@ test("Approval Intelligence sends unevaluated editable claims directly to AI rea
 
   await expect(page).toHaveURL(new RegExp(`/claims/${scenario.id}\\?section=readiness`));
   await expect(
-    page.getByRole("heading", { name: "AI Readiness & Rejection Risk" })
+    page.getByRole("heading", { name: "Claim Readiness for Submission" })
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Run AI Check", exact: true })
+    page.getByRole("button", { name: "Check Claim Readiness", exact: true })
   ).toBeVisible();
+});
+
+test("Claim readiness Fix actions highlight the exact provider and service-line fields", async ({ page }) => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+  const created = await apiContext.post("/api/claims", {
+    headers,
+    data: {
+      patientName: "E2E-READINESS-FIX-TARGETS",
+      payerName: "Blue Horizon Health",
+      amount: 250,
+      totalBilledAmount: 250,
+      policyNo: "POL-E2E-READY",
+      memberId: "MEM-E2E-READY",
+      claimForm: "PROFESSIONAL",
+      diagnosisText: "Routine office visit",
+      icd10Codes: ["Z00.00"],
+      dateOfService: "2026-10-01"
+    }
+  });
+  expect(created.ok()).toBeTruthy();
+  const claim = await created.json();
+
+  try {
+    const check = await apiContext.post(`/api/claims/${claim.id}/check`, {
+      headers,
+      data: {}
+    });
+    expect(check.ok()).toBeTruthy();
+    const readiness = await check.json();
+
+    expect(readiness.score).toBeGreaterThan(0);
+    expect(
+      readiness.issues.some(
+        (issue) =>
+          issue.field === "billingProviderNpi" &&
+          issue.fixTarget === "claim"
+      )
+    ).toBeTruthy();
+    expect(
+      readiness.issues.some(
+        (issue) =>
+          issue.rule === "US_CPT_PRESENT" &&
+          issue.fixTarget === "serviceLines"
+      )
+    ).toBeTruthy();
+
+    await page.goto(`/claims/${claim.id}`);
+    await expect(
+      page.getByRole("heading", { name: "Claim Readiness for Submission" })
+    ).toBeVisible();
+
+    const billingIssue = page.getByTestId("readiness-issue-billingProviderNpi");
+    await expect(billingIssue).toBeVisible();
+    await expect(billingIssue).toContainText(/billing provider npi/i);
+    await billingIssue.getByRole("button", { name: "Fix Field" }).click();
+
+    const billingNpi = page.getByLabel("Billing Provider NPI");
+    await expect(billingNpi).toBeVisible();
+    await expect(billingNpi).toBeFocused();
+    await expect(
+      page.getByText(/field that needs attention is highlighted below/i)
+    ).toBeVisible();
+
+    await page.goto(`/claims/${claim.id}`);
+
+    const cptIssue = page.getByTestId("readiness-issue-cptHcpcsCode");
+    await expect(cptIssue).toBeVisible();
+    await expect(cptIssue).toContainText(/CPT\/HCPCS/i);
+    await cptIssue.getByRole("button", { name: "Edit Service Line" }).click();
+
+    const cpt = page.getByLabel("CPT / HCPCS");
+    await expect(cpt).toBeVisible();
+    await expect(cpt).toBeFocused();
+  } finally {
+    await apiContext.delete(`/api/claims/${claim.id}`, { headers });
+  }
 });
 
 for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {

@@ -122,7 +122,7 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
       defaults,
       "US_CPT_PRESENT",
       "At least one user-verified CPT/HCPCS service code is required",
-      { fixTarget: "serviceLines" }
+      { field: "cptHcpcsCode", fixTarget: "serviceLines" }
     );
   }
 
