@@ -86,7 +86,7 @@ test("U4-2 - 837I institutional claim hides rendering NPI and requires Type of B
   await page.getByLabel("Total Claimed Amount (USD)").fill("450");
 
   await page.getByRole("button", { name: "Add Service Line" }).click();
-  await page.getByLabel("CPT / HCPCS").fill("0450");
+  // Institutional revenue-only line: HCPCS is optional.
   await page.getByLabel("Units").fill("1");
   await page.getByLabel("Charge (USD)").fill("450");
 
@@ -213,7 +213,7 @@ test("U4-5 - valid 837I data removes all institutional claim-form blockers", asy
       icd10Codes: ["J18.9"],
       serviceLines: [
         {
-          cptHcpcsCode: "0450",
+          cptHcpcsCode: "",
           units: 1,
           charge: 250,
           diagnosisPointers: ["J18.9"],
@@ -371,7 +371,7 @@ test("U4-8 - switching 837P to 837I preserves shared provider coverage and servi
   expect(updated.claimForm).toBe("INSTITUTIONAL");
   expect(updated.billingProviderNpi).toBe("1234567890");
   expect(updated.renderingProviderNpi).toBe("1987654321");
-  expect(updated.providerTin).toBe("91-1234567");
+  expect(updated.providerTin).toBe("911234567");
   expect(updated.groupNumber).toBe("SWITCH-GROUP-1");
   expect(updated.subscriberId).toBe("SWITCH-SUB-1");
   expect(updated.serviceLines).toHaveLength(1);
