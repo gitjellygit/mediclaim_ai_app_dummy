@@ -11,8 +11,12 @@ test("P4 - permanent purge resolves stored document names through upload storage
     "/tmp/claim-purge-test"
   );
 
-  assert.equal(files.length, 1);
+  assert.equal(files.length, 2);
   assert.equal(files[0].id, "doc-1");
   assert.match(files[0].path, /claim-purge-test/);
   assert.match(files[0].path, /stored-a\.pdf$/);
+  assert.equal(files[1].id, "doc-2");
+  assert.match(files[1].path, /claim-purge-test/);
+  assert.match(files[1].path, /unsafe\.pdf$/);
+  assert.equal(files[1].path.includes(".."), false);
 });
