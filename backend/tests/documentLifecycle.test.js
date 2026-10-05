@@ -257,11 +257,14 @@ test("config - synthetic fixture endpoints are isolated behind E2E_TEST_MODE and
   assert.ok(fixtures.includes('e2e/payer-journey/seed'));
 });
 
-test("B4 - logout-all requires auth and revokes every refresh token", { concurrency: false }, async () => {
+test("H8B-2 - logout-all revokes refresh sessions and existing access tokens", { concurrency: false }, async () => {
   const anonymous = await fetch(`${baseUrl}/api/auth/logout-all`, { method: "POST" });
   assert.equal(anonymous.status, 401);
 
-  const credentials = { email: "test-admin@hospital.local", password: "test-admin-password" };
+  const credentials = {
+    email: "test-admin@hospital.local",
+    password: "test-admin-password"
+  };
   const loginSession = async () => {
     const response = await fetch(`${baseUrl}/api/auth/login`, {
       method: "POST",
@@ -269,10 +272,16 @@ test("B4 - logout-all requires auth and revokes every refresh token", { concurre
       body: JSON.stringify(credentials)
     });
     assert.equal(response.status, 200);
-    return response.json();
+    const payload = await response.json();
+    assert.ok(payload.refreshToken, "test mode returns compatibility refresh token");
+    assert.match(response.headers.get("set-cookie") || "", /HttpOnly/i);
+    assert.match(response.headers.get("set-cookie") || "", /SameSite=Lax/i);
+    return payload;
   };
+
   const first = await loginSession();
   const second = await loginSession();
+
   const logout = await fetch(`${baseUrl}/api/auth/logout-all`, {
     method: "POST",
     headers: { Authorization: `Bearer ${first.accessToken}` }
@@ -280,13 +289,106 @@ test("B4 - logout-all requires auth and revokes every refresh token", { concurre
   assert.equal(logout.status, 200);
 
   for (const session of [first, second]) {
-    const response = await fetch(`${baseUrl}/api/auth/refresh`, {
+    const refresh = await fetch(`${baseUrl}/api/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: session.refreshToken })
     });
-    assert.equal(response.status, 401);
+    assert.equal(refresh.status, 401);
+
+    const access = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` }
+    });
+    assert.equal(access.status, 401);
+    assert.equal((await access.json()).code, "SESSION_REVOKED");
   }
+
+  // logout-all also invalidates the suite's original login, so establish a
+  // fresh session for the remaining lifecycle tests.
+  token = await login();
+});
+
+test("H8B-2 - refresh rotates the credential and stores only a hash", { concurrency: false }, async () => {
+  const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "User-Agent": "h8b2-test-agent" },
+    body: JSON.stringify({
+      email: "test-admin@hospital.local",
+      password: "test-admin-password"
+    })
+  });
+  assert.equal(loginResponse.status, 200);
+  const loginPayload = await loginResponse.json();
+
+  const accessPayload = jwt.decode(loginPayload.accessToken);
+  assert.ok(accessPayload.sid);
+
+  const sessionBefore = await prisma.refreshToken.findFirst({
+    where: {
+      userId: testAdminId,
+      sessionId: accessPayload.sid,
+      revoked: false
+    }
+  });
+  assert.ok(sessionBefore);
+  assert.notEqual(sessionBefore.tokenHash, loginPayload.refreshToken);
+  assert.equal(sessionBefore.userAgent, "h8b2-test-agent");
+
+  const refreshResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: loginPayload.refreshToken })
+  });
+  assert.equal(refreshResponse.status, 200);
+  const refreshed = await refreshResponse.json();
+  assert.ok(refreshed.refreshToken);
+  assert.notEqual(refreshed.refreshToken, loginPayload.refreshToken);
+
+  const oldReuse = await fetch(`${baseUrl}/api/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: loginPayload.refreshToken })
+  });
+  assert.equal(oldReuse.status, 401);
+  assert.equal((await oldReuse.json()).code, "REFRESH_REVOKED");
+
+  const refreshedAccess = jwt.decode(refreshed.accessToken);
+  assert.equal(refreshedAccess.sid, accessPayload.sid);
+
+  const activeRows = await prisma.refreshToken.findMany({
+    where: {
+      userId: testAdminId,
+      sessionId: accessPayload.sid,
+      revoked: false
+    }
+  });
+  assert.equal(activeRows.length, 1);
+});
+
+test("H8B-2 - single logout invalidates that session access token", { concurrency: false }, async () => {
+  const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: "test-admin@hospital.local",
+      password: "test-admin-password"
+    })
+  });
+  assert.equal(loginResponse.status, 200);
+  const session = await loginResponse.json();
+
+  const logout = await fetch(`${baseUrl}/api/auth/logout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: session.refreshToken })
+  });
+  assert.equal(logout.status, 200);
+
+  const access = await fetch(`${baseUrl}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${session.accessToken}` }
+  });
+  assert.equal(access.status, 401);
+  assert.equal((await access.json()).code, "SESSION_REVOKED");
 });
 
 test("01 - document download requires authentication", { concurrency: false }, async () => {

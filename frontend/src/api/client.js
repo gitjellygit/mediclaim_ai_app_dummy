@@ -15,16 +15,14 @@ export function getToken() {
   return localStorage.getItem("accessToken");
 }
 
-export function setRefreshToken(token) {
-  if (token) {
-    localStorage.setItem("refreshToken", token);
-  } else {
-    localStorage.removeItem("refreshToken");
-  }
+// Refresh credentials are intentionally inaccessible to JavaScript. Keep these
+// compatibility helpers as no-ops while older callers/tests are phased out.
+export function setRefreshToken() {
+  localStorage.removeItem("refreshToken");
 }
 
 export function getRefreshToken() {
-  return localStorage.getItem("refreshToken");
+  return null;
 }
 
 export function clearTokens() {
@@ -58,12 +56,6 @@ let refreshPromise = null;
 
 async function refreshTokenIfNeeded(force = false) {
   const token = getToken();
-  const refreshToken = getRefreshToken();
-
-  // If no tokens, nothing to refresh
-  if (!token && !refreshToken) {
-    return null;
-  }
 
   // If token is still valid, no need to refresh
   if (!force && token && !isTokenExpired(token)) {
@@ -113,7 +105,7 @@ export async function api(url, options = {}) {
   const isAuth = authEndpoint(fullUrl);
   // Proactive refresh is only for protected requests. In particular, an
   // invalid password must NEVER cause an automatic logout or login redirect.
-  if (!isAuth && getRefreshToken()) {
+  if (!isAuth && (!getToken() || isTokenExpired(getToken()))) {
     await refreshTokenIfNeeded().catch(() => null);
   }
 
@@ -123,11 +115,11 @@ export async function api(url, options = {}) {
     if (options.body && typeof options.body === "string") {
       headers.set("Content-Type", "application/json");
     }
-    return fetch(fullUrl, { ...options, headers });
+    return fetch(fullUrl, { ...options, headers, credentials: "include" });
   }
 
   let response = await send(getToken());
-  if (response.status === 401 && !isAuth && getRefreshToken()) {
+  if (response.status === 401 && !isAuth) {
     // Refresh at most once, then retry the original request once. For mutating
     // requests the retry happens only after the first response was explicitly
     // rejected as unauthorized (no mutation was accepted).

@@ -1,4 +1,4 @@
-import { api, setToken, getToken, setRefreshToken, getRefreshToken, clearTokens } from "./client.js";
+import { api, setToken, getToken, clearTokens } from "./client.js";
 
 export const AuthApi = {
   /**
@@ -16,11 +16,9 @@ export const AuthApi = {
       throw new Error(res?.message || "Login failed: no token returned");
     }
 
-    // Store tokens
+    // Access tokens remain client-side; the refresh credential is stored only
+    // in the backend-issued HttpOnly cookie and is not readable by JavaScript.
     setToken(res.accessToken);
-    if (res.refreshToken) {
-      setRefreshToken(res.refreshToken);
-    }
 
     // Store user info
     if (res.user) {
@@ -34,16 +32,9 @@ export const AuthApi = {
    * Refresh access token using refresh token
    */
   async refreshToken() {
-    const refreshToken = getRefreshToken();
-    if (!refreshToken) {
-      throw new Error("No refresh token available");
-    }
-
     try {
       const res = await api("/api/auth/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken })
+        method: "POST"
       });
 
       if (!res?.accessToken) {
@@ -63,16 +54,10 @@ export const AuthApi = {
    * Logout - revoke refresh token
    */
   async logout() {
-    const refreshToken = getRefreshToken();
-    
     try {
-      if (refreshToken) {
-        await api("/api/auth/logout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refreshToken })
-        });
-      }
+      await api("/api/auth/logout", {
+        method: "POST"
+      });
     } catch (error) {
       console.error("Logout error:", error);
       // Continue with local cleanup even if API call fails

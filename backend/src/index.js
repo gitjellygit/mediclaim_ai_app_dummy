@@ -21,7 +21,27 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 
 const app = express();
 
-app.use(cors());
+const configuredCorsOrigins = String(process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+if (process.env.NODE_ENV === "production" && configuredCorsOrigins.length === 0) {
+  throw new Error("CORS_ORIGIN must be configured in production");
+}
+
+app.use(
+  cors({
+    credentials: true,
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (configuredCorsOrigins.length === 0) {
+        return callback(null, process.env.NODE_ENV !== "production");
+      }
+      return callback(null, configuredCorsOrigins.includes(origin));
+    }
+  })
+);
 app.use(express.json());
 app.use(standardizeApiErrors);
 
