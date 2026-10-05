@@ -186,5 +186,58 @@ test("12 medical consistency scenarios run end-to-end in the browser", async ({
     );
   }
 
-  console.log("✓ Medical Consistency browser automation: 12/12 scenarios passed");
+  await test.step("finding Fix in Claim opens edit mode at the exact encounter fields", async () => {
+    const row = rows.filter({ hasText: "E2E-MC-02-DATE-ORDER" });
+    await row.scrollIntoViewIfNeeded();
+    await row.click();
+
+    const drawer = page.getByTestId("medical-consistency-drawer");
+    await expect(drawer).toBeVisible();
+    await expect(
+      drawer.getByText("Admission is after discharge", { exact: true })
+    ).toBeVisible();
+
+    await drawer.getByRole("button", { name: "Fix in Claim" }).first().click();
+
+    await expect(page).toHaveURL(/\/claims\/.*edit=1/);
+    await expect(page).toHaveURL(/focus=admissionDate%2CdischargeDate/);
+    await expect(
+      page.getByText(/Fixing: Admission is after discharge/)
+    ).toBeVisible();
+    await expect(page.getByLabel("Admission Date")).toBeVisible();
+    await expect(page.getByLabel("Discharge Date")).toBeVisible();
+
+    console.log("✓ Medical Consistency fix deep-link opens the exact encounter fields");
+  });
+
+  await page.getByRole("button", { name: /Back to Medical Consistency/ }).click();
+  await expect(page).toHaveURL(/\/medical-ai/);
+
+  await test.step("document finding Fix in Claim jumps directly to Documents", async () => {
+    const searchAgain = page.getByPlaceholder(
+      "Search patient, payer, policy, member ID, or claim ID"
+    );
+    await searchAgain.fill("E2E-MC-08-MISSING-DISCHARGE");
+
+    const row = page.getByTestId("medical-claim-row").filter({
+      hasText: "E2E-MC-08-MISSING-DISCHARGE"
+    });
+    await expect(row).toBeVisible();
+    await row.click();
+
+    const drawer = page.getByTestId("medical-consistency-drawer");
+    await expect(
+      drawer.getByText("Discharge summary not found", { exact: true })
+    ).toBeVisible();
+
+    await drawer.getByRole("button", { name: "Fix in Claim" }).first().click();
+
+    await expect(page).toHaveURL(/section=documents/);
+    await expect(page).toHaveURL(/focus=documents/);
+    await expect(page.getByRole("button", { name: "Upload Document" })).toBeVisible();
+
+    console.log("✓ Medical Consistency document fix deep-link opens Documents");
+  });
+
+  console.log("✓ Medical Consistency browser automation: 12/12 scenarios + fix deep-links passed");
 });
