@@ -66,7 +66,8 @@ export function serviceLineToPayload(line = {}) {
 export default function ServiceLinesEditor({
   lines = [],
   onChange,
-  readOnly = false
+  readOnly = false,
+  highlightField = ""
 }) {
   if (readOnly) {
     if (!lines.length) {
@@ -110,8 +111,24 @@ export default function ServiceLinesEditor({
     onChange(lines.filter((_, lineIndex) => lineIndex !== index));
   };
 
+  const isHighlighted = (field) =>
+    highlightField === "serviceLines" || highlightField === field;
+
   return (
-    <Stack spacing={2}>
+    <Stack
+      spacing={2}
+      data-fix-field="serviceLines"
+      sx={
+        highlightField
+          ? {
+              p: 1.5,
+              border: "2px solid",
+              borderColor: "warning.main",
+              borderRadius: 1
+            }
+          : undefined
+      }
+    >
       {lines.map((line, index) => (
         <Box key={index} sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
@@ -123,7 +140,10 @@ export default function ServiceLinesEditor({
 
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
             <TextField
+              data-fix-field={index === 0 ? "cptHcpcsCode" : undefined}
               label="CPT / HCPCS"
+              color={isHighlighted("cptHcpcsCode") ? "warning" : "primary"}
+              focused={index === 0 && isHighlighted("cptHcpcsCode")}
               value={line.cptHcpcsCode}
               onChange={(event) => updateLine(index, "cptHcpcsCode", event.target.value)}
             />
@@ -147,13 +167,19 @@ export default function ServiceLinesEditor({
               onChange={(event) => updateLine(index, "charge", event.target.value)}
             />
             <TextField
+              data-fix-field={index === 0 ? "diagnosisPointers" : undefined}
               label="Diagnosis Pointers"
+              color={isHighlighted("diagnosisPointers") ? "warning" : "primary"}
+              focused={index === 0 && isHighlighted("diagnosisPointers")}
               value={line.diagnosisPointers}
               onChange={(event) => updateLine(index, "diagnosisPointers", event.target.value)}
               helperText="ICD-10-CM codes or line pointers, comma separated"
             />
             <TextField
+              data-fix-field={index === 0 ? "placeOfService" : undefined}
               label="Place of Service"
+              color={isHighlighted("placeOfService") ? "warning" : "primary"}
+              focused={index === 0 && isHighlighted("placeOfService")}
               value={line.placeOfService}
               onChange={(event) => updateLine(index, "placeOfService", event.target.value)}
             />
@@ -172,7 +198,10 @@ export default function ServiceLinesEditor({
               onChange={(event) => updateLine(index, "serviceDateTo", event.target.value)}
             />
             <TextField
+              data-fix-field={index === 0 ? "revenueCode" : undefined}
               label="Revenue Code"
+              color={isHighlighted("revenueCode") ? "warning" : "primary"}
+              focused={index === 0 && isHighlighted("revenueCode")}
               value={line.revenueCode}
               onChange={(event) => updateLine(index, "revenueCode", event.target.value)}
             />
