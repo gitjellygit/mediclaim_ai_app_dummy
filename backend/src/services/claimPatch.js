@@ -139,7 +139,10 @@ export function serviceLinesDiffer(existing = [], next = []) {
     "serviceDateFrom",
     "serviceDateTo",
     "revenueCode",
-    "poaIndicator"
+    "poaIndicator",
+    "verified",
+    "source",
+    "sourceDocumentId"
   ];
 
   return existing.some((current, index) => {
