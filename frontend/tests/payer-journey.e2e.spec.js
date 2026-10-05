@@ -275,6 +275,13 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
 
     if (expectedKey === "BLUE") {
       await page.goto(`/claims/${scenario.id}`);
+
+      const paidButton = page.getByRole("button", { name: "Paid", exact: true });
+      await expect(paidButton).toBeVisible();
+      await expect(paidButton).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Submit Claim", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Delete Claim", exact: true })).toHaveCount(0);
+
       const completeness = page.getByTestId("claim-completeness-card");
       await expect(completeness).toBeVisible();
       await completeness.getByRole("button", { name: "View Details" }).click();
