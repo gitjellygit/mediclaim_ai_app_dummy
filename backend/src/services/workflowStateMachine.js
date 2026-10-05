@@ -1,3 +1,5 @@
+import { conflict } from "../errors/domainError.js";
+
 const CLAIM_TRANSITIONS = {
   DRAFT: new Set(["DRAFT", "NEEDS_REVIEW", "READY", "SUBMITTED"]),
   NEEDS_REVIEW: new Set(["NEEDS_REVIEW", "DRAFT", "READY", "SUBMITTED"]),
@@ -20,10 +22,10 @@ const DENIAL_TRANSITIONS = {
 };
 
 function transitionError(entity, from, to) {
-  const error = new Error(`Invalid ${entity} status transition: ${from} -> ${to}`);
-  error.status = 409;
-  error.code = "INVALID_STATUS_TRANSITION";
-  return error;
+  return conflict(
+    `Invalid ${entity} status transition: ${from} -> ${to}`,
+    "INVALID_STATUS_TRANSITION"
+  );
 }
 
 export function canTransitionClaim(from, to) {
