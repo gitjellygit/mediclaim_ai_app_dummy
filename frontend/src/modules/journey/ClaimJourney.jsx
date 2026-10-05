@@ -462,7 +462,7 @@ export default function ClaimJourney() {
 
     const initialClaimId = searchParams.get("claimId");
 
-    loadClaims("", !initialClaimId);
+    loadClaims("");
 
     if (initialClaimId) {
       ClaimsApi.get(initialClaimId)
@@ -728,25 +728,27 @@ export default function ClaimJourney() {
         </Stack>
       </Stack>
 
-      <Paper
-        variant="outlined"
-        sx={{
-          p: { xs: 1.5, sm: 2 },
-          mb: 3,
-          borderRadius: 2,
-          backgroundColor: "background.paper"
-        }}
-      >
-        <JourneyProgress
-          stages={stages}
-          onStepClick={(step) => {
-            const element = document.getElementById(`journey-stage-${step}`);
-            if (element) {
-              element.scrollIntoView({ behavior: "smooth", block: "center" });
-            }
+      {claim && stages && (
+        <Paper
+          variant="outlined"
+          sx={{
+            p: { xs: 1.5, sm: 2 },
+            mb: 3,
+            borderRadius: 2,
+            backgroundColor: "background.paper"
           }}
-        />
-      </Paper>
+        >
+          <JourneyProgress
+            stages={stages}
+            onStepClick={(step) => {
+              const element = document.getElementById(`journey-stage-${step}`);
+              if (element) {
+                element.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+            }}
+          />
+        </Paper>
+      )}
 
       <Paper sx={{ p: 2, mb: 3 }}>
         <Autocomplete
@@ -810,12 +812,12 @@ export default function ClaimJourney() {
             <TextField
               {...params}
               size="small"
-              label="Find Claim"
+              label="Choose a Claim"
               placeholder="Search patient, member ID, policy, payer, claim or authorization no."
               helperText={
                 searchText.trim()
                   ? "Showing the best matching claims"
-                  : "Recent claims are shown until you start typing"
+                  : "Select a claim to view its complete journey"
               }
               InputProps={{
                 ...params.InputProps,
@@ -887,7 +889,7 @@ export default function ClaimJourney() {
                       })
                     }
                   >
-                    Claim Detail
+                    View Claim Details
                   </Button>
                 </Stack>
               </Stack>
@@ -1334,7 +1336,7 @@ export default function ClaimJourney() {
                     })
                   }
                 >
-                  Open Claim
+                  View Claim Details
                 </Button>
               </Stack>
             </StageCard>
@@ -1712,7 +1714,7 @@ export default function ClaimJourney() {
 
       {!loadingJourney && !claim && !pageError && !loadingClaims && (
         <Alert severity="info">
-          Select a recent claim or search by patient, member ID, policy, payer, claim number, or authorization number.
+          Choose a claim above to view its complete lifecycle, including eligibility, prior authorization, submission, payer status, remittance, and payment activity.
         </Alert>
       )}
     </Box>
