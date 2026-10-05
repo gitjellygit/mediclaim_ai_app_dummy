@@ -30,7 +30,7 @@ import {
   readinessTextColor,
   provenanceChipColor
 } from "./claim-detail/claimDetailUtils.js";
-import ServiceLinesEditor, { serviceLineToForm, serviceLineToPayload } from "../../components/ServiceLinesEditor.jsx";
+import ServiceLinesEditor, { emptyServiceLine, serviceLineToForm, serviceLineToPayload } from "../../components/ServiceLinesEditor.jsx";
 import { formatUSDateOnly, toDateInputValue } from "../../utils/dateOnly.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
@@ -413,7 +413,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
 
     if (issue?.fixTarget === "serviceLines") {
-      openClaimEdit(issue?.field || "serviceLines", [issue?.field || "serviceLines"]);
+      const targetField = issue?.field || "serviceLines";
+      if (!editForm?.serviceLines?.length) {
+        setEditForm((current) => ({
+          ...current,
+          serviceLines: [emptyServiceLine()]
+        }));
+      }
+      openClaimEdit(targetField, [targetField]);
       return;
     }
 
@@ -741,7 +748,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   async function runAICheck() {
-    if (!canRunAI) return showToast("Only CASHIER/ADMIN can run AI check", "error");
+    if (!canRunAI) return showToast("Only CASHIER/ADMIN can check claim readiness", "error");
     if (aiCheckLocked) {
       return showDialog(
         "This historical or finalized claim is locked. AI readiness cannot be recalculated unless the claim is reopened or amended.",
@@ -2108,7 +2115,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
           {!check && aiCheckLocked && (
             <Alert severity="info" sx={{ mt: 2 }}>
-              This is a historical or finalized claim with no recorded AI readiness check.
+              This is a historical or finalized claim with no recorded claim-readiness check.
               Existing payer or approval amounts remain valid historical data, but readiness,
               rejection risk, and blockers cannot be inferred retroactively.
             </Alert>
@@ -2171,7 +2178,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
               {check.isStale ? (
                 <Alert severity="warning" sx={{ mb: 2 }}>
-                  <b>Claim changed after this AI Check.</b>{" "}
+                  <b>Claim information changed after this readiness check.</b>{" "}
                   {check.staleReason || "Claim information was updated"}.
                   {liveResolvedIssues.length > 0
                     ? ` ${liveResolvedIssues.length} previous issue(s) now appear resolved from the latest claim data.`
