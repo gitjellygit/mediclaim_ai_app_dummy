@@ -137,3 +137,37 @@ test("U7 - disabled rule produces no issue and configured severity is honored", 
     .find((item) => item.rule === "US_MEMBER_ID");
   assert.equal(issue.severity, "WARN");
 });
+
+test("H3 - OCR-created unverified service lines do not satisfy CPT readiness", () => {
+  const issues = evaluateUsReadinessRules(
+    claim({
+      serviceLines: [{
+        cptHcpcsCode: "99213",
+        diagnosisPointers: ["M54.50"],
+        verified: false,
+        source: "DOCUMENT_OCR",
+        sourceDocumentId: "doc-ocr-1"
+      }]
+    }),
+    US_READINESS_RULE_DEFAULTS
+  );
+
+  assert.ok(codes(issues).includes("US_CPT_PRESENT"));
+});
+
+test("H3 - user-confirmed service lines can satisfy CPT and diagnosis linkage", () => {
+  const issues = evaluateUsReadinessRules(
+    claim({
+      serviceLines: [{
+        cptHcpcsCode: "99213",
+        diagnosisPointers: ["M54.50"],
+        verified: true,
+        source: "USER"
+      }]
+    }),
+    US_READINESS_RULE_DEFAULTS
+  );
+
+  assert.equal(codes(issues).includes("US_CPT_PRESENT"), false);
+  assert.equal(codes(issues).includes("US_DIAGNOSIS_CPT_LINK"), false);
+});
