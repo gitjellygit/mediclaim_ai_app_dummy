@@ -498,6 +498,71 @@ router.post("/", async (req, res) => {
       return res.status(400).json(normalizedServiceLines.response);
     }
 
+    const frequencyDigit = { ORIGINAL: "1", CORRECTED: "7", VOID: "8" };
+    if (claimInput.typeOfBill && claimInput.claimFrequencyCode) {
+      const expected = frequencyDigit[claimInput.claimFrequencyCode];
+      if (expected && claimInput.typeOfBill.slice(-1) !== expected) {
+        return res.status(400).json({
+          error: "Invalid Type of Bill",
+          message: `Type of Bill must end in ${expected} for ${claimInput.claimFrequencyCode.toLowerCase()} claims`,
+          code: "INVALID_TYPE_OF_BILL"
+        });
+      }
+    }
+
+    if (claimInput.claimForm === "PROFESSIONAL") {
+      if (!claimInput.billingProviderNpi || !claimInput.renderingProviderNpi) {
+        return res.status(400).json({
+          error: "Missing professional claim provider identifiers",
+          message: "837P claims require billing and rendering provider NPIs",
+          code: "INVALID_PROFESSIONAL_CLAIM"
+        });
+      }
+      if ((claimInput.inpatientProcedureCodes || []).length > 0) {
+        return res.status(400).json({
+          error: "Invalid professional claim procedure coding",
+          message: "ICD-10-PCS is for inpatient institutional claims and cannot be used on an 837P claim",
+          code: "INVALID_PROFESSIONAL_CLAIM"
+        });
+      }
+      if (normalizedServiceLines.data.some((line) => !line.placeOfService)) {
+        return res.status(400).json({
+          error: "Missing Place of Service",
+          message: "Every 837P service line requires a CMS Place of Service code",
+          code: "INVALID_SERVICE_LINE"
+        });
+      }
+    }
+
+    if (claimInput.claimForm === "INSTITUTIONAL") {
+      if (!claimInput.billingProviderNpi || !claimInput.typeOfBill) {
+        return res.status(400).json({
+          error: "Missing institutional claim information",
+          message: "837I claims require a billing provider NPI and Type of Bill",
+          code: "INVALID_INSTITUTIONAL_CLAIM"
+        });
+      }
+      if (normalizedServiceLines.data.some((line) => !line.revenueCode)) {
+        return res.status(400).json({
+          error: "Missing Revenue Code",
+          message: "Every 837I service line requires a 4-digit Revenue Code",
+          code: "INVALID_SERVICE_LINE"
+        });
+      }
+    }
+
+    const diagnosisSet = new Set(claimInput.icd10Codes || []);
+    const invalidDiagnosisLink = normalizedServiceLines.data.find((line) =>
+      (line.diagnosisPointers || []).some((code) => !diagnosisSet.has(code))
+    );
+    if (invalidDiagnosisLink) {
+      return res.status(400).json({
+        error: "Invalid service-line diagnosis link",
+        message: "Service-line diagnosis codes must match ICD-10-CM diagnoses already entered on the claim",
+        code: "INVALID_DIAGNOSIS_LINK"
+      });
+    }
+
     const createPayload = {
       ...claimInput,
       status: "DRAFT"
@@ -667,6 +732,75 @@ router.patch("/:id", async (req, res) => {
       input.serviceLines === undefined ? null : normalizeServiceLines(input.serviceLines);
     if (normalizedServiceLines && !normalizedServiceLines.ok) {
       return res.status(400).json(normalizedServiceLines.response);
+    }
+
+    const effectiveClaimForm =
+      Object.prototype.hasOwnProperty.call(input, "claimForm") ? input.claimForm : existing.claimForm;
+    const effectiveDiagnosisCodes =
+      Object.prototype.hasOwnProperty.call(input, "icd10Codes") ? (input.icd10Codes || []) : (existing.icd10Codes || []);
+    const effectivePcsCodes =
+      Object.prototype.hasOwnProperty.call(input, "inpatientProcedureCodes")
+        ? (input.inpatientProcedureCodes || [])
+        : (existing.inpatientProcedureCodes || []);
+    const effectiveTypeOfBill =
+      Object.prototype.hasOwnProperty.call(input, "typeOfBill") ? input.typeOfBill : existing.typeOfBill;
+    const effectiveFrequency =
+      Object.prototype.hasOwnProperty.call(input, "claimFrequencyCode")
+        ? input.claimFrequencyCode
+        : existing.claimFrequencyCode;
+
+    if (effectiveClaimForm === "PROFESSIONAL" && effectivePcsCodes.length > 0) {
+      return res.status(400).json({
+        error: "Invalid professional claim procedure coding",
+        message: "ICD-10-PCS is for inpatient institutional claims and cannot be used on an 837P claim",
+        code: "INVALID_PROFESSIONAL_CLAIM"
+      });
+    }
+
+    if (effectiveTypeOfBill && effectiveFrequency) {
+      const expected = { ORIGINAL: "1", CORRECTED: "7", VOID: "8" }[effectiveFrequency];
+      if (expected && effectiveTypeOfBill.slice(-1) !== expected) {
+        return res.status(400).json({
+          error: "Invalid Type of Bill",
+          message: `Type of Bill must end in ${expected} for ${String(effectiveFrequency).toLowerCase()} claims`,
+          code: "INVALID_TYPE_OF_BILL"
+        });
+      }
+    }
+
+    if (normalizedServiceLines) {
+      const diagnosisSet = new Set(effectiveDiagnosisCodes);
+      if (
+        normalizedServiceLines.data.some((line) =>
+          (line.diagnosisPointers || []).some((code) => !diagnosisSet.has(code))
+        )
+      ) {
+        return res.status(400).json({
+          error: "Invalid service-line diagnosis link",
+          message: "Service-line diagnosis codes must match ICD-10-CM diagnoses already entered on the claim",
+          code: "INVALID_DIAGNOSIS_LINK"
+        });
+      }
+      if (
+        effectiveClaimForm === "PROFESSIONAL" &&
+        normalizedServiceLines.data.some((line) => !line.placeOfService)
+      ) {
+        return res.status(400).json({
+          error: "Missing Place of Service",
+          message: "Every 837P service line requires a CMS Place of Service code",
+          code: "INVALID_SERVICE_LINE"
+        });
+      }
+      if (
+        effectiveClaimForm === "INSTITUTIONAL" &&
+        normalizedServiceLines.data.some((line) => !line.revenueCode)
+      ) {
+        return res.status(400).json({
+          error: "Missing Revenue Code",
+          message: "Every 837I service line requires a 4-digit Revenue Code",
+          code: "INVALID_SERVICE_LINE"
+        });
+      }
     }
 
     const patchChangedFields = changedPatchFields(existing, payload);
