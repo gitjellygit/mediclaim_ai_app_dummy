@@ -1074,27 +1074,32 @@ router.post("/:id/check", async (req, res) => {
       orderBy: { createdAt: "desc" }
     });
 
-    const check = await prisma.check.create({
-      data: {
-        claimId: claim.id,
-        score: readinessScore,
-        riskScore,
-        riskLevel,
-        riskFactors,
-        issues,
-        isStale: false,
-        staleAt: null,
-        staleReason: null
-      }
-    });
-
     const readinessStatus = assertClaimTransition(
       claim.status,
       !hasBlock && readinessScore >= 80 ? "READY" : "DRAFT"
     );
-    await prisma.claim.update({
-      where: { id: claim.id },
-      data: { status: readinessStatus }
+
+    const check = await prisma.$transaction(async (tx) => {
+      const created = await tx.check.create({
+        data: {
+          claimId: claim.id,
+          score: readinessScore,
+          riskScore,
+          riskLevel,
+          riskFactors,
+          issues,
+          isStale: false,
+          staleAt: null,
+          staleReason: null
+        }
+      });
+
+      await tx.claim.update({
+        where: { id: claim.id },
+        data: { status: readinessStatus }
+      });
+
+      return created;
     });
 
     res.json({
@@ -1109,6 +1114,7 @@ router.post("/:id/check", async (req, res) => {
       }
     });
   } catch (e) {
+    if (e?.status) throw e;
     console.error("[claim-readiness] failed", { name: e?.name, code: e?.code || null });
     res.status(500).json({ error: "Unable to check claim readiness", code: "CLAIM_READINESS_FAILED" });
   }
@@ -1215,6 +1221,7 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       claim: updated
     });
   } catch (e) {
+    if (e?.status) throw e;
     console.error("[claim-submit] failed", { name: e?.name, code: e?.code || null });
     res.status(500).json({ error: "Unable to submit claim", code: "CLAIM_SUBMISSION_FAILED" });
   }
