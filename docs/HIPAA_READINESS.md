@@ -19,9 +19,9 @@ This document is an engineering checklist, not a certification or legal opinion.
 
 ## H8B-1 — RBAC & Tenant Isolation
 
-### Status: IN PROGRESS — implementation complete, CI/regression verification pending
+### Status: VERIFIED
 
-Verification evidence will be recorded after PR #39 CI completes.
+PR #39 merged after the full automated workflow completed successfully.
 
 #### Organization Scoping (VERIFIED)
 
@@ -150,6 +150,31 @@ Migration `20261005100000_add_rule_organization_scoping`:
 
 - GitHub CI and the final regression suite must be green before H8B-1 is marked VERIFIED.
 - H8B-1 is an application authorization/tenant-isolation control only; later H8B phases still cover sessions, audit breadth, storage/encryption, API/upload hardening, secrets/configuration, and retention/recovery.
+
+## H8B-2 — Session & Authentication Security
+
+### Status: IN PROGRESS — implementation complete, CI/regression verification pending
+
+Implemented in `hardening/hipaa-8b-2-session-security`:
+
+- Refresh credentials move from browser-readable localStorage to an HttpOnly cookie.
+- Refresh tokens are random opaque values; only SHA-256 hashes are stored in the database.
+- Existing refresh sessions are intentionally invalidated by the migration so users re-authenticate under the hardened model.
+- Refresh tokens rotate on every successful refresh; the previously used token is revoked.
+- Access JWTs carry a session identifier (`sid`) and protected APIs verify that the backing session is still active.
+- Single logout revokes the whole current session, invalidating both its refresh credential and already-issued access JWTs.
+- Logout-all revokes all sessions for the authenticated user, including existing access JWTs.
+- Active sessions track created/last-used time, user agent, and IP address.
+- Authenticated users can list active sessions and revoke a selected session.
+- Production refresh credentials are not accepted from JSON request bodies and are not returned in JSON responses.
+- Cookie controls use HttpOnly, configurable SameSite, Secure in production, and a restricted `/api/auth` path.
+- Credentialed CORS is enabled; production requires an explicit `CORS_ORIGIN`.
+- Access JWTs must be `type=access`; legacy JWTs without a session ID are rejected in production.
+- Existing login lockout/rate-limit behavior remains in place.
+
+Regression coverage includes refresh rotation, hashed token storage, cookie flags, logout-all access-token invalidation, single-session logout invalidation, and legacy test compatibility.
+
+Password reset is not currently implemented in this application. When that workflow is added, it must revoke all active sessions as part of the password-change transaction before H8B-2 can be considered complete for that future feature.
 
 ## Controls still required before production PHI use
 
