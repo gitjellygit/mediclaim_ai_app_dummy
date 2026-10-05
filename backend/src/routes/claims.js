@@ -31,6 +31,7 @@ import { evaluateUsReadinessRules, usReadinessRuleCodes } from "../services/usRe
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
 import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
+import { writeRequestAudit } from "../services/auditLog.js";
 
 const router = express.Router();
 
@@ -109,27 +110,14 @@ function normalizeServiceLines(lines = []) {
 }
 
 async function auditClaim(req, { claimId, action, outcome = "SUCCESS", metadata = {} }) {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        organizationId: orgId(req),
-        claimId,
-        actorUserId: req.user?.id || null,
-        action,
-        entityType: "Claim",
-        entityId: claimId,
-        outcome,
-        metadata
-      }
-    });
-  } catch (error) {
-    console.error("[audit] claim event write failed", {
-      claimId,
-      action,
-      name: error?.name || "Error",
-      code: error?.code || null
-    });
-  }
+  return writeRequestAudit(prisma, req, {
+    claimId,
+    action,
+    entityType: "Claim",
+    entityId: claimId,
+    outcome,
+    metadata
+  });
 }
 
 
@@ -394,8 +382,20 @@ router.get("/:id", async (req, res) => {
   });
 
   if (!claim) {
+    await writeRequestAudit(prisma, req, {
+      claimId: req.params.id,
+      action: "CLAIM_VIEW_DENIED",
+      entityType: "Claim",
+      entityId: req.params.id,
+      outcome: "DENIED"
+    });
     return res.status(404).json({ error: "Claim not found" });
   }
+
+  await auditClaim(req, {
+    claimId: claim.id,
+    action: "CLAIM_VIEWED"
+  });
 
   const checks = (claim.checks || []).map((check, index, all) => ({
     ...check,
