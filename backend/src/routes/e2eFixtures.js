@@ -273,13 +273,30 @@ router.post("/e2e/payer-journey/seed", async (req, res) => {
     memberId: `MEM-${suffix}`,
     amount: 20000,
     totalBilledAmount: 20000,
+    claimForm: "PROFESSIONAL",
+    billingProviderNpi: "1234567890",
+    renderingProviderNpi: "1987654321",
     diagnosisText: "Routine test diagnosis",
     icd10Codes: ["Z00.00"],
     dateOfService: new Date("2026-09-21T00:00:00.000Z"),
+    timelyFilingDeadline: new Date("2027-12-31T00:00:00.000Z"),
     status: "DRAFT",
     eligibilityStatus: "NOT_CHECKED",
     priorAuthStatus: "NOT_CHECKED",
     remittanceStatus: "NOT_AVAILABLE",
+    serviceLines: {
+      create: [{
+        cptHcpcsCode: "99213",
+        units: 1,
+        charge: 20000,
+        diagnosisPointers: ["Z00.00"],
+        placeOfService: "11",
+        serviceDateFrom: new Date("2026-09-21T00:00:00.000Z"),
+        serviceDateTo: new Date("2026-09-21T00:00:00.000Z"),
+        verified: true,
+        source: "USER"
+      }]
+    },
     ...overrides
   });
 
