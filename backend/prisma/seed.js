@@ -36,9 +36,21 @@ async function main() {
 
   for (const rule of US_READINESS_RULE_DEFAULTS) {
     await prisma.rule.upsert({
-      where: { code: rule.code },
-      update: {},
-      create: rule
+      where: {
+        organizationId_code: {
+          organizationId: organization.id,
+          code: rule.code
+        }
+      },
+      update: {
+        name: rule.name,
+        severity: rule.severity,
+        enabled: rule.enabled
+      },
+      create: {
+        ...rule,
+        organizationId: organization.id
+      }
     });
   }
 
