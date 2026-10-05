@@ -923,14 +923,17 @@ router.post("/:id/check", async (req, res) => {
     if (!claim.documents?.length) {
       issues.push({
         severity: "BLOCK",
-        message: "No supporting documents uploaded"
+        message: "No supporting documents uploaded",
+        fixTarget: "documents"
       });
     }
 
     if (!claim.amount || Number(claim.amount) <= 0) {
       issues.push({
         severity: "BLOCK",
-        message: "Claimed amount missing or invalid"
+        message: "Claimed amount missing or invalid",
+        field: "amount",
+        fixTarget: "claim"
       });
     }
 
@@ -944,6 +947,7 @@ router.post("/:id/check", async (req, res) => {
           severity: "BLOCK",
           message: "837P professional claim requires rendering provider NPI",
           source: "CLAIM_FORM",
+          field: "renderingProviderNpi",
           fixTarget: "claim"
         });
       }
@@ -952,7 +956,8 @@ router.post("/:id/check", async (req, res) => {
           severity: "BLOCK",
           message: "837P professional service lines require Place of Service",
           source: "CLAIM_FORM",
-          fixTarget: "claim"
+          field: "placeOfService",
+          fixTarget: "serviceLines"
         });
       }
     }
@@ -963,6 +968,7 @@ router.post("/:id/check", async (req, res) => {
           severity: "BLOCK",
           message: "837I institutional claim requires Type of Bill",
           source: "CLAIM_FORM",
+          field: "typeOfBill",
           fixTarget: "claim"
         });
       }
@@ -971,7 +977,8 @@ router.post("/:id/check", async (req, res) => {
           severity: "BLOCK",
           message: "837I institutional service lines require revenue code",
           source: "CLAIM_FORM",
-          fixTarget: "claim"
+          field: "revenueCode",
+          fixTarget: "serviceLines"
         });
       }
     }
@@ -979,7 +986,8 @@ router.post("/:id/check", async (req, res) => {
     if (claim.eligibilityStatus !== "VERIFIED") {
       issues.push({
         severity: "BLOCK",
-        message: "Eligibility has not been verified"
+        message: "Eligibility has not been verified",
+        fixTarget: "eligibility"
       });
     }
 
@@ -989,7 +997,8 @@ router.post("/:id/check", async (req, res) => {
     ) {
       issues.push({
         severity: "BLOCK",
-        message: "Prior authorization requirement is unresolved"
+        message: "Prior authorization requirement is unresolved",
+        fixTarget: "prior-auth"
       });
     }
 
@@ -1057,6 +1066,18 @@ router.post("/:id/check", async (req, res) => {
     });
 
     readinessScore = Math.max(readinessScore, 0);
+
+    // A claim that already contains meaningful entered/uploaded evidence should
+    // show visible progress even when multiple blockers drive the penalty model
+    // to zero. This 1% floor is progress-only; blockers still prevent submission.
+    const hasMeaningfulClaimProgress =
+      Boolean(claim.patientName || claim.payerName || claim.policyNo) ||
+      Number(claim.amount || 0) > 0 ||
+      (claim.documents?.length || 0) > 0 ||
+      verifiedServiceLines.length > 0;
+    if (readinessScore === 0 && hasMeaningfulClaimProgress) {
+      readinessScore = 1;
+    }
 
     // Keep readiness and rejection-risk signals directionally consistent.
     // This remains a rules-based estimate, not a payer probability.
