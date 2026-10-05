@@ -52,6 +52,31 @@ export async function deleteStoredDocument(prisma, req, res, {
       })
     ]);
 
+    try {
+      await prisma.auditEvent.create({
+        data: {
+          organizationId: req.user.organizationId,
+          claimId: doc.claimId,
+          actorUserId: req.user?.id || null,
+          action: "DOCUMENT_DELETED",
+          entityType: "Document",
+          entityId: doc.id,
+          outcome: "SUCCESS",
+          metadata: {
+            bulk: false,
+            fileName: doc.fileName,
+            type: doc.type
+          }
+        }
+      });
+    } catch (auditError) {
+      console.error("[audit] document delete event write failed", {
+        claimId: doc.claimId,
+        documentId: doc.id,
+        code: auditError?.code || null
+      });
+    }
+
     // Never use a database-stored path directly for filesystem operations.
     const filePath = resolveStoredDocument(doc.path, uploadDir);
     if (filePath && fs.existsSync(filePath)) {
