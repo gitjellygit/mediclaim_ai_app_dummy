@@ -27,6 +27,7 @@ import {
   inspectUploadedDocument
 } from "../services/documentProcessing.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
+import { isClaimLocked } from "../services/claimLock.js";
 import {
   getExtractedPatientName,
   getExtractedAmount,
