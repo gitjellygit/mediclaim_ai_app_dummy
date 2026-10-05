@@ -194,29 +194,22 @@ test("H8B-1 - organization-scoped rules cannot be accessed by foreign org", asyn
     return;
   }
 
-  const ruleA = await createTestRule(ORG_A_ID, "RULE_A");
-  const ruleB = await createTestRule(ORG_B_ID, "RULE_B");
+  // The same rule code is allowed once per organization.
+  const ruleA = await createTestRule(ORG_A_ID, "SHARED_RULE");
+  const ruleB = await createTestRule(ORG_B_ID, "SHARED_RULE");
 
-  // Org A can access their own rules
   const rulesA = await prisma.rule.findMany({
     where: { organizationId: ORG_A_ID }
   });
   assert.ok(rulesA.some((r) => r.id === ruleA.id));
   assert.equal(rulesA.some((r) => r.id === ruleB.id), false);
 
-  // Org B can access their own rules
   const rulesB = await prisma.rule.findMany({
     where: { organizationId: ORG_B_ID }
   });
   assert.ok(rulesB.some((r) => r.id === ruleB.id));
   assert.equal(rulesB.some((r) => r.id === ruleA.id), false);
-
-  // Same code can exist in different orgs
-  const ruleACode2 = await createTestRule(ORG_A_ID, "RULE_A");
-  const ruleBCode2 = await createTestRule(ORG_B_ID, "RULE_A");
-  assert.ok(ruleACode2);
-  assert.ok(ruleBCode2);
-  assert.notEqual(ruleACode2.id, ruleBCode2.id);
+  assert.notEqual(ruleA.id, ruleB.id);
 });
 
 test("H8B-1 - audit events are scoped to organization", async () => {
