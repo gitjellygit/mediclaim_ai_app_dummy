@@ -866,10 +866,22 @@ export function documentsRouter(prisma, uploadDir) {
       return res.status(400).json({ error: "ids array required" });
     }
 
+    const requestedIds = [...new Set(ids.map((id) => String(id)))];
     const docs = await prisma.document.findMany({
-      where: { id: { in: ids }, claim: { organizationId: req.user.organizationId, deletedAt: null } },
+      where: {
+        id: { in: requestedIds },
+        claim: { organizationId: req.user.organizationId, deletedAt: null }
+      },
       include: { claim: true }
     });
+
+    // Treat the request atomically: if any requested ID is outside this
+    // organization (or missing), delete nothing and reveal no tenant detail.
+    if (docs.length !== requestedIds.length) {
+      return res.status(404).json({
+        error: "One or more documents were not found"
+      });
+    }
 
     if (docs.some((doc) => isClaimLocked(doc.claim))) {
       return res.status(409).json({
@@ -877,8 +889,9 @@ export function documentsRouter(prisma, uploadDir) {
       });
     }
 
+    const authorizedDocumentIds = docs.map((doc) => doc.id);
     const claimIds = [...new Set(docs.map((doc) => doc.claimId))];
-    const deletingIds = new Set(ids);
+    const deletingIds = new Set(authorizedDocumentIds);
 
     const claims = await prisma.claim.findMany({
       where: { id: { in: claimIds }, organizationId: req.user.organizationId, deletedAt: null },
@@ -916,7 +929,7 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     await prisma.$transaction([
-      prisma.document.deleteMany({ where: { id: { in: ids } } }),
+      prisma.document.deleteMany({ where: { id: { in: authorizedDocumentIds } } }),
       prisma.check.updateMany({
         where: { claimId: { in: claimIds }, isStale: false },
         data: {
