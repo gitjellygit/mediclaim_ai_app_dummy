@@ -36,7 +36,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-function extractedServiceLines(extracted = {}) {
+function extractedServiceLines(extracted = {}, sourceDocumentId = null) {
   const codes = Array.isArray(extracted.cptCodes)
     ? [...new Set(extracted.cptCodes.map((code) => String(code).trim().toUpperCase()).filter(Boolean))]
     : [];
@@ -51,7 +51,10 @@ function extractedServiceLines(extracted = {}) {
     diagnosisPointers: Array.isArray(extracted.icd10Codes)
       ? extracted.icd10Codes.filter(Boolean)
       : [],
-    serviceDateFrom: serviceDate || undefined
+    serviceDateFrom: serviceDate || undefined,
+    verified: false,
+    source: "DOCUMENT_OCR",
+    sourceDocumentId
   }));
 }
 
@@ -61,8 +64,13 @@ function assignParsedDate(target, field, value) {
   if (parsed) target[field] = parsed;
 }
 
-async function persistExtractedServiceLines(prismaClient, claimId, extracted = {}) {
-  const candidates = extractedServiceLines(extracted);
+async function persistExtractedServiceLines(
+  prismaClient,
+  claimId,
+  extracted = {},
+  sourceDocumentId = null
+) {
+  const candidates = extractedServiceLines(extracted, sourceDocumentId);
   if (candidates.length === 0) return;
 
   const existing = await prismaClient.serviceLine.findMany({
@@ -130,6 +138,35 @@ function calculateMatchScore(extracted, existingClaim) {
   }
   
   return Math.min(100, score);
+}
+
+async function auditDocumentEvent(
+  prismaClient,
+  req,
+  { claimId, documentId = null, action, metadata = {} }
+) {
+  try {
+    await prismaClient.auditEvent.create({
+      data: {
+        organizationId: req.user.organizationId,
+        claimId,
+        actorUserId: req.user?.id || null,
+        action,
+        entityType: "Document",
+        entityId: documentId,
+        outcome: "SUCCESS",
+        metadata
+      }
+    });
+  } catch (error) {
+    console.error("[audit] document event write failed", {
+      claimId,
+      documentId,
+      action,
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+  }
 }
 
 async function invalidateClaimReadiness(
@@ -260,9 +297,6 @@ export function documentsRouter(prisma, uploadDir) {
             fileName: req.file.originalname,
             documentType: intel.suggestedType || "OTHER"
           }),
-          serviceLines: extractedServiceLines(extracted).length
-            ? { create: extractedServiceLines(extracted) }
-            : undefined,
           status: "DRAFT"
         };
 
@@ -357,8 +391,6 @@ export function documentsRouter(prisma, uploadDir) {
 
       }
 
-      await persistExtractedServiceLines(prisma, claim.id, extracted);
-
       const doc = await prisma.document.create({
         data: documentCreateData({
           claimId: claim.id,
@@ -366,6 +398,19 @@ export function documentsRouter(prisma, uploadDir) {
           fileHash,
           intel
         })
+      });
+
+      await persistExtractedServiceLines(prisma, claim.id, extracted, doc.id);
+      await auditDocumentEvent(prisma, req, {
+        claimId: claim.id,
+        documentId: doc.id,
+        action: "DOCUMENT_UPLOADED",
+        metadata: {
+          uploadMode: "SMART",
+          fileName: doc.fileName,
+          type: doc.type,
+          ocrProvider: doc.ocrProvider || null
+        }
       });
 
       const documentFields = getDerivedFieldsFromDocument(
@@ -575,7 +620,12 @@ export function documentsRouter(prisma, uploadDir) {
     const extractedPatientName = getExtractedPatientName(intel.extracted);
     const extractedAmount = getExtractedAmount(intel.extracted);
 
-    await persistExtractedServiceLines(prisma, claimId, intel.extracted || {});
+    await persistExtractedServiceLines(
+      prisma,
+      claimId,
+      intel.extracted || {},
+      doc.id
+    );
 
     const updatePayload = {};
 
@@ -629,6 +679,17 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     await invalidateClaimReadiness(prisma, claimId);
+    await auditDocumentEvent(prisma, req, {
+      claimId,
+      documentId: doc.id,
+      action: "DOCUMENT_UPLOADED",
+      metadata: {
+        uploadMode: "MANUAL",
+        fileName: doc.fileName,
+        type: doc.type,
+        ocrProvider: doc.ocrProvider || null
+      }
+    });
 
     updatedClaim = await prisma.claim.findUnique({
       where: { id: claimId },
@@ -775,6 +836,17 @@ export function documentsRouter(prisma, uploadDir) {
           data: { status: "DRAFT" }
         })
       ]);
+
+      await auditDocumentEvent(prisma, req, {
+        claimId: doc.claimId,
+        documentId: doc.id,
+        action: "DOCUMENT_REPROCESSED",
+        metadata: {
+          suggestedType: updated.suggestedType,
+          confidence: updated.confidence,
+          ocrProvider: updated.ocrProvider || null
+        }
+      });
 
       res.json(updated);
     } catch (error) {
@@ -949,6 +1021,15 @@ export function documentsRouter(prisma, uploadDir) {
         })
       )
     ]);
+
+    for (const doc of docs) {
+      await auditDocumentEvent(prisma, req, {
+        claimId: doc.claimId,
+        documentId: doc.id,
+        action: "DOCUMENT_DELETED",
+        metadata: { bulk: true, fileName: doc.fileName, type: doc.type }
+      });
+    }
 
     for (const doc of docs) {
       const safePath = resolveStoredFile(doc.path);
