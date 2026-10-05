@@ -59,10 +59,21 @@ function latestCheck(claim) {
   return claim.checks[0];
 }
 
+function isAIReviewLocked(claim) {
+  return (
+    ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status) ||
+    Boolean(claim?.claimSubmissionDate)
+  );
+}
+
 function projectedApproval(claim) {
   const approved = Number(claim?.approvedAmount);
   if (Number.isFinite(approved) && approved > 0) {
-    return { amount: approved, source: "Recorded approval" };
+    return {
+      amount: approved,
+      source: "Recorded approved amount",
+      kind: "RECORDED"
+    };
   }
 
   const claimed = Number(claim?.amount);
@@ -76,10 +87,11 @@ function projectedApproval(claim) {
 
   return {
     amount: projected,
+    kind: "ESTIMATE",
     source:
       deductions > 0 || copay > 0
-        ? "Claimed amount less recorded deductions/copay"
-        : "No recorded deductions yet"
+        ? "Estimated from claim less recorded deductions/copay"
+        : "Estimated from current claim amount"
   };
 }
 
@@ -131,12 +143,14 @@ export default function ApprovalIntelligence() {
         const projection = projectedApproval(claim);
         const issues = Array.isArray(check?.issues) ? check.issues : [];
         const blockers = issues.filter((issue) => issue?.severity === "BLOCK");
+        const aiReviewLocked = isAIReviewLocked(claim);
 
         return {
           ...claim,
           latestCheck: check,
           projection,
-          blockers
+          blockers,
+          aiReviewLocked
         };
       }),
     [claims]
@@ -384,6 +398,7 @@ export default function ApprovalIntelligence() {
                 const check = claim.latestCheck;
                 const readiness = Number(check?.score);
                 const riskLevel = check?.riskLevel;
+                const canStartAIReview = !check && !claim.aiReviewLocked;
 
                 return (
                   <TableRow key={claim.id} hover>
@@ -405,13 +420,21 @@ export default function ApprovalIntelligence() {
                       <Typography fontWeight={600}>
                         {money(claim.projection.amount)}
                       </Typography>
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ display: "block", maxWidth: 190 }}
-                      >
-                        {claim.projection.source}
-                      </Typography>
+                      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.25, flexWrap: "wrap" }}>
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          color={claim.projection.kind === "RECORDED" ? "success" : "default"}
+                          label={claim.projection.kind === "RECORDED" ? "Recorded" : "Estimate"}
+                        />
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ maxWidth: 190 }}
+                        >
+                          {claim.projection.source}
+                        </Typography>
+                      </Stack>
                     </TableCell>
 
                     <TableCell sx={{ minWidth: 150 }}>
@@ -435,7 +458,11 @@ export default function ApprovalIntelligence() {
                           />
                         </>
                       ) : (
-                        <Chip size="small" label="AI check not run" variant="outlined" />
+                        <Chip
+                          size="small"
+                          label={claim.aiReviewLocked ? "Historical — not evaluated" : "Not evaluated"}
+                          variant="outlined"
+                        />
                       )}
                     </TableCell>
 
@@ -452,7 +479,11 @@ export default function ApprovalIntelligence() {
                           </Typography>
                         </Stack>
                       ) : (
-                        <Chip size="small" label="Not checked" variant="outlined" />
+                        <Chip
+                          size="small"
+                          label={claim.aiReviewLocked ? "Historical — not evaluated" : "Not evaluated"}
+                          variant="outlined"
+                        />
                       )}
                     </TableCell>
 
@@ -483,7 +514,9 @@ export default function ApprovalIntelligence() {
                         />
                       ) : (
                         <Typography variant="body2" color="text.secondary">
-                          Run AI check
+                          {claim.aiReviewLocked
+                            ? "No historical AI check"
+                            : "Run AI check to identify blockers"}
                         </Typography>
                       )}
                     </TableCell>
@@ -501,15 +534,20 @@ export default function ApprovalIntelligence() {
                         size="small"
                         startIcon={<Visibility />}
                         onClick={() =>
-                          navigate(`/claims/${claim.id}`, {
-                            state: {
-                              from: location.pathname + location.search,
-                              backLabel: "Back to Approval Intelligence"
+                          navigate(
+                            canStartAIReview
+                              ? `/claims/${claim.id}?section=readiness`
+                              : `/claims/${claim.id}`,
+                            {
+                              state: {
+                                from: location.pathname + location.search,
+                                backLabel: "Back to Approval Intelligence"
+                              }
                             }
-                          })
+                          )
                         }
                       >
-                        Review
+                        {canStartAIReview ? "Run AI Check" : "View Details"}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -521,8 +559,8 @@ export default function ApprovalIntelligence() {
       )}
 
       <Alert severity="info" sx={{ mt: 2 }}>
-        Projected payable is based on recorded claim values, deductions and copay. It is not an insurer guarantee.
-        Rejection risk and readiness come from the latest AI check for each claim.
+        Payable values may be recorded approved amounts or estimates from current claim data; they are not AI readiness scores.
+        Rejection risk, blockers, and readiness are shown only when an AI check actually exists.
       </Alert>
     </Box>
   );

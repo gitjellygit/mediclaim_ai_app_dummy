@@ -95,6 +95,35 @@ test("Journey deep link loads the requested claim and uses clear claim-detail la
   await expect(page.getByRole("button", { name: "Open Claim" })).toHaveCount(0);
 });
 
+test("Approval Intelligence sends unevaluated editable claims directly to AI readiness", async ({ page }) => {
+  const scenario = scenarios.find((item) => item.key === "SWITCH");
+  expect(scenario).toBeTruthy();
+
+  await page.goto("/approval");
+
+  const search = page.getByPlaceholder(
+    "Search patient, payer, policy, member or claim number..."
+  );
+  await search.fill(scenario.patientName);
+
+  const row = page.getByRole("row").filter({ hasText: scenario.patientName });
+  await expect(row).toBeVisible();
+  await expect(row.getByText("Not evaluated", { exact: true }).first()).toBeVisible();
+  await expect(
+    row.getByRole("button", { name: "Run AI Check", exact: true })
+  ).toBeVisible();
+
+  await row.getByRole("button", { name: "Run AI Check", exact: true }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/claims/${scenario.id}\\?section=readiness`));
+  await expect(
+    page.getByRole("heading", { name: "AI Readiness & Rejection Risk" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Run AI Check", exact: true })
+  ).toBeVisible();
+});
+
 for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
   test(`payer Journey end-to-end: ${expectedKey}`, async ({ page }) => {
     const scenario = scenarios.find((item) => item.key === expectedKey);
