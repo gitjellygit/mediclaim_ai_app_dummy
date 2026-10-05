@@ -1785,9 +1785,9 @@ test("62 - readiness UI uses red yellow green thresholds and history", { concurr
   assert.match(source, /if \(value < 40\) return "error"/);
   assert.match(source, /if \(value < 70\) return "warning"/);
   assert.match(source, /return "success"/);
-  assert.match(source, /AI Readiness History/);
-  assert.match(source, /Refresh AI Readiness/);
-  assert.match(source, /Claim changed after this AI Check/);
+  assert.match(source, /Claim Readiness History/);
+  assert.match(source, /Recheck Claim Readiness/);
+  assert.match(source, /Claim information changed after this readiness check/);
   assert.match(source, /since previous check/);
 });
 
