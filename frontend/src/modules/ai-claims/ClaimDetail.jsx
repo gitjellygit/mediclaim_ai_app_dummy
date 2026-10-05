@@ -2290,6 +2290,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   {unresolvedDisplayedIssues.map((issue, idx) => (
                     <Paper
                       key={idx}
+                      data-testid={`readiness-issue-${issue.field || issue.fixTarget || idx}`}
                       variant="outlined"
                       sx={{
                         p: 1.5,
