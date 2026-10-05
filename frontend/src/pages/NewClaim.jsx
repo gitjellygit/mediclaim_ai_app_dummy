@@ -11,7 +11,8 @@ import {
   Button,
   Stack,
   MenuItem,
-  Divider
+  Divider,
+  Autocomplete
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../api/claims.js";
@@ -564,23 +565,31 @@ export default function NewClaim() {
 
               {form.claimForm === "INSTITUTIONAL" && (
                 <>
-                  <TextField
-                    label="Type of Bill"
-                    select
+                  <Autocomplete
+                    freeSolo
+                    options={TYPE_OF_BILL_BASE_OPTIONS.map((option) => ({
+                      value: typeOfBillFor(option.base, form.claimFrequencyCode),
+                      label: option.label
+                    }))}
+                    getOptionLabel={(option) =>
+                      typeof option === "string" ? option : `${option.value} — ${option.label}`
+                    }
                     value={form.typeOfBill}
-                    onChange={(e) => update("typeOfBill", e.target.value)}
-                    error={!!errors.typeOfBill}
-                    helperText={errors.typeOfBill || "UB-04 4-character Type of Bill. Frequency follows the Claim Frequency selection."}
-                  >
-                    {TYPE_OF_BILL_BASE_OPTIONS.map((option) => {
-                      const value = typeOfBillFor(option.base, form.claimFrequencyCode);
-                      return (
-                        <MenuItem key={option.base} value={value}>
-                          {value} — {option.label}
-                        </MenuItem>
-                      );
-                    })}
-                  </TextField>
+                    onChange={(_event, option) =>
+                      update("typeOfBill", typeof option === "string" ? option : option?.value || "")
+                    }
+                    onInputChange={(_event, value) =>
+                      update("typeOfBill", value.toUpperCase().replace(/\s/g, "").slice(0, 4))
+                    }
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Type of Bill"
+                        error={!!errors.typeOfBill}
+                        helperText={errors.typeOfBill || "Choose a common CMS value or enter another valid 4-character UB-04 Type of Bill."}
+                      />
+                    )}
+                  />
 
                   <TextField
                     label="DRG"
