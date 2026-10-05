@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { recomputeDerivedClaimPatch } from "./claimDocumentProvenance.js";
 import { removeProvenanceFields } from "./claimFieldProvenance.js";
 import { resolveStoredDocument } from "./storedDocumentPath.js";
+import { isClaimLocked } from "./claimLock.js";
 
 /** One deletion implementation shared by the current and legacy document APIs. */
 export async function deleteStoredDocument(prisma, req, res, {
@@ -15,7 +16,7 @@ export async function deleteStoredDocument(prisma, req, res, {
     });
     if (!doc) return res.status(404).json({ error: "Document not found" });
 
-    if (doc.claim?.status === "SUBMITTED" || doc.claim?.claimSubmissionDate) {
+    if (isClaimLocked(doc.claim)) {
       return res.status(409).json({
         error: "Submitted claims are locked. Documents cannot be deleted."
       });
