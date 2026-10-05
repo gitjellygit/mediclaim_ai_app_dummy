@@ -485,6 +485,129 @@ router.delete("/e2e/payer-journey/cleanup", async (req, res) => {
   }
 });
 
+router.post("/e2e/tenant-isolation/seed", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const ownPatient = "E2E-TENANT-OWN";
+  const foreignPatient = "E2E-TENANT-FOREIGN";
+
+  try {
+    const foreignOrg = await prisma.organization.upsert({
+      where: { slug: "e2e-foreign-org" },
+      update: {},
+      create: { name: "E2E Foreign Org", slug: "e2e-foreign-org" }
+    });
+
+    await prisma.claim.deleteMany({
+      where: {
+        OR: [
+          { organizationId: req.user.organizationId, patientName: ownPatient },
+          { organizationId: foreignOrg.id, patientName: foreignPatient }
+        ]
+      }
+    });
+
+    const own = await prisma.claim.create({
+      data: {
+        organizationId: req.user.organizationId,
+        createdById: req.user.id,
+        patientName: ownPatient,
+        payerName: "Test Payer",
+        status: "DRAFT",
+        documents: {
+          create: [{
+            type: "OTHER",
+            fileName: "own.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 10,
+            path: "e2e-fixture://own.pdf",
+            status: "PROCESSED"
+          }]
+        }
+      },
+      include: { documents: true }
+    });
+
+    const foreign = await prisma.claim.create({
+      data: {
+        organizationId: foreignOrg.id,
+        createdById: req.user.id,
+        patientName: foreignPatient,
+        payerName: "Foreign Test Payer",
+        status: "DRAFT",
+        documents: {
+          create: [{
+            type: "OTHER",
+            fileName: "foreign.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 10,
+            path: "e2e-fixture://foreign.pdf",
+            status: "PROCESSED"
+          }]
+        }
+      },
+      include: { documents: true }
+    });
+
+    res.json({
+      ownClaimId: own.id,
+      ownDocumentId: own.documents[0].id,
+      foreignClaimId: foreign.id,
+      foreignDocumentId: foreign.documents[0].id,
+      foreignOrganizationId: foreignOrg.id
+    });
+  } catch (error) {
+    console.error("[e2e-tenant-isolation] seed failed", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({ error: "Unable to seed tenant isolation scenario" });
+  }
+});
+
+router.post("/e2e/tenant-isolation/verify", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const { ownDocumentId, foreignDocumentId } = req.body || {};
+  const [own, foreign] = await Promise.all([
+    prisma.document.findUnique({ where: { id: ownDocumentId } }),
+    prisma.document.findUnique({ where: { id: foreignDocumentId } })
+  ]);
+
+  res.json({ ownExists: Boolean(own), foreignExists: Boolean(foreign) });
+});
+
+router.delete("/e2e/tenant-isolation/cleanup", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  try {
+    const foreignOrg = await prisma.organization.findUnique({
+      where: { slug: "e2e-foreign-org" }
+    });
+
+    await prisma.claim.deleteMany({
+      where: {
+        OR: [
+          { organizationId: req.user.organizationId, patientName: "E2E-TENANT-OWN" },
+          ...(foreignOrg
+            ? [{ organizationId: foreignOrg.id, patientName: "E2E-TENANT-FOREIGN" }]
+            : [])
+        ]
+      }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to clean tenant isolation scenario" });
+  }
+});
+
 
   return router;
 }
