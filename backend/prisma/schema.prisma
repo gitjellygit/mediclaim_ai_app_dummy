@@ -331,6 +331,11 @@ model ServiceLine {
   revenueCode       String?
   poaIndicator      String?
 
+  // OCR-created lines are suggestions until a billing user confirms them.
+  verified          Boolean @default(true)
+  source            String  @default("USER")
+  sourceDocumentId  String?
+
   @@index([claimId])
   @@index([cptHcpcsCode])
 }
