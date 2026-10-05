@@ -2,7 +2,9 @@ const SAFE_METADATA_KEYS = new Set([
   "status","previousStatus","nextStatus","changedFields","serviceLinesChanged",
   "documentType","uploadMode","ocrProvider","confidence","suggestedType",
   "rule","severity","payerStatus","priorAuthStatus","eligibilityStatus",
-  "sessionId","sessionCount","reason","source","operation","count"
+  "sessionId","sessionCount","reason","source","operation","count",
+  "category","hasCARC","hasRARC","provider","model","llmUsed",
+  "softDeleted","documentCount","riskLevel","score","hasBlockingIssues"
 ]);
 
 function sanitizeScalar(value) {
