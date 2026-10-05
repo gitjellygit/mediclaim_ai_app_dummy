@@ -19,7 +19,7 @@ This document is an engineering checklist, not a certification or legal opinion.
 
 ## H8B-1 — RBAC & Tenant Isolation
 
-### Status: VERIFIED
+### Status: IN PROGRESS — implementation complete, CI/regression verification pending
 
 #### Organization Scoping (VERIFIED)
 
@@ -135,16 +135,19 @@ E2E tests (`frontend/tests/tenant-isolation.e2e.spec.js`):
 
 Migration `20261005100000_add_rule_organization_scoping`:
 
-- Adds `organizationId` column to Rule table with default value
-- Drops old unique constraint on `code` alone
-- Adds composite unique constraint on `(organizationId, code)`
-- Adds foreign key constraint to Organization
-- Adds index on `organizationId`
-- Existing rules assigned to default organization; requires data migration for production
+- Adds `organizationId` to Rule
+- Rejects migration rather than guessing ownership if legacy rules exist but no Organization exists
+- Snapshots legacy global rules and clones each definition to every existing organization
+- Drops global uniqueness on `code`
+- Adds composite uniqueness on `(organizationId, code)`
+- Adds the Organization foreign key and `organizationId` index
+- Does not create a synthetic/fake organization during migration
+- Seed logic uses the composite organization/code key
 
 #### Remaining Gaps
 
-None identified for H8B-1 scope. All tenant-owned resources are properly scoped and tested.
+- GitHub CI and the final regression suite must be green before H8B-1 is marked VERIFIED.
+- H8B-1 is an application authorization/tenant-isolation control only; later H8B phases still cover sessions, audit breadth, storage/encryption, API/upload hardening, secrets/configuration, and retention/recovery.
 
 ## Controls still required before production PHI use
 
