@@ -102,20 +102,38 @@ export function buildClaimPatch(input = {}) {
   return patch;
 }
 
-function normalizeComparable(value) {
+const MONEY_FIELDS = new Set([
+  "coverageLimit",
+  "remainingCoverageLimit",
+  "amount",
+  "totalBilledAmount",
+  "charge"
+]);
+
+function normalizeComparable(value, key = null) {
   if (value instanceof Date) return value.toISOString();
-  if (value && typeof value === "object" && typeof value.toFixed === "function") {
-    const numeric = Number(value.toFixed(2));
-    return Number.isFinite(numeric) ? numeric : value.toFixed(2);
-  }
   if (value == null) return null;
+
+  if (MONEY_FIELDS.has(key)) {
+    const raw =
+      value && typeof value === "object" && typeof value.toFixed === "function"
+        ? value.toFixed(2)
+        : value;
+    const normalized = validMoney(raw);
+    return normalized ?? raw;
+  }
+
+  if (value && typeof value === "object" && typeof value.toFixed === "function") {
+    return value.toFixed(2);
+  }
+
   return value;
 }
 
 export function changedPatchFields(existing = {}, patch = {}) {
   const changed = [];
   for (const [key, value] of Object.entries(patch)) {
-    if (normalizeComparable(existing[key]) !== normalizeComparable(value)) {
+    if (normalizeComparable(existing[key], key) !== normalizeComparable(value, key)) {
       const left = existing[key];
       if (Array.isArray(left) || Array.isArray(value)) {
         if (JSON.stringify(left || []) !== JSON.stringify(value || [])) changed.push(key);
@@ -149,8 +167,8 @@ export function serviceLinesDiffer(existing = [], next = []) {
   return existing.some((current, index) => {
     const proposed = next[index];
     return keys.some((key) => {
-      const left = normalizeComparable(current?.[key]);
-      const right = normalizeComparable(proposed?.[key]);
+      const left = normalizeComparable(current?.[key], key);
+      const right = normalizeComparable(proposed?.[key], key);
       return Array.isArray(left) || Array.isArray(right)
         ? JSON.stringify(left || []) !== JSON.stringify(right || [])
         : left !== right;
