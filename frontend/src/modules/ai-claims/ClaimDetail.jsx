@@ -385,6 +385,43 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   function fixIssue(issue) {
     const message = String(issue?.message || "").toLowerCase();
 
+    if (issue?.fixTarget === "documents") {
+      setFixFocus("documents");
+      setFixFields(["documents"]);
+      scrollToRef(documentsRef);
+      return;
+    }
+
+    if (issue?.fixTarget === "eligibility") {
+      navigate(`/journey?claimId=${claim.id}&stage=eligibility`, {
+        state: {
+          from: location.pathname + location.search,
+          backLabel: "Back to Claim Detail"
+        }
+      });
+      return;
+    }
+
+    if (issue?.fixTarget === "prior-auth") {
+      navigate(`/journey?claimId=${claim.id}&stage=prior-auth`, {
+        state: {
+          from: location.pathname + location.search,
+          backLabel: "Back to Claim Detail"
+        }
+      });
+      return;
+    }
+
+    if (issue?.fixTarget === "serviceLines") {
+      openClaimEdit(issue?.field || "serviceLines", [issue?.field || "serviceLines"]);
+      return;
+    }
+
+    if (issue?.field) {
+      openClaimEdit(issue.field, [issue.field]);
+      return;
+    }
+
     if (message.includes("supporting document")) {
       setFixFocus("documents");
       scrollToRef(documentsRef);
@@ -408,6 +445,21 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           backLabel: "Back to Claim Detail"
         }
       });
+      return;
+    }
+
+    if (message.includes("billing provider npi")) {
+      openClaimEdit("billingProviderNpi");
+      return;
+    }
+
+    if (message.includes("rendering provider npi")) {
+      openClaimEdit("renderingProviderNpi");
+      return;
+    }
+
+    if (message.includes("cpt") || message.includes("hcpcs")) {
+      openClaimEdit("cptHcpcsCode");
       return;
     }
 
@@ -489,12 +541,40 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     return false;
   }
 
+  function issueDisplayMessage(issue, { resolved = false } = {}) {
+    const message = String(issue?.message || "");
+    const normalized = message.toLowerCase();
+
+    if (normalized.includes("eligibility has not been verified")) {
+      return resolved
+        ? "Eligibility is now verified."
+        : "Patient insurance eligibility still needs to be checked.";
+    }
+
+    if (normalized.includes("prior authorization requirement is unresolved")) {
+      return resolved
+        ? "Prior authorization is now resolved."
+        : "Confirm whether prior authorization is required for this claim.";
+    }
+
+    if (normalized.includes("billing provider npi is required")) {
+      return "Add the billing provider NPI.";
+    }
+
+    if (normalized.includes("user-verified cpt/hcpcs")) {
+      return "Add and verify at least one CPT/HCPCS service code.";
+    }
+
+    return message;
+  }
+
   function fixButtonLabel(issue) {
     const message = String(issue?.message || "").toLowerCase();
-    if (message.includes("supporting document")) return "Upload Document";
-    if (message.includes("eligibility")) return "Verify Eligibility";
-    if (message.includes("prior authorization")) return "Resolve Auth";
-    return "Fix";
+    if (issue?.fixTarget === "documents" || message.includes("supporting document")) return "Upload Document";
+    if (issue?.fixTarget === "eligibility" || message.includes("eligibility")) return "Check Eligibility";
+    if (issue?.fixTarget === "prior-auth" || message.includes("prior authorization")) return "Review Prior Auth";
+    if (issue?.fixTarget === "serviceLines") return "Edit Service Line";
+    return "Fix Field";
   }
 
   React.useEffect(() => {
@@ -1199,8 +1279,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   {new URLSearchParams(location.search).get("issue")
                     ? `Fixing: ${new URLSearchParams(location.search).get("issue")}. `
                     : ""}
-                  Review the highlighted claim information, update the incorrect values,
-                  then click Save Changes.
+                  The field that needs attention is highlighted below. Update it, then click Save Changes.
                 </Alert>
               )}
               <TextField
@@ -1227,11 +1306,36 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 onChange={(e) => updateEditField("hospitalName", e.target.value)}
                 fullWidth
               />
-              <TextField label="Billing Provider NPI" value={editForm.billingProviderNpi} onChange={(e) => updateEditField("billingProviderNpi", e.target.value)} fullWidth />
+              <TextField
+                data-fix-field="billingProviderNpi"
+                label="Billing Provider NPI"
+                value={editForm.billingProviderNpi}
+                onChange={(e) => updateEditField("billingProviderNpi", e.target.value)}
+                color={isFixField("billingProviderNpi") ? "warning" : "primary"}
+                focused={isFixField("billingProviderNpi")}
+                helperText={isFixField("billingProviderNpi") ? "Enter the 10-digit billing provider NPI required for submission." : ""}
+                fullWidth
+              />
               {editForm.claimForm === "PROFESSIONAL" && (
                 <>
-                  <TextField label="Rendering Provider NPI" value={editForm.renderingProviderNpi} onChange={(e) => updateEditField("renderingProviderNpi", e.target.value)} fullWidth />
-                  <TextField label="Referring Provider NPI" value={editForm.referringProviderNpi} onChange={(e) => updateEditField("referringProviderNpi", e.target.value)} fullWidth />
+                  <TextField
+                    data-fix-field="renderingProviderNpi"
+                    label="Rendering Provider NPI"
+                    value={editForm.renderingProviderNpi}
+                    onChange={(e) => updateEditField("renderingProviderNpi", e.target.value)}
+                    color={isFixField("renderingProviderNpi") ? "warning" : "primary"}
+                    focused={isFixField("renderingProviderNpi")}
+                    fullWidth
+                  />
+                  <TextField
+                    data-fix-field="referringProviderNpi"
+                    label="Referring Provider NPI"
+                    value={editForm.referringProviderNpi}
+                    onChange={(e) => updateEditField("referringProviderNpi", e.target.value)}
+                    color={isFixField("referringProviderNpi") ? "warning" : "primary"}
+                    focused={isFixField("referringProviderNpi")}
+                    fullWidth
+                  />
                 </>
               )}
               <TextField label="Provider TIN" value={editForm.providerTin} onChange={(e) => updateEditField("providerTin", e.target.value)} fullWidth />
@@ -1261,6 +1365,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="policyNo"
                 label="Policy Number"
                 value={editForm.policyNo}
                 onChange={(e) => updateEditField("policyNo", e.target.value)}
@@ -1479,6 +1584,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="amount"
                 label="Total Claimed Amount ($)"
                 type="number"
                 value={editForm.amount}
@@ -1496,9 +1602,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="typeOfBill"
                 label="Type of Bill"
                 value={editForm.typeOfBill}
                 onChange={(e) => updateEditField("typeOfBill", e.target.value)}
+                color={isFixField("typeOfBill") ? "warning" : "primary"}
+                focused={isFixField("typeOfBill")}
                 fullWidth
               />
               <TextField
@@ -1530,6 +1639,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <ServiceLinesEditor
                 lines={editForm.serviceLines || []}
                 onChange={(serviceLines) => updateEditField("serviceLines", serviceLines)}
+                highlightField={
+                  ["serviceLines", "cptHcpcsCode", "diagnosisPointers", "placeOfService", "revenueCode"].includes(fixFocus)
+                    ? fixFocus
+                    : ""
+                }
               />
             </Stack>
           )}
@@ -1946,7 +2060,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       <Card ref={readinessRef} sx={{ scrollMarginTop: 88 }}>
         <CardContent>
           <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-            <Typography variant="h6">AI Readiness & Rejection Risk</Typography>
+            <Typography variant="h6">Claim Readiness for Submission</Typography>
 
             <Stack direction="row" spacing={2}>
               <Button
@@ -1954,7 +2068,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 onClick={runAICheck}
                 disabled={aiRunning || !canRunAI || aiCheckLocked}
               >
-                {check?.isStale ? "Refresh AI Readiness" : check ? "Run AI Check Again" : "Run AI Check"}
+                {check?.isStale ? "Recheck Claim Readiness" : check ? "Check Readiness Again" : "Check Claim Readiness"}
               </Button>
 
               <Button
@@ -1978,10 +2092,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
           {claim.status !== "SUBMITTED" && (!eligibilityClear || !priorAuthClear) && (
             <Alert severity="warning" sx={{ mt: 2 }}>
-              Complete Claim Journey prerequisites before submission:
-              {!eligibilityClear ? " eligibility verification" : ""}
+              Before this claim can be submitted,
+              {!eligibilityClear ? " verify the patient's insurance eligibility" : ""}
               {!eligibilityClear && !priorAuthClear ? " and" : ""}
-              {!priorAuthClear ? " prior authorization" : ""}.
+              {!priorAuthClear ? " confirm the prior-authorization requirement" : ""}.
+              Use Claim Journey to complete these steps, then recheck claim readiness.
             </Alert>
           )}
 
@@ -2010,7 +2125,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               >
                 <Box>
                   <Typography variant="subtitle1" fontWeight={700}>
-                    Last AI Readiness
+                    Claim readiness
                   </Typography>
                   <Typography
                     variant="h4"
@@ -2019,8 +2134,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   >
                     {check.score}%
                   </Typography>
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
                     Checked {new Date(check.createdAt).toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    This percentage shows progress toward submission requirements; blocking items can still prevent submission.
                   </Typography>
                 </Box>
 
@@ -2058,13 +2176,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   {liveResolvedIssues.length > 0
                     ? ` ${liveResolvedIssues.length} previous issue(s) now appear resolved from the latest claim data.`
                     : ""}
-                  {" "}Refresh AI readiness to recalculate the score before submission.
+                  {" "}Recheck claim readiness to recalculate the score before submission.
                 </Alert>
               ) : (
                 <Alert severity={readinessColor(check.score)} sx={{ mb: 2 }}>
                   {check.score >= 80 && !hasBlock
                     ? "This readiness check is current and meets the submission threshold."
-                    : "This readiness check is current. Resolve the remaining issues and run AI Check again."}
+                    : "This readiness check is current. Complete the actions below, then check readiness again."}
                 </Alert>
               )}
 
@@ -2128,7 +2246,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   {check.isStale && liveResolvedIssues.length > 0 && (
                     <>
                       <Typography variant="subtitle2" color="success.main">
-                        Resolved since the last AI Check
+                        Completed since the last readiness check
                       </Typography>
                       {liveResolvedIssues.map((issue, idx) => (
                         <Paper
@@ -2147,9 +2265,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                             spacing={1}
                           >
                             <Typography variant="body2" fontWeight={600}>
-                              {issue.message}
+                              {issueDisplayMessage(issue, { resolved: true })}
                             </Typography>
-                            <Chip size="small" color="success" label="Resolved — refresh AI" />
+                            <Chip size="small" color="success" label="Completed — recheck readiness" />
                           </Stack>
                         </Paper>
                       ))}
@@ -2191,7 +2309,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                             }
                           />
                           <Typography variant="body2" fontWeight={600}>
-                            {issue.message}
+                            {issueDisplayMessage(issue)}
                           </Typography>
                         </Stack>
                         <Button
@@ -2214,7 +2332,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               {checkHistory.length > 1 && (
                 <Box sx={{ mt: 3 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                    AI Readiness History
+                    Claim Readiness History
                   </Typography>
                   <Stack spacing={0.75}>
                     {checkHistory.map((item, index) => (
