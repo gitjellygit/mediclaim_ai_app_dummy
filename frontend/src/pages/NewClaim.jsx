@@ -201,7 +201,61 @@ export default function NewClaim() {
     setActiveStep((s) => s - 1);
   }
 
+  function stepForField(fieldPath = "") {
+    const field = String(fieldPath).split(".")[0];
+    if ([
+      "claimForm", "patientName", "hospitalName", "billingProviderNpi",
+      "renderingProviderNpi", "referringProviderNpi", "providerTin",
+      "providerTaxonomyCode"
+    ].includes(field)) return 0;
+
+    if (["diagnosisText", "icd10Codes", "inpatientProcedureCodes"].includes(field)) return 1;
+
+    if ([
+      "medicalRecordNumber", "payerName", "policyNo", "memberId",
+      "planAdministratorName", "payerReferenceNo", "groupNumber",
+      "subscriberId", "subscriberName", "subscriberRelationship",
+      "coordinationOfBenefits", "payerEdiId"
+    ].includes(field)) return 2;
+
+    return 3;
+  }
+
+  function friendlyFieldLabel(fieldPath = "") {
+    const field = String(fieldPath).split(".")[0];
+    return ({
+      claimForm: "Claim Form",
+      patientName: "Patient Name",
+      billingProviderNpi: "Billing Provider NPI",
+      renderingProviderNpi: "Rendering Provider NPI",
+      referringProviderNpi: "Referring Provider NPI",
+      providerTin: "Provider TIN",
+      providerTaxonomyCode: "Provider Taxonomy Code",
+      icd10Codes: "ICD-10-CM",
+      inpatientProcedureCodes: "ICD-10-PCS",
+      payerName: "Insurance Company",
+      amount: "Claimed Amount",
+      totalBilledAmount: "Billed Amount",
+      typeOfBill: "Type of Bill",
+      drgCode: "DRG",
+      serviceLines: "Service Lines"
+    })[field] || "Claim Information";
+  }
+
   const submit = async () => {
+    // Revalidate every manual-entry step before calling the API. The review
+    // screen is a summary, not a bypass around field-level validation.
+    for (let step = 0; step < 4; step += 1) {
+      if (!validateStep(step)) {
+        setActiveStep(step);
+        showDialog(
+          "Please correct the highlighted information before creating the claim.",
+          { title: "Claim needs correction", severity: "warning" }
+        );
+        return;
+      }
+    }
+
     // HARD STOP validations (final gate)
     if (!form.patientName || !form.payerName || !form.amount) {
       showDialog(
@@ -284,10 +338,32 @@ export default function NewClaim() {
       await ClaimsApi.create(payload);
       navigate("/claims");
     } catch (e) {
-      showDialog(
-        e.message || "The claim could not be created. Please review the information and try again.",
-        { title: "Claim creation failed", severity: "error" }
-      );
+      const fieldPath = e?.data?.field || "";
+      if (e?.status === 400 && fieldPath) {
+        const rootField = fieldPath.split(".")[0];
+        setErrors((current) => ({
+          ...current,
+          [rootField]: e.message || "Please correct this field"
+        }));
+        setActiveStep(stepForField(fieldPath));
+        showDialog(
+          e.message || "Please correct the highlighted information.",
+          {
+            title: `Please correct ${friendlyFieldLabel(fieldPath)}`,
+            severity: "warning"
+          }
+        );
+      } else if (e?.status === 400) {
+        showDialog(
+          e.message || "Some claim information is invalid. Please review the highlighted fields.",
+          { title: "Please review claim information", severity: "warning" }
+        );
+      } else {
+        showDialog(
+          "The claim could not be created right now. Please try again. If the problem continues, contact support.",
+          { title: "Claim could not be created", severity: "error" }
+        );
+      }
     } finally {
       setSubmitting(false);
     }
