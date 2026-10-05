@@ -94,7 +94,8 @@ async function gotoFinancialStep(page, { patientName = "E2E-US-ADVANCED-VALIDATI
   await page.getByLabel("CPT / HCPCS").fill("99213");
   await page.getByLabel("Units").fill("1");
   await page.getByLabel("Charge (USD)").fill("100");
-  await page.getByLabel("Place of Service").fill("11");
+  await page.getByLabel("Place of Service").click();
+  await page.getByRole("option", { name: /11.*Office/i }).click();
 }
 
 test.beforeAll(async () => {
@@ -157,7 +158,7 @@ test("A2 - invalid ICD-10 code blocks clinical step", async ({ page }) => {
   await page.getByLabel("ICD-10 Codes (comma separated)").fill("NOT-A-CODE");
   await page.getByRole("button", { name: "Next" }).click();
 
-  await expect(page.getByText(/Invalid ICD-10 codes:/)).toContainText("NOT-A-CODE");
+  await expect(page.getByText(/NOT-A-CODE:.*ICD-10-CM/i)).toBeVisible();
   await expect(page.getByLabel("ICD-10 Codes (comma separated)")).toBeVisible();
 });
 
