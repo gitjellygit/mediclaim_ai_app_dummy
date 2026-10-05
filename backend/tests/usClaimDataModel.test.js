@@ -108,7 +108,7 @@ test("U3 - frontend captures and displays US service-line data", () => {
   assert.ok(claimDetail.includes("ServiceLinesEditor"));
   assert.ok(claimDetail.includes("ICD-10-PCS"));
   assert.ok(editor.includes("CPT / HCPCS"));
-  assert.ok(editor.includes("Diagnosis Pointers"));
+  assert.ok(editor.includes("Linked Diagnosis Codes"));
   assert.ok(editor.includes("Place of Service"));
   assert.ok(editor.includes("Revenue Code"));
   assert.ok(editor.includes("POA Indicator"));
