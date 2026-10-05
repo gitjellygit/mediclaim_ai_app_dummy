@@ -173,9 +173,8 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
       page.getByRole("heading", { name: "Claim Readiness for Submission" })
     ).toBeVisible();
 
-    const billingIssue = page
-      .getByText("Add the billing provider NPI.", { exact: true })
-      .locator("xpath=ancestor::div[contains(@class,'MuiPaper-root')][1]");
+    const billingIssue = page.getByTestId("readiness-issue-billingProviderNpi");
+    await expect(billingIssue.getByText("Add the billing provider NPI.", { exact: true })).toBeVisible();
     await billingIssue.getByRole("button", { name: "Fix Field" }).click();
 
     const billingNpi = page.getByLabel("Billing Provider NPI");
@@ -187,12 +186,13 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
 
     await page.goto(`/claims/${claim.id}`);
 
-    const cptIssue = page
-      .getByText(
+    const cptIssue = page.getByTestId("readiness-issue-cptHcpcsCode");
+    await expect(
+      cptIssue.getByText(
         "Add and verify at least one CPT/HCPCS service code.",
         { exact: true }
       )
-      .locator("xpath=ancestor::div[contains(@class,'MuiPaper-root')][1]");
+    ).toBeVisible();
     await cptIssue.getByRole("button", { name: "Edit Service Line" }).click();
 
     const cpt = page.getByLabel("CPT / HCPCS");
