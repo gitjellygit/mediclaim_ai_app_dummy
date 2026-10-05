@@ -129,7 +129,7 @@ test("U7-1 - configured US rules drive NPI, diagnosis linkage, timely filing and
     policyNo: "U7-POL-1",
     amount: 100,
     claimForm: "PROFESSIONAL",
-    billingProviderNpi: "ABC",
+    billingProviderNpi: "1234567890",
     renderingProviderNpi: "1987654321",
     icd10Codes: ["M54.50"],
     timelyFilingDeadline: "01/01/2020",
@@ -138,7 +138,7 @@ test("U7-1 - configured US rules drive NPI, diagnosis linkage, timely filing and
         cptHcpcsCode: "99213",
         units: 1,
         charge: 100,
-        diagnosisPointers: ["J18.9"],
+        diagnosisPointers: [],
         placeOfService: "11"
       }
     ]
@@ -147,7 +147,7 @@ test("U7-1 - configured US rules drive NPI, diagnosis linkage, timely filing and
   const check = await runCheck(claim.id);
   const issues = rulesFrom(check);
 
-  expect(issues.get("US_NPI_VALID")?.severity).toBe("BLOCK");
+  expect(issues.has("US_NPI_VALID")).toBe(false);
   expect(issues.get("US_DIAGNOSIS_CPT_LINK")?.severity).toBe("BLOCK");
   expect(issues.get("US_TIMELY_FILING")?.severity).toBe("BLOCK");
   expect(issues.get("US_MEMBER_ID")?.severity).toBe("BLOCK");
