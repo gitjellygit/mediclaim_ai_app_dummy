@@ -5,6 +5,7 @@ import {
   TextField, Typography
 } from "@mui/material";
 import { AuditApi } from "../../api/audit.js";
+import { useLocation } from "react-router-dom";
 
 const OUTCOMES = ["", "SUCCESS", "DENIED", "FAILURE"];
 const ENTITY_TYPES = ["", "Claim", "Document", "Session", "User", "Rule", "DenialCase", "UnderpaymentCase"];
@@ -18,9 +19,11 @@ function actionLabel(value = "") {
 }
 
 export default function AuditTrail() {
+  const location = useLocation();
+  const initialClaimId = new URLSearchParams(location.search).get("claimId") || "";
   const [data, setData] = React.useState({ items: [], total: 0, page: 1, pageSize: 25 });
   const [filters, setFilters] = React.useState({
-    action: "", outcome: "", entityType: "", claimId: ""
+    action: "", outcome: "", entityType: "", claimId: initialClaimId
   });
   const [page, setPage] = React.useState(1);
   const [loading, setLoading] = React.useState(true);
