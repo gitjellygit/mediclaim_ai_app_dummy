@@ -111,22 +111,26 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
   }
 
   const serviceLines = Array.isArray(claim.serviceLines) ? claim.serviceLines : [];
-  if (!serviceLines.length || serviceLines.some((line) => !line.cptHcpcsCode)) {
+  const verifiedServiceLines = serviceLines.filter((line) => line.verified !== false);
+  if (
+    !verifiedServiceLines.length ||
+    verifiedServiceLines.some((line) => !line.cptHcpcsCode)
+  ) {
     addIssue(
       issues,
       configured,
       defaults,
       "US_CPT_PRESENT",
-      "At least one CPT/HCPCS service code is required",
+      "At least one user-verified CPT/HCPCS service code is required",
       { fixTarget: "serviceLines" }
     );
   }
 
-  if (serviceLines.length) {
+  if (verifiedServiceLines.length) {
     const diagnosisCodes = new Set(
       (claim.icd10Codes || []).map((code) => String(code).trim().toUpperCase())
     );
-    const unlinked = serviceLines.some((line) => {
+    const unlinked = verifiedServiceLines.some((line) => {
       const pointers = Array.isArray(line.diagnosisPointers)
         ? line.diagnosisPointers.map((value) => String(value).trim().toUpperCase()).filter(Boolean)
         : [];
