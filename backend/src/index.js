@@ -12,6 +12,7 @@ import { authRouter } from "./routes/auth.js";
 import { documentsRouter } from "./routes/documents.js";
 import denialsRouter from "./routes/denials.js";
 import underpaymentsRouter from "./routes/underpayments.js";
+import auditRouter from "./routes/audit.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 dotenv.config();
 
@@ -114,6 +115,13 @@ app.use(
   requireAuth,
   requireRoles(["ADMIN"]),
   captureAsyncRouter(rulesRouter)
+);
+
+app.use(
+  "/api/audit",
+  requireAuth,
+  requireRoles(["ADMIN"]),
+  captureAsyncRouter(auditRouter)
 );
 
 const PORT = process.env.PORT || 4000;
