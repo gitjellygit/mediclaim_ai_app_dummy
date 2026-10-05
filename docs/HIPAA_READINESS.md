@@ -21,6 +21,8 @@ This document is an engineering checklist, not a certification or legal opinion.
 
 ### Status: IN PROGRESS — implementation complete, CI/regression verification pending
 
+Verification evidence will be recorded after PR #39 CI completes.
+
 #### Organization Scoping (VERIFIED)
 
 All tenant-owned resources are now scoped to `req.user.organizationId`:
