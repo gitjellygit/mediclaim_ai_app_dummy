@@ -451,20 +451,31 @@ export async function analyzeDocument({ fileName, mimeType, path: filePath }, { 
   let ocrProvider = "none";
   let providerFailed = false;
 
-  try {
-    rawText = await ocrExtractor({
-      filePath,
-      fileName,
-      mimeType
-    });
+  const deterministicE2eMode =
+    process.env.E2E_TEST_MODE === "true" &&
+    ocrExtractor === extractTextWithTextract;
 
-    if (rawText?.trim()) {
-      ocrProvider = "AWS_TEXTRACT";
+  if (deterministicE2eMode) {
+    // Browser tests must not depend on live AWS credentials or external OCR.
+    // Filename-based classification remains deterministic; production behavior
+    // is unchanged because this branch is only enabled by E2E_TEST_MODE.
+    ocrProvider = "E2E_FILENAME_ONLY";
+  } else {
+    try {
+      rawText = await ocrExtractor({
+        filePath,
+        fileName,
+        mimeType
+      });
+
+      if (rawText?.trim()) {
+        ocrProvider = "AWS_TEXTRACT";
+      }
+    } catch (error) {
+      // Never include OCR content or exception text in logs (possible PHI).
+      providerFailed = true;
+      console.error("[doc-intel] OCR provider failed", { provider: "TEXTRACT", name: error?.name || "Error" });
     }
-  } catch (error) {
-    // Never include OCR content or exception text in logs (possible PHI).
-    providerFailed = true;
-    console.error("[doc-intel] OCR provider failed", { provider: "TEXTRACT", name: error?.name || "Error" });
   }
 
   const isPdf = norm(mimeType).includes("pdf") || path.extname(fileName || "").toLowerCase() === ".pdf";

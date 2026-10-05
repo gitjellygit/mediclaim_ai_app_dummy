@@ -143,17 +143,23 @@ test("U4-3 - readiness applies form-specific blockers only to explicitly classif
 
   const professionalCheck = await runCheck(professional.id);
   const pMessages = professionalCheck.issues.map((issue) => issue.message);
-  expect(pMessages).toContain("837P professional claim requires billing provider NPI");
-  expect(pMessages).toContain("837P professional claim requires rendering provider NPI");
-  expect(pMessages).toContain("837P professional claim requires at least one CPT/HCPCS service line");
-  expect(pMessages.some((message) => message.includes("837I institutional"))).toBeFalsy();
+  const pFormMessages = professionalCheck.issues
+    .filter((issue) => issue.source === "CLAIM_FORM")
+    .map((issue) => issue.message);
+  expect(pFormMessages).toContain("837P professional claim requires rendering provider NPI");
+  expect(pFormMessages.some((message) => message.includes("837I institutional"))).toBeFalsy();
+  expect(pMessages).toContain("Billing provider NPI is required");
+  expect(pMessages).toContain("At least one user-verified CPT/HCPCS service code is required");
 
   const institutionalCheck = await runCheck(institutional.id);
   const iMessages = institutionalCheck.issues.map((issue) => issue.message);
-  expect(iMessages).toContain("837I institutional claim requires billing provider NPI");
-  expect(iMessages).toContain("837I institutional claim requires Type of Bill");
-  expect(iMessages).toContain("837I institutional claim requires at least one service line");
-  expect(iMessages.some((message) => message.includes("837P professional"))).toBeFalsy();
+  const iFormMessages = institutionalCheck.issues
+    .filter((issue) => issue.source === "CLAIM_FORM")
+    .map((issue) => issue.message);
+  expect(iFormMessages).toContain("837I institutional claim requires Type of Bill");
+  expect(iFormMessages.some((message) => message.includes("837P professional"))).toBeFalsy();
+  expect(iMessages).toContain("Billing provider NPI is required");
+  expect(iMessages).toContain("At least one user-verified CPT/HCPCS service code is required");
 });
 
 

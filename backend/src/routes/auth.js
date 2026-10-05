@@ -2,6 +2,7 @@ import { requireAuth, requireRoles } from "../middleware/auth.js";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { comparePassword, checkRateLimit, recordFailedAttempt, generateSecureToken, clearRateLimit } from "../utils/security.js";
+import { durationToMs } from "../utils/duration.js";
 
 // Token expiration times
 const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "15m"; // Short-lived access token
@@ -113,8 +114,12 @@ export function authRouter(prisma) {
       );
 
       const refreshToken = generateSecureToken(64);
-      const refreshTokenExpiresAt = new Date();
-      refreshTokenExpiresAt.setTime(refreshTokenExpiresAt.getTime() + (7 * 24 * 60 * 60 * 1000)); // 7 days
+      const refreshTokenExpiresAt = new Date(
+        Date.now() + durationToMs(
+          REFRESH_TOKEN_EXPIRES_IN,
+          7 * 24 * 60 * 60 * 1000
+        )
+      );
 
       // Store refresh token
       await prisma.refreshToken.create({

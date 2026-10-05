@@ -133,7 +133,10 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
 
     await clickStageButton(claim, "Submit to Payer");
     await expect(claim).toContainText("Submitted");
-    await expect(claim.getByRole("button", { name: "Sent to Payer" })).toBeDisabled();
+    // A completed transmission is proven by the payer activity transaction.
+    // The UI may hide or replace a completed action rather than keeping a
+    // disabled "Sent to Payer" button rendered.
+    await expect(page.getByTestId("payer-connection-card")).toContainText("Claim Submission");
 
     const duplicateTransmission = await apiContext.post(
       `/api/claims/${scenario.id}/payer-simulation/submission`,

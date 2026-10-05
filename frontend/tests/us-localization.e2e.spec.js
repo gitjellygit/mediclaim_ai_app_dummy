@@ -1,6 +1,11 @@
 import { test, expect, request } from "@playwright/test";
 
 const backendURL = "http://127.0.0.1:4101";
+
+// This file is one localization workflow: later checks intentionally reuse
+// claims created by earlier steps. Keep it serial so a failed setup step does
+// not restart the worker and create misleading cascade failures.
+test.describe.configure({ mode: "serial" });
 const email = process.env.E2E_EMAIL || "admin@hospital.com";
 const password = process.env.E2E_PASSWORD || "admin123";
 

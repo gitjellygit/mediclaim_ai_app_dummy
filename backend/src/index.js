@@ -106,6 +106,13 @@ app.use((err, req, res, _next) => {
   console.error("[request-error]", { route: req.path, code: err.code || null, name: err.name });
   if (err.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "File too large", message: "Upload exceeds the allowed file size", code: "FILE_TOO_LARGE" });
   if (err.code === "INVALID_UPLOAD_TYPE") return res.status(415).json({ error: "Unsupported file", message: "Upload PDF, PNG, JPEG or TIFF only", code: "UNSUPPORTED_FILE" });
+  if (Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
+    return res.status(err.status).json({
+      error: err.message,
+      message: err.message,
+      code: err.code || "DOMAIN_ERROR"
+    });
+  }
   return res.status(500).json({ error: "Internal server error", message: "The request could not be completed", code: "INTERNAL_ERROR" });
 });
 

@@ -105,6 +105,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
   const [bulkDeleteLoading, setBulkDeleteLoading] = React.useState(false);
   const [fixFocus, setFixFocus] = React.useState("");
+  const [fixFields, setFixFields] = React.useState([]);
   const patientPolicyRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
@@ -307,6 +308,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       setClaim(updated);
       setEditMode(false);
       setFixFocus("");
+      setFixFields([]);
       showToast("Claim details updated", "success");
     } catch (e) {
       showDialog(
@@ -358,7 +360,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }, 80);
   }
 
-  function openClaimEdit(focus = "claim") {
+  function isFixField(field) {
+    return fixFocus === field || fixFields.includes(field);
+  }
+
+  function openClaimEdit(focus = "claim", fields = [focus]) {
     if (["SUBMITTED", "DENIED", "PAID"].includes(claim?.status)) {
       showDialog(
         "This claim is locked after submission. This data gap is informational unless the claim is reopened or amended.",
@@ -368,6 +374,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
 
     setFixFocus(focus);
+    setFixFields(Array.isArray(fields) ? fields.filter(Boolean) : [focus]);
     setEditMode(true);
     scrollToRef(patientPolicyRef);
   }
@@ -488,20 +495,56 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   React.useEffect(() => {
-    if (!claim || !location.state?.focus) return;
+    if (!claim) return;
 
-    if (location.state.focus === "eligibility") {
-      openClaimEdit("eligibility");
+    const params = new URLSearchParams(location.search);
+    const focusFields = String(params.get("focus") || location.state?.focus || "")
+      .split(",")
+      .map((field) => field.trim())
+      .filter(Boolean);
+    const section = params.get("section");
+    const autoEdit = params.get("edit") === "1";
+
+    if (section === "documents" || focusFields.includes("documents")) {
+      setFixFocus("documents");
+      setFixFields(["documents"]);
+      scrollToRef(documentsRef);
+      return;
     }
-    // Only consume this navigation hint once for the loaded claim.
-    navigate(location.pathname + location.search, {
-      replace: true,
-      state: {
-        from: location.state?.from,
-        backLabel: location.state?.backLabel
-      }
-    });
-  }, [claim?.id]);
+
+    if (autoEdit && focusFields.length) {
+      openClaimEdit(focusFields[0], focusFields);
+      return;
+    }
+
+    if (location.state?.focus === "eligibility") {
+      openClaimEdit("eligibility", ["eligibility"]);
+    }
+  }, [claim?.id, location.search]);
+
+  React.useEffect(() => {
+    if (!editMode || !fixFocus) return;
+    if (["claim", "eligibility", "documents"].includes(fixFocus)) return;
+
+    const timer = window.setTimeout(() => {
+      const target = document.querySelector(
+        `[data-fix-field="${fixFocus}"]`
+      );
+      if (!target) return;
+
+      target.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
+
+      const input = target.querySelector(
+        'input:not([type="hidden"]), textarea, [role="combobox"]'
+      );
+      input?.focus?.();
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [editMode, fixFocus]);
 
   function automationFieldAction(item) {
     if (!item) return;
@@ -1023,6 +1066,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   onClick={() => {
                     resetEditForm();
                     setEditMode(false);
+                    setFixFocus("");
+                    setFixFields([]);
                   }}
                 >
                   Cancel
@@ -1139,8 +1184,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
             <Stack spacing={2} sx={{ mt: 1 }}>
               {fixFocus && (
                 <Alert severity="warning">
-                  Review the highlighted claim information, update the missing or incorrect values,
-                  then click Save Changes and rerun AI Check.
+                  {new URLSearchParams(location.search).get("issue")
+                    ? `Fixing: ${new URLSearchParams(location.search).get("issue")}. `
+                    : ""}
+                  Review the highlighted claim information, update the incorrect values,
+                  then click Save Changes.
                 </Alert>
               )}
               <TextField
@@ -1177,16 +1225,20 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <TextField label="Provider TIN" value={editForm.providerTin} onChange={(e) => updateEditField("providerTin", e.target.value)} fullWidth />
               <TextField label="Provider Taxonomy Code" value={editForm.providerTaxonomyCode} onChange={(e) => updateEditField("providerTaxonomyCode", e.target.value)} fullWidth />
               <TextField
+                data-fix-field="diagnosisText"
                 label="Diagnosis"
                 value={editForm.diagnosisText}
+                color={isFixField("diagnosisText") ? "warning" : "primary"}
+                focused={isFixField("diagnosisText")}
                 onChange={(e) => updateEditField("diagnosisText", e.target.value)}
                 fullWidth
               />
               <TextField
                 label="ICD-10 Codes (comma separated)"
                 value={editForm.icd10Codes}
-                color={fixFocus === "icd10Codes" ? "warning" : "primary"}
-                focused={fixFocus === "icd10Codes"}
+                data-fix-field="icd10Codes"
+                color={isFixField("icd10Codes") ? "warning" : "primary"}
+                focused={isFixField("icd10Codes")}
                 onChange={(e) => updateEditField("icd10Codes", e.target.value)}
                 fullWidth
               />
@@ -1297,44 +1349,48 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <Divider />
               <Typography variant="subtitle2">Encounter Details</Typography>
               <TextField
+                data-fix-field="dateOfService"
                 label="Date of Service"
                 type="date"
                 InputLabelProps={{ shrink: true }}
                 value={editForm.dateOfService}
                 onChange={(e) => updateEditField("dateOfService", e.target.value)}
-                color={fixFocus === "dateOfService" ? "warning" : "primary"}
-                focused={fixFocus === "dateOfService"}
+                color={isFixField("dateOfService") ? "warning" : "primary"}
+                focused={isFixField("dateOfService")}
                 fullWidth
               />
               <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                 <TextField
+                  data-fix-field="admissionDate"
                   label="Admission Date"
                   type="date"
                   InputLabelProps={{ shrink: true }}
                   value={editForm.admissionDate}
                   onChange={(e) => updateEditField("admissionDate", e.target.value)}
-                  color={fixFocus === "admissionDate" ? "warning" : "primary"}
-                  focused={fixFocus === "admissionDate"}
+                  color={isFixField("admissionDate") ? "warning" : "primary"}
+                  focused={isFixField("admissionDate")}
                   fullWidth
                 />
                 <TextField
+                  data-fix-field="dischargeDate"
                   label="Discharge Date"
                   type="date"
                   InputLabelProps={{ shrink: true }}
                   value={editForm.dischargeDate}
                   onChange={(e) => updateEditField("dischargeDate", e.target.value)}
-                  color={fixFocus === "dischargeDate" ? "warning" : "primary"}
-                  focused={fixFocus === "dischargeDate"}
+                  color={isFixField("dischargeDate") ? "warning" : "primary"}
+                  focused={isFixField("dischargeDate")}
                   fullWidth
                 />
               </Stack>
               <TextField
+                data-fix-field="admissionType"
                 select
                 label="Admission Type"
                 value={editForm.admissionType}
                 onChange={(e) => updateEditField("admissionType", e.target.value)}
-                color={fixFocus === "admissionType" ? "warning" : "primary"}
-                focused={fixFocus === "admissionType"}
+                color={isFixField("admissionType") ? "warning" : "primary"}
+                focused={isFixField("admissionType")}
                 fullWidth
               >
                 <MenuItem value="">Not specified</MenuItem>
@@ -1342,12 +1398,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 <MenuItem value="EMERGENCY">Emergency</MenuItem>
               </TextField>
               <TextField
+                data-fix-field="roomCategory"
                 select
                 label="Room Category"
                 value={editForm.roomCategory}
                 onChange={(e) => updateEditField("roomCategory", e.target.value)}
-                color={fixFocus === "roomCategory" ? "warning" : "primary"}
-                focused={fixFocus === "roomCategory"}
+                color={isFixField("roomCategory") ? "warning" : "primary"}
+                focused={isFixField("roomCategory")}
                 fullWidth
               >
                 <MenuItem value="">Not specified</MenuItem>
@@ -1357,13 +1414,34 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 <MenuItem value="ICU">ICU</MenuItem>
               </TextField>
               <TextField
+                data-fix-field="icuDays"
                 label="ICU Days"
                 type="number"
                 inputProps={{ min: 0 }}
                 value={editForm.icuDays}
                 onChange={(e) => updateEditField("icuDays", e.target.value)}
-                color={fixFocus === "icuDays" ? "warning" : "primary"}
-                focused={fixFocus === "icuDays"}
+                color={isFixField("icuDays") ? "warning" : "primary"}
+                focused={isFixField("icuDays")}
+                fullWidth
+              />
+              <TextField
+                data-fix-field="procedureText"
+                label="Procedure"
+                value={editForm.procedureText}
+                onChange={(e) => updateEditField("procedureText", e.target.value)}
+                color={isFixField("procedureText") ? "warning" : "primary"}
+                focused={isFixField("procedureText")}
+                fullWidth
+              />
+              <TextField
+                data-fix-field="procedureDate"
+                label="Procedure Date"
+                type="date"
+                InputLabelProps={{ shrink: true }}
+                value={editForm.procedureDate}
+                onChange={(e) => updateEditField("procedureDate", e.target.value)}
+                color={isFixField("procedureDate") ? "warning" : "primary"}
+                focused={isFixField("procedureDate")}
                 fullWidth
               />
 

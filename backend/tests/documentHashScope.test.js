@@ -93,12 +93,16 @@ test("F8 - schema and upload routes enforce claim-scoped duplicate detection wit
   const base = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const schema = fs.readFileSync(path.join(base, "prisma/schema.prisma"), "utf8");
   const documentsRoute = fs.readFileSync(path.join(base, "src/routes/documents.js"), "utf8");
+  const processing = fs.readFileSync(
+    path.join(base, "src/services/documentProcessing.js"),
+    "utf8"
+  );
 
   assert.ok(schema.includes("@@unique([claimId, fileHash])"));
   assert.equal(schema.includes("fileHash    String? @unique"), false);
 
-  assert.ok(documentsRoute.includes("where: { claimId, fileHash }"));
-  assert.ok(documentsRoute.includes("where: { claimId: claim.id, fileHash }"));
+  assert.ok(processing.includes("where: { claimId, fileHash }"));
+  assert.ok(documentsRoute.includes("findDuplicateDocument("));
   assert.ok(documentsRoute.includes("fileHash,"));
   assert.equal(documentsRoute.includes("existingClaimId"), false);
   assert.equal(documentsRoute.includes("existingDocumentId"), false);

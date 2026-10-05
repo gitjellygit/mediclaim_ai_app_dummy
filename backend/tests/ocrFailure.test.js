@@ -48,10 +48,15 @@ test("B12 - synchronous OCR wait is capped and API does not treat OCR outage as 
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
   const service = fs.readFileSync(path.join(root, "services/docIntel.js"), "utf8");
   const routes = fs.readFileSync(path.join(root, "routes/documents.js"), "utf8");
+  const processing = fs.readFileSync(
+    path.join(root, "services/documentProcessing.js"),
+    "utf8"
+  );
   assert.match(service, /OCR_SYNC_WAIT_MS/);
   assert.match(service, /Math\.min\(30, Math\.ceil/);
-  assert.match(routes, /intel\.ocrStatus === "FAILED"/);
+  assert.match(processing, /intel\.ocrStatus === "FAILED"/);
+  assert.match(processing, /"OCR_UNAVAILABLE"/);
+  assert.match(routes, /inspectUploadedDocument\(req\.file\)/);
   assert.match(routes, /analysis\.ocrStatus === "FAILED"/);
   assert.match(routes, /status: "FAILED"/);
-  assert.match(routes, /code: "OCR_UNAVAILABLE"/);
 });

@@ -120,11 +120,31 @@ export default function MedicalConsistency() {
     }
   }
 
-  function openClaim(claimId) {
-    navigate(`/claims/${claimId}`, {
+  function openClaim(claimId, finding = null) {
+    const params = new URLSearchParams();
+
+    if (finding) {
+      const fields = Array.isArray(finding.fields)
+        ? finding.fields.filter(Boolean)
+        : [];
+
+      if (finding.fixTarget === "documents" || fields.includes("documents")) {
+        params.set("section", "documents");
+        params.set("focus", "documents");
+      } else {
+        params.set("edit", "1");
+        if (fields.length) params.set("focus", fields.join(","));
+      }
+
+      if (finding.title) params.set("issue", finding.title);
+    }
+
+    const queryString = params.toString();
+    navigate(`/claims/${claimId}${queryString ? `?${queryString}` : ""}`, {
       state: {
         from: location.pathname + location.search,
-        backLabel: "Back to Medical Consistency"
+        backLabel: "Back to Medical Consistency",
+        issueTitle: finding?.title || null
       }
     });
   }
@@ -480,9 +500,9 @@ export default function MedicalConsistency() {
                               size="small"
                               variant="contained"
                               color={finding.severity === "BLOCK" ? "error" : "warning"}
-                              onClick={() => openClaim(selected.claim.id)}
+                              onClick={() => openClaim(selected.claim.id, finding)}
                             >
-                              Review / Fix in Claim
+                              Fix in Claim
                             </Button>
                           </Stack>
                         </Paper>

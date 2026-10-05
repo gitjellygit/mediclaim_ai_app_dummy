@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { recomputeDerivedClaimPatch } from "./claimDocumentProvenance.js";
 import { removeProvenanceFields } from "./claimFieldProvenance.js";
 import { resolveStoredDocument } from "./storedDocumentPath.js";
+import { isClaimLocked } from "./claimLock.js";
 
 /** One deletion implementation shared by the current and legacy document APIs. */
 export async function deleteStoredDocument(prisma, req, res, {
@@ -15,7 +16,7 @@ export async function deleteStoredDocument(prisma, req, res, {
     });
     if (!doc) return res.status(404).json({ error: "Document not found" });
 
-    if (doc.claim?.status === "SUBMITTED" || doc.claim?.claimSubmissionDate) {
+    if (isClaimLocked(doc.claim)) {
       return res.status(409).json({
         error: "Submitted claims are locked. Documents cannot be deleted."
       });
@@ -50,6 +51,31 @@ export async function deleteStoredDocument(prisma, req, res, {
         data: { ...derivedPatch, fieldProvenance, status: "DRAFT" }
       })
     ]);
+
+    try {
+      await prisma.auditEvent.create({
+        data: {
+          organizationId: req.user.organizationId,
+          claimId: doc.claimId,
+          actorUserId: req.user?.id || null,
+          action: "DOCUMENT_DELETED",
+          entityType: "Document",
+          entityId: doc.id,
+          outcome: "SUCCESS",
+          metadata: {
+            bulk: false,
+            fileName: doc.fileName,
+            type: doc.type
+          }
+        }
+      });
+    } catch (auditError) {
+      console.error("[audit] document delete event write failed", {
+        claimId: doc.claimId,
+        documentId: doc.id,
+        code: auditError?.code || null
+      });
+    }
 
     // Never use a database-stored path directly for filesystem operations.
     const filePath = resolveStoredDocument(doc.path, uploadDir);

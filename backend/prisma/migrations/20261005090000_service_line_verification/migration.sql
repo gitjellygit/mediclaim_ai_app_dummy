@@ -1,0 +1,4 @@
+ALTER TABLE "ServiceLine"
+ADD COLUMN "verified" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN "source" TEXT NOT NULL DEFAULT 'USER',
+ADD COLUMN "sourceDocumentId" TEXT;

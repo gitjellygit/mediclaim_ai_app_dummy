@@ -28,6 +28,9 @@ import {
 import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
 import { evaluateUsReadinessRules, usReadinessRuleCodes } from "../services/usReadinessRules.js";
+import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
+import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
+import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
 
 const router = express.Router();
 
@@ -95,7 +98,10 @@ function normalizeServiceLines(lines = []) {
       serviceDateFrom,
       serviceDateTo,
       revenueCode: line.revenueCode || null,
-      poaIndicator: line.poaIndicator || null
+      poaIndicator: line.poaIndicator || null,
+      verified: true,
+      source: "USER",
+      sourceDocumentId: null
     });
   }
 
@@ -554,110 +560,68 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json(parsedInput.response);
     }
     const input = parsedInput.data;
+
     const existing = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
+      include: {
+        serviceLines: { orderBy: { createdAt: "asc" } }
+      }
     });
 
     if (!existing) {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    if (existing.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(existing.status)) {
-      return res.status(409).json({
-        error: "Submitted claims are locked. Reopen or amend the claim before editing."
-      });
-    }
+    assertClaimEditable(
+      existing,
+      "Submitted or finalized claims are locked. Reopen or amend the claim before editing."
+    );
 
-    const payload = {
-      patientName: input.patientName,
-      payerName: input.payerName,
-      policyNo: input.policyNo || null,
-      memberId: input.memberId || null,
-      medicalRecordNumber: input.medicalRecordNumber || null,
-      planAdministratorName: input.planAdministratorName || null,
-      groupNumber: input.groupNumber || null,
-      subscriberId: input.subscriberId || null,
-      subscriberName: input.subscriberName || null,
-      subscriberRelationship: input.subscriberRelationship || null,
-      coordinationOfBenefits: input.coordinationOfBenefits || null,
-      payerEdiId: input.payerEdiId || null,
-      coverageLimit:
-        input.coverageLimit != null && input.coverageLimit !== ""
-          ? validMoney(input.coverageLimit)
-          : null,
-      remainingCoverageLimit:
-        input.remainingCoverageLimit != null && input.remainingCoverageLimit !== ""
-          ? validMoney(input.remainingCoverageLimit)
-          : null,
-      payerReferenceNo: input.payerReferenceNo || null,
-      patientDob: input.patientDob ? parseClaimDate(input.patientDob) : null,
-      hospitalName: input.hospitalName || null,
-      billingProviderNpi: input.billingProviderNpi || null,
-      renderingProviderNpi: input.renderingProviderNpi || null,
-      referringProviderNpi: input.referringProviderNpi || null,
-      providerTin: input.providerTin || null,
-      providerTaxonomyCode: input.providerTaxonomyCode || null,
-      diagnosisText: input.diagnosisText || null,
-      claimType: input.claimType,
-      claimForm: input.claimForm || null,
-      dateOfService: input.dateOfService ? parseClaimDate(input.dateOfService) : null,
-      admissionDate: input.admissionDate ? parseClaimDate(input.admissionDate) : null,
-      dischargeDate: input.dischargeDate ? parseClaimDate(input.dischargeDate) : null,
-      admissionType: input.admissionType || null,
-      roomCategory: input.roomCategory || null,
-      icuDays:
-        input.icuDays != null && input.icuDays !== ""
-          ? Number(input.icuDays)
-          : null,
-      procedureText: input.procedureText || null,
-      procedureDate: input.procedureDate ? parseClaimDate(input.procedureDate) : null,
-      icd10Codes: Array.isArray(input.icd10Codes)
-        ? input.icd10Codes
-        : [],
-      inpatientProcedureCodes: Array.isArray(input.inpatientProcedureCodes)
-        ? input.inpatientProcedureCodes
-        : [],
-      typeOfBill: input.typeOfBill || null,
-      drgCode: input.drgCode || null,
-      claimFrequencyCode: input.claimFrequencyCode || "ORIGINAL",
-      timelyFilingDeadline: input.timelyFilingDeadline
-        ? parseClaimDate(input.timelyFilingDeadline)
-        : null,
-      amount: input.amount != null && input.amount !== ""
-        ? validMoney(input.amount)
-        : null,
-      totalBilledAmount:
-        input.totalBilledAmount != null &&
-        input.totalBilledAmount !== ""
-          ? validMoney(input.totalBilledAmount)
-          : null
-    };
+    const payload = buildClaimPatch(input);
 
-    if (!payload.patientName) {
+    const effectivePatientName =
+      Object.prototype.hasOwnProperty.call(payload, "patientName")
+        ? payload.patientName
+        : existing.patientName;
+    const effectivePayerName =
+      Object.prototype.hasOwnProperty.call(payload, "payerName")
+        ? payload.payerName
+        : existing.payerName;
+
+    if (!effectivePatientName) {
       return res.status(400).json({ error: "Patient name is required" });
     }
 
-    if (!payload.payerName) {
+    if (!effectivePayerName) {
       return res.status(400).json({ error: "Insurance company is required" });
     }
 
-    if (input.patientDob && !payload.patientDob) {
+    if (
+      Object.prototype.hasOwnProperty.call(input, "patientDob") &&
+      input.patientDob &&
+      !payload.patientDob
+    ) {
       return res.status(400).json({ error: "Patient date of birth is invalid" });
     }
 
-    for (const [label, inputValue, parsedValue] of [
-      ["Timely filing deadline", input.timelyFilingDeadline, payload.timelyFilingDeadline],
-      ["Date of service", input.dateOfService, payload.dateOfService],
-      ["Admission date", input.admissionDate, payload.admissionDate],
-      ["Discharge date", input.dischargeDate, payload.dischargeDate],
-      ["Procedure date", input.procedureDate, payload.procedureDate]
+    for (const [label, field] of [
+      ["Timely filing deadline", "timelyFilingDeadline"],
+      ["Date of service", "dateOfService"],
+      ["Admission date", "admissionDate"],
+      ["Discharge date", "dischargeDate"],
+      ["Procedure date", "procedureDate"]
     ]) {
-      if (inputValue && !parsedValue) {
+      if (
+        Object.prototype.hasOwnProperty.call(input, field) &&
+        input[field] &&
+        !payload[field]
+      ) {
         return res.status(400).json({ error: `${label} is invalid` });
       }
     }
 
     if (
+      Object.prototype.hasOwnProperty.call(payload, "icuDays") &&
       payload.icuDays != null &&
       (!Number.isFinite(payload.icuDays) || payload.icuDays < 0)
     ) {
@@ -667,6 +631,7 @@ router.patch("/:id", async (req, res) => {
     }
 
     if (
+      Object.prototype.hasOwnProperty.call(payload, "amount") &&
       payload.amount != null &&
       (!Number.isFinite(Number(payload.amount)) || Number(payload.amount) <= 0)
     ) {
@@ -675,20 +640,30 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
-    // Reject invalid money before writing or changing provenance.
     for (const name of ["amount", "totalBilledAmount", "coverageLimit", "remainingCoverageLimit"]) {
-      const supplied = req.body[name];
+      if (!Object.prototype.hasOwnProperty.call(input, name)) continue;
+      const supplied = input[name];
       if (supplied != null && supplied !== "" && validMoney(supplied) == null) {
-        return res.status(400).json({ error: "Invalid money", message: `${name} must have at most two decimal places`, code: "INVALID_MONEY" });
+        return res.status(400).json({
+          error: "Invalid money",
+          message: `${name} must have at most two decimal places`,
+          code: "INVALID_MONEY"
+        });
       }
     }
 
-    const normalizedServiceLines = input.serviceLines === undefined
-      ? null
-      : normalizeServiceLines(input.serviceLines);
+    const normalizedServiceLines =
+      input.serviceLines === undefined ? null : normalizeServiceLines(input.serviceLines);
     if (normalizedServiceLines && !normalizedServiceLines.ok) {
       return res.status(400).json(normalizedServiceLines.response);
     }
+
+    const patchChangedFields = changedPatchFields(existing, payload);
+    const serviceLinesChanged = normalizedServiceLines
+      ? serviceLinesDiffer(existing.serviceLines || [], normalizedServiceLines.data)
+      : false;
+    const anyClaimDataChanged =
+      patchChangedFields.length > 0 || serviceLinesChanged;
 
     const manuallyChangedFields = changedFields(existing, payload);
     const documentDerivedFields = removeManuallyEditedFields(
@@ -702,36 +677,48 @@ router.patch("/:id", async (req, res) => {
       manualProvenance(manuallyChangedFields)
     );
 
-    const editStatus = assertClaimTransition(existing.status, "DRAFT");
-    await prisma.$transaction(async (tx) => {
-      await tx.claim.update({
-        where: { id: req.params.id },
-        data: {
-          ...payload,
-          documentDerivedFields,
-          fieldProvenance,
-          status: editStatus
+    const nextStatus = anyClaimDataChanged
+      ? assertClaimTransition(existing.status, "DRAFT")
+      : existing.status;
+
+    if (anyClaimDataChanged) {
+      await prisma.$transaction(async (tx) => {
+        if (patchChangedFields.length > 0) {
+          await tx.claim.update({
+            where: { id: req.params.id },
+            data: {
+              ...payload,
+              documentDerivedFields,
+              fieldProvenance,
+              status: nextStatus
+            }
+          });
+        } else if (serviceLinesChanged && existing.status !== nextStatus) {
+          await tx.claim.update({
+            where: { id: req.params.id },
+            data: { status: nextStatus }
+          });
+        }
+
+        if (serviceLinesChanged) {
+          await tx.serviceLine.deleteMany({ where: { claimId: req.params.id } });
+          if (normalizedServiceLines.data.length > 0) {
+            await tx.serviceLine.createMany({
+              data: normalizedServiceLines.data.map((line) => ({
+                ...line,
+                claimId: req.params.id
+              }))
+            });
+          }
         }
       });
 
-      if (normalizedServiceLines) {
-        await tx.serviceLine.deleteMany({ where: { claimId: req.params.id } });
-        if (normalizedServiceLines.data.length > 0) {
-          await tx.serviceLine.createMany({
-            data: normalizedServiceLines.data.map((line) => ({
-              ...line,
-              claimId: req.params.id
-            }))
-          });
-        }
-      }
-    });
-
-    if (manuallyChangedFields.length > 0) {
       await markReadinessChecksStale(
         prisma,
         req.params.id,
-        "Claim details changed"
+        serviceLinesChanged && patchChangedFields.length === 0
+          ? "Claim service lines changed"
+          : "Claim details changed"
       );
     }
 
@@ -744,20 +731,97 @@ router.patch("/:id", async (req, res) => {
       }
     });
 
-    await auditClaim(req, {
-      claimId: updated.id,
-      action: "CLAIM_UPDATED",
-      metadata: { changedFields: manuallyChangedFields }
-    });
+    if (anyClaimDataChanged) {
+      await auditClaim(req, {
+        claimId: updated.id,
+        action: "CLAIM_UPDATED",
+        metadata: {
+          changedFields: patchChangedFields,
+          serviceLinesChanged
+        }
+      });
+    }
 
     res.json({
       ...updated,
+      unchanged: !anyClaimDataChanged,
       automationSummary: buildAutomationSummary(updated),
       completenessSummary: buildClaimCompleteness(updated)
     });
   } catch (e) {
     console.error("[claim-edit] failed", { name: e.name, code: e.code || null });
     res.status(500).json({ error: "Unable to update claim", code: "CLAIM_UPDATE_FAILED" });
+  }
+});
+
+router.delete("/:id/purge", requireRoles(["ADMIN"]), async (req, res) => {
+  try {
+    const id = req.params.id;
+    const claim = await prisma.claim.findFirst({
+      where: {
+        id,
+        organizationId: orgId(req),
+        deletedAt: { not: null }
+      },
+      include: {
+        documents: {
+          select: { id: true, path: true }
+        }
+      }
+    });
+
+    if (!claim) {
+      return res.status(404).json({
+        error: "Deleted claim not found",
+        message: "Only an already soft-deleted claim can be permanently purged."
+      });
+    }
+
+    const files = resolveClaimDocumentFiles(claim.documents);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.auditEvent.create({
+        data: {
+          organizationId: orgId(req),
+          claimId: claim.id,
+          actorUserId: req.user?.id || null,
+          action: "CLAIM_PERMANENTLY_PURGED",
+          entityType: "Claim",
+          entityId: claim.id,
+          outcome: "SUCCESS",
+          metadata: {
+            patientName: claim.patientName,
+            previousStatus: claim.status,
+            softDeletedAt: claim.deletedAt,
+            documentCount: claim.documents.length
+          }
+        }
+      });
+
+      await tx.claim.delete({ where: { id: claim.id } });
+    });
+
+    const fileCleanup = deletePurgedClaimFiles(files);
+    if (fileCleanup.failures.length > 0) {
+      console.error("[claim-purge] file cleanup incomplete", {
+        claimId: id,
+        failures: fileCleanup.failures
+      });
+    }
+
+    res.json({
+      success: true,
+      permanentlyPurged: true,
+      deletedFiles: fileCleanup.deleted,
+      fileCleanupWarnings: fileCleanup.failures.length
+    });
+  } catch (error) {
+    console.error("[claim-purge] failed", {
+      claimId: req.params.id,
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({ error: "Unable to permanently purge claim" });
   }
 });
 
@@ -770,9 +834,9 @@ router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    if (claim.status === "SUBMITTED") {
+    if (isClaimLocked(claim)) {
       return res.status(409).json({
-        error: "Submitted claims are locked and cannot be deleted."
+        error: "Submitted or finalized claims are locked and cannot be deleted."
       });
     }
 
@@ -822,11 +886,10 @@ router.post("/:id/check", async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    if (claim.status === "SUBMITTED") {
-      return res.status(409).json({
-        error: "Submitted claims are locked. Reopen the claim before running a new AI check."
-      });
-    }
+    assertClaimEditable(
+      claim,
+      "Submitted or finalized claims are locked. Reopen or amend the claim before running a new AI check."
+    );
 
     // Only recognized rule codes alter live readiness. Mandatory gates remain mandatory.
     const rules = await prisma.rule.findMany({
@@ -870,6 +933,10 @@ router.post("/:id/check", async (req, res) => {
       });
     }
 
+    const verifiedServiceLines = (claim.serviceLines || []).filter(
+      (line) => line.verified !== false
+    );
+
     if (claim.claimForm === "PROFESSIONAL") {
       if (!claim.renderingProviderNpi) {
         issues.push({
@@ -879,7 +946,7 @@ router.post("/:id/check", async (req, res) => {
           fixTarget: "claim"
         });
       }
-      if (claim.serviceLines?.length && claim.serviceLines.some((line) => !line.placeOfService)) {
+      if (verifiedServiceLines.length && verifiedServiceLines.some((line) => !line.placeOfService)) {
         issues.push({
           severity: "BLOCK",
           message: "837P professional service lines require Place of Service",
@@ -898,7 +965,7 @@ router.post("/:id/check", async (req, res) => {
           fixTarget: "claim"
         });
       }
-      if (claim.serviceLines?.length && claim.serviceLines.some((line) => !line.revenueCode)) {
+      if (verifiedServiceLines.length && verifiedServiceLines.some((line) => !line.revenueCode)) {
         issues.push({
           severity: "BLOCK",
           message: "837I institutional service lines require revenue code",
@@ -1012,27 +1079,32 @@ router.post("/:id/check", async (req, res) => {
       orderBy: { createdAt: "desc" }
     });
 
-    const check = await prisma.check.create({
-      data: {
-        claimId: claim.id,
-        score: readinessScore,
-        riskScore,
-        riskLevel,
-        riskFactors,
-        issues,
-        isStale: false,
-        staleAt: null,
-        staleReason: null
-      }
-    });
-
     const readinessStatus = assertClaimTransition(
       claim.status,
       !hasBlock && readinessScore >= 80 ? "READY" : "DRAFT"
     );
-    await prisma.claim.update({
-      where: { id: claim.id },
-      data: { status: readinessStatus }
+
+    const check = await prisma.$transaction(async (tx) => {
+      const created = await tx.check.create({
+        data: {
+          claimId: claim.id,
+          score: readinessScore,
+          riskScore,
+          riskLevel,
+          riskFactors,
+          issues,
+          isStale: false,
+          staleAt: null,
+          staleReason: null
+        }
+      });
+
+      await tx.claim.update({
+        where: { id: claim.id },
+        data: { status: readinessStatus }
+      });
+
+      return created;
     });
 
     res.json({
@@ -1047,6 +1119,7 @@ router.post("/:id/check", async (req, res) => {
       }
     });
   } catch (e) {
+    if (e?.status) throw e;
     console.error("[claim-readiness] failed", { name: e?.name, code: e?.code || null });
     res.status(500).json({ error: "Unable to check claim readiness", code: "CLAIM_READINESS_FAILED" });
   }
@@ -1119,10 +1192,11 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       });
     }
 
-    if (claim.status === "SUBMITTED") {
-      return res.status(400).json({
-        error: "Claim is already submitted"
-      });
+    if (isClaimLocked(claim)) {
+      assertClaimEditable(
+        claim,
+        "Submitted or finalized claims cannot be submitted again."
+      );
     }
 
     const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED");
@@ -1153,6 +1227,7 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       claim: updated
     });
   } catch (e) {
+    if (e?.status) throw e;
     console.error("[claim-submit] failed", { name: e?.name, code: e?.code || null });
     res.status(500).json({ error: "Unable to submit claim", code: "CLAIM_SUBMISSION_FAILED" });
   }

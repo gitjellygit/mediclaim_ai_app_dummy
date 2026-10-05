@@ -10,6 +10,7 @@ import {
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { createPayerConnectorForClaim } from "../services/payerGateway.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
+import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
 import {
   getMockPayer,
   listMockPayers,
@@ -29,8 +30,15 @@ router.get("/payers/mock", (_req, res) => {
   });
 });
 
-async function createPayerTransaction(claimId, payerCode, transactionType, result, requestPayload = {}) {
-  return prisma.payerTransaction.create({
+async function createPayerTransaction(
+  claimId,
+  payerCode,
+  transactionType,
+  result,
+  requestPayload = {},
+  db = prisma
+) {
+  return db.payerTransaction.create({
     data: {
       claimId,
       transactionId: result.transactionId,
@@ -67,7 +75,7 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
-    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+    if (isClaimLocked(claim)) {
       return res.status(409).json({
         error: "Payer profile cannot be changed after claim submission"
       });
@@ -151,7 +159,7 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
       return res.status(409).json({ error: "Connect a mock payer first" });
     }
-    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+    if (isClaimLocked(claim)) {
       return res.status(409).json({ error: "Eligibility is locked after claim submission" });
     }
 
@@ -238,7 +246,7 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
     if (claim.eligibilityStatus !== "VERIFIED") {
       return res.status(409).json({ error: "Verify eligibility with the payer first" });
     }
-    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+    if (isClaimLocked(claim)) {
       return res.status(409).json({ error: "Prior authorization is locked after claim submission" });
     }
 
@@ -326,7 +334,7 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
       return res.status(409).json({ error: "Connect a mock payer first" });
     }
-    if (!claim.claimSubmissionDate && claim.status !== "SUBMITTED") {
+    if (!isClaimSubmittedOrLater(claim)) {
       return res.status(409).json({ error: "Submit the claim in Claim Journey first" });
     }
 
@@ -355,35 +363,50 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
       result.status === "ACCEPTED" ? "ACKNOWLEDGED" :
       result.status === "PENDED" ? "PENDED" : "REJECTED";
 
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
-        payerClaimStatus,
-        insurerClaimNo: result.payerClaimNo || claim.insurerClaimNo,
-        claimStatusCheckedAt: new Date(),
-        fieldProvenance: mergeProvenance(
-          claim.fieldProvenance,
-          systemProvenance(["payerClaimStatus", "insurerClaimNo"], {
-            source: "SIMULATED_PAYER",
-            label: "Mock Claim Acknowledgment",
-            sourceDetail: payer.name,
-            verified: false
-          })
-        )
-      }
-    });
+    const requestAmount =
+      claim.amount != null
+        ? String(claim.amount)
+        : claim.totalBilledAmount != null
+        ? String(claim.totalBilledAmount)
+        : null;
 
-    const transaction = await createPayerTransaction(
-      claim.id,
-      payer.code,
-      "CLAIM_SUBMISSION",
-      result,
-      {
-        transaction: "837-style",
-        amount: claim.amount || claim.totalBilledAmount || null,
-        inputFingerprint
-      }
-    );
+    const { updated, transaction } = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          payerClaimStatus,
+          insurerClaimNo: result.payerClaimNo || claim.insurerClaimNo,
+          claimStatusCheckedAt: new Date(),
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            systemProvenance(["payerClaimStatus", "insurerClaimNo"], {
+              source: "SIMULATED_PAYER",
+              label: "Mock Claim Acknowledgment",
+              sourceDetail: payer.name,
+              verified: false
+            })
+          )
+        }
+      });
+
+      const payerTransaction = await createPayerTransaction(
+        claim.id,
+        payer.code,
+        "CLAIM_SUBMISSION",
+        result,
+        {
+          transaction: "837-style",
+          amount: requestAmount,
+          inputFingerprint
+        },
+        tx
+      );
+
+      return {
+        updated: updatedClaim,
+        transaction: payerTransaction
+      };
+    });
 
     res.json({ result, transaction, claim: updated });
   } catch (error) {

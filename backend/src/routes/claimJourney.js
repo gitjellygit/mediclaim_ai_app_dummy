@@ -12,6 +12,7 @@ import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { buildClaimCompleteness } from "../services/claimCompleteness.js";
 import { getMockPayer } from "../services/payerSimulator.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
+import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
 import { createPayerConnector } from "../services/payerGateway.js";
 
 const router = express.Router();
@@ -38,8 +39,7 @@ function buildJourneyState(claim) {
 
   // Submission is its own completed stage. Overall claim status can later become
   // DENIED or PAID without making the submission stage look unfinished.
-  const submitted = Boolean(claim.claimSubmissionDate) ||
-    ["SUBMITTED", "DENIED", "PAID"].includes(claim.status);
+  const submitted = isClaimSubmittedOrLater(claim);
 
   const terminalPayerStatuses = new Set([
     "APPROVED",
@@ -249,10 +249,7 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
-    if (
-      claim.claimSubmissionDate ||
-      ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
-    ) {
+    if (isClaimLocked(claim)) {
       return res.status(409).json({
         error: "Prior authorization is locked after claim submission"
       });
@@ -377,10 +374,7 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
-    if (
-      !claim.claimSubmissionDate &&
-      !["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
-    ) {
+    if (!isClaimSubmittedOrLater(claim)) {
       return res.status(409).json({
         error: "Claim must be submitted before payer status can be recorded"
       });
@@ -534,10 +528,7 @@ router.patch("/:id/journey/remittance", async (req, res) => {
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
-    if (
-      !claim.claimSubmissionDate &&
-      !["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
-    ) {
+    if (!isClaimSubmittedOrLater(claim)) {
       return res.status(409).json({
         error: "Claim must be submitted before remittance can be recorded"
       });
