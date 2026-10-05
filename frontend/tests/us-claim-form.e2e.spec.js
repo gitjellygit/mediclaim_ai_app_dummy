@@ -429,7 +429,7 @@ test("U4-9 - switching 837I back to 837P changes readiness rules without deletin
   const updated = await apiJson(patchResponse, "reverse switch update");
 
   expect(updated.claimForm).toBe("PROFESSIONAL");
-  expect(updated.typeOfBill).toBe("131");
+  expect(updated.typeOfBill).toBe("0131");
   expect(updated.serviceLines[0].revenueCode).toBe("0510");
   expect(updated.serviceLines[0].placeOfService).toBe("11");
 
