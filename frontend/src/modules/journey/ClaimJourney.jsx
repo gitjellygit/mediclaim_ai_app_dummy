@@ -262,7 +262,8 @@ function StageCard({
       data-testid={stageId}
       sx={{
         height: "100%",
-        opacity: actionable ? 1 : 0.72,
+        opacity: 1,
+        backgroundColor: actionable ? "background.paper" : "grey.50",
         scrollMarginTop: 96,
         border: highlighted ? "2px solid" : undefined,
         borderColor: highlighted ? "warning.main" : undefined,
