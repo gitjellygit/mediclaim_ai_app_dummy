@@ -11,13 +11,30 @@ import {
   Button,
   Stack,
   MenuItem,
-  Divider
+  Divider,
+  Autocomplete
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../api/claims.js";
 import { useToast } from "../context/ToastContext.jsx";
 import { formatUSD } from "../utils/currency.js";
 import ServiceLinesEditor, { serviceLineToPayload } from "../components/ServiceLinesEditor.jsx";
+import {
+  TYPE_OF_BILL_BASE_OPTIONS,
+  drgError,
+  icd10CmError,
+  icd10PcsError,
+  normalizeIcd10Cm,
+  normalizeIcd10Pcs,
+  normalizeNpi,
+  normalizeTaxonomy,
+  normalizeTin,
+  npiError,
+  taxonomyError,
+  tinError,
+  typeOfBillError,
+  typeOfBillFor
+} from "../utils/usClaimValidation.js";
 
 const steps = [
   "Patient & Hospital",
@@ -26,8 +43,6 @@ const steps = [
   "Financials",
   "Review"
 ];
-
-const ICD_REGEX = /^[A-Z][0-9]{2}(\.[0-9A-Z]{1,4})?$/;
 
 export default function NewClaim() {
   const { showDialog } = useToast();
@@ -96,20 +111,45 @@ export default function NewClaim() {
     if (step === 0) {
       if (!form.patientName) e.patientName = "Patient name is required";
       if (!form.claimForm) e.claimForm = "Select Professional (837P) or Institutional (837I)";
-      if (!form.billingProviderNpi) e.billingProviderNpi = "Billing provider NPI is required";
+      if (!form.billingProviderNpi) {
+        e.billingProviderNpi = "Billing provider NPI is required";
+      } else if (npiError(form.billingProviderNpi)) {
+        e.billingProviderNpi = npiError(form.billingProviderNpi);
+      }
       if (form.claimForm === "PROFESSIONAL" && !form.renderingProviderNpi) {
         e.renderingProviderNpi = "Rendering provider NPI is required for 837P";
+      } else if (form.renderingProviderNpi && npiError(form.renderingProviderNpi)) {
+        e.renderingProviderNpi = npiError(form.renderingProviderNpi);
+      }
+      if (form.referringProviderNpi && npiError(form.referringProviderNpi)) {
+        e.referringProviderNpi = npiError(form.referringProviderNpi);
+      }
+      if (form.providerTin && tinError(form.providerTin)) e.providerTin = tinError(form.providerTin);
+      if (form.providerTaxonomyCode && taxonomyError(form.providerTaxonomyCode)) {
+        e.providerTaxonomyCode = taxonomyError(form.providerTaxonomyCode);
       }
     }
 
-    if (step === 1 && form.icd10Codes) {
-      const invalid = form.icd10Codes
+    if (step === 1) {
+      const diagnosisCodes = form.icd10Codes
         .split(",")
         .map((c) => c.trim())
-        .filter((c) => !ICD_REGEX.test(c));
+        .filter(Boolean);
+      const invalidDiagnosis = diagnosisCodes.find((code) => icd10CmError(code));
+      if (invalidDiagnosis) {
+        e.icd10Codes = `${invalidDiagnosis}: ${icd10CmError(invalidDiagnosis)}`;
+      }
 
-      if (invalid.length) {
-        e.icd10Codes = `Invalid ICD-10 codes: ${invalid.join(", ")}`;
+      const pcsCodes = form.inpatientProcedureCodes
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      const invalidPcs = pcsCodes.find((code) => icd10PcsError(code));
+      if (invalidPcs) {
+        e.inpatientProcedureCodes = `${invalidPcs}: ${icd10PcsError(invalidPcs)}`;
+      }
+      if (form.claimForm === "PROFESSIONAL" && pcsCodes.length) {
+        e.inpatientProcedureCodes = "ICD-10-PCS is for inpatient institutional procedures, not 837P professional claims.";
       }
     }
 
@@ -140,6 +180,11 @@ export default function NewClaim() {
 
       if (form.claimForm === "INSTITUTIONAL" && !form.typeOfBill?.trim()) {
         e.typeOfBill = "Type of Bill is required for 837I";
+      } else if (form.typeOfBill && typeOfBillError(form.typeOfBill)) {
+        e.typeOfBill = typeOfBillError(form.typeOfBill);
+      }
+      if (form.drgCode && drgError(form.drgCode)) {
+        e.drgCode = drgError(form.drgCode);
       }
     }
 
@@ -156,7 +201,61 @@ export default function NewClaim() {
     setActiveStep((s) => s - 1);
   }
 
+  function stepForField(fieldPath = "") {
+    const field = String(fieldPath).split(".")[0];
+    if ([
+      "claimForm", "patientName", "hospitalName", "billingProviderNpi",
+      "renderingProviderNpi", "referringProviderNpi", "providerTin",
+      "providerTaxonomyCode"
+    ].includes(field)) return 0;
+
+    if (["diagnosisText", "icd10Codes", "inpatientProcedureCodes"].includes(field)) return 1;
+
+    if ([
+      "medicalRecordNumber", "payerName", "policyNo", "memberId",
+      "planAdministratorName", "payerReferenceNo", "groupNumber",
+      "subscriberId", "subscriberName", "subscriberRelationship",
+      "coordinationOfBenefits", "payerEdiId"
+    ].includes(field)) return 2;
+
+    return 3;
+  }
+
+  function friendlyFieldLabel(fieldPath = "") {
+    const field = String(fieldPath).split(".")[0];
+    return ({
+      claimForm: "Claim Form",
+      patientName: "Patient Name",
+      billingProviderNpi: "Billing Provider NPI",
+      renderingProviderNpi: "Rendering Provider NPI",
+      referringProviderNpi: "Referring Provider NPI",
+      providerTin: "Provider TIN",
+      providerTaxonomyCode: "Provider Taxonomy Code",
+      icd10Codes: "ICD-10-CM",
+      inpatientProcedureCodes: "ICD-10-PCS",
+      payerName: "Insurance Company",
+      amount: "Claimed Amount",
+      totalBilledAmount: "Billed Amount",
+      typeOfBill: "Type of Bill",
+      drgCode: "DRG",
+      serviceLines: "Service Lines"
+    })[field] || "Claim Information";
+  }
+
   const submit = async () => {
+    // Revalidate every manual-entry step before calling the API. The review
+    // screen is a summary, not a bypass around field-level validation.
+    for (let step = 0; step < 4; step += 1) {
+      if (!validateStep(step)) {
+        setActiveStep(step);
+        showDialog(
+          "Please correct the highlighted information before creating the claim.",
+          { title: "Claim needs correction", severity: "warning" }
+        );
+        return;
+      }
+    }
+
     // HARD STOP validations (final gate)
     if (!form.patientName || !form.payerName || !form.amount) {
       showDialog(
@@ -210,11 +309,11 @@ export default function NewClaim() {
           : null,
         claimForm: form.claimForm,
         hospitalName: form.hospitalName || null,
-        billingProviderNpi: form.billingProviderNpi || null,
-        renderingProviderNpi: form.renderingProviderNpi || null,
-        referringProviderNpi: form.referringProviderNpi || null,
-        providerTin: form.providerTin || null,
-        providerTaxonomyCode: form.providerTaxonomyCode || null,
+        billingProviderNpi: form.billingProviderNpi ? normalizeNpi(form.billingProviderNpi) : null,
+        renderingProviderNpi: form.renderingProviderNpi ? normalizeNpi(form.renderingProviderNpi) : null,
+        referringProviderNpi: form.referringProviderNpi ? normalizeNpi(form.referringProviderNpi) : null,
+        providerTin: form.providerTin ? normalizeTin(form.providerTin) : null,
+        providerTaxonomyCode: form.providerTaxonomyCode ? normalizeTaxonomy(form.providerTaxonomyCode) : null,
         diagnosisText: form.diagnosisText || null,
         claimType: form.claimType,
         typeOfBill: form.typeOfBill || null,
@@ -226,10 +325,10 @@ export default function NewClaim() {
         totalBilledAmount: billed,
   
         icd10Codes: form.icd10Codes
-          ? form.icd10Codes.split(",").map(c => c.trim())
+          ? form.icd10Codes.split(",").map(normalizeIcd10Cm).filter(Boolean)
           : [],
         inpatientProcedureCodes: form.inpatientProcedureCodes
-          ? form.inpatientProcedureCodes.split(",").map(c => c.trim()).filter(Boolean)
+          ? form.inpatientProcedureCodes.split(",").map(normalizeIcd10Pcs).filter(Boolean)
           : [],
         serviceLines: form.serviceLines
           .filter((line) => line.cptHcpcsCode?.trim())
@@ -239,10 +338,32 @@ export default function NewClaim() {
       await ClaimsApi.create(payload);
       navigate("/claims");
     } catch (e) {
-      showDialog(
-        e.message || "The claim could not be created. Please review the information and try again.",
-        { title: "Claim creation failed", severity: "error" }
-      );
+      const fieldPath = e?.data?.field || "";
+      if (e?.status === 400 && fieldPath) {
+        const rootField = fieldPath.split(".")[0];
+        setErrors((current) => ({
+          ...current,
+          [rootField]: e.message || "Please correct this field"
+        }));
+        setActiveStep(stepForField(fieldPath));
+        showDialog(
+          e.message || "Please correct the highlighted information.",
+          {
+            title: `Please correct ${friendlyFieldLabel(fieldPath)}`,
+            severity: "warning"
+          }
+        );
+      } else if (e?.status === 400) {
+        showDialog(
+          e.message || "Some claim information is invalid. Please review the highlighted fields.",
+          { title: "Please review claim information", severity: "warning" }
+        );
+      } else {
+        showDialog(
+          "The claim could not be created right now. Please try again. If the problem continues, contact support.",
+          { title: "Claim could not be created", severity: "error" }
+        );
+      }
     } finally {
       setSubmitting(false);
     }
@@ -293,35 +414,45 @@ export default function NewClaim() {
               <TextField
                 label="Billing Provider NPI"
                 value={form.billingProviderNpi}
-                onChange={(e) => update("billingProviderNpi", e.target.value)}
+                onChange={(e) => update("billingProviderNpi", normalizeNpi(e.target.value))}
+                inputProps={{ inputMode: "numeric", maxLength: 10 }}
                 error={!!errors.billingProviderNpi}
-                helperText={errors.billingProviderNpi}
+                helperText={errors.billingProviderNpi || "Exactly 10 digits"}
               />
               {form.claimForm === "PROFESSIONAL" && (
                 <>
                   <TextField
                     label="Rendering Provider NPI"
                     value={form.renderingProviderNpi}
-                    onChange={(e) => update("renderingProviderNpi", e.target.value)}
+                    onChange={(e) => update("renderingProviderNpi", normalizeNpi(e.target.value))}
+                    inputProps={{ inputMode: "numeric", maxLength: 10 }}
                     error={!!errors.renderingProviderNpi}
-                    helperText={errors.renderingProviderNpi}
+                    helperText={errors.renderingProviderNpi || "Exactly 10 digits"}
                   />
                   <TextField
                     label="Referring Provider NPI"
                     value={form.referringProviderNpi}
-                    onChange={(e) => update("referringProviderNpi", e.target.value)}
+                    onChange={(e) => update("referringProviderNpi", normalizeNpi(e.target.value))}
+                    inputProps={{ inputMode: "numeric", maxLength: 10 }}
+                    error={!!errors.referringProviderNpi}
+                    helperText={errors.referringProviderNpi || "Optional; exactly 10 digits when provided"}
                   />
                 </>
               )}
               <TextField
                 label="Provider TIN"
                 value={form.providerTin}
-                onChange={(e) => update("providerTin", e.target.value)}
+                onChange={(e) => update("providerTin", e.target.value.replace(/[^0-9-]/g, "").slice(0, 10))}
+                error={!!errors.providerTin}
+                helperText={errors.providerTin || "9 digits; 12-3456789 or 123456789"}
               />
               <TextField
                 label="Provider Taxonomy Code"
                 value={form.providerTaxonomyCode}
-                onChange={(e) => update("providerTaxonomyCode", e.target.value)}
+                onChange={(e) => update("providerTaxonomyCode", normalizeTaxonomy(e.target.value))}
+                inputProps={{ maxLength: 10 }}
+                error={!!errors.providerTaxonomyCode}
+                helperText={errors.providerTaxonomyCode || "10-character NUCC taxonomy code"}
               />
             </Stack>
           )}
@@ -337,14 +468,22 @@ export default function NewClaim() {
               <TextField
                 label="ICD-10 Codes (comma separated)"
                 value={form.icd10Codes}
-                onChange={(e) => update("icd10Codes", e.target.value)}
+                onChange={(e) => update("icd10Codes", e.target.value.toUpperCase())}
                 error={!!errors.icd10Codes}
-                helperText={errors.icd10Codes}
+                helperText={errors.icd10Codes || "ICD-10-CM diagnosis codes; dotted or undotted input is accepted (e.g. E11.9 or E119)."}
               />
               <TextField
                 label="ICD-10-PCS Codes (inpatient, comma separated)"
                 value={form.inpatientProcedureCodes}
-                onChange={(e) => update("inpatientProcedureCodes", e.target.value)}
+                onChange={(e) => update("inpatientProcedureCodes", e.target.value.toUpperCase())}
+                disabled={form.claimForm !== "INSTITUTIONAL"}
+                error={!!errors.inpatientProcedureCodes}
+                helperText={
+                  errors.inpatientProcedureCodes ||
+                  (form.claimForm === "INSTITUTIONAL"
+                    ? "ICD-10-PCS: exactly 7 characters, no decimal; excludes I and O."
+                    : "Available only for inpatient/institutional claims.")
+                }
               />
             </Stack>
           )}
@@ -479,7 +618,13 @@ export default function NewClaim() {
                 label="Claim Frequency"
                 select
                 value={form.claimFrequencyCode}
-                onChange={(e) => update("claimFrequencyCode", e.target.value)}
+                onChange={(e) => {
+                  const frequency = e.target.value;
+                  update("claimFrequencyCode", frequency);
+                  if (form.typeOfBill) {
+                    update("typeOfBill", typeOfBillFor(form.typeOfBill.slice(0, 3), frequency));
+                  }
+                }}
               >
                 <MenuItem value="ORIGINAL">Original</MenuItem>
                 <MenuItem value="CORRECTED">Corrected</MenuItem>
@@ -496,18 +641,39 @@ export default function NewClaim() {
 
               {form.claimForm === "INSTITUTIONAL" && (
                 <>
-                  <TextField
-                    label="Type of Bill"
+                  <Autocomplete
+                    freeSolo
+                    options={TYPE_OF_BILL_BASE_OPTIONS.map((option) => ({
+                      value: typeOfBillFor(option.base, form.claimFrequencyCode),
+                      label: option.label
+                    }))}
+                    getOptionLabel={(option) =>
+                      typeof option === "string" ? option : `${option.value} — ${option.label}`
+                    }
                     value={form.typeOfBill}
-                    onChange={(e) => update("typeOfBill", e.target.value)}
-                    error={!!errors.typeOfBill}
-                    helperText={errors.typeOfBill}
+                    onChange={(_event, option) =>
+                      update("typeOfBill", typeof option === "string" ? option : option?.value || "")
+                    }
+                    onInputChange={(_event, value) =>
+                      update("typeOfBill", value.toUpperCase().replace(/\s/g, "").slice(0, 4))
+                    }
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Type of Bill"
+                        error={!!errors.typeOfBill}
+                        helperText={errors.typeOfBill || "Choose a common CMS value or enter another valid 4-character UB-04 Type of Bill."}
+                      />
+                    )}
                   />
 
                   <TextField
                     label="DRG"
                     value={form.drgCode}
-                    onChange={(e) => update("drgCode", e.target.value)}
+                    onChange={(e) => update("drgCode", e.target.value.replace(/\D/g, "").slice(0, 3))}
+                    inputProps={{ inputMode: "numeric", maxLength: 3 }}
+                    error={!!errors.drgCode}
+                    helperText={errors.drgCode || "MS-DRG format: 3 digits when applicable"}
                   />
                 </>
               )}
@@ -517,6 +683,8 @@ export default function NewClaim() {
               <ServiceLinesEditor
                 lines={form.serviceLines}
                 onChange={(serviceLines) => update("serviceLines", serviceLines)}
+                claimForm={form.claimForm}
+                diagnosisCodes={form.icd10Codes.split(",").map(normalizeIcd10Cm).filter(Boolean)}
               />
               {errors.serviceLines && (
                 <Typography color="error" variant="body2">{errors.serviceLines}</Typography>
