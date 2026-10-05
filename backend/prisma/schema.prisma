@@ -456,17 +456,22 @@ model User {
 }
 
 model RefreshToken {
-  id        String    @id @default(cuid())
-  token     String    @unique
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  revoked   Boolean   @default(false)
-  createdAt DateTime  @default(now())
-  revokedAt DateTime?
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique
+  sessionId  String
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  revoked    Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  userAgent  String?
+  ipAddress  String?
 
-  @@index([token])
   @@index([userId])
+  @@index([sessionId])
+  @@index([userId, sessionId])
 }
 
 
