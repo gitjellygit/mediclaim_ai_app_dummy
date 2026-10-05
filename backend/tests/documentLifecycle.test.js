@@ -1840,13 +1840,13 @@ test("65 - AI check refresh keeps claim detail mounted and returns to readiness 
   assert.match(source, /not a payer probability/);
 });
 
-test("66 - AI analysis dialog shows domain-specific staged workflow", { concurrency: false }, () => {
+test("66 - claim-readiness dialog shows domain-specific staged workflow", { concurrency: false }, () => {
   const source = fs.readFileSync(
     path.join(frontendRoot, "src/components/AICheckProgress.jsx"),
     "utf8"
   );
 
-  assert.match(source, /AI Claim Readiness Analysis/);
+  assert.match(source, /Checking Claim Readiness/);
   assert.match(source, /Reading claim documents/);
   assert.match(source, /Checking clinical & policy data/);
   assert.match(source, /Reviewing payer & authorization rules/);
