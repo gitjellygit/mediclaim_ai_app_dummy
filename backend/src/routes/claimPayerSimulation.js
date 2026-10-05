@@ -30,8 +30,15 @@ router.get("/payers/mock", (_req, res) => {
   });
 });
 
-async function createPayerTransaction(claimId, payerCode, transactionType, result, requestPayload = {}) {
-  return prisma.payerTransaction.create({
+async function createPayerTransaction(
+  claimId,
+  payerCode,
+  transactionType,
+  result,
+  requestPayload = {},
+  db = prisma
+) {
+  return db.payerTransaction.create({
     data: {
       claimId,
       transactionId: result.transactionId,
@@ -356,35 +363,50 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
       result.status === "ACCEPTED" ? "ACKNOWLEDGED" :
       result.status === "PENDED" ? "PENDED" : "REJECTED";
 
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
-        payerClaimStatus,
-        insurerClaimNo: result.payerClaimNo || claim.insurerClaimNo,
-        claimStatusCheckedAt: new Date(),
-        fieldProvenance: mergeProvenance(
-          claim.fieldProvenance,
-          systemProvenance(["payerClaimStatus", "insurerClaimNo"], {
-            source: "SIMULATED_PAYER",
-            label: "Mock Claim Acknowledgment",
-            sourceDetail: payer.name,
-            verified: false
-          })
-        )
-      }
-    });
+    const requestAmount =
+      claim.amount != null
+        ? String(claim.amount)
+        : claim.totalBilledAmount != null
+        ? String(claim.totalBilledAmount)
+        : null;
 
-    const transaction = await createPayerTransaction(
-      claim.id,
-      payer.code,
-      "CLAIM_SUBMISSION",
-      result,
-      {
-        transaction: "837-style",
-        amount: claim.amount || claim.totalBilledAmount || null,
-        inputFingerprint
-      }
-    );
+    const { updated, transaction } = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          payerClaimStatus,
+          insurerClaimNo: result.payerClaimNo || claim.insurerClaimNo,
+          claimStatusCheckedAt: new Date(),
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            systemProvenance(["payerClaimStatus", "insurerClaimNo"], {
+              source: "SIMULATED_PAYER",
+              label: "Mock Claim Acknowledgment",
+              sourceDetail: payer.name,
+              verified: false
+            })
+          )
+        }
+      });
+
+      const payerTransaction = await createPayerTransaction(
+        claim.id,
+        payer.code,
+        "CLAIM_SUBMISSION",
+        result,
+        {
+          transaction: "837-style",
+          amount: requestAmount,
+          inputFingerprint
+        },
+        tx
+      );
+
+      return {
+        updated: updatedClaim,
+        transaction: payerTransaction
+      };
+    });
 
     res.json({ result, transaction, claim: updated });
   } catch (error) {
