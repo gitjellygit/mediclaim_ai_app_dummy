@@ -20,7 +20,7 @@ const optionalDateString = z.string().trim().max(64).nullish();
 const optionalMoneyInput = z.union([z.string().trim().max(40), z.number().finite()]).nullish();
 
 export const serviceLineInputSchema = z.object({
-  cptHcpcsCode: cptHcpcsSchema,
+  cptHcpcsCode: z.union([cptHcpcsSchema, z.literal("")]),
   modifiers: z.array(modifierSchema).max(4).optional(),
   units: z.union([z.string().trim().max(20), z.number().finite()]).nullish(),
   charge: optionalMoneyInput,
