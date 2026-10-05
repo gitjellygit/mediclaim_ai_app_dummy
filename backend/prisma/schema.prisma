@@ -177,30 +177,31 @@ model Organization {
   users       User[]
   claims      Claim[]
   auditEvents AuditEvent[]
+  rules       Rule[]
 }
 
 model Claim {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
   deletedAt DateTime?
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   createdById    String?
-  createdBy      User? @relation("ClaimCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy      User?        @relation("ClaimCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   patientName String
   payerName   String
   policyNo    String?
-  amount      Decimal? @db.Decimal(14,2)
+  amount      Decimal?    @db.Decimal(14, 2)
   status      ClaimStatus @default(DRAFT)
 
-  patientAge    Int?
-  patientGender Gender?
-  patientDob    DateTime? @db.Date
+  patientAge          Int?
+  patientGender       Gender?
+  patientDob          DateTime? @db.Date
   medicalRecordNumber String?
-  patientMobile String?
-  memberId      String?
+  patientMobile       String?
+  memberId            String?
 
   hospitalName    String?
   hospitalAddress String?
@@ -215,46 +216,46 @@ model Claim {
   providerTin          String?
   providerTaxonomyCode String?
 
-  admissionDate DateTime? @db.Date
-  dischargeDate DateTime? @db.Date
-  admissionType AdmissionType?
-  diagnosisText String?
-  icd10Codes    String[]       @default([])
-  procedureText String?
-  procedureDate DateTime? @db.Date
-  dateOfService DateTime? @db.Date
-  inpatientProcedureCodes String[] @default([])
+  admissionDate           DateTime?      @db.Date
+  dischargeDate           DateTime?      @db.Date
+  admissionType           AdmissionType?
+  diagnosisText           String?
+  icd10Codes              String[]       @default([])
+  procedureText           String?
+  procedureDate           DateTime?      @db.Date
+  dateOfService           DateTime?      @db.Date
+  inpatientProcedureCodes String[]       @default([])
 
-  planAdministratorName String?
-  policyStartDate   DateTime? @db.Date
-  policyEndDate     DateTime? @db.Date
-  productType       String?
-  coverageLimit      Decimal? @db.Decimal(14,2)
-  remainingCoverageLimit Decimal? @db.Decimal(14,2)
+  planAdministratorName  String?
+  policyStartDate        DateTime? @db.Date
+  policyEndDate          DateTime? @db.Date
+  productType            String?
+  coverageLimit          Decimal?  @db.Decimal(14, 2)
+  remainingCoverageLimit Decimal?  @db.Decimal(14, 2)
 
   // U.S. coverage and subscriber information.
-  groupNumber              String?
-  subscriberId             String?
-  subscriberName           String?
-  subscriberRelationship   SubscriberRelationship?
-  coordinationOfBenefits   CoordinationOfBenefits?
-  payerEdiId               String?
+  groupNumber            String?
+  subscriberId           String?
+  subscriberName         String?
+  subscriberRelationship SubscriberRelationship?
+  coordinationOfBenefits CoordinationOfBenefits?
+  payerEdiId             String?
 
   claimType         ClaimType     @default(MEMBER_REIMBURSEMENT)
   claimForm         ClaimForm?
   claimStage        ClaimStage    @default(INITIAL)
-  totalBilledAmount Decimal? @db.Decimal(14,2)
-  approvedAmount    Decimal? @db.Decimal(14,2)
-  deductionAmount   Decimal? @db.Decimal(14,2)
-  copayAmount       Decimal? @db.Decimal(14,2)
+  totalBilledAmount Decimal?      @db.Decimal(14, 2)
+  approvedAmount    Decimal?      @db.Decimal(14, 2)
+  deductionAmount   Decimal?      @db.Decimal(14, 2)
+  copayAmount       Decimal?      @db.Decimal(14, 2)
   roomCategory      RoomCategory?
   icuDays           Int?
 
   // Institutional / claim-level U.S. billing metadata.
-  typeOfBill             String?
-  drgCode                String?
-  claimFrequencyCode     ClaimFrequencyCode @default(ORIGINAL)
-  timelyFilingDeadline   DateTime? @db.Date
+  typeOfBill           String?
+  drgCode              String?
+  claimFrequencyCode   ClaimFrequencyCode @default(ORIGINAL)
+  timelyFilingDeadline DateTime?          @db.Date
 
   payerReferenceNo    String?
   insurerClaimNo      String?
@@ -263,32 +264,32 @@ model Claim {
 
   // Revenue-cycle journey: eligibility -> prior auth -> claim -> status -> remittance.
   // These fields are deliberately explicit so each stage can be audited and gated.
-  eligibilityStatus       EligibilityStatus @default(NOT_CHECKED)
-  eligibilityCheckedAt    DateTime?
-  coverageStatus          String?
-  deductibleRemaining     Decimal? @db.Decimal(14,2)
-  coinsurancePct          Int?
-  networkStatus           String?
+  eligibilityStatus    EligibilityStatus @default(NOT_CHECKED)
+  eligibilityCheckedAt DateTime?
+  coverageStatus       String?
+  deductibleRemaining  Decimal?          @db.Decimal(14, 2)
+  coinsurancePct       Int?
+  networkStatus        String?
 
-  priorAuthRequired       Boolean?
-  priorAuthStatus         PriorAuthStatus @default(NOT_CHECKED)
-  priorAuthCheckedAt      DateTime?
-  priorAuthExpiry         DateTime?
+  priorAuthRequired  Boolean?
+  priorAuthStatus    PriorAuthStatus @default(NOT_CHECKED)
+  priorAuthCheckedAt DateTime?
+  priorAuthExpiry    DateTime?
 
-  payerClaimStatus        PayerClaimStatus?
-  claimStatusCheckedAt    DateTime?
+  payerClaimStatus     PayerClaimStatus?
+  claimStatusCheckedAt DateTime?
 
-  remittanceStatus        RemittanceStatus @default(NOT_AVAILABLE)
-  remittanceReceivedAt    DateTime?
-  allowedAmount           Decimal? @db.Decimal(14,2)
-  patientResponsibility   Decimal? @db.Decimal(14,2)
-  paidAmount              Decimal? @db.Decimal(14,2)
-  paymentReference        String?
+  remittanceStatus      RemittanceStatus @default(NOT_AVAILABLE)
+  remittanceReceivedAt  DateTime?
+  allowedAmount         Decimal?         @db.Decimal(14, 2)
+  patientResponsibility Decimal?         @db.Decimal(14, 2)
+  paidAmount            Decimal?         @db.Decimal(14, 2)
+  paymentReference      String?
 
   // Connector abstraction: LOCAL today, SIMULATED for demo/testing, LIVE for
   // future clearinghouse/payer integrations. Simulated payer codes are synthetic.
   payerConnectionMode PayerConnectionMode @default(LOCAL)
-  simulatedPayerCode   String?
+  simulatedPayerCode  String?
 
   // Fields currently supported by uploaded documents. This lets document
   // deletion recompute/clear only document-derived data without wiping
@@ -300,12 +301,12 @@ model Claim {
   // Example: { "amount": { "source": "DOCUMENT_AI", "confidence": 92, ... } }
   fieldProvenance Json?
 
-  documents   Document[]
-  serviceLines ServiceLine[]
-  checks      Check[]
-  denialCases DenialCase[]
-  underpaymentCase UnderpaymentCase?
-  auditEvents AuditEvent[]
+  documents         Document[]
+  serviceLines      ServiceLine[]
+  checks            Check[]
+  denialCases       DenialCase[]
+  underpaymentCase  UnderpaymentCase?
+  auditEvents       AuditEvent[]
   payerTransactions PayerTransaction[]
 
   @@index([organizationId, deletedAt, createdAt])
@@ -318,13 +319,13 @@ model ServiceLine {
   updatedAt DateTime @updatedAt
 
   claimId String
-  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
   cptHcpcsCode      String
-  modifiers         String[] @default([])
-  units             Decimal? @db.Decimal(10,2)
-  charge            Decimal? @db.Decimal(14,2)
-  diagnosisPointers String[] @default([])
+  modifiers         String[]  @default([])
+  units             Decimal?  @db.Decimal(10, 2)
+  charge            Decimal?  @db.Decimal(14, 2)
+  diagnosisPointers String[]  @default([])
   placeOfService    String?
   serviceDateFrom   DateTime? @db.Date
   serviceDateTo     DateTime? @db.Date
@@ -332,9 +333,9 @@ model ServiceLine {
   poaIndicator      String?
 
   // OCR-created lines are suggestions until a billing user confirms them.
-  verified          Boolean @default(true)
-  source            String  @default("USER")
-  sourceDocumentId  String?
+  verified         Boolean @default(true)
+  source           String  @default("USER")
+  sourceDocumentId String?
 
   @@index([claimId])
   @@index([cptHcpcsCode])
@@ -369,21 +370,20 @@ model Document {
   @@unique([claimId, fileHash])
 }
 
-
 model PayerTransaction {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
 
   claimId String
-  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
-  transactionId String @unique
-  mode          String @default("SIMULATED")
-  payerCode     String
+  transactionId   String @unique
+  mode            String @default("SIMULATED")
+  payerCode       String
   transactionType String
-  status        String
-  latencyMs     Int?
-  requestPayload Json?
+  status          String
+  latencyMs       Int?
+  requestPayload  Json?
   responsePayload Json?
 
   @@index([claimId, createdAt])
@@ -418,10 +418,16 @@ model Rule {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
 
-  code     String  @unique
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  code     String
   name     String
   severity String  @default("WARN")
   enabled  Boolean @default(true)
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
 }
 
 model User {
@@ -442,8 +448,8 @@ model User {
   lastLoginAt         DateTime?
 
   refreshTokens RefreshToken[]
-  createdClaims Claim[] @relation("ClaimCreatedBy")
-  auditEvents AuditEvent[] @relation("AuditActor")
+  createdClaims Claim[]        @relation("ClaimCreatedBy")
+  auditEvents   AuditEvent[]   @relation("AuditActor")
 
   @@index([organizationId])
 }
@@ -462,41 +468,40 @@ model RefreshToken {
   @@index([userId])
 }
 
-
 model DenialCase {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   claimId String
-  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
   // Payer/remittance source data. CARC/RARC fields map to standard adjustment/remark concepts.
-  source          DenialCaseSource @default(MANUAL)
-  status          DenialCaseStatus @default(OPEN)
-  denialCategory  String?
-  groupCode       String?
-  carcCode        String?
-  rarcCode        String?
-  reasonText      String?
-  denialDate      DateTime?
+  source         DenialCaseSource @default(MANUAL)
+  status         DenialCaseStatus @default(OPEN)
+  denialCategory String?
+  groupCode      String?
+  carcCode       String?
+  rarcCode       String?
+  reasonText     String?
+  denialDate     DateTime?
 
   correctable     Boolean?
   appealEligible  Boolean?
   appealDeadline  DateTime?
-  revenueAtRisk   Decimal? @db.Decimal(14,2)
-  recoveredAmount Decimal? @db.Decimal(14,2)
+  revenueAtRisk   Decimal?  @db.Decimal(14, 2)
+  recoveredAmount Decimal?  @db.Decimal(14, 2)
 
   recommendedAction String?
   requiredDocuments Json?
 
   // Grounded AI/LLM output. Provider/model metadata makes AI use auditable.
-  aiExplanation String?
-  aiConfidence  Int?
-  aiProvider    String?
-  aiModel       String?
-  aiAnalyzedAt  DateTime?
-  aiInputVersion String? @default("denial-v1")
+  aiExplanation  String?
+  aiConfidence   Int?
+  aiProvider     String?
+  aiModel        String?
+  aiAnalyzedAt   DateTime?
+  aiInputVersion String?   @default("denial-v1")
 
   @@index([claimId])
   @@index([status])
@@ -509,19 +514,19 @@ model UnderpaymentCase {
   updatedAt DateTime @updatedAt
 
   claimId String @unique
-  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
-  status UnderpaymentCaseStatus @default(OPEN)
-  expectedPayerPayment Decimal @db.Decimal(14,2)
-  actualPaidAmount     Decimal @db.Decimal(14,2)
-  varianceAmount       Decimal @db.Decimal(14,2)
-  recoveredAmount      Decimal @default(0) @db.Decimal(14,2)
+  status               UnderpaymentCaseStatus @default(OPEN)
+  expectedPayerPayment Decimal                @db.Decimal(14, 2)
+  actualPaidAmount     Decimal                @db.Decimal(14, 2)
+  varianceAmount       Decimal                @db.Decimal(14, 2)
+  recoveredAmount      Decimal                @default(0) @db.Decimal(14, 2)
 
-  reasonCategory     String? @default("PAYER_PAYMENT_BELOW_EXPECTED")
+  reasonCategory      String?   @default("PAYER_PAYMENT_BELOW_EXPECTED")
   sourceTransactionId String?
-  notes              String?
-  detectedAt         DateTime @default(now())
-  resolvedAt         DateTime?
+  notes               String?
+  detectedAt          DateTime  @default(now())
+  resolvedAt          DateTime?
 
   @@index([status])
   @@index([detectedAt])
@@ -535,10 +540,10 @@ model AuditEvent {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
   claimId String?
-  claim   Claim? @relation(fields: [claimId], references: [id], onDelete: SetNull)
+  claim   Claim?  @relation(fields: [claimId], references: [id], onDelete: SetNull)
 
   actorUserId String?
-  actorUser   User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorUser   User?   @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   action      String
   entityType  String
   entityId    String?
