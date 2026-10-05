@@ -790,9 +790,8 @@ router.delete("/:id/purge", requireRoles(["ADMIN"]), async (req, res) => {
           entityId: claim.id,
           outcome: "SUCCESS",
           metadata: {
-            patientName: claim.patientName,
             previousStatus: claim.status,
-            softDeletedAt: claim.deletedAt,
+            softDeleted: true,
             documentCount: claim.documents.length
           }
         }
@@ -1127,6 +1126,16 @@ router.post("/:id/check", async (req, res) => {
       });
 
       return created;
+    });
+
+    await auditClaim(req, {
+      claimId: claim.id,
+      action: "CLAIM_READINESS_CHECKED",
+      metadata: {
+        score: readinessScore,
+        riskLevel,
+        hasBlockingIssues: hasBlock
+      }
     });
 
     res.json({
