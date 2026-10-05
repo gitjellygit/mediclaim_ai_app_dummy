@@ -105,7 +105,8 @@ export function buildClaimPatch(input = {}) {
 function normalizeComparable(value) {
   if (value instanceof Date) return value.toISOString();
   if (value && typeof value === "object" && typeof value.toFixed === "function") {
-    return value.toFixed(2);
+    const numeric = Number(value.toFixed(2));
+    return Number.isFinite(numeric) ? numeric : value.toFixed(2);
   }
   if (value == null) return null;
   return value;
