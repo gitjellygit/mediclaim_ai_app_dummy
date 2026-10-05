@@ -562,7 +562,7 @@ export function documentsRouter(prisma, uploadDir) {
       });
     }
 
-    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+    if (isClaimLocked(claim)) {
       if (req.file?.path && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
@@ -786,8 +786,7 @@ export function documentsRouter(prisma, uploadDir) {
       // A terminal claim must never be reset to DRAFT by document reprocessing.
       // Changes after transmission require a controlled amendment workflow.
       if (
-        doc.claim?.claimSubmissionDate ||
-        ["SUBMITTED", "DENIED", "PAID"].includes(doc.claim?.status)
+        isClaimLocked(doc.claim)
       ) {
         return res.status(409).json({
           error: "Transmitted claims are locked. Amend the claim before reprocessing documents."
@@ -862,7 +861,7 @@ export function documentsRouter(prisma, uploadDir) {
       return res.status(404).json({ error: "Document not found" });
     }
 
-    if (doc.claim?.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(doc.claim?.status)) {
+    if (isClaimLocked(doc.claim)) {
       return res.status(409).json({
         error: "Submitted claims are locked. Document type cannot be changed."
       });
@@ -937,7 +936,7 @@ export function documentsRouter(prisma, uploadDir) {
       include: { claim: true }
     });
 
-    if (docs.some((doc) => doc.claim?.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(doc.claim?.status))) {
+    if (docs.some((doc) => isClaimLocked(doc.claim))) {
       return res.status(409).json({
         error: "Submitted claims are locked. Their documents cannot be deleted."
       });
