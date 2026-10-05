@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+// These validators enforce U.S. claim-entry format and cross-field shape.
+ // Authoritative code-set existence checks remain a separate, versioned concern.
 const upper = (value) => String(value ?? "").trim().toUpperCase();
 const digits = (value) => String(value ?? "").replace(/\D/g, "");
 
