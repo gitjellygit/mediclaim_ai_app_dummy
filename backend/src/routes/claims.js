@@ -1,6 +1,17 @@
 import { validMoney } from "../utils/money.js";
 import { z } from "zod";
 import { claimUpdateSchema, emptyMutationSchema, parseMutation, serviceLineInputSchema } from "../validation/claimMutations.js";
+import {
+  drgSchema,
+  firstZodMessage,
+  icd10CmSchema,
+  icd10PcsSchema,
+  npiSchema,
+  optional,
+  taxonomySchema,
+  tinSchema,
+  typeOfBillSchema
+} from "../validation/usClaimValidation.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
@@ -90,7 +101,7 @@ function normalizeServiceLines(lines = []) {
     }
 
     normalized.push({
-      cptHcpcsCode: line.cptHcpcsCode.toUpperCase(),
+      cptHcpcsCode: line.cptHcpcsCode,
       modifiers: line.modifiers || [],
       units,
       charge,
@@ -466,14 +477,14 @@ router.post("/", async (req, res) => {
       patientDob: z.string().nullish(),
       hospitalName: z.string().trim().max(250).nullish(),
       doctorName: z.string().trim().max(250).nullish(),
-      billingProviderNpi: z.string().trim().max(10).nullish(),
-      renderingProviderNpi: z.string().trim().max(10).nullish(),
-      referringProviderNpi: z.string().trim().max(10).nullish(),
-      providerTin: z.string().trim().max(20).nullish(),
-      providerTaxonomyCode: z.string().trim().max(20).nullish(),
+      billingProviderNpi: optional(npiSchema),
+      renderingProviderNpi: optional(npiSchema),
+      referringProviderNpi: optional(npiSchema),
+      providerTin: optional(tinSchema),
+      providerTaxonomyCode: optional(taxonomySchema),
       diagnosisText: z.string().max(6000).nullish(),
-      icd10Codes: z.array(z.string().max(20)).max(100).optional(),
-      inpatientProcedureCodes: z.array(z.string().max(20)).max(100).optional(),
+      icd10Codes: z.array(icd10CmSchema).max(100).optional(),
+      inpatientProcedureCodes: z.array(icd10PcsSchema).max(100).optional(),
       procedureText: z.string().max(6000).nullish(),
       dateOfService: z.string().nullish(),
       admissionDate: z.string().nullish(),
@@ -482,8 +493,8 @@ router.post("/", async (req, res) => {
       admissionType: z.enum(["PLANNED", "EMERGENCY"]).nullish(),
       roomCategory: z.enum(["GENERAL", "SEMI_PRIVATE", "PRIVATE", "ICU"]).nullish(),
       icuDays: z.coerce.number().int().nonnegative().nullish(),
-      typeOfBill: z.string().trim().max(10).nullish(),
-      drgCode: z.string().trim().max(10).nullish(),
+      typeOfBill: optional(typeOfBillSchema),
+      drgCode: optional(drgSchema),
       claimFrequencyCode: z.enum(["ORIGINAL", "CORRECTED", "VOID"]).optional(),
       timelyFilingDeadline: z.string().nullish(),
       serviceLines: z.array(serviceLineInputSchema).max(500).optional(),
@@ -492,9 +503,11 @@ router.post("/", async (req, res) => {
     }).strict();
     const parsed = claimCreateSchema.safeParse(req.body);
     if (!parsed.success) {
+      const firstIssue = parsed.error.issues?.[0];
       return res.status(400).json({
         error: "Invalid claim input",
-        message: "Only supported claim-creation fields are accepted",
+        message: firstZodMessage(parsed.error, "Some claim information is invalid"),
+        field: firstIssue?.path?.length ? firstIssue.path.join(".") : null,
         code: "INVALID_CLAIM_INPUT"
       });
     }
@@ -502,6 +515,71 @@ router.post("/", async (req, res) => {
     const normalizedServiceLines = normalizeServiceLines(rawServiceLines);
     if (!normalizedServiceLines.ok) {
       return res.status(400).json(normalizedServiceLines.response);
+    }
+
+    const frequencyDigit = { ORIGINAL: "1", CORRECTED: "7", VOID: "8" };
+    if (claimInput.typeOfBill && claimInput.claimFrequencyCode) {
+      const expected = frequencyDigit[claimInput.claimFrequencyCode];
+      if (expected && claimInput.typeOfBill.slice(-1) !== expected) {
+        return res.status(400).json({
+          error: "Invalid Type of Bill",
+          message: `Type of Bill must end in ${expected} for ${claimInput.claimFrequencyCode.toLowerCase()} claims`,
+          code: "INVALID_TYPE_OF_BILL"
+        });
+      }
+    }
+
+    if (claimInput.claimForm === "PROFESSIONAL") {
+      if (!claimInput.billingProviderNpi || !claimInput.renderingProviderNpi) {
+        return res.status(400).json({
+          error: "Missing professional claim provider identifiers",
+          message: "837P claims require billing and rendering provider NPIs",
+          code: "INVALID_PROFESSIONAL_CLAIM"
+        });
+      }
+      if ((claimInput.inpatientProcedureCodes || []).length > 0) {
+        return res.status(400).json({
+          error: "Invalid professional claim procedure coding",
+          message: "ICD-10-PCS is for inpatient institutional claims and cannot be used on an 837P claim",
+          code: "INVALID_PROFESSIONAL_CLAIM"
+        });
+      }
+      if (normalizedServiceLines.data.some((line) => !line.placeOfService)) {
+        return res.status(400).json({
+          error: "Missing Place of Service",
+          message: "Every 837P service line requires a CMS Place of Service code",
+          code: "INVALID_SERVICE_LINE"
+        });
+      }
+    }
+
+    if (claimInput.claimForm === "INSTITUTIONAL") {
+      if (!claimInput.billingProviderNpi || !claimInput.typeOfBill) {
+        return res.status(400).json({
+          error: "Missing institutional claim information",
+          message: "837I claims require a billing provider NPI and Type of Bill",
+          code: "INVALID_INSTITUTIONAL_CLAIM"
+        });
+      }
+      if (normalizedServiceLines.data.some((line) => !line.revenueCode)) {
+        return res.status(400).json({
+          error: "Missing Revenue Code",
+          message: "Every 837I service line requires a 4-digit Revenue Code",
+          code: "INVALID_SERVICE_LINE"
+        });
+      }
+    }
+
+    const diagnosisSet = new Set(claimInput.icd10Codes || []);
+    const invalidDiagnosisLink = normalizedServiceLines.data.find((line) =>
+      (line.diagnosisPointers || []).some((code) => !diagnosisSet.has(code))
+    );
+    if (invalidDiagnosisLink) {
+      return res.status(400).json({
+        error: "Invalid service-line diagnosis link",
+        message: "Service-line diagnosis codes must match ICD-10-CM diagnoses already entered on the claim",
+        code: "INVALID_DIAGNOSIS_LINK"
+      });
     }
 
     const createPayload = {
@@ -673,6 +751,75 @@ router.patch("/:id", async (req, res) => {
       input.serviceLines === undefined ? null : normalizeServiceLines(input.serviceLines);
     if (normalizedServiceLines && !normalizedServiceLines.ok) {
       return res.status(400).json(normalizedServiceLines.response);
+    }
+
+    const effectiveClaimForm =
+      Object.prototype.hasOwnProperty.call(input, "claimForm") ? input.claimForm : existing.claimForm;
+    const effectiveDiagnosisCodes =
+      Object.prototype.hasOwnProperty.call(input, "icd10Codes") ? (input.icd10Codes || []) : (existing.icd10Codes || []);
+    const effectivePcsCodes =
+      Object.prototype.hasOwnProperty.call(input, "inpatientProcedureCodes")
+        ? (input.inpatientProcedureCodes || [])
+        : (existing.inpatientProcedureCodes || []);
+    const effectiveTypeOfBill =
+      Object.prototype.hasOwnProperty.call(input, "typeOfBill") ? input.typeOfBill : existing.typeOfBill;
+    const effectiveFrequency =
+      Object.prototype.hasOwnProperty.call(input, "claimFrequencyCode")
+        ? input.claimFrequencyCode
+        : existing.claimFrequencyCode;
+
+    if (effectiveClaimForm === "PROFESSIONAL" && effectivePcsCodes.length > 0) {
+      return res.status(400).json({
+        error: "Invalid professional claim procedure coding",
+        message: "ICD-10-PCS is for inpatient institutional claims and cannot be used on an 837P claim",
+        code: "INVALID_PROFESSIONAL_CLAIM"
+      });
+    }
+
+    if (effectiveTypeOfBill && effectiveFrequency) {
+      const expected = { ORIGINAL: "1", CORRECTED: "7", VOID: "8" }[effectiveFrequency];
+      if (expected && effectiveTypeOfBill.slice(-1) !== expected) {
+        return res.status(400).json({
+          error: "Invalid Type of Bill",
+          message: `Type of Bill must end in ${expected} for ${String(effectiveFrequency).toLowerCase()} claims`,
+          code: "INVALID_TYPE_OF_BILL"
+        });
+      }
+    }
+
+    if (normalizedServiceLines) {
+      const diagnosisSet = new Set(effectiveDiagnosisCodes);
+      if (
+        normalizedServiceLines.data.some((line) =>
+          (line.diagnosisPointers || []).some((code) => !diagnosisSet.has(code))
+        )
+      ) {
+        return res.status(400).json({
+          error: "Invalid service-line diagnosis link",
+          message: "Service-line diagnosis codes must match ICD-10-CM diagnoses already entered on the claim",
+          code: "INVALID_DIAGNOSIS_LINK"
+        });
+      }
+      if (
+        effectiveClaimForm === "PROFESSIONAL" &&
+        normalizedServiceLines.data.some((line) => !line.placeOfService)
+      ) {
+        return res.status(400).json({
+          error: "Missing Place of Service",
+          message: "Every 837P service line requires a CMS Place of Service code",
+          code: "INVALID_SERVICE_LINE"
+        });
+      }
+      if (
+        effectiveClaimForm === "INSTITUTIONAL" &&
+        normalizedServiceLines.data.some((line) => !line.revenueCode)
+      ) {
+        return res.status(400).json({
+          error: "Missing Revenue Code",
+          message: "Every 837I service line requires a 4-digit Revenue Code",
+          code: "INVALID_SERVICE_LINE"
+        });
+      }
     }
 
     const patchChangedFields = changedPatchFields(existing, payload);
