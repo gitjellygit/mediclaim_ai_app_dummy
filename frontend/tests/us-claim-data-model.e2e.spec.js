@@ -116,7 +116,8 @@ test("U3-1 - create US claim with provider coverage institutional and service-li
   await page.getByLabel("Units").fill("2");
   await page.getByLabel("Charge (USD)").fill("1234.56");
   await page.getByLabel("Diagnosis Pointers").fill("M54.50");
-  await page.getByLabel("Place of Service").fill("11");
+  await page.getByLabel("Place of Service").click();
+  await page.getByRole("option", { name: /11.*Office/i }).click();
   await page.getByLabel("Service Date From").fill("2026-10-01");
   await page.getByLabel("Service Date To").fill("2026-10-01");
   await page.getByLabel("Revenue Code").fill("0450");
@@ -138,7 +139,7 @@ test("U3-1 - create US claim with provider coverage institutional and service-li
   expect(claim.subscriberRelationship).toBe("SELF");
   expect(claim.coordinationOfBenefits).toBe("PRIMARY");
   expect(claim.payerEdiId).toBe("842610001");
-  expect(claim.typeOfBill).toBe("131");
+  expect(claim.typeOfBill).toBe("0131");
   expect(claim.drgCode).toBe("470");
   expect(claim.claimFrequencyCode).toBe("ORIGINAL");
   expect(claim.inpatientProcedureCodes).toContain("0SG00ZZ");
