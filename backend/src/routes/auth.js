@@ -10,6 +10,7 @@ import {
   clearRateLimit
 } from "../utils/security.js";
 import { durationToMs } from "../utils/duration.js";
+import { writeAuditEvent } from "../services/auditLog.js";
 
 const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "15m";
 const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN || "7d";
@@ -201,6 +202,16 @@ export function authRouter(prisma) {
           }
         });
 
+        await writeAuditEvent(prisma, {
+          organizationId: user.organizationId,
+          actorUserId: user.id,
+          action: shouldLock ? "LOGIN_LOCKED" : "LOGIN_FAILED",
+          entityType: "User",
+          entityId: user.id,
+          outcome: "DENIED",
+          metadata: { reason: shouldLock ? "too_many_failed_attempts" : "invalid_credentials" }
+        });
+
         return res.status(401).json({
           error: "Invalid credentials",
           message: "Invalid email or password"
@@ -234,6 +245,16 @@ export function authRouter(prisma) {
 
       const accessToken = signAccessToken(user, sessionId);
       setRefreshCookie(res, refreshToken, expiresAt);
+
+      await writeAuditEvent(prisma, {
+        organizationId: user.organizationId,
+        actorUserId: user.id,
+        action: "LOGIN_SUCCEEDED",
+        entityType: "Session",
+        entityId: sessionId,
+        outcome: "SUCCESS",
+        metadata: { sessionId }
+      });
 
       res.json({
         accessToken,
@@ -387,6 +408,20 @@ export function authRouter(prisma) {
             tokenRecord.userId,
             tokenRecord.sessionId
           );
+          const user = await prisma.user.findUnique({
+            where: { id: tokenRecord.userId },
+            select: { organizationId: true }
+          });
+          if (user) {
+            await writeAuditEvent(prisma, {
+              organizationId: user.organizationId,
+              actorUserId: tokenRecord.userId,
+              action: "LOGOUT_SUCCEEDED",
+              entityType: "Session",
+              entityId: tokenRecord.sessionId,
+              metadata: { sessionId: tokenRecord.sessionId }
+            });
+          }
         }
       }
 
@@ -417,6 +452,14 @@ export function authRouter(prisma) {
         }
       });
 
+      await writeAuditEvent(prisma, {
+        organizationId: req.user.organizationId,
+        actorUserId: req.user.id,
+        action: "ALL_SESSIONS_REVOKED",
+        entityType: "User",
+        entityId: req.user.id,
+        metadata: { operation: "logout_all" }
+      });
       clearRefreshCookie(res);
       res.json({ message: "All sessions logged out successfully" });
     } catch (error) {
@@ -448,6 +491,15 @@ export function authRouter(prisma) {
           userAgent: true,
           ipAddress: true
         }
+      });
+
+      await writeAuditEvent(prisma, {
+        organizationId: req.user.organizationId,
+        actorUserId: req.user.id,
+        action: "SESSIONS_VIEWED",
+        entityType: "User",
+        entityId: req.user.id,
+        metadata: { count: sessions.length }
       });
 
       res.json({
@@ -489,6 +541,15 @@ export function authRouter(prisma) {
           code: "NOT_FOUND"
         });
       }
+
+      await writeAuditEvent(prisma, {
+        organizationId: req.user.organizationId,
+        actorUserId: req.user.id,
+        action: "SESSION_REVOKED",
+        entityType: "Session",
+        entityId: req.params.sessionId,
+        metadata: { sessionId: req.params.sessionId }
+      });
 
       if (req.params.sessionId === req.user.sessionId) {
         clearRefreshCookie(res);
