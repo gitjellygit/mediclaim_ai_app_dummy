@@ -1471,9 +1471,11 @@ test("51 - claim journey uses compact required and conditional field cues", { co
   assert.match(source, /Conditional fields highlight when required/);
   assert.match(source, /Auth Required\? \*/);
   assert.match(source, /Authorization No\. \*/);
-  assert.match(source, /Allowed Amount \*/);
-  assert.match(source, /Paid Amount \*/);
+  assert.match(source, /label="Allowed Amount"/);
+  assert.match(source, /label="Paid Amount"/);
   assert.match(source, /Auto-calculated; editable/);
+  assert.match(source, /Check Remittance/);
+  assert.match(source, /Payer-reported values are locked/);
   assert.doesNotMatch(source, /In production this should come from/);
   assert.doesNotMatch(source, /For a real 835 ERA/);
 });
@@ -1629,7 +1631,12 @@ test("58 - journey UI disables completed terminal stage controls", { concurrency
 
   assert.match(source, /disabled=\{!stages\.priorAuth\.actionable\}/);
   assert.match(source, /disabled=\{!stages\.claimStatus\.actionable\}/);
-  assert.match(source, /disabled=\{!stages\.remittance\.actionable \|\| payerConnected\}/);
+  assert.match(
+    source,
+    /!stages\.remittance\.actionable \|\|[\s\S]*!\["APPROVED", "PARTIALLY_APPROVED", "PAID"\]\.includes/
+  );
+  assert.match(source, /claim\.remittanceStatus === "POSTED"/);
+  assert.match(source, /View Remittance Details/);
 });
 
 
