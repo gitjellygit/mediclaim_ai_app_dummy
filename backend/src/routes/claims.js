@@ -30,6 +30,7 @@ import { configuredReadinessIssue } from "../services/configuredReadinessRules.j
 import { evaluateUsReadinessRules, usReadinessRuleCodes } from "../services/usReadinessRules.js";
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
 import { isClaimLocked } from "../services/claimLock.js";
+import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
 
 const router = express.Router();
 
@@ -748,6 +749,77 @@ router.patch("/:id", async (req, res) => {
   } catch (e) {
     console.error("[claim-edit] failed", { name: e.name, code: e.code || null });
     res.status(500).json({ error: "Unable to update claim", code: "CLAIM_UPDATE_FAILED" });
+  }
+});
+
+router.delete("/:id/purge", requireRoles(["ADMIN"]), async (req, res) => {
+  try {
+    const id = req.params.id;
+    const claim = await prisma.claim.findFirst({
+      where: {
+        id,
+        organizationId: orgId(req),
+        deletedAt: { not: null }
+      },
+      include: {
+        documents: {
+          select: { id: true, path: true }
+        }
+      }
+    });
+
+    if (!claim) {
+      return res.status(404).json({
+        error: "Deleted claim not found",
+        message: "Only an already soft-deleted claim can be permanently purged."
+      });
+    }
+
+    const files = resolveClaimDocumentFiles(claim.documents);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.auditEvent.create({
+        data: {
+          organizationId: orgId(req),
+          claimId: claim.id,
+          actorUserId: req.user?.id || null,
+          action: "CLAIM_PERMANENTLY_PURGED",
+          entityType: "Claim",
+          entityId: claim.id,
+          outcome: "SUCCESS",
+          metadata: {
+            patientName: claim.patientName,
+            previousStatus: claim.status,
+            softDeletedAt: claim.deletedAt,
+            documentCount: claim.documents.length
+          }
+        }
+      });
+
+      await tx.claim.delete({ where: { id: claim.id } });
+    });
+
+    const fileCleanup = deletePurgedClaimFiles(files);
+    if (fileCleanup.failures.length > 0) {
+      console.error("[claim-purge] file cleanup incomplete", {
+        claimId: id,
+        failures: fileCleanup.failures
+      });
+    }
+
+    res.json({
+      success: true,
+      permanentlyPurged: true,
+      deletedFiles: fileCleanup.deleted,
+      fileCleanupWarnings: fileCleanup.failures.length
+    });
+  } catch (error) {
+    console.error("[claim-purge] failed", {
+      claimId: req.params.id,
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({ error: "Unable to permanently purge claim" });
   }
 });
 
