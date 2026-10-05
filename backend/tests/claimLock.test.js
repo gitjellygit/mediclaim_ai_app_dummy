@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  assertClaimEditable,
   isClaimLocked,
   isClaimSubmittedOrLater
 } from "../src/services/claimLock.js";
@@ -22,4 +23,14 @@ test("P2 - claim submission timestamp also locks a claim", () => {
 test("P2 - draft and ready claims remain editable before submission", () => {
   assert.equal(isClaimLocked({ status: "DRAFT", claimSubmissionDate: null }), false);
   assert.equal(isClaimLocked({ status: "READY", claimSubmissionDate: null }), false);
+});
+
+test("H2 - assertClaimEditable throws a typed 409 domain conflict", () => {
+  assert.throws(
+    () => assertClaimEditable({ status: "PAID" }),
+    (error) =>
+      error.name === "DomainError" &&
+      error.status === 409 &&
+      error.code === "CLAIM_LOCKED"
+  );
 });
