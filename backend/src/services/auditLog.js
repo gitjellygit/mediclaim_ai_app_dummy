@@ -70,3 +70,19 @@ export function writeRequestAudit(prisma, req, event) {
     ...event
   });
 }
+
+
+export function auditOnResponse(prisma, req, res, eventFactory) {
+  res.once("finish", () => {
+    try {
+      const event = eventFactory(res.statusCode);
+      if (!event) return;
+      void writeRequestAudit(prisma, req, {
+        ...event,
+        outcome: event.outcome || (res.statusCode < 400 ? "SUCCESS" : "DENIED")
+      });
+    } catch (error) {
+      console.error("[audit] response hook failed", { name: error?.name || "Error" });
+    }
+  });
+}
