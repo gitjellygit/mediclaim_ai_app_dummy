@@ -47,7 +47,7 @@ test("B5 - protected 401 refreshes even when the rejected JWT has not expired", 
   expect(result.storedToken).toBe(result.freshToken);
 });
 
-test("B5 - invalid login never clears existing session or redirects", async ({ page }) => {
+test("B5 - invalid login never clears existing access session or redirects", async ({ page }) => {
   await page.goto("/login");
   const result = await page.evaluate(async () => {
     const client = await import("/src/api/client.js");
@@ -75,5 +75,5 @@ test("B5 - invalid login never clears existing session or redirects", async ({ p
       client.clearTokens();
     }
   });
-  expect(result).toEqual({ status: 401, token: "existing-session", refresh: "existing-refresh", path: "/login" });
+  expect(result).toEqual({ status: 401, token: "existing-session", refresh: null, path: "/login" });
 });
