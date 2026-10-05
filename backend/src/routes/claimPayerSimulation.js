@@ -10,6 +10,7 @@ import {
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { createPayerConnectorForClaim } from "../services/payerGateway.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
+import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
 import {
   getMockPayer,
   listMockPayers,
@@ -67,7 +68,7 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
-    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+    if (isClaimLocked(claim)) {
       return res.status(409).json({
         error: "Payer profile cannot be changed after claim submission"
       });
@@ -151,7 +152,7 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
       return res.status(409).json({ error: "Connect a mock payer first" });
     }
-    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+    if (isClaimLocked(claim)) {
       return res.status(409).json({ error: "Eligibility is locked after claim submission" });
     }
 
@@ -238,7 +239,7 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
     if (claim.eligibilityStatus !== "VERIFIED") {
       return res.status(409).json({ error: "Verify eligibility with the payer first" });
     }
-    if (claim.claimSubmissionDate || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)) {
+    if (isClaimLocked(claim)) {
       return res.status(409).json({ error: "Prior authorization is locked after claim submission" });
     }
 
@@ -326,7 +327,7 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
       return res.status(409).json({ error: "Connect a mock payer first" });
     }
-    if (!claim.claimSubmissionDate && claim.status !== "SUBMITTED") {
+    if (!isClaimSubmittedOrLater(claim)) {
       return res.status(409).json({ error: "Submit the claim in Claim Journey first" });
     }
 
