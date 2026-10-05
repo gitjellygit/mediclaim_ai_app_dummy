@@ -15,6 +15,7 @@ END $$;
 
 -- code is no longer globally unique; it is unique within an organization.
 ALTER TABLE "Rule" DROP CONSTRAINT IF EXISTS "Rule_code_key";
+DROP INDEX IF EXISTS "Rule_code_key";
 
 -- Snapshot the old global definitions before replacing them with tenant copies.
 CREATE TEMP TABLE "_RuleGlobalSnapshot" ON COMMIT DROP AS
