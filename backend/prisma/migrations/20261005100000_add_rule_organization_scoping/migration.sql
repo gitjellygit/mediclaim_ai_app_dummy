@@ -1,47 +1,59 @@
--- Add organizationId to Rule model for tenant isolation
--- Existing rules will be assigned to the first organization found
+-- H8B-1: make configurable readiness rules organization-scoped.
+-- Existing global rules are cloned to every existing organization so no tenant
+-- loses the configured readiness behavior it had before this migration.
 
--- First, find or create a default organization for existing rules
+ALTER TABLE "Rule" ADD COLUMN "organizationId" TEXT;
+
 DO $$
-DECLARE
-  default_org_id TEXT;
 BEGIN
-  -- Try to find an existing organization
-  SELECT id INTO default_org_id FROM "Organization" LIMIT 1;
-  
-  -- If no organization exists, create one
-  IF default_org_id IS NULL THEN
-    INSERT INTO "Organization" (id, name, slug, "createdAt", "updatedAt")
-    VALUES ('org_default_migration', 'Default Organization (Migration)', 'org-default-migration', NOW(), NOW())
-    RETURNING id INTO default_org_id;
+  IF EXISTS (SELECT 1 FROM "Rule")
+     AND NOT EXISTS (SELECT 1 FROM "Organization") THEN
+    RAISE EXCEPTION
+      'Cannot tenant-scope existing rules because no Organization rows exist';
   END IF;
-  
-  -- Add the column nullable first
-  ALTER TABLE "Rule" ADD COLUMN IF NOT EXISTS "organizationId" TEXT;
-  
-  -- Update existing rules to use the default organization
-  UPDATE "Rule" SET "organizationId" = default_org_id WHERE "organizationId" IS NULL;
-  
-  -- Now make it NOT NULL
-  ALTER TABLE "Rule" ALTER COLUMN "organizationId" SET NOT NULL;
 END $$;
 
--- Drop the old unique constraint on code alone
+-- code is no longer globally unique; it is unique within an organization.
 ALTER TABLE "Rule" DROP CONSTRAINT IF EXISTS "Rule_code_key";
 
--- Add the new composite unique constraint
-ALTER TABLE "Rule"
-ADD CONSTRAINT "Rule_organizationId_code_key" UNIQUE ("organizationId", "code");
+-- Snapshot the old global definitions before replacing them with tenant copies.
+CREATE TEMP TABLE "_RuleGlobalSnapshot" ON COMMIT DROP AS
+SELECT "createdAt", "code", "name", "severity", "enabled"
+FROM "Rule";
 
--- Add the foreign key constraint
+DELETE FROM "Rule";
+
+INSERT INTO "Rule" (
+  "id",
+  "createdAt",
+  "organizationId",
+  "code",
+  "name",
+  "severity",
+  "enabled"
+)
+SELECT
+  'rule_mig_' || md5(o."id" || ':' || r."code"),
+  r."createdAt",
+  o."id",
+  r."code",
+  r."name",
+  r."severity",
+  r."enabled"
+FROM "Organization" o
+CROSS JOIN "_RuleGlobalSnapshot" r;
+
+ALTER TABLE "Rule" ALTER COLUMN "organizationId" SET NOT NULL;
+
+ALTER TABLE "Rule"
+ADD CONSTRAINT "Rule_organizationId_code_key"
+UNIQUE ("organizationId", "code");
+
 ALTER TABLE "Rule"
 ADD CONSTRAINT "Rule_organizationId_fkey"
 FOREIGN KEY ("organizationId")
 REFERENCES "Organization"("id")
-ON DELETE CASCADE ON UPDATE CASCADE;
+ON DELETE CASCADE
+ON UPDATE CASCADE;
 
--- Add index for organizationId
-CREATE INDEX IF NOT EXISTS "Rule_organizationId_idx" ON "Rule"("organizationId");
-
--- NOTE: After migration, existing rules should be reassigned to their actual organizations
--- This may require a data migration script based on your production data
+CREATE INDEX "Rule_organizationId_idx" ON "Rule"("organizationId");
