@@ -1882,8 +1882,8 @@ test("68 - stale readiness issues are reconciled against current eligibility and
   assert.match(source, /function isIssueResolvedByCurrentClaim\(issue\)/);
   assert.match(source, /claim\?\.eligibilityStatus === "VERIFIED"/);
   assert.match(source, /\["APPROVED", "NOT_REQUIRED"\]\.includes\(claim\?\.priorAuthStatus\)/);
-  assert.match(source, /Resolved since the last AI Check/);
-  assert.match(source, /Resolved — refresh AI/);
+  assert.match(source, /Completed since the last readiness check/);
+  assert.match(source, /Completed — recheck readiness/);
 });
 
 test("69 - journey fix workflow provides contextual return to claim detail", { concurrency: false }, () => {
