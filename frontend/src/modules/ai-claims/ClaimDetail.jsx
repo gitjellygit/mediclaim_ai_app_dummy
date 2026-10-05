@@ -89,6 +89,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const isAdmin = user?.role === "ADMIN";
   const canRunAI = user?.role === "ADMIN" || user?.role === "CASHIER";
   const canDeleteDoc = user?.role === "ADMIN" || user?.role === "CASHIER";
+  const aiCheckLocked =
+    ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status) ||
+    Boolean(claim?.claimSubmissionDate);
   const canEditClaim = !!user;
 
   const [docType, setDocType] = React.useState("AUTO");
@@ -512,6 +515,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       return;
     }
 
+    if (section === "readiness") {
+      scrollToRef(readinessRef);
+      return;
+    }
+
     if (autoEdit && focusFields.length) {
       openClaimEdit(focusFields[0], focusFields);
       return;
@@ -654,9 +662,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   async function runAICheck() {
     if (!canRunAI) return showToast("Only CASHIER/ADMIN can run AI check", "error");
-    if (claim?.status === "SUBMITTED") {
+    if (aiCheckLocked) {
       return showDialog(
-        "Submitted claims are locked. Reopen the claim before running a new AI check.",
+        "This historical or finalized claim is locked. AI readiness cannot be recalculated unless the claim is reopened or amended.",
         { title: "AI check unavailable", severity: "warning" }
       );
     }
@@ -1940,7 +1948,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <Button
                 variant="contained"
                 onClick={runAICheck}
-                disabled={aiRunning || !canRunAI || claim.status === "SUBMITTED"}
+                disabled={aiRunning || !canRunAI || aiCheckLocked}
               >
                 {check?.isStale ? "Refresh AI Readiness" : check ? "Run AI Check Again" : "Run AI Check"}
               </Button>
@@ -1972,6 +1980,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           {claim.status === "SUBMITTED" && (
             <Alert severity="success" sx={{ mt: 2 }}>
               Claim submitted{claim.claimSubmissionDate ? ` on ${formatDate(claim.claimSubmissionDate)}` : ""}. Claim data and documents are locked.
+            </Alert>
+          )}
+
+          {!check && aiCheckLocked && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              This is a historical or finalized claim with no recorded AI readiness check.
+              Existing payer or approval amounts remain valid historical data, but readiness,
+              rejection risk, and blockers cannot be inferred retroactively.
             </Alert>
           )}
 
