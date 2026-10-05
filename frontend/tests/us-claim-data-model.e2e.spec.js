@@ -115,13 +115,12 @@ test("U3-1 - create US claim with provider coverage institutional and service-li
   await page.getByLabel("Modifiers (comma separated)").fill("25");
   await page.getByLabel("Units").fill("2");
   await page.getByLabel("Charge (USD)").fill("1234.56");
-  await page.getByLabel("Diagnosis Pointers").fill("M54.50");
-  await page.getByLabel("Place of Service").click();
-  await page.getByRole("option", { name: /11.*Office/i }).click();
+  await page.getByLabel("Linked Diagnosis Codes").fill("M54.50");
   await page.getByLabel("Service Date From").fill("2026-10-01");
   await page.getByLabel("Service Date To").fill("2026-10-01");
   await page.getByLabel("Revenue Code").fill("0450");
-  await page.getByLabel("POA Indicator").fill("Y");
+  await page.getByLabel("POA Indicator").click();
+  await page.getByRole("option", { name: /Y - Present at admission/i }).click();
 
   await page.getByRole("button", { name: "Next" }).click();
   await expect(page.getByText(/Service Lines:/).locator("..")).toContainText("1");
