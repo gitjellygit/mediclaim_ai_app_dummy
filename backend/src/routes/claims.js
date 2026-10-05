@@ -29,7 +29,7 @@ import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
 import { evaluateUsReadinessRules, usReadinessRuleCodes } from "../services/usReadinessRules.js";
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
-import { isClaimLocked } from "../services/claimLock.js";
+import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
 
 const router = express.Router();
@@ -572,11 +572,10 @@ router.patch("/:id", async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    if (isClaimLocked(existing)) {
-      return res.status(409).json({
-        error: "Submitted claims are locked. Reopen or amend the claim before editing."
-      });
-    }
+    assertClaimEditable(
+      existing,
+      "Submitted or finalized claims are locked. Reopen or amend the claim before editing."
+    );
 
     const payload = buildClaimPatch(input);
 
@@ -887,11 +886,10 @@ router.post("/:id/check", async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    if (isClaimLocked(claim)) {
-      return res.status(409).json({
-        error: "Submitted or finalized claims are locked. Reopen or amend the claim before running a new AI check."
-      });
-    }
+    assertClaimEditable(
+      claim,
+      "Submitted or finalized claims are locked. Reopen or amend the claim before running a new AI check."
+    );
 
     // Only recognized rule codes alter live readiness. Mandatory gates remain mandatory.
     const rules = await prisma.rule.findMany({
@@ -1194,10 +1192,11 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       });
     }
 
-    if (claim.status === "SUBMITTED") {
-      return res.status(400).json({
-        error: "Claim is already submitted"
-      });
+    if (isClaimLocked(claim)) {
+      assertClaimEditable(
+        claim,
+        "Submitted or finalized claims cannot be submitted again."
+      );
     }
 
     const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED");
