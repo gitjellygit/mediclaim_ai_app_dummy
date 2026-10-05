@@ -61,7 +61,7 @@ export const claimUpdateSchema = z.object({
   amount: optionalMoneyInput,
   totalBilledAmount: optionalMoneyInput,
   serviceLines: z.array(serviceLineInputSchema).max(500).optional()
-}).strict();
+}).strict().partial();
 
 export const priorAuthEvaluationSchema = z.object({
   required: z.boolean().nullish(),
