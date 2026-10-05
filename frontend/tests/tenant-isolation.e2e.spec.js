@@ -78,7 +78,7 @@ test("H0 - mixed-organization bulk delete is rejected atomically", async () => {
     await apiContext.post("/api/claims/e2e/tenant-isolation/verify", {
       headers,
       data: {
-        ownDocumentId: fixture.ownDocumentId,
+        ownDocumentId: fixture.bulkDeleteOwnDocumentId,
         foreignDocumentId: fixture.foreignDocumentId
       }
     }),
