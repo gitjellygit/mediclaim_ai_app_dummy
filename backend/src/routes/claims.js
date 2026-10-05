@@ -98,7 +98,10 @@ function normalizeServiceLines(lines = []) {
       serviceDateFrom,
       serviceDateTo,
       revenueCode: line.revenueCode || null,
-      poaIndicator: line.poaIndicator || null
+      poaIndicator: line.poaIndicator || null,
+      verified: true,
+      source: "USER",
+      sourceDocumentId: null
     });
   }
 
@@ -932,6 +935,10 @@ router.post("/:id/check", async (req, res) => {
       });
     }
 
+    const verifiedServiceLines = (claim.serviceLines || []).filter(
+      (line) => line.verified !== false
+    );
+
     if (claim.claimForm === "PROFESSIONAL") {
       if (!claim.renderingProviderNpi) {
         issues.push({
@@ -941,7 +948,7 @@ router.post("/:id/check", async (req, res) => {
           fixTarget: "claim"
         });
       }
-      if (claim.serviceLines?.length && claim.serviceLines.some((line) => !line.placeOfService)) {
+      if (verifiedServiceLines.length && verifiedServiceLines.some((line) => !line.placeOfService)) {
         issues.push({
           severity: "BLOCK",
           message: "837P professional service lines require Place of Service",
@@ -960,7 +967,7 @@ router.post("/:id/check", async (req, res) => {
           fixTarget: "claim"
         });
       }
-      if (claim.serviceLines?.length && claim.serviceLines.some((line) => !line.revenueCode)) {
+      if (verifiedServiceLines.length && verifiedServiceLines.some((line) => !line.revenueCode)) {
         issues.push({
           severity: "BLOCK",
           message: "837I institutional service lines require revenue code",
