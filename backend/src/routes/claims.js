@@ -530,13 +530,6 @@ router.post("/", async (req, res) => {
     }
 
     if (claimInput.claimForm === "PROFESSIONAL") {
-      if (!claimInput.billingProviderNpi || !claimInput.renderingProviderNpi) {
-        return res.status(400).json({
-          error: "Missing professional claim provider identifiers",
-          message: "837P claims require billing and rendering provider NPIs",
-          code: "INVALID_PROFESSIONAL_CLAIM"
-        });
-      }
       if ((claimInput.inpatientProcedureCodes || []).length > 0) {
         return res.status(400).json({
           error: "Invalid professional claim procedure coding",
@@ -544,31 +537,10 @@ router.post("/", async (req, res) => {
           code: "INVALID_PROFESSIONAL_CLAIM"
         });
       }
-      if (normalizedServiceLines.data.some((line) => !line.placeOfService)) {
-        return res.status(400).json({
-          error: "Missing Place of Service",
-          message: "Every 837P service line requires a CMS Place of Service code",
-          code: "INVALID_SERVICE_LINE"
-        });
-      }
     }
 
-    if (claimInput.claimForm === "INSTITUTIONAL") {
-      if (!claimInput.billingProviderNpi || !claimInput.typeOfBill) {
-        return res.status(400).json({
-          error: "Missing institutional claim information",
-          message: "837I claims require a billing provider NPI and Type of Bill",
-          code: "INVALID_INSTITUTIONAL_CLAIM"
-        });
-      }
-      if (normalizedServiceLines.data.some((line) => !line.revenueCode)) {
-        return res.status(400).json({
-          error: "Missing Revenue Code",
-          message: "Every 837I service line requires a 4-digit Revenue Code",
-          code: "INVALID_SERVICE_LINE"
-        });
-      }
-    }
+    // Draft claims may be incomplete. Missing NPI/POS/Type-of-Bill/Revenue Code
+    // remain readiness blockers; values that are supplied are still format-validated.
 
     const diagnosisSet = new Set(claimInput.icd10Codes || []);
     const invalidDiagnosisLink = normalizedServiceLines.data.find((line) =>
@@ -800,26 +772,8 @@ router.patch("/:id", async (req, res) => {
           code: "INVALID_DIAGNOSIS_LINK"
         });
       }
-      if (
-        effectiveClaimForm === "PROFESSIONAL" &&
-        normalizedServiceLines.data.some((line) => !line.placeOfService)
-      ) {
-        return res.status(400).json({
-          error: "Missing Place of Service",
-          message: "Every 837P service line requires a CMS Place of Service code",
-          code: "INVALID_SERVICE_LINE"
-        });
-      }
-      if (
-        effectiveClaimForm === "INSTITUTIONAL" &&
-        normalizedServiceLines.data.some((line) => !line.revenueCode)
-      ) {
-        return res.status(400).json({
-          error: "Missing Revenue Code",
-          message: "Every 837I service line requires a 4-digit Revenue Code",
-          code: "INVALID_SERVICE_LINE"
-        });
-      }
+      // Missing submission-required fields are handled by readiness so drafts
+      // can be saved and corrected incrementally.
     }
 
     const patchChangedFields = changedPatchFields(existing, payload);
