@@ -139,6 +139,12 @@ router.get("/", async (req, res) => {
       orderBy: { createdAt: "desc" }
     });
 
+    await writeRequestAudit(prisma, req, {
+      action: "CLAIM_LIST_VIEWED",
+      entityType: "Claim",
+      metadata: { count: claims.length }
+    });
+
     res.json(claims);
   } catch (error) {
     console.error("Error fetching claims:", error);
@@ -205,6 +211,12 @@ router.get("/search", async (req, res) => {
       },
       orderBy: { createdAt: "desc" },
       take: limit
+    });
+
+    await writeRequestAudit(prisma, req, {
+      action: q ? "CLAIM_SEARCHED" : "RECENT_CLAIMS_VIEWED",
+      entityType: "Claim",
+      metadata: { count: claims.length }
     });
 
     res.json({
@@ -292,6 +304,11 @@ router.get("/medical-consistency/summary", async (req, res) => {
           : 0
     };
 
+    await writeRequestAudit(prisma, req, {
+      action: "MEDICAL_CONSISTENCY_VIEWED",
+      entityType: "Claim",
+      metadata: { count: items.length }
+    });
     res.json({ items, metrics, query: q, limit });
   } catch (error) {
     console.error("[medical-consistency] summary failed", {
