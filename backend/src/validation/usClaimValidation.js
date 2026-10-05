@@ -73,8 +73,17 @@ export const modifierSchema = z.string().trim()
   .transform(normalizeProcedureCode)
   .refine((value) => /^[A-Z0-9]{2}$/.test(value), "Modifier must be exactly 2 letters/numbers");
 
+export const CMS_POS_CODES = new Set([
+  "01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17","18","19","20",
+  "21","22","23","24","25","26","27","31","32","33","34","41","42","49","50","51","52","53","54","55","56",
+  "57","58","60","61","62","65","66","71","72","81","99"
+]);
+
 export const placeOfServiceSchema = z.string().trim()
-  .refine((value) => /^\d{2}$/.test(value), "Place of Service must be a 2-digit CMS code");
+  .refine(
+    (value) => CMS_POS_CODES.has(value),
+    "Place of Service must be an assigned CMS 2-digit code"
+  );
 
 export const revenueCodeSchema = z.string().trim()
   .refine((value) => /^\d{4}$/.test(value), "Revenue Code must contain exactly 4 digits");
