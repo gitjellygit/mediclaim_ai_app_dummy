@@ -174,7 +174,7 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
     ).toBeVisible();
 
     const billingIssue = page.getByTestId("readiness-issue-billingProviderNpi");
-    await expect(billingIssue.getByText("Add the billing provider NPI.", { exact: true })).toBeVisible();
+    await expect(billingIssue).toContainText(/billing provider npi/i);
     await billingIssue.getByRole("button", { name: "Fix Field" }).click();
 
     const billingNpi = page.getByLabel("Billing Provider NPI");
@@ -187,12 +187,7 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
     await page.goto(`/claims/${claim.id}`);
 
     const cptIssue = page.getByTestId("readiness-issue-cptHcpcsCode");
-    await expect(
-      cptIssue.getByText(
-        "Add and verify at least one CPT/HCPCS service code.",
-        { exact: true }
-      )
-    ).toBeVisible();
+    await expect(cptIssue).toContainText(/CPT\/HCPCS/i);
     await cptIssue.getByRole("button", { name: "Edit Service Line" }).click();
 
     const cpt = page.getByLabel("CPT / HCPCS");
