@@ -33,7 +33,8 @@ test("B10 - login rate-limit check and recording use the same normalized email",
     "utf8"
   );
   assert.match(source, /checkRateLimit\(rateKey, MAX_FAILED_ATTEMPTS\)/);
-  assert.match(source, /const rateKey = `login:\$\{String\(email\)\.toLowerCase\(\)\.trim\(\)\}`/);
+  assert.match(source, /const emailKey = String\(email\)\.toLowerCase\(\)\.trim\(\)/);
+  assert.match(source, /const rateKey = `login:\$\{emailKey\}`/);
   assert.match(source, /recordFailedAttempt\(rateKey\)/);
   assert.match(source, /clearRateLimit\(rateKey\)/);
 });
