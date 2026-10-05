@@ -32,6 +32,22 @@ import {
 } from "./claim-detail/claimDetailUtils.js";
 import ServiceLinesEditor, { emptyServiceLine, serviceLineToForm, serviceLineToPayload } from "../../components/ServiceLinesEditor.jsx";
 import { formatUSDateOnly, toDateInputValue } from "../../utils/dateOnly.js";
+import {
+  TYPE_OF_BILL_BASE_OPTIONS,
+  drgError,
+  icd10CmError,
+  icd10PcsError,
+  normalizeIcd10Cm,
+  normalizeIcd10Pcs,
+  normalizeNpi,
+  normalizeTaxonomy,
+  normalizeTin,
+  npiError,
+  taxonomyError,
+  tinError,
+  typeOfBillError,
+  typeOfBillFor
+} from "../../utils/usClaimValidation.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
@@ -221,6 +237,36 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   async function saveEdit() {
     if (!editForm) return;
+
+    const validationErrors = [
+      ["Billing Provider NPI", editForm.billingProviderNpi && npiError(editForm.billingProviderNpi)],
+      ["Rendering Provider NPI", editForm.renderingProviderNpi && npiError(editForm.renderingProviderNpi)],
+      ["Referring Provider NPI", editForm.referringProviderNpi && npiError(editForm.referringProviderNpi)],
+      ["Provider TIN", editForm.providerTin && tinError(editForm.providerTin)],
+      ["Provider Taxonomy Code", editForm.providerTaxonomyCode && taxonomyError(editForm.providerTaxonomyCode)],
+      ["Type of Bill", editForm.typeOfBill && typeOfBillError(editForm.typeOfBill)],
+      ["DRG", editForm.drgCode && drgError(editForm.drgCode)]
+    ].filter(([, message]) => message);
+
+    const invalidIcd = String(editForm.icd10Codes || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .find((value) => icd10CmError(value));
+    if (invalidIcd) validationErrors.push(["ICD-10-CM", `${invalidIcd}: ${icd10CmError(invalidIcd)}`]);
+
+    const invalidPcs = String(editForm.inpatientProcedureCodes || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .find((value) => icd10PcsError(value));
+    if (invalidPcs) validationErrors.push(["ICD-10-PCS", `${invalidPcs}: ${icd10PcsError(invalidPcs)}`]);
+
+    if (validationErrors.length) {
+      const [field, message] = validationErrors[0];
+      showDialog(message, { title: `Invalid ${field}`, severity: "warning" });
+      return;
+    }
     if (claim?.status === "SUBMITTED") {
       return showDialog(
         "Submitted claims are locked. Reopen or amend the claim before editing.",
@@ -251,11 +297,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       payerReferenceNo: editForm.payerReferenceNo || null,
       patientDob: editForm.patientDob || null,
       hospitalName: editForm.hospitalName || null,
-      billingProviderNpi: editForm.billingProviderNpi || null,
-      renderingProviderNpi: editForm.renderingProviderNpi || null,
-      referringProviderNpi: editForm.referringProviderNpi || null,
-      providerTin: editForm.providerTin || null,
-      providerTaxonomyCode: editForm.providerTaxonomyCode || null,
+      billingProviderNpi: editForm.billingProviderNpi ? normalizeNpi(editForm.billingProviderNpi) : null,
+      renderingProviderNpi: editForm.renderingProviderNpi ? normalizeNpi(editForm.renderingProviderNpi) : null,
+      referringProviderNpi: editForm.referringProviderNpi ? normalizeNpi(editForm.referringProviderNpi) : null,
+      providerTin: editForm.providerTin ? normalizeTin(editForm.providerTin) : null,
+      providerTaxonomyCode: editForm.providerTaxonomyCode ? normalizeTaxonomy(editForm.providerTaxonomyCode) : null,
       diagnosisText: editForm.diagnosisText || null,
       claimType: editForm.claimType,
       dateOfService: editForm.dateOfService || null,
@@ -1317,10 +1363,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 data-fix-field="billingProviderNpi"
                 label="Billing Provider NPI"
                 value={editForm.billingProviderNpi}
-                onChange={(e) => updateEditField("billingProviderNpi", e.target.value)}
+                onChange={(e) => updateEditField("billingProviderNpi", normalizeNpi(e.target.value))}
                 color={isFixField("billingProviderNpi") ? "warning" : "primary"}
                 focused={isFixField("billingProviderNpi")}
-                helperText={isFixField("billingProviderNpi") ? "Enter the 10-digit billing provider NPI required for submission." : ""}
+                helperText={npiError(editForm.billingProviderNpi) || (isFixField("billingProviderNpi") ? "Enter the 10-digit billing provider NPI required for submission." : "Exactly 10 digits")}
                 fullWidth
               />
               {editForm.claimForm === "PROFESSIONAL" && (
@@ -1329,7 +1375,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                     data-fix-field="renderingProviderNpi"
                     label="Rendering Provider NPI"
                     value={editForm.renderingProviderNpi}
-                    onChange={(e) => updateEditField("renderingProviderNpi", e.target.value)}
+                    onChange={(e) => updateEditField("renderingProviderNpi", normalizeNpi(e.target.value))}
                     color={isFixField("renderingProviderNpi") ? "warning" : "primary"}
                     focused={isFixField("renderingProviderNpi")}
                     fullWidth
@@ -1338,15 +1384,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                     data-fix-field="referringProviderNpi"
                     label="Referring Provider NPI"
                     value={editForm.referringProviderNpi}
-                    onChange={(e) => updateEditField("referringProviderNpi", e.target.value)}
+                    onChange={(e) => updateEditField("referringProviderNpi", normalizeNpi(e.target.value))}
                     color={isFixField("referringProviderNpi") ? "warning" : "primary"}
                     focused={isFixField("referringProviderNpi")}
                     fullWidth
                   />
                 </>
               )}
-              <TextField label="Provider TIN" value={editForm.providerTin} onChange={(e) => updateEditField("providerTin", e.target.value)} fullWidth />
-              <TextField label="Provider Taxonomy Code" value={editForm.providerTaxonomyCode} onChange={(e) => updateEditField("providerTaxonomyCode", e.target.value)} fullWidth />
+              <TextField label="Provider TIN" value={editForm.providerTin} onChange={(e) => updateEditField("providerTin", e.target.value.replace(/[^0-9-]/g, "").slice(0, 10))} fullWidth />
+              <TextField label="Provider Taxonomy Code" value={editForm.providerTaxonomyCode} onChange={(e) => updateEditField("providerTaxonomyCode", normalizeTaxonomy(e.target.value))} fullWidth />
               <TextField
                 data-fix-field="diagnosisText"
                 label="Diagnosis"
@@ -1362,7 +1408,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 data-fix-field="icd10Codes"
                 color={isFixField("icd10Codes") ? "warning" : "primary"}
                 focused={isFixField("icd10Codes")}
-                onChange={(e) => updateEditField("icd10Codes", e.target.value)}
+                onChange={(e) => updateEditField("icd10Codes", e.target.value.toUpperCase())}
                 fullWidth
               />
               <TextField
@@ -1605,7 +1651,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <TextField
                 label="ICD-10-PCS Codes (comma separated)"
                 value={editForm.inpatientProcedureCodes}
-                onChange={(e) => updateEditField("inpatientProcedureCodes", e.target.value)}
+                onChange={(e) => updateEditField("inpatientProcedureCodes", e.target.value.toUpperCase())}
                 fullWidth
               />
               <TextField
@@ -1627,7 +1673,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 select
                 label="Claim Frequency"
                 value={editForm.claimFrequencyCode}
-                onChange={(e) => updateEditField("claimFrequencyCode", e.target.value)}
+                onChange={(e) => {
+                  const frequency = e.target.value;
+                  updateEditField("claimFrequencyCode", frequency);
+                  if (editForm.typeOfBill) {
+                    updateEditField("typeOfBill", typeOfBillFor(editForm.typeOfBill.slice(0, 3), frequency));
+                  }
+                }}
                 fullWidth
               >
                 <MenuItem value="ORIGINAL">Original</MenuItem>
@@ -1651,6 +1703,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                     ? fixFocus
                     : ""
                 }
+                claimForm={editForm.claimForm}
+                diagnosisCodes={String(editForm.icd10Codes || "").split(",").map(normalizeIcd10Cm).filter(Boolean)}
               />
             </Stack>
           )}
