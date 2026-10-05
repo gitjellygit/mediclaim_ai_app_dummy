@@ -2276,7 +2276,9 @@ test("85 - medical consistency UI provides dashboard metrics findings and fix na
   assert.match(source, /Claims Reviewed/);
   assert.match(source, /Needs Review/);
   assert.match(source, /Consistency Score/);
-  assert.match(source, /Review \/ Fix in Claim/);
+  assert.match(source, /Fix in Claim/);
+  assert.match(source, /params\.set\("edit", "1"\)/);
+  assert.match(source, /params\.set\("focus", fields\.join\(","\)\)/);
   assert.match(source, /Passed Checks/);
   assert.match(source, /Decision support only/);
 });
