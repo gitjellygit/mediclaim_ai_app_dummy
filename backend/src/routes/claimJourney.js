@@ -1,4 +1,5 @@
 import express from "express";
+import { auditOnResponse } from "../services/auditLog.js";
 import { emptyMutationSchema, parseMutation, priorAuthEvaluationSchema, payerClaimStatusSchema, remittanceMutationSchema } from "../validation/claimMutations.js";
 import { prisma } from "../db.js";
 import { validMoney, moneyCents, differenceMoney } from "../utils/money.js";
@@ -16,6 +17,29 @@ import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js
 import { createPayerConnector } from "../services/payerGateway.js";
 
 const router = express.Router();
+
+router.use((req, res, next) => {
+  const path = req.path;
+  const claimId = /^\/([^/]+)\/journey/.exec(path)?.[1] || null;
+  const action =
+    req.method === "GET" && /\/journey$/.test(path) ? "CLAIM_JOURNEY_VIEWED" :
+    /\/eligibility\/precheck$/.test(path) ? "ELIGIBILITY_CHECKED" :
+    /\/prior-auth\/evaluate$/.test(path) ? "PRIOR_AUTH_EVALUATED" :
+    /\/claim-status$/.test(path) ? "PAYER_STATUS_UPDATED" :
+    /\/remittance$/.test(path) ? "REMITTANCE_UPDATED" :
+    null;
+
+  if (action) {
+    auditOnResponse(prisma, req, res, (statusCode) => ({
+      claimId,
+      action,
+      entityType: "Claim",
+      entityId: claimId,
+      outcome: statusCode < 400 ? "SUCCESS" : "DENIED"
+    }));
+  }
+  next();
+});
 
 function orgId(req) {
   return req.user.organizationId;
