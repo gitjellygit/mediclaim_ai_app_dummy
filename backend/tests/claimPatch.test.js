@@ -65,7 +65,10 @@ test("P1 - identical service lines do not trigger a false change", () => {
     serviceDateFrom: new Date("2026-10-01T00:00:00.000Z"),
     serviceDateTo: new Date("2026-10-01T00:00:00.000Z"),
     revenueCode: null,
-    poaIndicator: null
+    poaIndicator: null,
+    verified: true,
+    source: "USER",
+    sourceDocumentId: null
   }];
   const next = [{
     cptHcpcsCode: "99213",
@@ -77,7 +80,10 @@ test("P1 - identical service lines do not trigger a false change", () => {
     serviceDateFrom: new Date("2026-10-01T00:00:00.000Z"),
     serviceDateTo: new Date("2026-10-01T00:00:00.000Z"),
     revenueCode: null,
-    poaIndicator: null
+    poaIndicator: null,
+    verified: true,
+    source: "USER",
+    sourceDocumentId: null
   }];
   assert.equal(serviceLinesDiffer(existing, next), false);
   next[0].placeOfService = "22";
