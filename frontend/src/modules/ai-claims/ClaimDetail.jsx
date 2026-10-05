@@ -2396,7 +2396,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
           {!check && (
             <Typography color="text.secondary" sx={{ mt: 2 }}>
-              Run AI Check first. Submission will be enabled only when the claim is ready.
+              Check claim readiness first. Submission will be enabled only when required items are complete.
             </Typography>
           )}
         </CardContent>
