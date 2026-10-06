@@ -102,7 +102,8 @@ export function getDerivedFieldsFromDocument(extracted = {}, type = "OTHER") {
     const value = extractedValue(extracted, field);
 
     if (field === "icd10Codes") {
-      if (value.length > 0) fields.push(field);
+      // Raw document codes are review candidates only. They become claim
+      // coding after explicit Accept/Change and are then human-verified.
       continue;
     }
 
