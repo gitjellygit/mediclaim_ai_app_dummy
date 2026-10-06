@@ -15,6 +15,7 @@ import denialsRouter from "./routes/denials.js";
 import underpaymentsRouter from "./routes/underpayments.js";
 import auditRouter from "./routes/audit.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
+import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
 dotenv.config();
 
 const INSECURE_JWT_SECRETS = new Set([
@@ -32,6 +33,8 @@ if (
     "JWT_SECRET must be a unique secret of at least 32 characters and must not use a documented placeholder"
   );
 }
+
+assertDocumentStorageConfiguration();
 
 const app = express();
 

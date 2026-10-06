@@ -55,7 +55,7 @@ export function documentCreateData({
     fileName: file.originalname,
     mimeType: file.mimetype,
     sizeBytes: file.size,
-    path: file.filename,
+    path: file.storagePath || file.filename,
     fileHash,
     suggestedType: intel.suggestedType || null,
     confidence: intel.confidence ?? null,

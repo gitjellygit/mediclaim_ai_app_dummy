@@ -3283,8 +3283,13 @@ test("stabilization - legacy claim document endpoints prevent directory escape a
   const claimsSource = fs.readFileSync(path.join(backendRoot, "src/routes/claims.js"), "utf8");
   const sharedSource = fs.readFileSync(path.join(backendRoot, "src/services/documentResponse.js"), "utf8");
   assert.match(claimsSource, /serveStoredDocument\(prisma, req, res/);
-  assert.match(sharedSource, /resolveStoredDocument\(doc.path, uploadDir\)/);
-  assert.match(sharedSource, /"private, no-store"/);
+  assert.match(sharedSource, /openStoredDocument\(doc.path, \{ uploadDir \}\)/);
+  const storageSource = fs.readFileSync(
+    path.join(backendRoot, "src/services/documentStorage.js"),
+    "utf8"
+  );
+  assert.match(storageSource, /resolveStoredDocument\(storedPath, uploadDir\)/);
+  assert.match(sharedSource, /"private, no-store(?:, max-age=0)?"/);
 });
 
 test("money - create and retrieve exact cent amounts without rounding to dollars", { concurrency: false }, async () => {

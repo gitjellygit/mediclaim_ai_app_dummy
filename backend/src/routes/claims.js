@@ -921,7 +921,7 @@ router.delete("/:id/purge", requireRoles(["ADMIN"]), async (req, res) => {
       await tx.claim.delete({ where: { id: claim.id } });
     });
 
-    const fileCleanup = deletePurgedClaimFiles(files);
+    const fileCleanup = await deletePurgedClaimFiles(files);
     if (fileCleanup.failures.length > 0) {
       console.error("[claim-purge] file cleanup incomplete", {
         claimId: id,
