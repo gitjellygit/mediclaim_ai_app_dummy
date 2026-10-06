@@ -95,6 +95,30 @@ test("Journey deep link loads the requested claim and uses clear claim-detail la
   await expect(page.getByRole("button", { name: "Open Claim" })).toHaveCount(0);
 });
 
+test("Payer connection is required before eligibility and prior authorization", async ({ page }) => {
+  const scenario = scenarios[1];
+
+  await page.goto(`/journey?claimId=${scenario.id}`);
+  await expect(page.getByTestId("payer-connection-card")).toContainText(
+    "Payer connection required"
+  );
+
+  const eligibility = page.getByTestId("journey-stage-eligibility");
+  const priorAuth = page.getByTestId("journey-stage-prior-auth");
+
+  await expect(eligibility).toContainText("Connect the payer above to unlock Eligibility");
+  await expect(
+    eligibility.getByRole("button", { name: "Check Eligibility" })
+  ).toBeDisabled();
+
+  await expect(priorAuth).toContainText(
+    "Connect the payer above before checking Prior Authorization"
+  );
+  await expect(
+    priorAuth.getByRole("button", { name: "Check Prior Auth" })
+  ).toBeDisabled();
+});
+
 test("Approval Intelligence sends unevaluated editable claims directly to AI readiness", async ({ page }) => {
   const scenario = scenarios.find((item) => item.key === "SWITCH");
   expect(scenario).toBeTruthy();
