@@ -16,7 +16,6 @@ import { useToast } from "../../context/ToastContext.jsx";
 import AICheckProgress from "../../components/AICheckProgress.jsx";
 import { api } from "../../api/client.js";
 import ClaimSummaryCard from "./claim-detail/ClaimSummaryCard.jsx";
-import ClaimAutomationCard from "./claim-detail/ClaimAutomationCard.jsx";
 import ClaimCompletenessCard from "./claim-detail/ClaimCompletenessCard.jsx";
 import { useClaimDetailData } from "./claim-detail/useClaimDetailData.js";
 import {
@@ -1093,6 +1092,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       });
       return;
     }
+    if (item.fixTarget === "coding-review") {
+      navigate(`/documents?claimId=${claim.id}&reviewCoding=1`);
+      return;
+    }
+    if (item.fixTarget === "serviceLines") {
+      openClaimEdit("serviceLines", ["serviceLines"]);
+      return;
+    }
     openClaimEdit(item.field);
   }
 
@@ -1136,14 +1143,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
       <ClaimSummaryCard claim={claim} />
 
-      <ClaimAutomationCard
-        summary={claim.automationSummary}
-        onFieldAction={automationFieldAction}
-        actionLabel={automationActionLabel}
-      />
-
       <ClaimCompletenessCard
         completeness={completeness}
+        automation={claim.automationSummary}
         onFixItem={fixCompletenessItem}
         claimStatus={claim.status}
       />
