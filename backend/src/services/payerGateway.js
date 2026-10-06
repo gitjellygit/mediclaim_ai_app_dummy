@@ -186,6 +186,19 @@ export function createPayerConnector(mode, payerCode, env = process.env) {
   return createPayerConnectorById(normalizedMode, payerCode, env);
 }
 
+export function payerConnectorStatusForClaim(claim, env = process.env) {
+  const id = resolvePayerConnectorId(claim, env);
+  const descriptor = getPayerConnectorDescriptor(id);
+  return {
+    id: descriptor.id,
+    mode: descriptor.mode,
+    provider: descriptor.provider,
+    environment: descriptor.environment,
+    capabilities: descriptor.capabilities,
+    configured: Boolean(descriptor.configured(env))
+  };
+}
+
 export function createPayerConnectorForClaim(claim, payerCode, env = process.env) {
   return createPayerConnectorById(
     resolvePayerConnectorId(claim, env),
