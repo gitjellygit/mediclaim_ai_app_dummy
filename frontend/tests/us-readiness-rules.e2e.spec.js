@@ -286,7 +286,7 @@ test("U7-4 - payer-required prior auth must be approved with authorization numbe
 });
 
 
-test("U7-5 - diagnosis/service-line linkage stays correct across edit-order permutations", async () => {
+test("U7-5 - diagnosis/service-line edits reject invalid intermediate state and allow atomic correction", async () => {
   const claim = await createClaim({
     patientName: "E2E-U7-LINK-PERMUTATIONS",
     payerName: "U7 Health",
@@ -294,7 +294,7 @@ test("U7-5 - diagnosis/service-line linkage stays correct across edit-order perm
     memberId: "U7-MEM-LINK",
     amount: 100,
     billingProviderNpi: "1234567890",
-    icd10Codes: [],
+    icd10Codes: ["M54.50"],
     serviceLines: [{
       cptHcpcsCode: "99213",
       units: 1,
@@ -303,22 +303,22 @@ test("U7-5 - diagnosis/service-line linkage stays correct across edit-order perm
     }]
   });
 
-  // Service line first: pointer exists but claim diagnosis does not.
   let issues = rulesFrom(await runCheck(claim.id));
-  expect(issues.get("US_DIAGNOSIS_CPT_LINK")?.severity).toBe("BLOCK");
+  expect(issues.has("US_DIAGNOSIS_CPT_LINK")).toBe(false);
 
-  // Diagnosis second: exact pointer now resolves.
-  await updateClaim(claim.id, { icd10Codes: ["M54.50"] });
+  const invalid = await apiContext.patch(`/api/claims/${claim.id}`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: { icd10Codes: ["E11.9"] }
+  });
+  expect(invalid.status()).toBe(400);
+  expect((await invalid.json()).code).toBe("INVALID_DIAGNOSIS_LINK");
+
+  // The rejected edit must not corrupt the persisted valid state.
   issues = rulesFrom(await runCheck(claim.id));
   expect(issues.has("US_DIAGNOSIS_CPT_LINK")).toBe(false);
 
-  // Change diagnosis only: old pointer becomes invalid again.
-  await updateClaim(claim.id, { icd10Codes: ["E11.9"] });
-  issues = rulesFrom(await runCheck(claim.id));
-  expect(issues.get("US_DIAGNOSIS_CPT_LINK")?.severity).toBe("BLOCK");
-
-  // Change pointer second: blocker resolves again.
   await updateClaim(claim.id, {
+    icd10Codes: ["E11.9"],
     serviceLines: [{
       cptHcpcsCode: "99213",
       units: 1,
@@ -330,7 +330,7 @@ test("U7-5 - diagnosis/service-line linkage stays correct across edit-order perm
   expect(issues.has("US_DIAGNOSIS_CPT_LINK")).toBe(false);
 });
 
-test("U7-6 - every verified service line must link to a current claim diagnosis", async () => {
+test("U7-6 - every verified service line must use a current claim diagnosis", async () => {
   const claim = await createClaim({
     patientName: "E2E-U7-LINK-MULTI",
     payerName: "U7 Health",
@@ -341,20 +341,26 @@ test("U7-6 - every verified service line must link to a current claim diagnosis"
     icd10Codes: ["M54.50", "E11.9"],
     serviceLines: [
       { cptHcpcsCode: "99213", units: 1, charge: 100, diagnosisPointers: ["M54.50"] },
-      { cptHcpcsCode: "99214", units: 1, charge: 100, diagnosisPointers: ["Z99.9"] }
+      { cptHcpcsCode: "99214", units: 1, charge: 100, diagnosisPointers: ["E11.9"] }
     ]
   });
 
   let issues = rulesFrom(await runCheck(claim.id));
-  expect(issues.get("US_DIAGNOSIS_CPT_LINK")?.severity).toBe("BLOCK");
-  expect(issues.get("US_DIAGNOSIS_CPT_LINK")?.field).toBe("diagnosisPointers");
+  expect(issues.has("US_DIAGNOSIS_CPT_LINK")).toBe(false);
 
-  await updateClaim(claim.id, {
-    serviceLines: [
-      { cptHcpcsCode: "99213", units: 1, charge: 100, diagnosisPointers: ["M54.50"] },
-      { cptHcpcsCode: "99214", units: 1, charge: 100, diagnosisPointers: ["E11.9"] }
-    ]
+  const invalid = await apiContext.patch(`/api/claims/${claim.id}`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {
+      serviceLines: [
+        { cptHcpcsCode: "99213", units: 1, charge: 100, diagnosisPointers: ["M54.50"] },
+        { cptHcpcsCode: "99214", units: 1, charge: 100, diagnosisPointers: ["Z99.9"] }
+      ]
+    }
   });
+  expect(invalid.status()).toBe(400);
+  expect((await invalid.json()).code).toBe("INVALID_DIAGNOSIS_LINK");
+
+  // Persisted claim remains valid after the rejected service-line update.
   issues = rulesFrom(await runCheck(claim.id));
   expect(issues.has("US_DIAGNOSIS_CPT_LINK")).toBe(false);
 });
