@@ -304,7 +304,10 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
             systemProvenance(
               ["eligibilityStatus", "coverageStatus"],
               {
-                source:\n                  connector.connectorEnvironment === "LOCAL"\n                    ? "LOCAL_PRECHECK"\n                    : connector.connectorId || "LOCAL_PRECHECK",
+                source:
+                  connector.connectorEnvironment === "LOCAL"
+                    ? "LOCAL_PRECHECK"
+                    : connector.connectorId || "LOCAL_PRECHECK",
                 label:
                   connector.connectorEnvironment === "TEST"
                     ? `${connector.connectorProvider} Test Eligibility`
