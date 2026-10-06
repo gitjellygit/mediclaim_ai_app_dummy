@@ -110,6 +110,13 @@ export const payerConnectSchema = z.object({
   payerCode: z.string().trim().min(1).max(100).transform((value) => value.toUpperCase())
 }).strict();
 
+export const payerConnectorConnectionSchema = z.object({
+  connectorId: z.string().trim().min(1).max(100).transform((value) => value.toUpperCase()),
+  payerCode: z.string().trim().min(1).max(100),
+  payerName: z.string().trim().min(1).max(250).optional()
+}).strict();
+
+
 export const payerPriorAuthSchema = z.object({
   authorizationNo: z.string().trim().max(100).nullish()
 }).strict();
