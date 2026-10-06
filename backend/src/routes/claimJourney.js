@@ -15,6 +15,7 @@ import { getMockPayer } from "../services/payerSimulator.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
 import { createPayerConnector } from "../services/payerGateway.js";
+import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
 
 const router = express.Router();
 
@@ -433,100 +434,80 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       });
     }
 
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
-        payerClaimStatus: connectorPayerClaimStatus,
-        claimStatusCheckedAt: new Date(),
-        status: assertClaimTransition(
-          claim.status,
-          connectorPayerClaimStatus === "DENIED"
-            ? "DENIED"
-            : connectorPayerClaimStatus === "PAID"
-            ? "PAID"
-            : claim.status
-        ),
-        fieldProvenance: mergeProvenance(
-          claim.fieldProvenance,
-          systemProvenance(
-            ["payerClaimStatus"],
-            {
-              source: "USER_RECORDED",
-              label: "Recorded by User",
-              sourceDetail: "Manual payer status entry; 276/277 connector not configured",
-              verified: true
-            }
+    const { updated, denialCase } = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          payerClaimStatus: connectorPayerClaimStatus,
+          claimStatusCheckedAt: new Date(),
+          status: assertClaimTransition(
+            claim.status,
+            connectorPayerClaimStatus === "DENIED"
+              ? "DENIED"
+              : connectorPayerClaimStatus === "PAID"
+              ? "PAID"
+              : claim.status
+          ),
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            systemProvenance(
+              ["payerClaimStatus"],
+              {
+                source: "USER_RECORDED",
+                label: "Recorded by User",
+                sourceDetail: "Manual payer status entry; 276/277 connector not configured",
+                verified: true
+              }
+            )
           )
-        )
-      }
-    });
-
-    // A denial/partial approval automatically opens a denial-workflow case.
-    // Re-recording the same payer status does not create duplicate active cases.
-    let denialCase = null;
-    if (["DENIED", "PARTIALLY_APPROVED"].includes(connectorPayerClaimStatus)) {
-      denialCase = await prisma.denialCase.findFirst({
-        where: {
-          claimId: claim.id,
-          status: {
-            in: [
-              "OPEN",
-              "ANALYZED",
-              "CORRECTION_REQUIRED",
-              "APPEAL_PREPARED",
-              "APPEAL_SUBMITTED",
-              "RESUBMITTED"
-            ]
-          }
-        },
-        orderBy: { createdAt: "desc" }
+        }
       });
 
-      if (!denialCase) {
-        const claimed = Number(claim.amount || 0);
-        const paid = Number(claim.paidAmount || 0);
-        const allowedAmount = Number(claim.allowedAmount || 0);
-        const revenueAtRisk =
-          paid > 0
-            ? Math.max(0, differenceMoney(claim.amount, claim.paidAmount))
-            : allowedAmount > 0
-            ? Math.max(0, differenceMoney(claim.amount, claim.allowedAmount))
-            : claimed;
+      let activeDenialCase = null;
+      if (["DENIED", "PARTIALLY_APPROVED"].includes(connectorPayerClaimStatus)) {
+        activeDenialCase = await findActiveDenialCase(tx, claim.id);
 
-        denialCase = await prisma.denialCase.create({
-          data: {
-            claimId: claim.id,
-            source: "PAYER_STATUS",
-            status: "OPEN",
-            denialCategory: null,
-            denialDate: new Date(),
-            revenueAtRisk
-          }
-        });
+        if (!activeDenialCase) {
+          const claimed = Number(claim.amount || 0);
+          const paid = Number(claim.paidAmount || 0);
+          const allowedAmount = Number(claim.allowedAmount || 0);
+          const revenueAtRisk =
+            paid > 0
+              ? Math.max(0, differenceMoney(claim.amount, claim.paidAmount))
+              : allowedAmount > 0
+              ? Math.max(0, differenceMoney(claim.amount, claim.allowedAmount))
+              : claimed;
 
-        try {
-          await prisma.auditEvent.create({
+          activeDenialCase = await tx.denialCase.create({
+            data: {
+              claimId: claim.id,
+              source: "PAYER_STATUS",
+              status: "OPEN",
+              denialCategory: null,
+              denialDate: new Date(),
+              revenueAtRisk
+            }
+          });
+
+          await tx.auditEvent.create({
             data: {
               organizationId: orgId(req),
               claimId: claim.id,
               actorUserId: req.user?.id || null,
               action: "DENIAL_CASE_AUTO_CREATED",
               entityType: "DenialCase",
-              entityId: denialCase.id,
+              entityId: activeDenialCase.id,
               outcome: "SUCCESS",
               metadata: {
-                payerClaimStatus
+                payerStatus: connectorPayerClaimStatus
               }
             }
           });
-        } catch (auditError) {
-          console.error("[audit] denial auto-create audit failed", {
-            claimId: claim.id,
-            message: auditError.message
-          });
         }
       }
-    }
+
+      return { updated: updatedClaim, denialCase: activeDenialCase };
+    });
 
     logJourneyEvent(claim.id, "payer-status-recorded", connectorPayerClaimStatus);
     res.json({
