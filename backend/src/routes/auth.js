@@ -319,11 +319,16 @@ export function authRouter(prisma) {
       }
 
       if (tokenRecord.revoked) {
+        await revokeSession(
+          prisma,
+          tokenRecord.userId,
+          tokenRecord.sessionId
+        );
         clearRefreshCookie(res);
         return res.status(401).json({
           error: "Token revoked",
-          message: "Refresh session has been revoked",
-          code: "REFRESH_REVOKED"
+          message: "Refresh token reuse detected; the entire session has been revoked",
+          code: "REFRESH_REUSE_DETECTED"
         });
       }
 
@@ -374,11 +379,16 @@ export function authRouter(prisma) {
       });
 
       if (!rotated) {
+        await revokeSession(
+          prisma,
+          tokenRecord.userId,
+          tokenRecord.sessionId
+        );
         clearRefreshCookie(res);
         return res.status(401).json({
           error: "Token revoked",
-          message: "Refresh session is no longer active",
-          code: "REFRESH_REVOKED"
+          message: "Refresh token reuse detected; the entire session has been revoked",
+          code: "REFRESH_REUSE_DETECTED"
         });
       }
 
@@ -608,8 +618,11 @@ export function authRouter(prisma) {
         const emailKey = email.toLowerCase().trim();
         clearRateLimit(`login:${emailKey}`);
 
-        const user = await prisma.user.findUnique({
-          where: { email: emailKey }
+        const user = await prisma.user.findFirst({
+          where: {
+            email: emailKey,
+            organizationId: req.user.organizationId
+          }
         });
 
         if (user) {

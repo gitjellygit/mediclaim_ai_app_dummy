@@ -867,6 +867,7 @@ router.patch("/:id", async (req, res) => {
       completenessSummary: buildClaimCompleteness(updated)
     });
   } catch (e) {
+    if (e?.status) throw e;
     console.error("[claim-edit] failed", { name: e.name, code: e.code || null });
     res.status(500).json({ error: "Unable to update claim", code: "CLAIM_UPDATE_FAILED" });
   }

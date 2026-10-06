@@ -165,6 +165,7 @@ router.get("/:id/journey", async (req, res) => {
       livePayerConnectorConfigured: false
     });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[claim-journey] load failed", {
       claimId: req.params.id,
       message: error.message
@@ -256,6 +257,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
       claim: updated
     });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[claim-journey] eligibility precheck failed", {
       claimId: req.params.id,
       message: error.message
@@ -381,6 +383,7 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
       claim: updated
     });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[claim-journey] prior auth evaluation failed", {
       claimId: req.params.id,
       message: error.message
@@ -534,6 +537,7 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
       denialCase
     });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[claim-journey] payer status update failed", {
       claimId: req.params.id,
       message: error.message
@@ -722,6 +726,7 @@ router.patch("/:id/journey/remittance", async (req, res) => {
     logJourneyEvent(claim.id, "remittance-recorded", remittanceStatus);
     res.json(updated);
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[claim-journey] remittance update failed", {
       claimId: req.params.id,
       message: error.message

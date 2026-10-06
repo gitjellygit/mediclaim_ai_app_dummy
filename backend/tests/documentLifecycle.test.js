@@ -350,7 +350,7 @@ test("H8B-2 - refresh rotates the credential and stores only a hash", { concurre
     body: JSON.stringify({ refreshToken: loginPayload.refreshToken })
   });
   assert.equal(oldReuse.status, 401);
-  assert.equal((await oldReuse.json()).code, "REFRESH_REVOKED");
+  assert.equal((await oldReuse.json()).code, "REFRESH_REUSE_DETECTED");
 
   const refreshedAccess = jwt.decode(refreshed.accessToken);
   assert.equal(refreshedAccess.sid, accessPayload.sid);
@@ -362,7 +362,7 @@ test("H8B-2 - refresh rotates the credential and stores only a hash", { concurre
       revoked: false
     }
   });
-  assert.equal(activeRows.length, 1);
+  assert.equal(activeRows.length, 0);
 });
 
 test("H8B-2 - single logout invalidates that session access token", { concurrency: false }, async () => {

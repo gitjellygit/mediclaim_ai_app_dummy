@@ -165,6 +165,7 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
       claim: updated
     });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[payer-simulation] connect failed", {
       claimId: req.params.id,
       name: error?.name || "Error"
@@ -249,6 +250,7 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
 
     res.json({ result, transaction, claim: updated, livePayerVerification: false });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[payer-simulation] eligibility failed", {
       claimId: req.params.id,
       name: error?.name || "Error"
@@ -341,6 +343,7 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
 
     res.json({ result, transaction, claim: updated });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[payer-simulation] prior auth failed", {
       claimId: req.params.id,
       name: error?.name || "Error"
@@ -435,6 +438,7 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
 
     res.json({ result, transaction, claim: updated });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[payer-simulation] submission failed", {
       claimId: req.params.id,
       name: error?.name || "Error"
@@ -552,6 +556,7 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
 
     res.json({ result, transaction, claim: updated, denialCase });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[payer-simulation] status failed", {
       claimId: req.params.id,
       name: error?.name || "Error"
@@ -642,6 +647,7 @@ router.post("/:id/payer-simulation/remittance", async (req, res) => {
 
     res.json({ result, transaction, claim: updated, underpaymentCase });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("[payer-simulation] remittance failed", {
       claimId: req.params.id,
       name: error?.name || "Error"
