@@ -1,7 +1,6 @@
-import fs from "node:fs";
 import { recomputeDerivedClaimPatch } from "./claimDocumentProvenance.js";
 import { removeProvenanceFields } from "./claimFieldProvenance.js";
-import { resolveStoredDocument } from "./storedDocumentPath.js";
+import { deleteStoredObject } from "./documentStorage.js";
 import { isClaimLocked } from "./claimLock.js";
 
 /** One deletion implementation shared by the current and legacy document APIs. */
@@ -64,8 +63,7 @@ export async function deleteStoredDocument(prisma, req, res, {
           outcome: "SUCCESS",
           metadata: {
             bulk: false,
-            fileName: doc.fileName,
-            type: doc.type
+            documentType: doc.type
           }
         }
       });
@@ -77,18 +75,14 @@ export async function deleteStoredDocument(prisma, req, res, {
       });
     }
 
-    // Never use a database-stored path directly for filesystem operations.
-    const filePath = resolveStoredDocument(doc.path, uploadDir);
-    if (filePath && fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-      } catch (error) {
-        console.error("[documents] file cleanup failed", {
-          claimId: doc.claimId,
-          documentId: doc.id,
-          code: error?.code || null
-        });
-      }
+    try {
+      await deleteStoredObject(doc.path, { uploadDir });
+    } catch (error) {
+      console.error("[documents] stored object cleanup failed", {
+        claimId: doc.claimId,
+        documentId: doc.id,
+        code: error?.code || null
+      });
     }
 
     return res.json({
