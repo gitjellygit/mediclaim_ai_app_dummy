@@ -137,6 +137,24 @@ export default function ServiceLinesEditor({
   const isHighlighted = (field) =>
     highlightField === "serviceLines" || highlightField === field;
 
+  const normalizedDiagnosisSet = new Set(
+    (diagnosisCodes || []).map((code) => normalizeIcd10Cm(code)).filter(Boolean)
+  );
+
+  const diagnosisPointerError = (line) => {
+    const pointers = String(line?.diagnosisPointers || "")
+      .split(",")
+      .map((value) => normalizeIcd10Cm(value))
+      .filter(Boolean);
+
+    if (!line?.cptHcpcsCode?.trim()) return "";
+    if (!pointers.length) return "Link this service line to at least one claim diagnosis.";
+    const invalid = pointers.find((pointer) => !normalizedDiagnosisSet.has(pointer));
+    return invalid
+      ? `${invalid} is not one of the claim ICD-10 codes.`
+      : "";
+  };
+
   return (
     <Stack
       spacing={2}
@@ -229,10 +247,12 @@ export default function ServiceLinesEditor({
               focused={index === 0 && isHighlighted("diagnosisPointers")}
               value={line.diagnosisPointers}
               onChange={(event) => updateLine(index, "diagnosisPointers", event.target.value.toUpperCase())}
+              error={Boolean(diagnosisPointerError(line))}
               helperText={
-                diagnosisCodes.length
+                diagnosisPointerError(line) ||
+                (diagnosisCodes.length
                   ? `Use claim diagnoses only: ${diagnosisCodes.join(", ")}`
-                  : "Add ICD-10-CM diagnoses to the claim first; then link them here."
+                  : "Add ICD-10-CM diagnoses to the claim first; then link them here.")
               }
             />
             {claimForm === "PROFESSIONAL" && (
