@@ -16,7 +16,11 @@ import {
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { parseClaimDate } from "../utils/claimDate.js";
 import { selectSmartUploadMatch } from "../services/smartUploadMatch.js";
-import { resolveStoredDocument } from "../services/storedDocumentPath.js";
+import {
+  deleteStoredObject,
+  materializeStoredDocument,
+  persistUploadedDocument
+} from "../services/documentStorage.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
 import { analyzeDocument, DOC_TYPES } from "../services/docIntel.js";
 import {
@@ -184,12 +188,11 @@ export function documentsRouter(prisma, uploadDir) {
 
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-  const resolveStoredFile = (storedPath) => resolveStoredDocument(storedPath, uploadDir);
-
   const upload = createDocumentUpload(uploadDir);
 
   router.post("/smart-upload", upload.single("file"), verifyUploadSignature, async (req, res) => {
     let uploadedFilePath = null;
+    let storedDocumentPath = null;
     
     try {
       if (!req.file) {
@@ -380,6 +383,13 @@ export function documentsRouter(prisma, uploadDir) {
 
       }
 
+      storedDocumentPath = await persistUploadedDocument(req.file, {
+        organizationId: req.user.organizationId,
+        claimId: claim.id,
+        uploadDir
+      });
+      req.file.storagePath = storedDocumentPath;
+
       const doc = await prisma.$transaction(async (tx) => {
         const created = await tx.document.create({
           data: documentCreateData({
@@ -475,6 +485,16 @@ export function documentsRouter(prisma, uploadDir) {
         document: doc
       });
     } catch (error) {
+      if (storedDocumentPath) {
+        try {
+          await deleteStoredObject(storedDocumentPath, { uploadDir });
+        } catch (cleanupError) {
+          console.error("[smart-upload] stored object rollback failed", {
+            code: cleanupError?.code || null
+          });
+        }
+      }
+
       if (error.code === "P2002") {
         if (uploadedFilePath && fs.existsSync(uploadedFilePath)) {
           fs.unlinkSync(uploadedFilePath);
@@ -514,6 +534,7 @@ export function documentsRouter(prisma, uploadDir) {
 
   // Upload document
   async function handleClaimDocumentUpload(req, res) {
+  let storedDocumentPath = null;
   try {
     const { claimId, type } = req.body;
 
@@ -594,6 +615,13 @@ export function documentsRouter(prisma, uploadDir) {
         identityValidation
       });
     }
+
+    storedDocumentPath = await persistUploadedDocument(req.file, {
+      organizationId: req.user.organizationId,
+      claimId,
+      uploadDir
+    });
+    req.file.storagePath = storedDocumentPath;
 
     const { doc, updatedClaim } = await prisma.$transaction(async (tx) => {
       const created = await tx.document.create({
@@ -693,6 +721,17 @@ export function documentsRouter(prisma, uploadDir) {
           : "Document uploaded and patient identity matched the current claim."
     });
   } catch (e) {
+    if (storedDocumentPath) {
+      try {
+        await deleteStoredObject(storedDocumentPath, { uploadDir });
+      } catch (cleanupError) {
+        console.error("[claim-document] stored object rollback failed", {
+          claimId: req.body?.claimId || null,
+          code: cleanupError?.code || null
+        });
+      }
+    }
+
     if (req.file?.path && fs.existsSync(req.file.path)) {
       try {
         fs.unlinkSync(req.file.path);
@@ -796,21 +835,23 @@ export function documentsRouter(prisma, uploadDir) {
         });
       }
 
-      // Build correct file path - doc.path should be just filename
-      const filePath = resolveStoredFile(doc.path);
-      
-      if (!filePath || !fs.existsSync(filePath)) {
+      const materialized = await materializeStoredDocument(doc.path, { uploadDir });
+      if (!materialized) {
         return res.status(404).json({
-          error: "File not found on server",
+          error: "Document file not found"
         });
       }
 
-      // Call the shared AI analysis service.
-      const analysis = await analyzeDocument({
-        fileName: doc.fileName,
-        mimeType: doc.mimeType,
-        path: filePath
-      });
+      let analysis;
+      try {
+        analysis = await analyzeDocument({
+          fileName: doc.fileName,
+          mimeType: doc.mimeType,
+          path: materialized.path
+        });
+      } finally {
+        await materialized.cleanup();
+      }
 
       if (analysis.ocrStatus === "FAILED") {
         await prisma.document.update({ where: { id: doc.id }, data: { status: "FAILED" } });
@@ -1035,22 +1076,19 @@ export function documentsRouter(prisma, uploadDir) {
         claimId: doc.claimId,
         documentId: doc.id,
         action: "DOCUMENT_DELETED",
-        metadata: { bulk: true, fileName: doc.fileName, type: doc.type }
+        metadata: { bulk: true, documentType: doc.type }
       });
     }
 
     for (const doc of docs) {
-      const safePath = resolveStoredFile(doc.path);
-      if (safePath && fs.existsSync(safePath)) {
-        try {
-          fs.unlinkSync(safePath);
-        } catch (fileError) {
-          console.error("[claim-document] bulk file cleanup failed", {
-            claimId: doc.claimId,
-            documentId: doc.id,
-            message: fileError.message
-          });
-        }
+      try {
+        await deleteStoredObject(doc.path, { uploadDir });
+      } catch (fileError) {
+        console.error("[claim-document] bulk stored object cleanup failed", {
+          claimId: doc.claimId,
+          documentId: doc.id,
+          code: fileError?.code || null
+        });
       }
     }
 
