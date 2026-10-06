@@ -6,7 +6,7 @@ const router = express.Router();
 const EXPORT_LIMIT = 10000;
 const AUDIT_ACCESS_DEDUP_MS = 5 * 60 * 1000;
 
-async function recordAuditTrailAccess(req, count) {
+async function recordAuditTrailAccess(req) {
   const actorUserId = req.user?.id || null;
   const organizationId = req.user?.organizationId;
   if (!organizationId) return;
@@ -31,7 +31,6 @@ async function recordAuditTrailAccess(req, count) {
     entityType: "AuditEvent",
     statusCode: 200,
     metadata: {
-      count,
       operation: "audit_page_access"
     }
   });
@@ -185,6 +184,12 @@ router.get("/export", async (req, res) => {
 router.get("/", async (req, res) => {
   const page = Math.max(1, Number(req.query.page || 1));
   const pageSize = Math.min(100, Math.max(10, Number(req.query.pageSize || 25)));
+
+  // Record access before reading so the initial unfiltered page can show the
+  // access event immediately. Subsequent filter/pagination requests within the
+  // short dedup window do not create noisy self-referential audit rows.
+  await recordAuditTrailAccess(req);
+
   const where = buildWhere(req);
 
   const [items, total] = await prisma.$transaction([
@@ -198,7 +203,6 @@ router.get("/", async (req, res) => {
     prisma.auditEvent.count({ where })
   ]);
 
-  await recordAuditTrailAccess(req, items.length);
 
   res.json({
     items: items.map(serialize),
