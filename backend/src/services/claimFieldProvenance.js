@@ -18,6 +18,7 @@ export const CLAIM_FIELD_LABELS = {
   doctorName: "Doctor",
   diagnosisText: "Diagnosis",
   icd10Codes: "ICD-10",
+  inpatientProcedureCodes: "ICD-10-PCS",
   dateOfService: "Date of Service",
   admissionDate: "Admission Date",
   dischargeDate: "Discharge Date",

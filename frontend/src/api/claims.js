@@ -111,6 +111,21 @@ export const ClaimsApi = {
     });
   },
 
+  getDocumentCodingSuggestions(docId) {
+    return api(`/api/documents/${docId}/coding-suggestions`);
+  },
+
+  reviewCodingSuggestion(suggestionId, { action, code } = {}) {
+    return api(`/api/documents/coding-suggestions/${suggestionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        action,
+        ...(code ? { code } : {})
+      })
+    });
+  },
+
+
   searchClaims(query = "", limit = 20) {
     const params = new URLSearchParams();
     if (query) params.set("q", query);

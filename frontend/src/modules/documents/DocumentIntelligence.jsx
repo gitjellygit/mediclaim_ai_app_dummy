@@ -56,6 +56,12 @@ export default function DocumentIntelligence() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [codingOpen, setCodingOpen] = useState(false);
+  const [codingDoc, setCodingDoc] = useState(null);
+  const [codingSuggestions, setCodingSuggestions] = useState([]);
+  const [codingLoading, setCodingLoading] = useState(false);
+  const [codingEdits, setCodingEdits] = useState({});
+  const [codingReviewingId, setCodingReviewingId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "info" });
 
@@ -142,6 +148,93 @@ export default function DocumentIntelligence() {
       setSelectedFile(null);
       // Reset file input
       e.target.value = "";
+    }
+  }
+
+  function extractedCodingCount(doc) {
+    const extracted = doc?.extracted || {};
+    return [
+      ...(Array.isArray(extracted.icd10Codes) ? extracted.icd10Codes : []),
+      ...(Array.isArray(extracted.cptCodes) ? extracted.cptCodes : []),
+      ...(Array.isArray(extracted.icd10PcsCodes) ? extracted.icd10PcsCodes : [])
+    ].filter(Boolean).length;
+  }
+
+  async function openCodingReview(doc) {
+    setCodingDoc(doc);
+    setCodingOpen(true);
+    setCodingLoading(true);
+    setCodingEdits({});
+    try {
+      const result = await ClaimsApi.getDocumentCodingSuggestions(doc.id);
+      setCodingSuggestions(result?.items || []);
+    } catch (err) {
+      showDialog(
+        err?.message || "Coding suggestions could not be loaded.",
+        {
+          title: "Unable to load coding review",
+          severity: "error"
+        }
+      );
+      setCodingOpen(false);
+      setCodingDoc(null);
+    } finally {
+      setCodingLoading(false);
+    }
+  }
+
+  function closeCodingReview() {
+    if (codingReviewingId) return;
+    setCodingOpen(false);
+    setCodingDoc(null);
+    setCodingSuggestions([]);
+    setCodingEdits({});
+  }
+
+  async function reviewCodingSuggestion(suggestion, action) {
+    const code =
+      action === "CHANGE"
+        ? String(codingEdits[suggestion.id] || "").trim()
+        : undefined;
+
+    if (action === "CHANGE" && !code) {
+      showDialog("Enter the replacement code before choosing Change.", {
+        title: "Replacement code required",
+        severity: "warning"
+      });
+      return;
+    }
+
+    try {
+      setCodingReviewingId(suggestion.id);
+      const updated = await ClaimsApi.reviewCodingSuggestion(suggestion.id, {
+        action,
+        code
+      });
+      setCodingSuggestions((current) =>
+        current.map((item) =>
+          item.id === suggestion.id ? { ...item, ...updated } : item
+        )
+      );
+      setCodingEdits((current) => ({
+        ...current,
+        [suggestion.id]: updated.finalCode || current[suggestion.id] || ""
+      }));
+      showToast(
+        action === "REJECT"
+          ? "Coding suggestion rejected"
+          : action === "CHANGE"
+          ? "Coding suggestion changed and applied"
+          : "Coding suggestion accepted and applied",
+        "success"
+      );
+    } catch (err) {
+      showDialog(err?.message || "Coding suggestion could not be reviewed.", {
+        title: "Coding review failed",
+        severity: "error"
+      });
+    } finally {
+      setCodingReviewingId("");
     }
   }
 
@@ -408,6 +501,7 @@ export default function DocumentIntelligence() {
                     <TableCell>Type</TableCell>
                     <TableCell>Confidence</TableCell>
                     <TableCell>Patient</TableCell>
+                    <TableCell>Coding</TableCell>
                     <TableCell>Actions</TableCell>
                   </TableRow>
                 </TableHead>
@@ -431,6 +525,23 @@ export default function DocumentIntelligence() {
 
                       <TableCell>
                         {doc.patientName || "Unknown Patient"}
+                      </TableCell>
+
+                      <TableCell>
+                        {extractedCodingCount(doc) > 0 ? (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => openCodingReview(doc)}
+                            data-testid={`coding-review-${doc.id}`}
+                          >
+                            Review {extractedCodingCount(doc)}
+                          </Button>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">
+                            No codes
+                          </Typography>
+                        )}
                       </TableCell>
 
                       <TableCell>
@@ -498,6 +609,156 @@ export default function DocumentIntelligence() {
             <Button onClick={handleClosePreview}>Close</Button>
             <Button onClick={() => handleDownload(previewDoc)}>Download</Button>
           </Stack>
+        </Paper>
+      </Modal>
+
+      <Modal open={codingOpen} onClose={closeCodingReview}>
+        <Paper
+          sx={{
+            p: 3,
+            width: "min(980px, calc(100vw - 32px))",
+            maxHeight: "85vh",
+            overflowY: "auto",
+            mx: "auto",
+            mt: 5
+          }}
+        >
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            justifyContent="space-between"
+            spacing={1}
+            sx={{ mb: 2 }}
+          >
+            <Box>
+              <Typography variant="h6" fontWeight={800}>
+                Coding Review
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {codingDoc?.fileName || "Document"} · Review document-derived codes before they enter the claim.
+              </Typography>
+            </Box>
+            <Button onClick={closeCodingReview} disabled={Boolean(codingReviewingId)}>
+              Close
+            </Button>
+          </Stack>
+
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Document extraction creates suggestions only. A code is added to the claim only after Accept or Change.
+          </Alert>
+
+          {codingLoading ? (
+            <LinearProgress />
+          ) : codingSuggestions.length === 0 ? (
+            <Alert severity="info">
+              No ICD-10, CPT, HCPCS, or ICD-10-PCS codes were explicitly found in this document.
+            </Alert>
+          ) : (
+            <Stack spacing={2}>
+              {codingSuggestions.map((suggestion) => {
+                const pending = suggestion.status === "PENDING";
+                return (
+                  <Card key={suggestion.id} variant="outlined">
+                    <CardContent>
+                      <Stack spacing={1.25}>
+                        <Stack
+                          direction={{ xs: "column", sm: "row" }}
+                          justifyContent="space-between"
+                          alignItems={{ xs: "flex-start", sm: "center" }}
+                          spacing={1}
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                            <Chip size="small" label={suggestion.system.replaceAll("_", "-")} />
+                            <Typography variant="h6" fontWeight={800}>
+                              {suggestion.suggestedCode}
+                            </Typography>
+                            {suggestion.confidence != null && (
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={`${suggestion.confidence}% confidence`}
+                              />
+                            )}
+                          </Stack>
+                          <Chip
+                            size="small"
+                            color={
+                              suggestion.status === "REJECTED"
+                                ? "error"
+                                : ["ACCEPTED", "CHANGED"].includes(suggestion.status)
+                                ? "success"
+                                : "warning"
+                            }
+                            label={suggestion.status}
+                          />
+                        </Stack>
+
+                        {suggestion.evidenceText && (
+                          <Box sx={{ p: 1.25, backgroundColor: "grey.50", borderRadius: 1 }}>
+                            <Typography variant="caption" color="text.secondary">
+                              Document evidence
+                            </Typography>
+                            <Typography variant="body2">
+                              {suggestion.evidenceText}
+                            </Typography>
+                          </Box>
+                        )}
+
+                        {pending ? (
+                          <>
+                            <TextField
+                              size="small"
+                              label="Replacement code (only if changing)"
+                              value={codingEdits[suggestion.id] || ""}
+                              onChange={(e) =>
+                                setCodingEdits((current) => ({
+                                  ...current,
+                                  [suggestion.id]: e.target.value.toUpperCase()
+                                }))
+                              }
+                              disabled={codingReviewingId === suggestion.id}
+                            />
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                              <Button
+                                variant="contained"
+                                onClick={() => reviewCodingSuggestion(suggestion, "ACCEPT")}
+                                disabled={Boolean(codingReviewingId)}
+                              >
+                                Accept
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                onClick={() => reviewCodingSuggestion(suggestion, "CHANGE")}
+                                disabled={Boolean(codingReviewingId)}
+                              >
+                                Change
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                color="error"
+                                onClick={() => reviewCodingSuggestion(suggestion, "REJECT")}
+                                disabled={Boolean(codingReviewingId)}
+                              >
+                                Reject
+                              </Button>
+                            </Stack>
+                          </>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            {suggestion.finalCode
+                              ? `Final code: ${suggestion.finalCode}`
+                              : "Rejected — not added to the claim."}
+                            {suggestion.reviewedBy?.email
+                              ? ` · Reviewed by ${suggestion.reviewedBy.email}`
+                              : ""}
+                          </Typography>
+                        )}
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </Stack>
+          )}
         </Paper>
       </Modal>
 

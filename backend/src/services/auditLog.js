@@ -4,7 +4,8 @@ const SAFE_METADATA_KEYS = new Set([
   "rule","severity","payerStatus","priorAuthStatus","eligibilityStatus",
   "sessionId","sessionCount","reason","source","operation","count",
   "category","hasCARC","hasRARC","provider","model","llmUsed",
-  "softDeleted","documentCount","riskLevel","score","hasBlockingIssues"
+  "softDeleted","documentCount","riskLevel","score","hasBlockingIssues",
+  "codingSystem","suggestionStatus"
 ]);
 
 function normalizeAuditId(value) {

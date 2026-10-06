@@ -36,6 +36,11 @@ import {
   getExtractedAmount,
   validateDocumentIdentityAgainstClaim
 } from "../services/documentIdentity.js";
+import {
+  applyCodingSuggestionToClaim,
+  syncDocumentCodingSuggestions,
+  validateCodingCode
+} from "../services/codingSuggestions.js";
 
 
 function extractedServiceLines(extracted = {}, sourceDocumentId = null) {
@@ -304,9 +309,6 @@ export function documentsRouter(prisma, uploadDir) {
           claimData.authorizationNo = extracted.authorizationNo;
         }
 
-        if (extracted.icd10Codes && extracted.icd10Codes.length > 0) {
-          claimData.icd10Codes = extracted.icd10Codes;
-        }
 
         claim = await prisma.claim.create({
           data: claimData
@@ -355,9 +357,6 @@ export function documentsRouter(prisma, uploadDir) {
 
         if (!claim.dischargeDate) assignParsedDate(updatePayload, "dischargeDate", extracted.dischargeDate);
 
-        if (extracted.icd10Codes && extracted.icd10Codes.length > 0 && (!claim.icd10Codes || claim.icd10Codes.length === 0)) {
-          updatePayload.icd10Codes = extracted.icd10Codes;
-        }
 
         if (Object.keys(updatePayload).length > 0) {
           claim = await prisma.claim.update({
@@ -400,7 +399,13 @@ export function documentsRouter(prisma, uploadDir) {
           })
         });
 
-        await persistExtractedServiceLines(tx, claim.id, extracted, created.id);
+        await syncDocumentCodingSuggestions(tx, {
+          claimId: claim.id,
+          documentId: created.id,
+          extracted,
+          rawText: intel.rawExtractedText || "",
+          confidence: intel.confidence
+        });
 
         const documentFields = getDerivedFieldsFromDocument(
           extracted,
@@ -637,12 +642,13 @@ export function documentsRouter(prisma, uploadDir) {
       const extractedPatientName = getExtractedPatientName(intel.extracted);
       const extractedAmount = getExtractedAmount(intel.extracted);
 
-      await persistExtractedServiceLines(
-        tx,
+      await syncDocumentCodingSuggestions(tx, {
         claimId,
-        intel.extracted || {},
-        created.id
-      );
+        documentId: created.id,
+        extracted: intel.extracted || {},
+        rawText: intel.rawExtractedText || "",
+        confidence: intel.confidence
+      });
 
       const updatePayload = {};
 
@@ -871,6 +877,14 @@ export function documentsRouter(prisma, uploadDir) {
         }
       });
 
+      await syncDocumentCodingSuggestions(prisma, {
+        claimId: doc.claimId,
+        documentId: doc.id,
+        extracted: analysis.extracted || {},
+        rawText: analysis.rawExtractedText || "",
+        confidence: analysis.confidence
+      });
+
       await prisma.$transaction([
         prisma.check.updateMany({
           where: { claimId: doc.claimId, isStale: false },
@@ -903,6 +917,154 @@ export function documentsRouter(prisma, uploadDir) {
         error: "Failed to process document"
       });
     }
+  });
+
+  router.get("/:id/coding-suggestions", async (req, res) => {
+    const doc = await prisma.document.findFirst({
+      where: {
+        id: req.params.id,
+        claim: {
+          organizationId: req.user.organizationId,
+          deletedAt: null
+        }
+      },
+      select: { id: true }
+    });
+
+    if (!doc) return res.status(404).json({ error: "Document not found" });
+
+    const suggestions = await prisma.codingSuggestion.findMany({
+      where: { documentId: doc.id },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        system: true,
+        suggestedCode: true,
+        confidence: true,
+        evidenceText: true,
+        status: true,
+        finalCode: true,
+        reviewedAt: true,
+        reviewedBy: {
+          select: { id: true, email: true }
+        }
+      }
+    });
+
+    res.json({ items: suggestions });
+  });
+
+  router.patch("/coding-suggestions/:suggestionId", async (req, res) => {
+    const action = String(req.body?.action || "").trim().toUpperCase();
+    if (!["ACCEPT", "CHANGE", "REJECT"].includes(action)) {
+      return res.status(400).json({
+        error: "Action must be ACCEPT, CHANGE, or REJECT"
+      });
+    }
+
+    const suggestion = await prisma.codingSuggestion.findFirst({
+      where: {
+        id: req.params.suggestionId,
+        claim: {
+          organizationId: req.user.organizationId,
+          deletedAt: null
+        }
+      },
+      include: {
+        claim: true,
+        document: {
+          select: { id: true }
+        }
+      }
+    });
+
+    if (!suggestion) {
+      return res.status(404).json({ error: "Coding suggestion not found" });
+    }
+
+    if (isClaimLocked(suggestion.claim)) {
+      return res.status(409).json({
+        error: "Submitted claims are locked. Coding suggestions cannot be changed."
+      });
+    }
+
+    if (suggestion.status !== "PENDING") {
+      return res.status(409).json({
+        error: "This coding suggestion has already been reviewed"
+      });
+    }
+
+    let finalCode = null;
+    let nextStatus = "REJECTED";
+
+    if (action !== "REJECT") {
+      const candidate =
+        action === "ACCEPT"
+          ? suggestion.suggestedCode
+          : req.body?.code;
+
+      const validated = validateCodingCode(suggestion.system, candidate);
+      if (validated.error) {
+        return res.status(400).json({ error: validated.error });
+      }
+
+      finalCode = validated.code;
+      nextStatus = action === "CHANGE" ? "CHANGED" : "ACCEPTED";
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (action !== "REJECT") {
+        await applyCodingSuggestionToClaim(tx, suggestion, finalCode);
+      }
+
+      const reviewed = await tx.codingSuggestion.update({
+        where: { id: suggestion.id },
+        data: {
+          status: nextStatus,
+          finalCode,
+          reviewedAt: new Date(),
+          reviewedById: req.user.id
+        },
+        include: {
+          reviewedBy: {
+            select: { id: true, email: true }
+          }
+        }
+      });
+
+      await tx.check.updateMany({
+        where: { claimId: suggestion.claimId, isStale: false },
+        data: {
+          isStale: true,
+          staleAt: new Date(),
+          staleReason: "Coding review changed claim coding"
+        }
+      });
+
+      if (suggestion.claim.status === "READY") {
+        await tx.claim.update({
+          where: { id: suggestion.claimId },
+          data: { status: "DRAFT" }
+        });
+      }
+
+      return reviewed;
+    });
+
+    await writeRequestAudit(prisma, req, {
+      claimId: suggestion.claimId,
+      action: `CODING_SUGGESTION_${nextStatus}`,
+      entityType: "CodingSuggestion",
+      entityId: suggestion.id,
+      outcome: "SUCCESS",
+      statusCode: 200,
+      metadata: {
+        codingSystem: suggestion.system,
+        suggestionStatus: nextStatus
+      }
+    });
+
+    res.json(updated);
   });
 
   // Canonical document operations; legacy /api/claims/documents URLs share this router.
