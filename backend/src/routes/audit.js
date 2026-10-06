@@ -4,6 +4,38 @@ import { writeRequestAudit } from "../services/auditLog.js";
 
 const router = express.Router();
 const EXPORT_LIMIT = 10000;
+const AUDIT_ACCESS_DEDUP_MS = 5 * 60 * 1000;
+
+async function recordAuditTrailAccess(req) {
+  const actorUserId = req.user?.id || null;
+  const organizationId = req.user?.organizationId;
+  if (!organizationId) return;
+
+  const recent = await prisma.auditEvent.findFirst({
+    where: {
+      organizationId,
+      actorUserId,
+      action: "AUDIT_TRAIL_ACCESSED",
+      createdAt: {
+        gte: new Date(Date.now() - AUDIT_ACCESS_DEDUP_MS)
+      }
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+
+  if (recent) return;
+
+  await writeRequestAudit(prisma, req, {
+    action: "AUDIT_TRAIL_ACCESSED",
+    entityType: "AuditEvent",
+    statusCode: 200,
+    metadata: {
+      operation: "audit_page_access"
+    }
+  });
+}
+
 
 function parseDate(value, label) {
   if (!value) return null;
@@ -14,6 +46,46 @@ function parseDate(value, label) {
     throw error;
   }
   return parsed;
+}
+
+const MAX_EXPORT_RANGE_DAYS = 31;
+
+function validateExportScope(req) {
+  const claimId = String(req.query.claimId || "").trim();
+  const entityId = String(req.query.entityId || "").trim();
+  const requestId = String(req.query.requestId || "").trim();
+
+  if (claimId || entityId || requestId) return;
+
+  const from = parseDate(req.query.from, "From");
+  const to = parseDate(req.query.to, "To");
+
+  if (!from || !to) {
+    const error = new Error(
+      "CSV export requires Claim ID, Entity ID, Request ID, or both From and To dates"
+    );
+    error.status = 400;
+    error.code = "AUDIT_EXPORT_SCOPE_REQUIRED";
+    throw error;
+  }
+
+  if (from > to) {
+    const error = new Error("From must be before To");
+    error.status = 400;
+    error.code = "AUDIT_EXPORT_RANGE_INVALID";
+    throw error;
+  }
+
+  const rangeMs = to.getTime() - from.getTime();
+  const maxRangeMs = MAX_EXPORT_RANGE_DAYS * 24 * 60 * 60 * 1000;
+  if (rangeMs > maxRangeMs) {
+    const error = new Error(
+      `CSV export date range cannot exceed ${MAX_EXPORT_RANGE_DAYS} days`
+    );
+    error.status = 400;
+    error.code = "AUDIT_EXPORT_RANGE_TOO_LARGE";
+    throw error;
+  }
 }
 
 function buildWhere(req) {
@@ -124,6 +196,7 @@ function toCsv(items) {
 }
 
 router.get("/export", async (req, res) => {
+  validateExportScope(req);
   const where = buildWhere(req);
   const items = await prisma.auditEvent.findMany({
     where,
@@ -152,6 +225,12 @@ router.get("/export", async (req, res) => {
 router.get("/", async (req, res) => {
   const page = Math.max(1, Number(req.query.page || 1));
   const pageSize = Math.min(100, Math.max(10, Number(req.query.pageSize || 25)));
+
+  // Record access before reading so the initial unfiltered page can show the
+  // access event immediately. Subsequent filter/pagination requests within the
+  // short dedup window do not create noisy self-referential audit rows.
+  await recordAuditTrailAccess(req);
+
   const where = buildWhere(req);
 
   const [items, total] = await prisma.$transaction([
@@ -165,12 +244,6 @@ router.get("/", async (req, res) => {
     prisma.auditEvent.count({ where })
   ]);
 
-  await writeRequestAudit(prisma, req, {
-    action: "AUDIT_TRAIL_VIEWED",
-    entityType: "AuditEvent",
-    statusCode: 200,
-    metadata: { count: items.length }
-  });
 
   res.json({
     items: items.map(serialize),

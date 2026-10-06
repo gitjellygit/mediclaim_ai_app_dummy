@@ -30,7 +30,9 @@
     "test:us:u8": "playwright test tests/us-denial-appeals.e2e.spec.js --headed",
     "test:us:u8:fast": "playwright test tests/us-denial-appeals.e2e.spec.js",
     "test:payments": "playwright test tests/payment-variance.e2e.spec.js --headed",
-    "test:payments:fast": "playwright test tests/payment-variance.e2e.spec.js"
+    "test:payments:fast": "playwright test tests/payment-variance.e2e.spec.js",
+    "test:payer:browser": "playwright test tests/payer-browser-observability.e2e.spec.js --headed",
+    "test:payer:browser:fast": "playwright test tests/payer-browser-observability.e2e.spec.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

@@ -32,6 +32,38 @@ function apiFilters(filters) {
   return result;
 }
 
+function auditExportValidation(filters) {
+  if (filters.claimId || filters.entityId || filters.requestId) {
+    return { allowed: true, reason: "" };
+  }
+
+  if (!filters.from || !filters.to) {
+    return {
+      allowed: false,
+      reason: "Choose Claim ID, Entity ID, Request ID, or a From/To date range before exporting."
+    };
+  }
+
+  const from = new Date(filters.from);
+  const to = new Date(filters.to);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+    return {
+      allowed: false,
+      reason: "Choose a valid From/To date range."
+    };
+  }
+
+  const days = (to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000);
+  if (days > 31) {
+    return {
+      allowed: false,
+      reason: "CSV export date range cannot exceed 31 days."
+    };
+  }
+
+  return { allowed: true, reason: "" };
+}
+
 function downloadText(filename, text, type = "text/csv;charset=utf-8") {
   const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
@@ -76,6 +108,10 @@ export default function AuditTrail() {
   const [exporting, setExporting] = React.useState(false);
   const [error, setError] = React.useState("");
   const [expandedRows, setExpandedRows] = React.useState(new Set());
+  const exportValidation = React.useMemo(
+    () => auditExportValidation(filters),
+    [filters]
+  );
 
   React.useEffect(() => {
     let active = true;
@@ -148,14 +184,24 @@ export default function AuditTrail() {
               patient names, diagnoses, member IDs, document filenames, or other claim PHI into audit metadata.
             </Typography>
           </Box>
-          <Button
-            variant="contained"
-            startIcon={<DownloadIcon />}
-            onClick={exportCsv}
-            disabled={exporting}
+          <Tooltip
+            title={
+              exportValidation.allowed
+                ? "Export the current scoped audit results"
+                : exportValidation.reason
+            }
           >
-            {exporting ? "Preparing..." : "Download CSV"}
-          </Button>
+            <span>
+              <Button
+                variant="contained"
+                startIcon={<DownloadIcon />}
+                onClick={exportCsv}
+                disabled={exporting || !exportValidation.allowed}
+              >
+                {exporting ? "Preparing..." : "Download CSV"}
+              </Button>
+            </span>
+          </Tooltip>
         </Stack>
 
         <Card>
@@ -263,13 +309,20 @@ export default function AuditTrail() {
               />
             </Box>
 
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1.5 }}>
-              <Typography variant="caption" color="text.secondary">
-                {data.total.toLocaleString()} matching event{data.total === 1 ? "" : "s"}
-              </Typography>
-              <Button size="small" startIcon={<FilterAltOff />} onClick={clearFilters}>
-                Clear filters
-              </Button>
+            <Stack spacing={0.75} sx={{ mt: 1.5 }}>
+              {!exportValidation.allowed && (
+                <Typography variant="caption" color="warning.main">
+                  CSV export is limited for safety. {exportValidation.reason}
+                </Typography>
+              )}
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Typography variant="caption" color="text.secondary">
+                  {data.total.toLocaleString()} matching event{data.total === 1 ? "" : "s"}
+                </Typography>
+                <Button size="small" startIcon={<FilterAltOff />} onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              </Stack>
             </Stack>
           </CardContent>
         </Card>
