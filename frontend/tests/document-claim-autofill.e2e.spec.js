@@ -128,7 +128,7 @@ test("document claim creation fills later insurance fields and locks completed b
 
     const claims = await browserApi(page, "/api/claims");
     expect(claims.ok).toBe(true);
-    const listItem = claims.data.find((item) => item.patientName === patient);
+    const listItem = claims.data.find((item) => item.policyNo === "POL-AUTO-77420");
     expect(listItem).toBeTruthy();
     claimId = listItem.id;
 
