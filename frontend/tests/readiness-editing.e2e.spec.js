@@ -65,6 +65,20 @@ test("readiness diagnosis linkage stays truthful through edit, save, recheck and
   const claimId = created.data.id;
 
   try {
+    const payerConnect = await browserApi(
+      page,
+      `/api/claims/${claimId}/payer-simulation/connect`,
+      { method: "POST", body: { payerCode: "BLUE_HORIZON" } }
+    );
+    expect(payerConnect.ok).toBe(true);
+    const eligibility = await browserApi(
+      page,
+      `/api/claims/${claimId}/payer-simulation/eligibility`,
+      { method: "POST", body: {} }
+    );
+    expect(eligibility.ok).toBe(true);
+    expect(eligibility.data.result.status).toBe("ACTIVE");
+
     const checked = await browserApi(page, `/api/claims/${claimId}/check`, {
       method: "POST",
       body: {}
