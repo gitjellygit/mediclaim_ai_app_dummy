@@ -1356,21 +1356,21 @@ test("39 - automation summary separates automatic, manual, review and missing fi
   assert.ok(summary.missingFields > 0);
 });
 
-test("40 - claim detail exposes automation summary and visible source badges", { concurrency: false }, () => {
+test("40 - claim detail merges automation provenance into one completion card", { concurrency: false }, () => {
   const detailSource = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
-  const automationSource = fs.readFileSync(
-    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimAutomationCard.jsx"),
+  const completionSource = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimCompletenessCard.jsx"),
     "utf8"
   );
-  const source = `${detailSource}\n${automationSource}`;
+  const source = `${detailSource}\n${completionSource}`;
 
-  assert.match(source, /Claim Automation/);
-  assert.match(source, /View Field Sources/);
-  assert.match(source, /source\.label/);
-  assert.match(source, /automationRate/);
+  assert.doesNotMatch(detailSource, /<ClaimAutomationCard/);
+  assert.match(detailSource, /automation=\{claim\.automationSummary\}/);
+  assert.match(completionSource, /Claim Completion/);
+  assert.match(completionSource, /auto-filled/);
   assert.match(source, /SourceBadge/);
 });
 
@@ -1451,18 +1451,18 @@ test("44 - claim detail defaults document type to AI auto detection", { concurre
 });
 
 
-test("45 - claim automation summary chips are clickable and filter field buckets", { concurrency: false }, () => {
+test("45 - unified completion chips filter auto-filled, missing and review fields", { concurrency: false }, () => {
   const source = fs.readFileSync(
-    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimAutomationCard.jsx"),
+    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimCompletenessCard.jsx"),
     "utf8"
   );
 
-  assert.match(source, /showBucket\("automated"\)/);
-  assert.match(source, /showBucket\("review"\)/);
-  assert.match(source, /showBucket\("manual"\)/);
-  assert.match(source, /showBucket\("missing"\)/);
-  assert.match(source, /Missing fields — click a field to complete it/);
-  assert.match(source, /Fields needing review — click a field to resolve it/);
+  assert.match(source, /showFilter\("automated"\)/);
+  assert.match(source, /showFilter\("review"\)/);
+  assert.match(source, /showFilter\("missing"\)/);
+  assert.match(source, /auto-filled/);
+  assert.match(source, /need review/);
+  assert.doesNotMatch(source, /manual/);
 });
 
 test("46 - missing or review automation fields route to an exact fix location", { concurrency: false }, () => {
@@ -2165,7 +2165,7 @@ test("74 - claim update saves encounter fields used by completeness fixes", { co
   assert.equal(body.completenessSummary.icuApplicable, true);
 });
 
-test("75 - claim detail exposes clickable context-aware completeness and N/A states", { concurrency: false }, () => {
+test("75 - claim detail exposes one clickable context-aware completion card", { concurrency: false }, () => {
   const detailSource = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
@@ -2176,14 +2176,13 @@ test("75 - claim detail exposes clickable context-aware completeness and N/A sta
   );
   const source = `${detailSource}\n${completenessSource}`;
 
-  assert.match(source, /Claim Completeness/);
-  assert.match(source, /Context-aware/);
+  assert.match(source, /Claim Completion/);
+  assert.match(source, /One view of what is complete, missing, auto-filled, or waiting for review/);
   assert.match(source, /completenessValue/);
-  assert.match(source, /not_applicable/);
-  assert.match(source, /Fields not applicable to this encounter/);
   assert.match(source, /fixCompletenessItem/);
-  assert.match(source, /Room Category/);
-  assert.match(source, /ICU Days/);
+  assert.match(source, /Review codes/);
+  assert.doesNotMatch(completenessSource, /manual/);
+  assert.doesNotMatch(completenessSource, /N\/A/);
 });
 
 
