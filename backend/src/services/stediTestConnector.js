@@ -1,6 +1,7 @@
 import { PayerConnectorUnavailableError } from "./payerConnectorRegistry.js";
 
 const DEFAULT_BASE_URL = "https://healthcare.us.stedi.com/2026-06-01";
+const DEFAULT_CLAIMS_BASE_URL = "https://healthcare.us.stedi.com/2024-04-01";
 
 function required(value, name) {
   if (value == null || value === "") {
@@ -73,6 +74,58 @@ export function buildStediEligibilityRequest(claim, context = {}) {
       ]
     },
     externalPatientId: String(claim.id || "").slice(0, 36) || undefined
+  };
+}
+
+export function buildStediClaimSubmissionRequest(claim, context = {}) {
+  if (context.requestPayload) {
+    return {
+      payload: {
+        ...context.requestPayload,
+        usageIndicator: "T"
+      },
+      claimType: String(context.claimType || claim?.claimForm || "PROFESSIONAL").toUpperCase()
+    };
+  }
+
+  const error = new Error(
+    "Stedi claim submission requires an explicit validated 837P/837I request payload"
+  );
+  error.code = "STEDI_CLAIM_REQUEST_INVALID";
+  throw error;
+}
+
+export function normalizeStediClaimSubmissionResponse(body, {
+  claimType,
+  latencyMs = null,
+  idempotencyKey = null
+} = {}) {
+  const errors = Array.isArray(body?.errors) ? body.errors : [];
+  const claimReference = body?.claimReference || {};
+  const transactionId =
+    claimReference.correlationId ||
+    claimReference.customerClaimNumber ||
+    body?.submissionId ||
+    body?.claimId ||
+    null;
+
+  return {
+    transactionId,
+    status: errors.length > 0 ? "REJECTED" : "ACKNOWLEDGED",
+    acknowledgmentType: "277CA",
+    claimType: String(claimType || claimReference.claimType || "").toUpperCase() || null,
+    patientControlNumber: claimReference.patientControlNumber || null,
+    payerId: claimReference.payerId || null,
+    errors: errors.map((item) => ({
+      code: item?.code || null,
+      description: item?.description || item?.message || null
+    })),
+    has277CA: Boolean(body?.x12),
+    x12: body?.x12 || null,
+    latencyMs,
+    idempotencyKey,
+    testMode: true,
+    livePayerSubmission: false
   };
 }
 
@@ -201,6 +254,7 @@ export function createStediTestConnector({
 } = {}) {
   const apiKey = String(env.STEDI_TEST_API_KEY || "").trim();
   const baseUrl = String(env.STEDI_API_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
+  const claimsBaseUrl = String(env.STEDI_CLAIMS_API_BASE_URL || DEFAULT_CLAIMS_BASE_URL).replace(/\/$/, "");
 
   if (!apiKey) {
     throw new PayerConnectorUnavailableError(
@@ -244,8 +298,34 @@ export function createStediTestConnector({
       return notYetImplemented("requestPriorAuth");
     },
 
-    submitClaim() {
-      return notYetImplemented("submitClaim");
+    async submitClaim(claim, context = {}) {
+      const { payload, claimType } = buildStediClaimSubmissionRequest(claim, context);
+      const normalizedType = claimType === "INSTITUTIONAL" ? "INSTITUTIONAL" : "PROFESSIONAL";
+      const path =
+        normalizedType === "INSTITUTIONAL"
+          ? "/change/medicalnetwork/institutionalclaims/v1/submission"
+          : "/change/medicalnetwork/professionalclaims/v3/submission";
+      const idempotencyKey = String(
+        context.idempotencyKey || `claim-app-${claim?.id || "claim"}-${normalizedType}`
+      ).slice(0, 255);
+
+      const startedAt = Date.now();
+      const response = await fetchImpl(`${claimsBaseUrl}${path}`, {
+        method: "POST",
+        headers: {
+          Authorization: apiKey,
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload),
+        signal: context.signal
+      });
+      const body = await parseResponse(response);
+      return normalizeStediClaimSubmissionResponse(body, {
+        claimType: normalizedType,
+        latencyMs: Date.now() - startedAt,
+        idempotencyKey
+      });
     },
 
     getStatus() {

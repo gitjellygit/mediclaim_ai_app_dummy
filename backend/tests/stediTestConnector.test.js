@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildStediClaimSubmissionRequest,
   buildStediEligibilityRequest,
   createStediTestConnector,
   listStediPayers,
+  normalizeStediClaimSubmissionResponse,
   normalizeStediEligibilityResponse,
   searchStediPayers
 } from "../src/services/stediTestConnector.js";
@@ -220,4 +222,173 @@ test("R2A - Claim Journey source uses the per-claim external connector for eligi
   assert.match(source, /payerConnectorId: connectorId/);
   assert.match(source, /transactionType: "ELIGIBILITY"/);
   assert.match(source, /connector\.connectorEnvironment === "TEST"/);
+});
+
+
+test("R2B - Stedi claim submission requires explicit validated request payload", () => {
+  assert.throws(
+    () => buildStediClaimSubmissionRequest({ claimForm: "PROFESSIONAL" }),
+    (error) => error?.code === "STEDI_CLAIM_REQUEST_INVALID"
+  );
+});
+
+test("R2B - Stedi claim payload override is forced into test mode", () => {
+  const result = buildStediClaimSubmissionRequest(
+    { claimForm: "PROFESSIONAL" },
+    {
+      requestPayload: {
+        usageIndicator: "P",
+        tradingPartnerServiceId: "60054"
+      }
+    }
+  );
+  assert.equal(result.claimType, "PROFESSIONAL");
+  assert.equal(result.payload.usageIndicator, "T");
+  assert.equal(result.payload.tradingPartnerServiceId, "60054");
+});
+
+test("R2B - normalizes synchronous Stedi 277CA claim response", () => {
+  const result = normalizeStediClaimSubmissionResponse(
+    {
+      claimReference: {
+        correlationId: "corr-100",
+        claimType: "PROF",
+        patientControlNumber: "PCN100",
+        payerId: "60054"
+      },
+      x12: "STC*A1:19*20261006~"
+    },
+    {
+      claimType: "PROFESSIONAL",
+      latencyMs: 25,
+      idempotencyKey: "idem-100"
+    }
+  );
+  assert.equal(result.transactionId, "corr-100");
+  assert.equal(result.status, "ACKNOWLEDGED");
+  assert.equal(result.acknowledgmentType, "277CA");
+  assert.equal(result.has277CA, true);
+  assert.equal(result.patientControlNumber, "PCN100");
+  assert.equal(result.payerId, "60054");
+  assert.equal(result.testMode, true);
+  assert.equal(result.livePayerSubmission, false);
+});
+
+test("R2B - Stedi connector submits professional 837P test claim with idempotency", async () => {
+  let captured = null;
+  const fetchImpl = async (url, options) => {
+    captured = { url: String(url), options };
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      async text() {
+        return JSON.stringify({
+          claimReference: {
+            correlationId: "corr-prof-1",
+            claimType: "PROF",
+            patientControlNumber: "PCN-PROF-1",
+            payerId: "60054"
+          },
+          x12: "STC*A1:19*20261006~"
+        });
+      }
+    };
+  };
+
+  const connector = createStediTestConnector({
+    env: {
+      STEDI_TEST_API_KEY: "test-key",
+      STEDI_CLAIMS_API_BASE_URL: "https://claims.example.test/2024-04-01"
+    },
+    fetchImpl
+  });
+
+  const result = await connector.submitClaim(
+    { id: "claim-prof-1", claimForm: "PROFESSIONAL" },
+    {
+      idempotencyKey: "idem-prof-1",
+      requestPayload: {
+        tradingPartnerServiceId: "60054",
+        claimInformation: { patientControlNumber: "PCN-PROF-1" }
+      }
+    }
+  );
+
+  assert.equal(
+    captured.url,
+    "https://claims.example.test/2024-04-01/change/medicalnetwork/professionalclaims/v3/submission"
+  );
+  assert.equal(captured.options.headers.Authorization, "test-key");
+  assert.equal(captured.options.headers["Idempotency-Key"], "idem-prof-1");
+  assert.equal(JSON.parse(captured.options.body).usageIndicator, "T");
+  assert.equal(result.status, "ACKNOWLEDGED");
+  assert.equal(result.transactionId, "corr-prof-1");
+});
+
+test("R2B - Stedi connector submits institutional 837I test claim", async () => {
+  let captured = null;
+  const fetchImpl = async (url, options) => {
+    captured = { url: String(url), options };
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      async text() {
+        return JSON.stringify({
+          claimReference: {
+            correlationId: "corr-inst-1",
+            claimType: "INST",
+            patientControlNumber: "PCN-INST-1",
+            payerId: "87726"
+          },
+          x12: "STC*A1:19*20261006~"
+        });
+      }
+    };
+  };
+
+  const connector = createStediTestConnector({
+    env: {
+      STEDI_TEST_API_KEY: "test-key",
+      STEDI_CLAIMS_API_BASE_URL: "https://claims.example.test/2024-04-01"
+    },
+    fetchImpl
+  });
+
+  const result = await connector.submitClaim(
+    { id: "claim-inst-1", claimForm: "INSTITUTIONAL" },
+    {
+      requestPayload: {
+        tradingPartnerServiceId: "87726",
+        claimInformation: { patientControlNumber: "PCN-INST-1" }
+      }
+    }
+  );
+
+  assert.equal(
+    captured.url,
+    "https://claims.example.test/2024-04-01/change/medicalnetwork/institutionalclaims/v1/submission"
+  );
+  assert.equal(JSON.parse(captured.options.body).usageIndicator, "T");
+  assert.equal(result.status, "ACKNOWLEDGED");
+  assert.equal(result.claimType, "INSTITUTIONAL");
+});
+
+test("R2B - Stedi claim edit errors normalize to rejected 277CA state", () => {
+  const result = normalizeStediClaimSubmissionResponse({
+    claimReference: {
+      correlationId: "corr-reject-1",
+      patientControlNumber: "PCN-REJECT"
+    },
+    errors: [
+      { code: "A3", description: "Invalid claim data" }
+    ],
+    x12: "STC*A3:21*20261006~"
+  }, { claimType: "PROFESSIONAL" });
+
+  assert.equal(result.status, "REJECTED");
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.errors[0].code, "A3");
+  assert.equal(result.has277CA, true);
 });
