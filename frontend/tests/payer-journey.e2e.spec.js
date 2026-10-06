@@ -249,6 +249,81 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
   }
 });
 
+
+test("blocked payer submission offers direct Fix in Claim Details workflow", async ({ page }) => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+  const created = await apiContext.post("/api/claims", {
+    headers,
+    data: {
+      patientName: "E2E-SUBMISSION-BLOCKERS",
+      payerName: "Blue Horizon Health",
+      amount: 500,
+      totalBilledAmount: 500,
+      policyNo: "POL-BLOCK-500",
+      memberId: "MEM-BLOCK-500",
+      claimForm: "PROFESSIONAL",
+      diagnosisText: "Office visit",
+      icd10Codes: ["Z00.00"],
+      dateOfService: "2026-10-01"
+    }
+  });
+  expect(created.ok()).toBeTruthy();
+  const claim = await created.json();
+
+  try {
+    await page.goto(`/journey?claimId=${claim.id}`);
+    await selectPayer(page, payerNames.BLUE_HORIZON);
+
+    const eligibility = page.getByTestId("journey-stage-eligibility");
+    const priorAuth = page.getByTestId("journey-stage-prior-auth");
+    const claimStage = page.getByTestId("journey-stage-claim");
+
+    await clickStageButton(eligibility, "Check Eligibility");
+    await expect(eligibility).toContainText("Verified");
+
+    await clickStageButton(priorAuth, "Check Prior Auth");
+    await expect(priorAuth).toContainText("Not Required");
+
+    await clickStageButton(claimStage, "Submit to Payer");
+
+    const dialog = page.getByRole("dialog", {
+      name: "Claim needs attention before submission"
+    });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/blocking issue/i).first()).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: "Fix in Claim Details", exact: true })
+    ).toBeVisible();
+
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+
+    const blockerAlert = claimStage.getByTestId("submission-blocked-alert");
+    await expect(blockerAlert).toBeVisible();
+    await expect(
+      claimStage.getByRole("button", { name: "Fix in Claim Details", exact: true })
+    ).toBeVisible();
+
+    await expect(
+      page.getByRole("button", { name: "Retry", exact: true })
+    ).toHaveCount(0);
+
+    await claimStage
+      .getByRole("button", { name: "Fix in Claim Details", exact: true })
+      .click();
+
+    await expect(page).toHaveURL(
+      new RegExp(`/claims/${claim.id}\\?section=readiness`)
+    );
+    await expect(
+      page.getByRole("heading", { name: "Claim Readiness for Submission" })
+    ).toBeVisible();
+  } finally {
+    await apiContext.delete(`/api/claims/${claim.id}`, { headers });
+  }
+});
+
 for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
   test(`payer Journey end-to-end: ${expectedKey}`, async ({ page }) => {
     const scenario = scenarios.find((item) => item.key === expectedKey);
