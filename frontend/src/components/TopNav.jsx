@@ -17,13 +17,13 @@ export default function TopNav({ current, onGo }) {
   const isAdmin = user?.role === "ADMIN";
 
   return (
-    <AppBar position="static" sx={{ background: "linear-gradient(90deg, #1565c0, #1976d2)" }}>
+    <AppBar position="static" sx={{ backgroundColor: "primary.dark", boxShadow: "none", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
       <Toolbar sx={{ justifyContent: "space-between" }}>
         <Typography variant="h6" sx={{ cursor: "pointer" }} onClick={() => onGo("claims")}>
-          Claim AI
+          PRISM
         </Typography>
 
-        <Stack direction="row" spacing={2}>
+        <Stack direction="row" spacing={1.25}>
           <Button color="inherit" variant={current === "claims" ? "outlined" : "text"} onClick={() => onGo("claims")}>
             Claims
           </Button>
@@ -36,7 +36,7 @@ export default function TopNav({ current, onGo }) {
         </Stack>
 
         <Stack direction="row" spacing={2} alignItems="center">
-          <Avatar sx={{ bgcolor: "#0d47a1" }}>{(user?.email?.[0] || "U").toUpperCase()}</Avatar>
+          <Avatar sx={{ bgcolor: "secondary.main", width: 32, height: 32, fontSize: 13 }}>{(user?.email?.[0] || "U").toUpperCase()}</Avatar>
           <Chip label={user?.role || "—"} size="small" sx={{ bgcolor: "rgba(255,255,255,0.15)", color: "white" }} />
           <Button color="inherit" startIcon={<LogoutIcon />} onClick={handleLogout}>
             Logout
