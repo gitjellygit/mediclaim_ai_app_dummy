@@ -1762,8 +1762,9 @@ test("58 - journey UI enforces payer prerequisite and disables terminal controls
   assert.match(source, /disabled=\{!stages\.claimStatus\.actionable\}/);
   assert.match(
     source,
-    /!stages\.remittance\.actionable \|\|[\s\S]*!\["APPROVED", "PARTIALLY_APPROVED", "PAID"\]\.includes/
+    /disabled=\{!stages\.remittance\.actionable \|\| action !== ""\}/
   );
+  assert.match(source, /Refresh Remittance/);
   assert.match(source, /claim\.remittanceStatus === "POSTED"/);
   assert.match(source, /View Remittance Details/);
 });
