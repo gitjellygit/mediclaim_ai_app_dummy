@@ -146,7 +146,7 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
         defaults,
         "US_DIAGNOSIS_CPT_LINK",
         "Each service line must link to a valid claim diagnosis",
-        { fixTarget: "serviceLines" }
+        { field: "diagnosisPointers", fixTarget: "serviceLines" }
       );
     }
   }

@@ -407,6 +407,10 @@ router.get("/:id", async (req, res) => {
     include: {
       documents: true,
       serviceLines: { orderBy: { createdAt: "asc" } },
+      codingSuggestions: {
+        where: { status: "PENDING" },
+        orderBy: { createdAt: "asc" }
+      },
       checks: { orderBy: { createdAt: "desc" } }
     }
   });
@@ -761,22 +765,23 @@ router.patch("/:id", async (req, res) => {
       }
     }
 
-    if (normalizedServiceLines) {
-      const diagnosisSet = new Set(effectiveDiagnosisCodes);
-      if (
-        normalizedServiceLines.data.some((line) =>
-          (line.diagnosisPointers || []).some((code) => !diagnosisSet.has(code))
-        )
-      ) {
-        return res.status(400).json({
-          error: "Invalid service-line diagnosis link",
-          message: "Service-line diagnosis codes must match ICD-10-CM diagnoses already entered on the claim",
-          code: "INVALID_DIAGNOSIS_LINK"
-        });
-      }
-      // Missing submission-required fields are handled by readiness so drafts
-      // can be saved and corrected incrementally.
+    const effectiveServiceLines = normalizedServiceLines
+      ? normalizedServiceLines.data
+      : (existing.serviceLines || []);
+    const diagnosisSet = new Set(effectiveDiagnosisCodes);
+    if (
+      effectiveServiceLines.some((line) =>
+        (line.diagnosisPointers || []).some((code) => !diagnosisSet.has(code))
+      )
+    ) {
+      return res.status(400).json({
+        error: "Invalid service-line diagnosis link",
+        message: "Service-line diagnosis codes must match ICD-10-CM diagnoses already entered on the claim",
+        code: "INVALID_DIAGNOSIS_LINK"
+      });
     }
+    // Missing submission-required fields are handled by readiness so drafts
+    // can be saved and corrected incrementally.
 
     const patchChangedFields = changedPatchFields(existing, payload);
     const serviceLinesChanged = normalizedServiceLines

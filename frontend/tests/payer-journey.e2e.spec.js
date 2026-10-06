@@ -144,7 +144,7 @@ test("Approval Intelligence sends unevaluated editable claims directly to AI rea
     page.getByRole("heading", { name: "Claim Readiness for Submission" })
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Check Claim Readiness", exact: true })
+    page.getByRole("button", { name: "Check Readiness", exact: true })
   ).toBeVisible();
 });
 
@@ -197,7 +197,7 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
       page.getByRole("heading", { name: "Claim Readiness for Submission" })
     ).toBeVisible();
 
-    const billingIssue = page.getByTestId("readiness-issue-billingProviderNpi");
+    const billingIssue = page.getByTestId("readiness-issue-US_NPI_VALID");
     await expect(billingIssue).toContainText(/billing provider npi/i);
     await billingIssue.getByRole("button", { name: "Fix Field" }).click();
 
@@ -212,13 +212,12 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
     await page.getByRole("button", { name: "Save Changes", exact: true }).click();
 
     await expect(
-      page.getByTestId("readiness-issue-billingProviderNpi")
+      page.getByTestId("readiness-issue-US_NPI_VALID")
     ).toHaveCount(0);
-    await expect(
-      page.getByText(/Completed — recheck readiness/i)
-    ).toBeVisible();
+    await expect(page.getByTestId("readiness-stale")).toBeVisible();
 
-    const cptIssue = page.getByTestId("readiness-issue-cptHcpcsCode");
+    await page.getByRole("button", { name: "Recheck Readiness", exact: true }).click();
+    const cptIssue = page.getByTestId("readiness-issue-US_CPT_PRESENT");
     await expect(cptIssue).toContainText(/CPT\/HCPCS/i);
     await cptIssue.getByRole("button", { name: "Edit Service Line" }).click();
 
@@ -394,9 +393,7 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
       const completeness = page.getByTestId("claim-completeness-card");
       await expect(completeness).toBeVisible();
       await completeness.getByRole("button", { name: "Expand", exact: true }).click();
-      await completeness.getByRole("button", { name: "View Details" }).click();
-      await expect(completeness.getByText(/Informational after submission/).first()).toBeVisible();
-      await expect(completeness.getByRole("button", { name: "Fix", exact: true })).toHaveCount(0);
+      await expect(completeness.getByRole("button", { name: /Fix|Review codes|Edit service line/ })).toHaveCount(0);
     }
 
     console.log(`✓ ${expectedKey} full payer lifecycle passed`);

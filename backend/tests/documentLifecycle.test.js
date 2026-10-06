@@ -1178,7 +1178,8 @@ test("33 - AI readiness issues expose contextual fix actions", { concurrency: fa
   assert.match(source, /Upload Document/);
   assert.match(source, /Check Eligibility/);
   assert.match(source, /Review Prior Auth/);
-  assert.match(source, /Action required to improve this claim/);
+  assert.match(source, /Fix before submission/);
+  assert.match(source, /readiness-issue-/);
 });
 
 
@@ -1355,21 +1356,21 @@ test("39 - automation summary separates automatic, manual, review and missing fi
   assert.ok(summary.missingFields > 0);
 });
 
-test("40 - claim detail exposes automation summary and visible source badges", { concurrency: false }, () => {
+test("40 - claim detail merges automation provenance into one completion card", { concurrency: false }, () => {
   const detailSource = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
-  const automationSource = fs.readFileSync(
-    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimAutomationCard.jsx"),
+  const completionSource = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimCompletenessCard.jsx"),
     "utf8"
   );
-  const source = `${detailSource}\n${automationSource}`;
+  const source = `${detailSource}\n${completionSource}`;
 
-  assert.match(source, /Claim Automation/);
-  assert.match(source, /View Field Sources/);
-  assert.match(source, /source\.label/);
-  assert.match(source, /automationRate/);
+  assert.doesNotMatch(detailSource, /<ClaimAutomationCard/);
+  assert.match(detailSource, /automation=\{claim\.automationSummary\}/);
+  assert.match(completionSource, /Claim Completion/);
+  assert.match(completionSource, /auto-filled/);
   assert.match(source, /SourceBadge/);
 });
 
@@ -1450,18 +1451,18 @@ test("44 - claim detail defaults document type to AI auto detection", { concurre
 });
 
 
-test("45 - claim automation summary chips are clickable and filter field buckets", { concurrency: false }, () => {
+test("45 - unified completion chips filter auto-filled, missing and review fields", { concurrency: false }, () => {
   const source = fs.readFileSync(
-    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimAutomationCard.jsx"),
+    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/ClaimCompletenessCard.jsx"),
     "utf8"
   );
 
-  assert.match(source, /showBucket\("automated"\)/);
-  assert.match(source, /showBucket\("review"\)/);
-  assert.match(source, /showBucket\("manual"\)/);
-  assert.match(source, /showBucket\("missing"\)/);
-  assert.match(source, /Missing fields — click a field to complete it/);
-  assert.match(source, /Fields needing review — click a field to resolve it/);
+  assert.match(source, /showFilter\("automated"\)/);
+  assert.match(source, /showFilter\("review"\)/);
+  assert.match(source, /showFilter\("missing"\)/);
+  assert.match(source, /auto-filled/);
+  assert.match(source, /need review/);
+  assert.doesNotMatch(source, /manual/);
 });
 
 test("46 - missing or review automation fields route to an exact fix location", { concurrency: false }, () => {
@@ -1876,24 +1877,20 @@ test("61 - stale AI check cannot be used for claim submission", { concurrency: f
   assert.match(body.error, /changed after the last AI Check/i);
 });
 
-test("62 - readiness UI uses red yellow green thresholds and history", { concurrency: false }, () => {
-  const detailSource = fs.readFileSync(
+test("62 - readiness UI uses a clear submission threshold and collapsed history", { concurrency: false }, () => {
+  const source = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
-  const utilsSource = fs.readFileSync(
-    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/claimDetailUtils.js"),
-    "utf8"
-  );
-  const source = `${detailSource}\n${utilsSource}`;
 
-  assert.match(source, /if \(value < 40\) return "error"/);
-  assert.match(source, /if \(value < 70\) return "warning"/);
-  assert.match(source, /return "success"/);
-  assert.match(source, /Claim Readiness History/);
-  assert.match(source, /Recheck Claim Readiness/);
-  assert.match(source, /Claim information changed after this readiness check/);
-  assert.match(source, /since previous check/);
+  assert.match(source, /check\.score >= 80/);
+  assert.match(source, /check\.score >= 50/);
+  assert.match(source, /Submit threshold 80%/);
+  assert.match(source, /Readiness history/);
+  assert.match(source, /Recheck Readiness/);
+  assert.match(source, /Claim information changed\. Recheck readiness/);
+  assert.doesNotMatch(source, /Estimated Rejection Risk/);
+  assert.doesNotMatch(source, /Top risk drivers/);
 });
 
 test("63 - current submission eligibility rejects stale readiness result in UI", { concurrency: false }, () => {
@@ -1933,7 +1930,7 @@ test("64 - low readiness cannot display deceptively low rejection risk", { concu
   assert.equal(body.riskLevel, "HIGH");
 });
 
-test("65 - AI check refresh keeps claim detail mounted and returns to readiness area", { concurrency: false }, () => {
+test("65 - AI check refresh keeps claim detail mounted and returns to simplified readiness area", { concurrency: false }, () => {
   const source = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
@@ -1941,8 +1938,9 @@ test("65 - AI check refresh keeps claim detail mounted and returns to readiness 
 
   assert.match(source, /load\(\{ silent: true \}\)/);
   assert.match(source, /readinessRef\.current\?\.scrollIntoView/);
-  assert.match(source, /Estimated Rejection Risk/);
-  assert.match(source, /not a payer probability/);
+  assert.match(source, /data-testid="readiness-score"/);
+  assert.match(source, /data-testid="readiness-progress"/);
+  assert.doesNotMatch(source, /Estimated Rejection Risk/);
 });
 
 test("66 - claim-readiness dialog shows domain-specific staged workflow", { concurrency: false }, () => {
@@ -1978,17 +1976,17 @@ test("67 - claim detail silently refreshes after journey navigation or tab focus
   assert.match(source, /load\(\{ silent: true \}\)/);
 });
 
-test("68 - stale readiness issues are reconciled against current eligibility and prior auth", { concurrency: false }, () => {
+test("68 - stale readiness never guesses whether old issues are resolved", { concurrency: false }, () => {
   const source = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
 
-  assert.match(source, /function isIssueResolvedByCurrentClaim\(issue\)/);
-  assert.match(source, /claim\?\.eligibilityStatus === "VERIFIED"/);
-  assert.match(source, /\["APPROVED", "NOT_REQUIRED"\]\.includes\(claim\?\.priorAuthStatus\)/);
-  assert.match(source, /Completed since the last readiness check/);
-  assert.match(source, /Completed — recheck readiness/);
+  assert.doesNotMatch(source, /function isIssueResolvedByCurrentClaim\(issue\)/);
+  assert.match(source, /data-testid="readiness-stale"/);
+  assert.match(source, /Recheck readiness to recalculate the score and current blockers/);
+  assert.doesNotMatch(source, /Completed since the last readiness check/);
+  assert.doesNotMatch(source, /Completed — recheck readiness/);
 });
 
 test("69 - journey fix workflow provides contextual return to claim detail", { concurrency: false }, () => {
@@ -2167,7 +2165,7 @@ test("74 - claim update saves encounter fields used by completeness fixes", { co
   assert.equal(body.completenessSummary.icuApplicable, true);
 });
 
-test("75 - claim detail exposes clickable context-aware completeness and N/A states", { concurrency: false }, () => {
+test("75 - claim detail exposes one clickable context-aware completion card", { concurrency: false }, () => {
   const detailSource = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
@@ -2178,14 +2176,13 @@ test("75 - claim detail exposes clickable context-aware completeness and N/A sta
   );
   const source = `${detailSource}\n${completenessSource}`;
 
-  assert.match(source, /Claim Completeness/);
-  assert.match(source, /Context-aware/);
+  assert.match(source, /Claim Completion/);
+  assert.match(source, /One view of what is complete, missing, auto-filled, or waiting for review/);
   assert.match(source, /completenessValue/);
-  assert.match(source, /not_applicable/);
-  assert.match(source, /Fields not applicable to this encounter/);
   assert.match(source, /fixCompletenessItem/);
-  assert.match(source, /Room Category/);
-  assert.match(source, /ICU Days/);
+  assert.match(source, /Review codes/);
+  assert.doesNotMatch(completenessSource, /manual/);
+  assert.doesNotMatch(completenessSource, /N\/A/);
 });
 
 
