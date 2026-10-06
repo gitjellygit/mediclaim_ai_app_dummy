@@ -275,3 +275,40 @@ export async function listStediPayers({
   });
   return parseResponse(response);
 }
+
+
+export async function searchStediPayers({
+  query,
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  pageSize = 20,
+  eligibilityOnly = true
+} = {}) {
+  const apiKey = String(env.STEDI_TEST_API_KEY || "").trim();
+  const baseUrl = String(
+    env.STEDI_PAYER_API_BASE_URL || "https://healthcare.us.stedi.com/2024-04-01"
+  ).replace(/\/$/, "");
+  if (!apiKey) {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_TEST",
+      "STEDI_TEST_API_KEY is not configured"
+    );
+  }
+
+  const normalizedQuery = String(query || "").trim();
+  if (!normalizedQuery) {
+    return listStediPayers({ env, fetchImpl, pageSize });
+  }
+
+  const url = new URL(`${baseUrl}/payers/search`);
+  url.searchParams.set("query", normalizedQuery.slice(0, 200));
+  url.searchParams.set("pageSize", String(Math.max(10, Math.min(100, pageSize))));
+  if (eligibilityOnly) {
+    url.searchParams.set("eligibilityCheck", "SUPPORTED");
+  }
+
+  const response = await fetchImpl(url, {
+    headers: { Authorization: apiKey }
+  });
+  return parseResponse(response);
+}
