@@ -619,60 +619,73 @@ router.post("/:id/payer-simulation/remittance", async (req, res) => {
     const result = createPayerConnectorForClaim(claim, payer.code).getRemittance(claim, { sequence: priorCount + 1 });
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
-        remittanceStatus: "POSTED",
-        remittanceReceivedAt: new Date(),
-        allowedAmount: result.allowedAmount,
-        approvedAmount: result.approvedAmount,
-        paidAmount: result.paidAmount,
-        patientResponsibility: result.patientResponsibility,
-        paymentReference: result.paymentReference,
-        status: assertClaimTransition(claim.status, result.paidAmount > 0 ? "PAID" : claim.status),
-        payerClaimStatus: result.paidAmount > 0 ? "PAID" : claim.payerClaimStatus,
-        fieldProvenance: mergeProvenance(
-          claim.fieldProvenance,
-          systemProvenance(
-            ["remittanceStatus", "allowedAmount", "paidAmount", "patientResponsibility", "paymentReference"],
-            {
-              source: "SIMULATED_PAYER",
-              label: "Mock 835 Response",
-              sourceDetail: payer.name,
-              verified: false
-            }
+    const { updated, transaction, underpaymentCase } = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          remittanceStatus: "POSTED",
+          remittanceReceivedAt: new Date(),
+          allowedAmount: result.allowedAmount,
+          approvedAmount: result.approvedAmount,
+          paidAmount: result.paidAmount,
+          patientResponsibility: result.patientResponsibility,
+          paymentReference: result.paymentReference,
+          status: assertClaimTransition(
+            claim.status,
+            result.paidAmount > 0 ? "PAID" : claim.status
+          ),
+          payerClaimStatus:
+            result.paidAmount > 0 ? "PAID" : claim.payerClaimStatus,
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            systemProvenance(
+              ["remittanceStatus", "allowedAmount", "paidAmount", "patientResponsibility", "paymentReference"],
+              {
+                source: "SIMULATED_PAYER",
+                label: "Mock 835 Response",
+                sourceDetail: payer.name,
+                verified: false
+              }
+            )
           )
-        )
-      }
-    });
-
-    const transaction = await createPayerTransaction(
-      claim.id,
-      payer.code,
-      "REMITTANCE",
-      result,
-      { transaction: "835-style", payerClaimNo: claim.insurerClaimNo || null }
-    );
-
-    let underpaymentCase = null;
-    if (Number(result.potentialUnderpayment || 0) > 0) {
-      underpaymentCase = await prisma.underpaymentCase.upsert({
-        where: { claimId: claim.id },
-        create: {
-          claimId: claim.id,
-          expectedPayerPayment: result.expectedPayerPayment,
-          actualPaidAmount: result.paidAmount,
-          varianceAmount: result.potentialUnderpayment,
-          sourceTransactionId: transaction.transactionId
-        },
-        update: {
-          expectedPayerPayment: result.expectedPayerPayment,
-          actualPaidAmount: result.paidAmount,
-          varianceAmount: result.potentialUnderpayment,
-          sourceTransactionId: transaction.transactionId
         }
       });
-    }
+
+      const payerTransaction = await createPayerTransaction(
+        claim.id,
+        payer.code,
+        "REMITTANCE",
+        result,
+        { transaction: "835-style", payerClaimNo: claim.insurerClaimNo || null },
+        tx
+      );
+
+      let varianceCase = null;
+      if (Number(result.potentialUnderpayment || 0) > 0) {
+        varianceCase = await tx.underpaymentCase.upsert({
+          where: { claimId: claim.id },
+          create: {
+            claimId: claim.id,
+            expectedPayerPayment: result.expectedPayerPayment,
+            actualPaidAmount: result.paidAmount,
+            varianceAmount: result.potentialUnderpayment,
+            sourceTransactionId: payerTransaction.transactionId
+          },
+          update: {
+            expectedPayerPayment: result.expectedPayerPayment,
+            actualPaidAmount: result.paidAmount,
+            varianceAmount: result.potentialUnderpayment,
+            sourceTransactionId: payerTransaction.transactionId
+          }
+        });
+      }
+
+      return {
+        updated: updatedClaim,
+        transaction: payerTransaction,
+        underpaymentCase: varianceCase
+      };
+    });
 
     res.json({ result, transaction, claim: updated, underpaymentCase });
   } catch (error) {
