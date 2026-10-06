@@ -31,22 +31,21 @@ test("F9 - claim detail delegates data and feature sections to extracted modules
   const dataHook = read(
     "frontend/src/modules/ai-claims/claim-detail/useClaimDetailData.js"
   );
-  const automation = read(
-    "frontend/src/modules/ai-claims/claim-detail/ClaimAutomationCard.jsx"
-  );
   const completeness = read(
     "frontend/src/modules/ai-claims/claim-detail/ClaimCompletenessCard.jsx"
   );
 
   assert.ok(detail.includes("useClaimDetailData(id, location.key)"));
   assert.ok(detail.includes("<ClaimSummaryCard"));
-  assert.ok(detail.includes("<ClaimAutomationCard"));
+  assert.equal(detail.includes("<ClaimAutomationCard"), false);
   assert.ok(detail.includes("<ClaimCompletenessCard"));
+  assert.ok(detail.includes("automation={claim.automationSummary}"));
   assert.equal(detail.includes("setAutomationExpanded"), false);
   assert.equal(detail.includes("setCompletenessExpanded"), false);
 
   assert.ok(dataHook.includes("ClaimsApi.get(id)"));
   assert.ok(dataHook.includes('window.addEventListener("focus", refresh)'));
-  assert.ok(automation.includes("Claim Automation"));
-  assert.ok(completeness.includes("Claim Completeness"));
+  assert.ok(completeness.includes("Claim Completion"));
+  assert.ok(completeness.includes("auto-filled"));
+  assert.ok(completeness.includes("need review"));
 });
