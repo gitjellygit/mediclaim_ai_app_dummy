@@ -139,6 +139,21 @@ enum DocumentStatus {
   FAILED
 }
 
+enum CodingSystem {
+  ICD10_CM
+  CPT
+  HCPCS
+  ICD10_PCS
+}
+
+enum CodingSuggestionStatus {
+  PENDING
+  ACCEPTED
+  CHANGED
+  REJECTED
+}
+
+
 enum DenialCaseStatus {
   OPEN
   ANALYZED
@@ -309,6 +324,7 @@ model Claim {
   underpaymentCase UnderpaymentCase?
   auditEvents AuditEvent[]
   payerTransactions PayerTransaction[]
+  codingSuggestions CodingSuggestion[]
 
   @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
@@ -369,7 +385,36 @@ model Document {
   extracted     Json? // { patientName?, amount?, dates?, ... }
   status        DocumentStatus @default(PENDING)
 
+  codingSuggestions CodingSuggestion[]
+
   @@unique([claimId, fileHash])
+}
+
+model CodingSuggestion {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  claimId String
+  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  system        CodingSystem
+  suggestedCode String
+  confidence    Int?
+  evidenceText  String?
+
+  status          CodingSuggestionStatus @default(PENDING)
+  finalCode       String?
+  reviewedAt      DateTime?
+  reviewedById    String?
+  reviewedBy      User? @relation("CodingSuggestionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([documentId, system, suggestedCode])
+  @@index([claimId, status])
+  @@index([documentId, status])
 }
 
 
@@ -453,6 +498,7 @@ model User {
   refreshTokens RefreshToken[]
   createdClaims Claim[] @relation("ClaimCreatedBy")
   auditEvents AuditEvent[] @relation("AuditActor")
+  reviewedCodingSuggestions CodingSuggestion[] @relation("CodingSuggestionReviewer")
 
   @@index([organizationId])
 }
