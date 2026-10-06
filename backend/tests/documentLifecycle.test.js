@@ -257,19 +257,23 @@ test("config - synthetic fixture endpoints are isolated behind E2E_TEST_MODE and
   assert.ok(fixtures.includes('e2e/payer-journey/seed'));
 });
 
-test("documents - smart upload may fill only empty or generic payer names from extraction", { concurrency: false }, () => {
+test("documents - every matched upload can safely fill missing claim fields", { concurrency: false }, () => {
   const source = fs.readFileSync(
     path.join(backendRoot, "src/routes/documents.js"),
     "utf8"
   );
 
-  assert.match(source, /payerIsGeneric/);
-  assert.match(source, /\["insurance", "unknown", "unknown payer", "payer"\]/);
-  assert.match(source, /updatePayload\.payerName = extracted\.payerName/);
-  assert.doesNotMatch(
+  assert.match(source, /function buildMissingClaimAutofill/);
+  assert.match(source, /policyNumber/);
+  assert.match(source, /groupNumber/);
+  assert.match(source, /subscriberId/);
+  assert.match(source, /medicalRecordNumber/);
+  assert.match(source, /insurerClaimNo/);
+  assert.match(
     source,
-    /if \(extracted\.payerName\) \{\s*updatePayload\.payerName = extracted\.payerName/
+    /const updatePayload = buildMissingClaimAutofill\([\s\S]*intel\.extracted/
   );
+  assert.match(source, /\["insurance", "unknown", "unknown payer", "payer"\]/);
 });
 
 test("H8B-2 - logout-all revokes refresh sessions and existing access tokens", { concurrency: false }, async () => {

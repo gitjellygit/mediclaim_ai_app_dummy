@@ -12,6 +12,13 @@ export const DOCUMENT_DERIVED_FIELDS = [
   "patientName",
   "payerName",
   "policyNo",
+  "groupNumber",
+  "subscriberId",
+  "subscriberName",
+  "payerEdiId",
+  "medicalRecordNumber",
+  "patientMobile",
+  "insurerClaimNo",
   "amount",
   "totalBilledAmount",
   "patientDob",
@@ -61,6 +68,20 @@ function extractedValue(extracted = {}, field) {
       return clean(extracted.policyNo || extracted.policyNumber || extracted.policy_number);
     case "memberId":
       return clean(extracted.memberId || extracted.member_id);
+    case "groupNumber":
+      return clean(extracted.groupNumber || extracted.group_number);
+    case "subscriberId":
+      return clean(extracted.subscriberId || extracted.subscriber_id || extracted.memberId || extracted.member_id);
+    case "subscriberName":
+      return clean(extracted.subscriberName || extracted.subscriber_name || extracted.policyHolder);
+    case "payerEdiId":
+      return clean(extracted.payerEdiId || extracted.payer_edi_id);
+    case "medicalRecordNumber":
+      return clean(extracted.medicalRecordNumber || extracted.mrn);
+    case "patientMobile":
+      return clean(extracted.patientMobile || extracted.phone || extracted.mobile);
+    case "insurerClaimNo":
+      return clean(extracted.claimNo || extracted.claimNumber || extracted.claim_number);
     case "hospitalName":
       return clean(extracted.hospitalName || extracted.hospital_name);
     case "doctorName":

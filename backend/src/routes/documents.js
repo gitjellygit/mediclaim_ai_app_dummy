@@ -71,6 +71,117 @@ function assignParsedDate(target, field, value) {
   if (parsed) target[field] = parsed;
 }
 
+function firstExtractedText(...values) {
+  for (const value of values) {
+    if (value == null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function canonicalDocumentFields(extracted = {}, documentType = "OTHER") {
+  const amount = getExtractedAmount(extracted);
+  const fields = {
+    patientName: getExtractedPatientName(extracted),
+    payerName: firstExtractedText(extracted.payerName, extracted.payer_name),
+    policyNo: firstExtractedText(
+      extracted.policyNo,
+      extracted.policyNumber,
+      extracted.policy_number
+    ),
+    memberId: firstExtractedText(extracted.memberId, extracted.member_id),
+    groupNumber: firstExtractedText(extracted.groupNumber, extracted.group_number),
+    subscriberId: firstExtractedText(
+      extracted.subscriberId,
+      extracted.subscriber_id,
+      extracted.memberId,
+      extracted.member_id
+    ),
+    subscriberName: firstExtractedText(
+      extracted.subscriberName,
+      extracted.subscriber_name,
+      extracted.policyHolder
+    ),
+    payerEdiId: firstExtractedText(extracted.payerEdiId, extracted.payer_edi_id),
+    medicalRecordNumber: firstExtractedText(
+      extracted.medicalRecordNumber,
+      extracted.mrn
+    ),
+    patientMobile: firstExtractedText(
+      extracted.patientMobile,
+      extracted.phone,
+      extracted.mobile
+    ),
+    insurerClaimNo: firstExtractedText(
+      extracted.claimNo,
+      extracted.claimNumber,
+      extracted.claim_number
+    ),
+    hospitalName: firstExtractedText(extracted.hospitalName, extracted.hospital_name),
+    doctorName: firstExtractedText(extracted.doctorName, extracted.doctor_name),
+    diagnosisText: firstExtractedText(extracted.diagnosisText, extracted.diagnosis),
+    authorizationNo: firstExtractedText(
+      extracted.authorizationNo,
+      extracted.authorization_number
+    ),
+    amount: amount || null,
+    totalBilledAmount:
+      documentType === "FINAL_BILL" && amount ? amount : null
+  };
+
+  for (const [field, value] of [
+    ["patientDob", extracted.dateOfBirth || extracted.patientDob || extracted.dob],
+    ["dateOfService", extracted.dateOfService || extracted.serviceDate],
+    ["admissionDate", extracted.admissionDate],
+    ["dischargeDate", extracted.dischargeDate]
+  ]) {
+    const parsed = value ? parseClaimDate(value) : null;
+    if (parsed) fields[field] = parsed;
+  }
+
+  return fields;
+}
+
+function buildMissingClaimAutofill(claim = {}, extracted = {}, documentType = "OTHER") {
+  const values = canonicalDocumentFields(extracted, documentType);
+  const patch = {};
+
+  for (const [field, value] of Object.entries(values)) {
+    if (value == null || value === "") continue;
+
+    if (field === "patientName") {
+      const current = String(claim.patientName || "").trim().toLowerCase();
+      if (!current || current === "unknown patient") patch.patientName = value;
+      continue;
+    }
+
+    if (field === "payerName") {
+      const current = String(claim.payerName || "").trim().toLowerCase();
+      if (!current || ["insurance", "unknown", "unknown payer", "payer"].includes(current)) {
+        patch.payerName = value;
+      }
+      continue;
+    }
+
+    if (field === "amount" || field === "totalBilledAmount") {
+      if (!claim[field] || Number(claim[field]) <= 0) patch[field] = value;
+      continue;
+    }
+
+    const current = claim[field];
+    if (
+      current == null ||
+      current === "" ||
+      (Array.isArray(current) && current.length === 0)
+    ) {
+      patch[field] = value;
+    }
+  }
+
+  return patch;
+}
+
 async function persistExtractedServiceLines(
   prismaClient,
   claimId,
@@ -266,105 +377,37 @@ export function documentsRouter(prisma, uploadDir) {
       }
 
       if (!claim) {
+        const documentType = intel.suggestedType || "OTHER";
+        const extractedClaimFields = canonicalDocumentFields(extracted, documentType);
         const claimData = {
           organizationId: req.user.organizationId,
           createdById: req.user.id,
-          patientName,
-          payerName,
-          amount,
-          totalBilledAmount:
-            intel.suggestedType === "FINAL_BILL" && amount
-              ? amount
-              : null,
-          policyNo: extracted.policyNo || null,
-          hospitalName: extracted.hospitalName || null,
-          doctorName: extracted.doctorName || null,
-          diagnosisText: extracted.diagnosisText || null,
-          memberId: extracted.memberId || null,
+          ...extractedClaimFields,
+          patientName: extractedClaimFields.patientName || patientName,
+          payerName: extractedClaimFields.payerName || payerName,
           documentDerivedFields: getDerivedFieldsFromDocument(
             extracted,
-            intel.suggestedType || "OTHER"
+            documentType
           ),
           fieldProvenance: documentProvenance({
-            fields: getDerivedFieldsFromDocument(
-              extracted,
-              intel.suggestedType || "OTHER"
-            ),
+            fields: getDerivedFieldsFromDocument(extracted, documentType),
             confidence: intel.confidence,
             fileName: req.file.originalname,
-            documentType: intel.suggestedType || "OTHER"
+            documentType
           }),
           status: "DRAFT"
         };
-
-        assignParsedDate(claimData, "patientDob", extracted.dateOfBirth);
-
-        assignParsedDate(claimData, "dateOfService", extracted.dateOfService);
-
-        assignParsedDate(claimData, "admissionDate", extracted.admissionDate);
-
-        assignParsedDate(claimData, "dischargeDate", extracted.dischargeDate);
-
-        if (extracted.authorizationNo) {
-          claimData.authorizationNo = extracted.authorizationNo;
-        }
 
 
         claim = await prisma.claim.create({
           data: claimData
         });
       } else {
-        const updatePayload = {};
-
-        if (intel.suggestedType === "FINAL_BILL" && amount) {
-          if (!claim.amount || Number(claim.amount) <= 0) {
-            updatePayload.amount = amount;
-          }
-          if (!claim.totalBilledAmount || Number(claim.totalBilledAmount) <= 0) {
-            updatePayload.totalBilledAmount = amount;
-          }
-        }
-
-        if (!claim.policyNo && extracted.policyNo) {
-          updatePayload.policyNo = extracted.policyNo;
-        }
-
-        if (!claim.memberId && extracted.memberId) {
-          updatePayload.memberId = extracted.memberId;
-        }
-
-        const existingPayerName = String(claim.payerName || "").trim().toLowerCase();
-        const payerIsGeneric =
-          !existingPayerName ||
-          ["insurance", "unknown", "unknown payer", "payer"].includes(existingPayerName);
-        if (payerIsGeneric && extracted.payerName) {
-          updatePayload.payerName = extracted.payerName;
-        }
-
-        if (!claim.hospitalName && extracted.hospitalName) {
-          updatePayload.hospitalName = extracted.hospitalName;
-        }
-
-        if (!claim.doctorName && extracted.doctorName) {
-          updatePayload.doctorName = extracted.doctorName;
-        }
-
-        if (!claim.diagnosisText && extracted.diagnosisText) {
-          updatePayload.diagnosisText = extracted.diagnosisText;
-        }
-
-        if (!claim.authorizationNo && extracted.authorizationNo) {
-          updatePayload.authorizationNo = extracted.authorizationNo;
-        }
-
-        if (!claim.patientDob) assignParsedDate(updatePayload, "patientDob", extracted.dateOfBirth);
-
-        if (!claim.dateOfService) assignParsedDate(updatePayload, "dateOfService", extracted.dateOfService);
-
-        if (!claim.admissionDate) assignParsedDate(updatePayload, "admissionDate", extracted.admissionDate);
-
-        if (!claim.dischargeDate) assignParsedDate(updatePayload, "dischargeDate", extracted.dischargeDate);
-
+        const updatePayload = buildMissingClaimAutofill(
+          claim,
+          extracted,
+          intel.suggestedType || "OTHER"
+        );
 
         if (Object.keys(updatePayload).length > 0) {
           claim = await prisma.claim.update({
@@ -647,9 +690,6 @@ export function documentsRouter(prisma, uploadDir) {
         })
       });
 
-      const extractedPatientName = getExtractedPatientName(intel.extracted);
-      const extractedAmount = getExtractedAmount(intel.extracted);
-
       await syncDocumentCodingSuggestions(tx, {
         claimId,
         documentId: created.id,
@@ -658,23 +698,11 @@ export function documentsRouter(prisma, uploadDir) {
         confidence: intel.confidence
       });
 
-      const updatePayload = {};
-
-      if (
-        extractedPatientName &&
-        (!claim.patientName ||
-          claim.patientName === "Unknown Patient" ||
-          claim.patientName.trim() === "")
-      ) {
-        updatePayload.patientName = extractedPatientName;
-      }
-
-      if (extractedAmount && (!claim.amount || Number(claim.amount) <= 0)) {
-        updatePayload.amount = extractedAmount;
-        if ((type || intel.suggestedType) === "FINAL_BILL") {
-          updatePayload.totalBilledAmount = extractedAmount;
-        }
-      }
+      const updatePayload = buildMissingClaimAutofill(
+        claim,
+        intel.extracted || {},
+        type || intel.suggestedType || "OTHER"
+      );
 
       if (Object.keys(updatePayload).length > 0) {
         const derivedFromThisDocument = Object.keys(updatePayload);

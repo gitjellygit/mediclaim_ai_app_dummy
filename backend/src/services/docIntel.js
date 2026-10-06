@@ -298,6 +298,33 @@ export function extractFields(text) {
     /Subscriber\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
+  const groupNumber = firstMatch(t, [
+    /Group\s*(?:No|Number|ID)?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
+  ]);
+
+  const subscriberId = firstMatch(t, [
+    /Subscriber\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Subscriber\s*(?:No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
+  ]) || memberId;
+
+  const subscriberName = firstMatch(t, [
+    /Subscriber\s*Name\s*[:\-]?\s*([A-Za-z .'-]{3,80})/i,
+    /Policy\s*Holder\s*[:\-]?\s*([A-Za-z .'-]{3,80})/i
+  ]);
+
+  const payerEdiId = firstMatch(t, [
+    /Payer\s*EDI\s*(?:ID)?\s*[:\-]?\s*([A-Z0-9\-]+)/i,
+    /EDI\s*Payer\s*(?:ID)?\s*[:\-]?\s*([A-Z0-9\-]+)/i
+  ]);
+
+  const medicalRecordNumber = firstMatch(t, [
+    /(?:MRN|Medical\s*Record\s*(?:No|Number))\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
+  ]);
+
+  const patientMobile = firstMatch(t, [
+    /(?:Patient\s*)?(?:Phone|Mobile|Telephone)\s*[:\-]?\s*([+0-9()\-\s]{7,24})/i
+  ]);
+
   const payerName = firstMatch(t, [
     /Insurance\s*Company\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,80})/i,
     /Payer\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,80})/i,
@@ -351,6 +378,12 @@ export function extractFields(text) {
     doctorName,
     amount,
     memberId,
+    groupNumber,
+    subscriberId,
+    subscriberName,
+    payerEdiId,
+    medicalRecordNumber,
+    patientMobile,
     payerName,
     authorizationNo,
     dateOfBirth,

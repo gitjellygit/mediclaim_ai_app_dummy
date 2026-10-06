@@ -49,3 +49,15 @@ test("F9 - claim detail delegates data and feature sections to extracted modules
   assert.ok(completeness.includes("auto-filled"));
   assert.ok(completeness.includes("need review"));
 });
+
+
+test("documents UX - AI claim creation is concise and locks a completed batch", () => {
+  const source = read("frontend/src/modules/ai-claims/ClaimsList.jsx");
+
+  assert.ok(source.includes("Create Claim from Documents"));
+  assert.ok(source.includes("fill the fields it can extract safely"));
+  assert.ok(source.includes('data-testid="create-claim-from-documents"'));
+  assert.ok(source.includes("Boolean(aiCreatedClaimId)"));
+  assert.ok(source.includes('"Claim Created"'));
+  assert.equal(source.includes("Processing sequence: OCR"), false);
+});
