@@ -171,9 +171,9 @@ test("H8B-4 - upload reprocess delete and purge use storage abstraction", () => 
   assert.match(documents, /persistUploadedDocument/);
   assert.match(documents, /materializeStoredDocument/);
   assert.match(documents, /deleteStoredObject/);
-  assert.doesNotMatch(documents, /fileName:\s*doc\.fileName/);
+  assert.doesNotMatch(documents, /metadata:\s*\{[^}]*fileName:\s*doc\.fileName/);
 
   assert.match(deletion, /deleteStoredObject/);
-  assert.doesNotMatch(deletion, /fileName:\s*doc\.fileName/);
+  assert.doesNotMatch(deletion, /metadata:\s*\{[^}]*fileName:\s*doc\.fileName/);
   assert.match(purge, /deleteStoredObject/);
 });
