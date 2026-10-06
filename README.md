@@ -83,6 +83,20 @@ Never enable those fixture endpoints in production.
 
 ## Security status
 
-Foundational local-development controls are present, but the larger Section 8B
-security/HIPAA gate is intentionally deferred and remains required before real
-PHI, shared staging with PHI, or production use.
+Section 8B hardening includes tenant isolation/RBAC, hardened sessions,
+PHI-safe audit logging, transactional workflow protections, document provenance,
+and secure document-storage support.
+
+Local development/test may use `DOCUMENT_STORAGE_BACKEND=local`. Production
+startup requires `DOCUMENT_STORAGE_BACKEND=s3`, `DOCUMENT_S3_BUCKET`, and
+`AWS_REGION`. Document objects are written with server-side encryption
+(SSE-KMS when `DOCUMENT_S3_KMS_KEY_ID` is configured; otherwise S3-managed
+AES256) and are delivered through authenticated application routes rather than
+public object URLs.
+
+Production infrastructure must keep the document bucket private (S3 Block
+Public Access / equivalent bucket policy), restrict IAM permissions to the
+application role, enable appropriate encryption/key policies, logging,
+retention/backup controls, and complete the deployment/compliance review before
+real PHI is used. Engineering controls support HIPAA readiness but do not by
+themselves constitute HIPAA certification.
