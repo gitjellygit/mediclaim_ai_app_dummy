@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "node:crypto";
 import cors from "cors";
 import dotenv from "dotenv";
 import { prisma, disconnectDatabase } from "./db.js";
@@ -21,6 +22,21 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 }
 
 const app = express();
+
+// Only trust the immediate reverse proxy when explicitly enabled. This keeps
+// req.ip useful without blindly trusting spoofable X-Forwarded-For headers.
+if (String(process.env.TRUST_PROXY || "").toLowerCase() === "true") {
+  app.set("trust proxy", 1);
+}
+
+app.use((req, res, next) => {
+  const incoming = String(req.get("x-request-id") || "").trim();
+  req.auditRequestId = /^[A-Za-z0-9._:-]{1,128}$/.test(incoming)
+    ? incoming
+    : crypto.randomUUID();
+  res.setHeader("X-Request-Id", req.auditRequestId);
+  next();
+});
 
 const configuredCorsOrigins = String(process.env.CORS_ORIGIN || "")
   .split(",")

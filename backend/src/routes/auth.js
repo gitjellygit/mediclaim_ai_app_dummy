@@ -39,10 +39,20 @@ function hashRefreshToken(token) {
 }
 
 function requestIp(req) {
-  const forwarded = String(req.headers["x-forwarded-for"] || "")
-    .split(",")[0]
-    .trim();
-  return forwarded || req.ip || req.socket?.remoteAddress || null;
+  return req.ip || req.socket?.remoteAddress || null;
+}
+
+function authAuditContext(req, statusCode = null) {
+  return {
+    ipAddress: requestIp(req),
+    userAgent: String(req.headers["user-agent"] || "").slice(0, 500) || null,
+    httpMethod: req.method || null,
+    httpPath: req.route?.path
+      ? `${req.baseUrl || ""}${req.route.path}`
+      : (req.baseUrl || req.path || null),
+    requestId: req.auditRequestId || null,
+    statusCode
+  };
 }
 
 function readCookie(req, name) {
@@ -205,6 +215,7 @@ export function authRouter(prisma) {
         await writeAuditEvent(prisma, {
           organizationId: user.organizationId,
           actorUserId: user.id,
+          ...authAuditContext(req, 401),
           action: shouldLock ? "LOGIN_LOCKED" : "LOGIN_FAILED",
           entityType: "User",
           entityId: user.id,
@@ -249,6 +260,7 @@ export function authRouter(prisma) {
       await writeAuditEvent(prisma, {
         organizationId: user.organizationId,
         actorUserId: user.id,
+        ...authAuditContext(req, 200),
         action: "LOGIN_SUCCEEDED",
         entityType: "Session",
         entityId: sessionId,
@@ -416,6 +428,7 @@ export function authRouter(prisma) {
             await writeAuditEvent(prisma, {
               organizationId: user.organizationId,
               actorUserId: tokenRecord.userId,
+              ...authAuditContext(req, 200),
               action: "LOGOUT_SUCCEEDED",
               entityType: "Session",
               entityId: tokenRecord.sessionId,
@@ -455,6 +468,7 @@ export function authRouter(prisma) {
       await writeAuditEvent(prisma, {
         organizationId: req.user.organizationId,
         actorUserId: req.user.id,
+        ...authAuditContext(req, 200),
         action: "ALL_SESSIONS_REVOKED",
         entityType: "User",
         entityId: req.user.id,
@@ -496,6 +510,7 @@ export function authRouter(prisma) {
       await writeAuditEvent(prisma, {
         organizationId: req.user.organizationId,
         actorUserId: req.user.id,
+        ...authAuditContext(req, 200),
         action: "SESSIONS_VIEWED",
         entityType: "User",
         entityId: req.user.id,
@@ -545,6 +560,7 @@ export function authRouter(prisma) {
       await writeAuditEvent(prisma, {
         organizationId: req.user.organizationId,
         actorUserId: req.user.id,
+        ...authAuditContext(req, 200),
         action: "SESSION_REVOKED",
         entityType: "Session",
         entityId: req.params.sessionId,

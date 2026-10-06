@@ -44,7 +44,13 @@ export async function writeAuditEvent(prisma, {
   entityType,
   entityId = null,
   outcome = "SUCCESS",
-  metadata = {}
+  metadata = {},
+  ipAddress = null,
+  userAgent = null,
+  httpMethod = null,
+  httpPath = null,
+  requestId = null,
+  statusCode = null
 }) {
   if (!organizationId || !action || !entityType) return null;
   try {
@@ -57,7 +63,13 @@ export async function writeAuditEvent(prisma, {
         entityType,
         entityId: normalizeAuditId(entityId),
         outcome,
-        metadata: sanitizeAuditMetadata(metadata)
+        metadata: sanitizeAuditMetadata(metadata),
+        ipAddress: normalizeAuditId(ipAddress),
+        userAgent: userAgent ? String(userAgent).slice(0, 500) : null,
+        httpMethod: httpMethod ? String(httpMethod).slice(0, 16) : null,
+        httpPath: httpPath ? String(httpPath).slice(0, 300) : null,
+        requestId: normalizeAuditId(requestId),
+        statusCode: Number.isInteger(statusCode) ? statusCode : null
       }
     });
   } catch (error) {
@@ -72,10 +84,26 @@ export async function writeAuditEvent(prisma, {
   }
 }
 
+function requestAuditContext(req, statusCode = null) {
+  const routePath = req.route?.path
+    ? `${req.baseUrl || ""}${req.route.path}`
+    : (req.baseUrl || req.path || null);
+
+  return {
+    ipAddress: req.ip || req.socket?.remoteAddress || null,
+    userAgent: req.get?.("user-agent") || null,
+    httpMethod: req.method || null,
+    httpPath: routePath,
+    requestId: req.auditRequestId || req.get?.("x-request-id") || null,
+    statusCode: Number.isInteger(statusCode) ? statusCode : null
+  };
+}
+
 export function writeRequestAudit(prisma, req, event) {
   return writeAuditEvent(prisma, {
     organizationId: req.user?.organizationId,
     actorUserId: req.user?.id || null,
+    ...requestAuditContext(req, event?.statusCode),
     ...event
   });
 }
@@ -88,6 +116,7 @@ export function auditOnResponse(prisma, req, res, eventFactory) {
       if (!event) return;
       void writeRequestAudit(prisma, req, {
         ...event,
+        statusCode: res.statusCode,
         outcome: event.outcome || (res.statusCode < 400 ? "SUCCESS" : "DENIED")
       });
     } catch (error) {
