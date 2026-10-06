@@ -17,10 +17,16 @@ let auth;
 let scenarios = [];
 
 async function selectPayer(page, payerName) {
+  if ((await page.getByTestId("payer-select").count()) === 0) {
+    const change = page.getByRole("button", { name: "Change payer", exact: true });
+    if (await change.count()) await change.click();
+  }
   await page.getByTestId("payer-select").click();
   await page.getByRole("option", { name: payerName }).click();
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId("connected-payer")).toHaveValue(payerName);
+  await expect(page.getByTestId("payer-select")).toHaveCount(0);
 }
 
 async function clickStageButton(stage, name) {
@@ -400,24 +406,29 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
   });
 }
 
-test("payer Journey compact activity and duplicate-action protections", async ({ page }) => {
+test("payer Journey keeps connected payer locked and activity collapsed", async ({ page }) => {
   const scenario = scenarios.find((item) => item.key === "BLUE");
   await page.goto(`/journey?claimId=${scenario.id}`);
 
-  // BLUE may have been cleaned/recreated by isolated worker ordering. If already
-  // connected from its lifecycle test, the current state itself proves the lock.
   const connectionCard = page.getByTestId("payer-connection-card");
   await expect(connectionCard).toBeVisible();
 
-  const visibleRows = connectionCard.locator(".MuiPaper-outlined");
-  expect(await visibleRows.count()).toBeLessThanOrEqual(5);
+  if (await page.getByTestId("connected-payer").count()) {
+    await expect(page.getByTestId("payer-select")).toHaveCount(0);
+    await expect(connectionCard.getByRole("button", { name: "Change payer" })).toBeVisible();
+  }
 
-  const viewAll = connectionCard.getByRole("button", { name: /View All/ });
-  if (await viewAll.count()) {
-    await viewAll.click();
-    expect(await visibleRows.count()).toBeGreaterThanOrEqual(5);
-    await connectionCard.getByRole("button", { name: "Show Recent" }).click();
-    expect(await visibleRows.count()).toBeLessThanOrEqual(5);
+  const history = connectionCard.getByTestId("payer-activity-history");
+  await expect(history).toHaveCount(0);
+
+  const toggle = connectionCard.getByTestId("payer-activity-toggle");
+  if (await toggle.count()) {
+    await expect(toggle).toContainText(/Show activity/);
+    await toggle.click();
+    await expect(connectionCard.getByTestId("payer-activity-history")).toBeVisible();
+    await expect(toggle).toHaveText("Hide activity");
+    await toggle.click();
+    await expect(connectionCard.getByTestId("payer-activity-history")).toHaveCount(0);
   }
 });
 
@@ -428,6 +439,9 @@ test("payer switch invalidates old coverage and authorization without reusing ol
   await page.goto(`/journey?claimId=${scenario.id}`);
   await expect(page.getByText(scenario.patientName, { exact: true })).toBeVisible();
   await selectPayer(page, payerNames.BLUE_HORIZON);
+  await expect(page.getByTestId("payer-select")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Change payer", exact: true })).toBeVisible();
+
   const eligibility = page.getByTestId("journey-stage-eligibility");
   const priorAuth = page.getByTestId("journey-stage-prior-auth");
   await clickStageButton(eligibility, "Check Eligibility");
@@ -451,6 +465,21 @@ test("payer switch invalidates old coverage and authorization without reusing ol
   await clickStageButton(eligibility, "Check Eligibility");
   await expect(eligibility).toContainText("Failed");
   await expect(priorAuth.getByRole("button", { name: "Check Prior Auth" })).toBeDisabled();
+
+  const beforeDuplicate = await apiContext.get(
+    `/api/claims/${scenario.id}/journey`,
+    { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+  );
+  const beforeTransactions = (await beforeDuplicate.json()).claim.payerTransactions.length;
+
+  await clickStageButton(eligibility, "Check Eligibility");
+
+  const afterDuplicate = await apiContext.get(
+    `/api/claims/${scenario.id}/journey`,
+    { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+  );
+  const afterTransactions = (await afterDuplicate.json()).claim.payerTransactions.length;
+  expect(afterTransactions).toBe(beforeTransactions);
   const blockedAuth = await apiContext.post(
     `/api/claims/${scenario.id}/payer-simulation/prior-auth`,
     { headers: { Authorization: `Bearer ${auth.accessToken}` } }
