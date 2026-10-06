@@ -345,6 +345,7 @@ export default function ClaimJourney() {
   const [action, setAction] = React.useState("");
   const [mockPayers, setMockPayers] = React.useState([]);
   const [selectedMockPayer, setSelectedMockPayer] = React.useState("");
+  const [payerEditing, setPayerEditing] = React.useState(false);
   const [activityExpanded, setActivityExpanded] = React.useState(false);
 
   const [authRequired, setAuthRequired] = React.useState("");
@@ -402,6 +403,7 @@ export default function ClaimJourney() {
 
       const claim = data.claim || {};
       setSelectedMockPayer(data?.payerConnection?.simulatedPayerCode || "");
+      setPayerEditing(false);
       setAuthRequired(
         claim.priorAuthRequired == null
           ? ""
@@ -1021,6 +1023,30 @@ export default function ClaimJourney() {
                         label={claim.payerName || connectedConnector?.provider || "External payer"}
                       />
                     </Stack>
+                  ) : simulatedPayerConnected && !payerEditing ? (
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1}
+                      alignItems={{ xs: "stretch", sm: "center" }}
+                      justifyContent={{ md: "flex-end" }}
+                      sx={{ minWidth: { md: 430 } }}
+                    >
+                      <TextField
+                        size="small"
+                        label="Payer"
+                        value={journey?.payerConnection?.simulatedPayer?.name || claim.payerName || ""}
+                        InputProps={{ readOnly: true }}
+                        data-testid="connected-payer"
+                        fullWidth
+                      />
+                      <Button
+                        variant="outlined"
+                        onClick={() => setPayerEditing(true)}
+                        disabled={action !== ""}
+                      >
+                        Change payer
+                      </Button>
+                    </Stack>
                   ) : (
                     <Stack
                       direction={{ xs: "column", sm: "row" }}
@@ -1048,24 +1074,32 @@ export default function ClaimJourney() {
                         disabled={
                           !selectedMockPayer ||
                           action === "payer-connect" ||
-                          (payerConnected &&
+                          (simulatedPayerConnected &&
                             journey?.payerConnection?.simulatedPayerCode === selectedMockPayer)
                         }
-                        onClick={() =>
-                          runAction(
+                        onClick={async () => {
+                          const result = await runAction(
                             "payer-connect",
                             () => ClaimsApi.connectMockPayer(claim.id, selectedMockPayer),
-                            "Payer connected"
-                          )
-                        }
+                            payerConnected ? "Payer changed" : "Payer connected"
+                          );
+                          if (result) setPayerEditing(false);
+                        }}
                       >
-                        {action === "payer-connect"
-                          ? "Connecting..."
-                          : payerConnected &&
-                            journey?.payerConnection?.simulatedPayerCode === selectedMockPayer
-                          ? "Connected"
-                          : "Connect"}
+                        {action === "payer-connect" ? "Connecting..." : "Connect"}
                       </Button>
+                      {simulatedPayerConnected && payerEditing && (
+                        <Button
+                          variant="text"
+                          onClick={() => {
+                            setSelectedMockPayer(journey?.payerConnection?.simulatedPayerCode || "");
+                            setPayerEditing(false);
+                          }}
+                          disabled={action !== ""}
+                        >
+                          Cancel
+                        </Button>
+                      )}
                     </Stack>
                   )}
                 </Stack>
@@ -1074,59 +1108,78 @@ export default function ClaimJourney() {
                   <>
                     <Divider />
                     <Box>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                        <Typography variant="subtitle2" fontWeight={800}>
-                          Payer Activity
-                        </Typography>
-                        {payerTransactions.length > 5 && (
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        justifyContent="space-between"
+                        alignItems={{ xs: "stretch", sm: "center" }}
+                        spacing={1}
+                      >
+                        <Box>
+                          <Typography variant="subtitle2" fontWeight={800}>
+                            Payer Activity
+                          </Typography>
+                          {payerTransactions.length > 0 ? (
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                              <Typography variant="body2" color="text.secondary">
+                                Latest: {humanStatus(payerTransactions[0].transactionType)}
+                              </Typography>
+                              <Chip
+                                size="small"
+                                color={stageColor(payerTransactions[0].status)}
+                                label={humanStatus(payerTransactions[0].status)}
+                              />
+                            </Stack>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                              No payer activity yet. Start with Eligibility below.
+                            </Typography>
+                          )}
+                        </Box>
+
+                        {payerTransactions.length > 0 && (
                           <Button
                             size="small"
                             variant="text"
                             onClick={() => setActivityExpanded((value) => !value)}
+                            data-testid="payer-activity-toggle"
                           >
                             {activityExpanded
-                              ? "Show Recent"
-                              : `View All (${payerTransactions.length})`}
+                              ? "Hide activity"
+                              : `Show activity (${payerTransactions.length})`}
                           </Button>
                         )}
                       </Stack>
 
-                      {!payerTransactions.length ? (
-                        <Typography variant="body2" color="text.secondary">
-                          No payer transactions yet. Start with Eligibility below.
-                        </Typography>
-                      ) : (
-                        <Stack spacing={1}>
-                          {payerTransactions
-                            .slice(0, activityExpanded ? payerTransactions.length : 5)
-                            .map((tx) => (
-                              <Paper key={tx.id} variant="outlined" sx={{ p: 1.25 }}>
-                                <Stack
-                                  direction={{ xs: "column", sm: "row" }}
-                                  justifyContent="space-between"
-                                  spacing={1}
-                                >
-                                  <Box>
-                                    <Typography variant="body2" fontWeight={700}>
-                                      {humanStatus(tx.transactionType)}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      {tx.transactionId} • {tx.latencyMs || 0} ms
-                                    </Typography>
-                                  </Box>
-                                  <Chip
-                                    size="small"
-                                    color={stageColor(tx.status)}
-                                    label={humanStatus(tx.status)}
-                                  />
-                                </Stack>
-                                {tx.responsePayload?.reason && (
-                                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                                    {tx.responsePayload.reason}
+                      {activityExpanded && payerTransactions.length > 0 && (
+                        <Stack spacing={1} sx={{ mt: 1.25 }} data-testid="payer-activity-history">
+                          {payerTransactions.map((tx) => (
+                            <Paper key={tx.id} variant="outlined" sx={{ p: 1.25 }}>
+                              <Stack
+                                direction={{ xs: "column", sm: "row" }}
+                                justifyContent="space-between"
+                                spacing={1}
+                              >
+                                <Box>
+                                  <Typography variant="body2" fontWeight={700}>
+                                    {humanStatus(tx.transactionType)}
                                   </Typography>
-                                )}
-                              </Paper>
-                            ))}
+                                  <Typography variant="caption" color="text.secondary">
+                                    {tx.transactionId} • {tx.latencyMs || 0} ms
+                                  </Typography>
+                                </Box>
+                                <Chip
+                                  size="small"
+                                  color={stageColor(tx.status)}
+                                  label={humanStatus(tx.status)}
+                                />
+                              </Stack>
+                              {tx.responsePayload?.reason && (
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                                  {tx.responsePayload.reason}
+                                </Typography>
+                              )}
+                            </Paper>
+                          ))}
                         </Stack>
                       )}
                     </Box>
