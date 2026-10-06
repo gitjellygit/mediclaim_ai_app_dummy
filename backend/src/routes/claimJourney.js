@@ -334,46 +334,51 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
     if (authorizationNo) priorAuthFields.push("authorizationNo");
     if (expiry) priorAuthFields.push("priorAuthExpiry");
 
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
-        priorAuthRequired: required,
-        priorAuthStatus,
-        priorAuthCheckedAt: new Date(),
-        authorizationNo,
-        priorAuthExpiry: expiry || null,
-        fieldProvenance: mergeProvenance(
-          claim.fieldProvenance,
-          {
-            ...systemProvenance(
-              ["priorAuthStatus"],
-              {
-                source: "LOCAL_PRECHECK",
-                label: "Local Prior Auth Evaluation",
-                sourceDetail: "No live payer prior-auth connector configured",
-                verified: false
-              }
-            ),
-            ...manualProvenance(
-              priorAuthFields.filter((field) => field !== "priorAuthStatus"),
-              "Recorded by User"
-            )
-          }
-        )
-      }
-    });
-
-    await markReadinessChecksStale(
-      prisma,
-      claim.id,
-      "Prior authorization information changed"
-    );
-    if (claim.status === "READY") {
-      await prisma.claim.update({
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
         where: { id: claim.id },
-        data: { status: assertClaimTransition(claim.status, "DRAFT") }
+        data: {
+          priorAuthRequired: required,
+          priorAuthStatus,
+          priorAuthCheckedAt: new Date(),
+          authorizationNo,
+          priorAuthExpiry: expiry || null,
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            {
+              ...systemProvenance(
+                ["priorAuthStatus"],
+                {
+                  source: "LOCAL_PRECHECK",
+                  label: "Local Prior Auth Evaluation",
+                  sourceDetail: "No live payer prior-auth connector configured",
+                  verified: false
+                }
+              ),
+              ...manualProvenance(
+                priorAuthFields.filter((field) => field !== "priorAuthStatus"),
+                "Recorded by User"
+              )
+            }
+          )
+        }
       });
-    }
+
+      await markReadinessChecksStale(
+        tx,
+        claim.id,
+        "Prior authorization information changed"
+      );
+
+      if (claim.status === "READY") {
+        await tx.claim.update({
+          where: { id: claim.id },
+          data: { status: assertClaimTransition(claim.status, "DRAFT") }
+        });
+      }
+
+      return updatedClaim;
+    });
 
     logJourneyEvent(claim.id, "prior-auth-evaluate", priorAuthStatus, {
       required: required === true
