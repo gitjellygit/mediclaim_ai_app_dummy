@@ -125,6 +125,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [bulkDeleteLoading, setBulkDeleteLoading] = React.useState(false);
   const [fixFocus, setFixFocus] = React.useState("");
   const [fixFields, setFixFields] = React.useState([]);
+  const [readinessHistoryExpanded, setReadinessHistoryExpanded] = React.useState(false);
   const patientPolicyRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
@@ -355,6 +356,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       setSavingEdit(true);
       const updated = await ClaimsApi.update(id, payload);
       setClaim(updated);
+      await load();
       setEditMode(false);
       setFixFocus("");
       setFixFields([]);
@@ -589,6 +591,40 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
     if (message.includes("amount")) {
       return Number(claim?.amount || claim?.totalBilledAmount || 0) > 0;
+    }
+
+    const field = issue?.field;
+    if (field === "billingProviderNpi") return Boolean(claim?.billingProviderNpi);
+    if (field === "renderingProviderNpi") return Boolean(claim?.renderingProviderNpi);
+    if (field === "referringProviderNpi") return Boolean(claim?.referringProviderNpi);
+    if (field === "typeOfBill") return Boolean(claim?.typeOfBill);
+    if (field === "drgCode") return Boolean(claim?.drgCode);
+    if (field === "dateOfService") return Boolean(claim?.dateOfService);
+    if (field === "memberId") return Boolean(claim?.memberId);
+    if (field === "revenueCode") {
+      return Array.isArray(claim?.serviceLines) &&
+        claim.serviceLines.some((line) => Boolean(line.revenueCode));
+    }
+    if (field === "placeOfService") {
+      return Array.isArray(claim?.serviceLines) &&
+        claim.serviceLines.some((line) => Boolean(line.placeOfService));
+    }
+    if (field === "diagnosisPointers") {
+      return Array.isArray(claim?.serviceLines) &&
+        claim.serviceLines.some(
+          (line) => Array.isArray(line.diagnosisPointers) && line.diagnosisPointers.length > 0
+        );
+    }
+    if (field === "cptHcpcsCode" || issue?.fixTarget === "serviceLines") {
+      return Array.isArray(claim?.serviceLines) &&
+        claim.serviceLines.some((line) => Boolean(line.cptHcpcsCode));
+    }
+
+    if (message.includes("billing provider npi")) return Boolean(claim?.billingProviderNpi);
+    if (message.includes("rendering provider npi")) return Boolean(claim?.renderingProviderNpi);
+    if (message.includes("cpt") || message.includes("hcpcs")) {
+      return Array.isArray(claim?.serviceLines) &&
+        claim.serviceLines.some((line) => Boolean(line.cptHcpcsCode));
     }
 
     return false;
@@ -1201,7 +1237,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       >
         <CardContent>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="h6">Patient & Policy</Typography>
+            <Typography variant="h5" fontWeight={800}>Patient & Policy</Typography>
 
             {canEditClaim && !["SUBMITTED", "DENIED", "PAID"].includes(claim.status) && !editMode && (
               <Button size="small" onClick={() => setEditMode(true)}>Edit</Button>
@@ -1241,7 +1277,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           {!editMode && (
             <Stack spacing={2}>
               <Box>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                <Typography variant="subtitle1" fontWeight={800} color="text.primary" sx={{ mb: 1 }}>
                   Clinical
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1.5 }}>
@@ -1260,7 +1296,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <Divider sx={{ gridColumn: "1 / -1" }} />
 
               <Box>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                <Typography variant="subtitle1" fontWeight={800} color="text.primary" sx={{ mb: 1 }}>
                   Patient identity & coverage
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
@@ -1284,7 +1320,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <Divider sx={{ gridColumn: "1 / -1" }} />
 
               <Box>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                <Typography variant="subtitle1" fontWeight={800} color="text.primary" sx={{ mb: 1 }}>
                   Encounter
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
@@ -1303,7 +1339,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <Divider sx={{ gridColumn: "1 / -1" }} />
 
               <Box>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                <Typography variant="subtitle1" fontWeight={800} color="text.primary" sx={{ mb: 1 }}>
                   Claim & financials
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
@@ -1324,7 +1360,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <Divider sx={{ gridColumn: "1 / -1" }} />
 
               <Box>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                <Typography variant="subtitle1" fontWeight={800} color="text.primary" sx={{ mb: 1 }}>
                   Service Lines
                 </Typography>
                 <ServiceLinesEditor lines={claim.serviceLines || []} readOnly />
@@ -1536,7 +1572,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <Divider sx={{ gridColumn: "1 / -1" }} />
-              <Typography variant="subtitle2" sx={{ gridColumn: "1 / -1" }}>Encounter Details</Typography>
+              <Typography variant="subtitle1" fontWeight={800} sx={{ gridColumn: "1 / -1" }}>Encounter Details</Typography>
               <TextField
                 data-fix-field="dateOfService"
                 label="Date of Service"
@@ -1666,7 +1702,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <Divider sx={{ gridColumn: "1 / -1" }} />
-              <Typography variant="subtitle2" sx={{ gridColumn: "1 / -1" }}>U.S. Claim Details</Typography>
+              <Typography variant="subtitle1" fontWeight={800} sx={{ gridColumn: "1 / -1" }}>U.S. Claim Details</Typography>
               <TextField
                 label="ICD-10-PCS Codes (comma separated)"
                 value={editForm.inpatientProcedureCodes}
@@ -1714,7 +1750,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <Box sx={{ gridColumn: "1 / -1" }}>
-                <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Service Lines</Typography>
+                <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1.5 }}>Service Lines</Typography>
                 <ServiceLinesEditor
                   lines={editForm.serviceLines || []}
                   onChange={(serviceLines) => updateEditField("serviceLines", serviceLines)}
@@ -1728,6 +1764,45 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 />
               </Box>
             </Box>
+          )}
+
+          {editMode && (
+            <Paper
+              elevation={6}
+              sx={{
+                position: "fixed",
+                right: { xs: 16, md: 32 },
+                bottom: { xs: 16, md: 24 },
+                zIndex: 1300,
+                px: 1.25,
+                py: 1,
+                borderRadius: 2,
+                display: "flex",
+                gap: 1,
+                alignItems: "center"
+              }}
+            >
+              <Button
+                size="small"
+                disabled={savingEdit}
+                onClick={() => {
+                  resetEditForm();
+                  setEditMode(false);
+                  setFixFocus("");
+                  setFixFields([]);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                disabled={savingEdit}
+                onClick={saveEdit}
+              >
+                {savingEdit ? "Saving..." : "Save Changes"}
+              </Button>
+            </Paper>
           )}
         </CardContent>
       </Card>
@@ -2413,58 +2488,69 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               )}
 
               {checkHistory.length > 1 && (
-                <Box sx={{ mt: 3 }}>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                    Claim Readiness History
-                  </Typography>
-                  <Stack spacing={0.75}>
-                    {checkHistory.map((item, index) => (
-                      <Paper
-                        key={item.id}
-                        variant="outlined"
-                        sx={{
-                          p: 1,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 1,
-                          flexWrap: "wrap"
-                        }}
-                      >
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Chip
-                            size="small"
-                            color={readinessColor(item.score)}
-                            label={`${item.score}%`}
-                          />
-                          <Typography variant="body2">
-                            {new Date(item.createdAt).toLocaleString()}
-                          </Typography>
-                          {item.isStale && (
-                            <Chip size="small" variant="outlined" color="warning" label="Out of date" />
+                <Box sx={{ mt: 2 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    endIcon={readinessHistoryExpanded ? <ExpandLess /> : <ExpandMore />}
+                    onClick={() => setReadinessHistoryExpanded((value) => !value)}
+                    sx={{ fontWeight: 800 }}
+                  >
+                    {readinessHistoryExpanded
+                      ? "Hide Claim Readiness History"
+                      : `View Claim Readiness History (${checkHistory.length})`}
+                  </Button>
+
+                  <Collapse in={readinessHistoryExpanded}>
+                    <Stack spacing={0.75} sx={{ mt: 1 }}>
+                      {checkHistory.map((item, index) => (
+                        <Paper
+                          key={item.id}
+                          variant="outlined"
+                          sx={{
+                            p: 1,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 1,
+                            flexWrap: "wrap"
+                          }}
+                        >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Chip
+                              size="small"
+                              color={readinessColor(item.score)}
+                              label={`${item.score}%`}
+                            />
+                            <Typography variant="body2">
+                              {new Date(item.createdAt).toLocaleString()}
+                            </Typography>
+                            {item.isStale && (
+                              <Chip size="small" variant="outlined" color="warning" label="Out of date" />
+                            )}
+                            {index === 0 && !item.isStale && (
+                              <Chip size="small" variant="outlined" color="success" label="Current" />
+                            )}
+                          </Stack>
+                          {item.comparison?.scoreDelta != null && (
+                            <Typography
+                              variant="caption"
+                              color={
+                                item.comparison.scoreDelta > 0
+                                  ? "success.main"
+                                  : item.comparison.scoreDelta < 0
+                                  ? "error.main"
+                                  : "text.secondary"
+                              }
+                            >
+                              {item.comparison.scoreDelta > 0 ? "+" : ""}
+                              {item.comparison.scoreDelta}% vs previous
+                            </Typography>
                           )}
-                          {index === 0 && !item.isStale && (
-                            <Chip size="small" variant="outlined" color="success" label="Current" />
-                          )}
-                        </Stack>
-                        {item.comparison?.scoreDelta != null && (
-                          <Typography
-                            variant="caption"
-                            color={
-                              item.comparison.scoreDelta > 0
-                                ? "success.main"
-                                : item.comparison.scoreDelta < 0
-                                ? "error.main"
-                                : "text.secondary"
-                            }
-                          >
-                            {item.comparison.scoreDelta > 0 ? "+" : ""}
-                            {item.comparison.scoreDelta}% vs previous
-                          </Typography>
-                        )}
-                      </Paper>
-                    ))}
-                  </Stack>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  </Collapse>
                 </Box>
               )}
             </>

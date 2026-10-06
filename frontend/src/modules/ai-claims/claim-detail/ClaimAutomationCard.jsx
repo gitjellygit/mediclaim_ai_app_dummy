@@ -15,6 +15,8 @@ import {
 import {
   AutoAwesome,
   Calculate,
+  ExpandLess,
+  ExpandMore,
   FactCheck,
   Person
 } from "@mui/icons-material";
@@ -25,12 +27,14 @@ export default function ClaimAutomationCard({
   onFieldAction,
   actionLabel
 }) {
+  const [sectionExpanded, setSectionExpanded] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
   const [filter, setFilter] = React.useState("all");
 
   if (!summary) return null;
 
   function showBucket(bucket) {
+    setSectionExpanded(true);
     setFilter(bucket);
     setExpanded(true);
   }
@@ -88,8 +92,19 @@ export default function ClaimAutomationCard({
               label={`${summary.missingFields} missing`}
             />
           </Stack>
+
+          <Button
+            size="small"
+            variant="text"
+            endIcon={sectionExpanded ? <ExpandLess /> : <ExpandMore />}
+            onClick={() => setSectionExpanded((value) => !value)}
+            sx={{ flexShrink: 0 }}
+          >
+            {sectionExpanded ? "Collapse" : "Expand"}
+          </Button>
         </Stack>
 
+        <Collapse in={sectionExpanded}>
         <Box sx={{ mt: 2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Typography variant="body2" fontWeight={600}>
@@ -246,6 +261,7 @@ export default function ClaimAutomationCard({
                 );
               })}
           </Box>
+        </Collapse>
         </Collapse>
       </CardContent>
     </Card>

@@ -208,7 +208,15 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
       page.getByText(/field that needs attention is highlighted below/i)
     ).toBeVisible();
 
-    await page.goto(`/claims/${claim.id}`);
+    await billingNpi.fill("1234567890");
+    await page.getByRole("button", { name: "Save Changes", exact: true }).click();
+
+    await expect(
+      page.getByTestId("readiness-issue-billingProviderNpi")
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(/Completed — recheck readiness/i)
+    ).toBeVisible();
 
     const cptIssue = page.getByTestId("readiness-issue-cptHcpcsCode");
     await expect(cptIssue).toContainText(/CPT\/HCPCS/i);
@@ -385,6 +393,7 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
 
       const completeness = page.getByTestId("claim-completeness-card");
       await expect(completeness).toBeVisible();
+      await completeness.getByRole("button", { name: "Expand", exact: true }).click();
       await completeness.getByRole("button", { name: "View Details" }).click();
       await expect(completeness.getByText(/Informational after submission/).first()).toBeVisible();
       await expect(completeness.getByRole("button", { name: "Fix", exact: true })).toHaveCount(0);
