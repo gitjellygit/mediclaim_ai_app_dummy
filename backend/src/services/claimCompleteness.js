@@ -16,6 +16,7 @@ const LABELS = {
   doctorName: "Doctor",
   diagnosisText: "Diagnosis",
   icd10Codes: "ICD-10",
+  serviceLines: "CPT / HCPCS Service Line",
   dateOfService: "Date of Service",
   admissionDate: "Admission Date",
   dischargeDate: "Discharge Date",
@@ -90,6 +91,7 @@ export function buildClaimCompleteness(claim) {
     conditional = false,
     applicable = true,
     complete = hasValue(claim?.[field]),
+    state = null,
     reason = null,
     fixTarget = "claim"
   }) => {
@@ -109,7 +111,7 @@ export function buildClaimCompleteness(claim) {
     fields.push({
       field,
       label: LABELS[field] || field,
-      state: complete ? "complete" : required ? "missing" : "review",
+      state: state || (complete ? "complete" : required ? "missing" : "review"),
       required,
       conditional,
       reason,
@@ -123,10 +125,42 @@ export function buildClaimCompleteness(claim) {
   push({ field: "policyNo", required: true });
   push({ field: "memberId", required: true });
   push({ field: "diagnosisText", required: true });
+  const pendingCodingSuggestions = Array.isArray(claim?.codingSuggestions)
+    ? claim.codingSuggestions.filter((item) => item?.status === "PENDING")
+    : [];
+  const pendingIcdSuggestion = pendingCodingSuggestions.some(
+    (item) => item.system === "ICD10_CM"
+  );
+  const pendingServiceCodeSuggestion = pendingCodingSuggestions.some(
+    (item) => ["CPT", "HCPCS"].includes(item.system)
+  );
+  const hasIcd10 = Array.isArray(claim?.icd10Codes) && claim.icd10Codes.length > 0;
+  const hasVerifiedServiceCode = Array.isArray(claim?.serviceLines) &&
+    claim.serviceLines.some(
+      (line) => line?.verified !== false && Boolean(line?.cptHcpcsCode)
+    );
+
   push({
     field: "icd10Codes",
     required: true,
-    complete: Array.isArray(claim?.icd10Codes) && claim.icd10Codes.length > 0
+    complete: hasIcd10,
+    state: !hasIcd10 && pendingIcdSuggestion ? "review" : null,
+    reason: !hasIcd10 && pendingIcdSuggestion
+      ? "A document contains an ICD-10 suggestion that must be reviewed before it is added to the claim"
+      : null,
+    fixTarget: !hasIcd10 && pendingIcdSuggestion ? "coding-review" : "claim"
+  });
+  push({
+    field: "serviceLines",
+    required: true,
+    complete: hasVerifiedServiceCode,
+    state: !hasVerifiedServiceCode && pendingServiceCodeSuggestion ? "review" : null,
+    reason: !hasVerifiedServiceCode && pendingServiceCodeSuggestion
+      ? "A document contains a CPT/HCPCS suggestion that must be reviewed before it becomes a service line"
+      : "At least one verified CPT/HCPCS service line is required",
+    fixTarget: !hasVerifiedServiceCode && pendingServiceCodeSuggestion
+      ? "coding-review"
+      : "serviceLines"
   });
   push({ field: "dateOfService", required: true });
   push({ field: "amount", required: true });
