@@ -22,11 +22,8 @@ import { useClaimDetailData } from "./claim-detail/useClaimDetailData.js";
 import {
   DOC_TYPES,
   DOC_TYPE_LABELS,
-  pct,
   formatDate,
   formatMoney,
-  riskChipColor,
-  readinessColor,
   readinessTextColor,
   provenanceChipColor
 } from "./claim-detail/claimDetailUtils.js";
@@ -566,70 +563,6 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     openClaimEdit("claim");
   }
 
-  function isIssueResolvedByCurrentClaim(issue) {
-    const message = String(issue?.message || "").toLowerCase();
-
-    if (message.includes("eligibility")) {
-      return claim?.eligibilityStatus === "VERIFIED";
-    }
-
-    if (message.includes("prior authorization")) {
-      return ["APPROVED", "NOT_REQUIRED"].includes(claim?.priorAuthStatus);
-    }
-
-    if (message.includes("supporting document")) {
-      return Array.isArray(claim?.documents) && claim.documents.length > 0;
-    }
-
-    if (message.includes("policy")) {
-      return Boolean(claim?.policyNo);
-    }
-
-    if (message.includes("icd")) {
-      return Array.isArray(claim?.icd10Codes) && claim.icd10Codes.length > 0;
-    }
-
-    if (message.includes("amount")) {
-      return Number(claim?.amount || claim?.totalBilledAmount || 0) > 0;
-    }
-
-    const field = issue?.field;
-    if (field === "billingProviderNpi") return Boolean(claim?.billingProviderNpi);
-    if (field === "renderingProviderNpi") return Boolean(claim?.renderingProviderNpi);
-    if (field === "referringProviderNpi") return Boolean(claim?.referringProviderNpi);
-    if (field === "typeOfBill") return Boolean(claim?.typeOfBill);
-    if (field === "drgCode") return Boolean(claim?.drgCode);
-    if (field === "dateOfService") return Boolean(claim?.dateOfService);
-    if (field === "memberId") return Boolean(claim?.memberId);
-    if (field === "revenueCode") {
-      return Array.isArray(claim?.serviceLines) &&
-        claim.serviceLines.some((line) => Boolean(line.revenueCode));
-    }
-    if (field === "placeOfService") {
-      return Array.isArray(claim?.serviceLines) &&
-        claim.serviceLines.some((line) => Boolean(line.placeOfService));
-    }
-    if (field === "diagnosisPointers") {
-      return Array.isArray(claim?.serviceLines) &&
-        claim.serviceLines.some(
-          (line) => Array.isArray(line.diagnosisPointers) && line.diagnosisPointers.length > 0
-        );
-    }
-    if (field === "cptHcpcsCode" || issue?.fixTarget === "serviceLines") {
-      return Array.isArray(claim?.serviceLines) &&
-        claim.serviceLines.some((line) => Boolean(line.cptHcpcsCode));
-    }
-
-    if (message.includes("billing provider npi")) return Boolean(claim?.billingProviderNpi);
-    if (message.includes("rendering provider npi")) return Boolean(claim?.renderingProviderNpi);
-    if (message.includes("cpt") || message.includes("hcpcs")) {
-      return Array.isArray(claim?.serviceLines) &&
-        claim.serviceLines.some((line) => Boolean(line.cptHcpcsCode));
-    }
-
-    return false;
-  }
-
   function issueDisplayMessage(issue, { resolved = false } = {}) {
     const message = String(issue?.message || "");
     const normalized = message.toLowerCase();
@@ -1127,15 +1060,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   const check = claim.checks?.[0];
-  const previousCheck = claim.checks?.[1] || null;
   const checkHistory = Array.isArray(claim.checks) ? claim.checks.slice(0, 5) : [];
   const issues = Array.isArray(check?.issues) ? check.issues : [];
-  const liveResolvedIssues = check?.isStale
-    ? issues.filter((issue) => isIssueResolvedByCurrentClaim(issue))
-    : [];
-  const unresolvedDisplayedIssues = check?.isStale
-    ? issues.filter((issue) => !isIssueResolvedByCurrentClaim(issue))
-    : issues;
   const hasBlock = issues.some((i) => i.severity === "BLOCK");
   const eligibilityClear = claim.eligibilityStatus === "VERIFIED";
   const priorAuthClear =
@@ -2216,21 +2142,32 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
       <Card ref={readinessRef} sx={{ scrollMarginTop: 88 }}>
         <CardContent>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            justifyContent="space-between"
+            alignItems={{ xs: "stretch", sm: "center" }}
+            gap={2}
+          >
             <Typography variant="h6">Claim Readiness for Submission</Typography>
 
-            <Stack direction="row" spacing={2}>
+            <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap>
               <Button
                 variant="contained"
                 onClick={runAICheck}
                 disabled={aiRunning || !canRunAI || aiCheckLocked}
               >
-                {check?.isStale ? "Recheck Claim Readiness" : check ? "Check Readiness Again" : "Check Claim Readiness"}
+                {aiRunning
+                  ? "Checking..."
+                  : check?.isStale
+                  ? "Recheck Readiness"
+                  : check
+                  ? "Check Readiness Again"
+                  : "Check Readiness"}
               </Button>
 
               <Button
-                variant={claimFinalized ? "outlined" : "contained"}
-                color={claimFinalized ? "inherit" : "success"}
+                variant="contained"
+                color="success"
                 onClick={submitClaim}
                 disabled={!canSubmit || submittingClaim || claimFinalized}
               >
@@ -2249,11 +2186,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
           {claim.status !== "SUBMITTED" && (!eligibilityClear || !priorAuthClear) && (
             <Alert severity="warning" sx={{ mt: 2 }}>
-              Before this claim can be submitted,
-              {!eligibilityClear ? " verify the patient's insurance eligibility" : ""}
-              {!eligibilityClear && !priorAuthClear ? " and" : ""}
-              {!priorAuthClear ? " confirm the prior-authorization requirement" : ""}.
-              Use Claim Journey to complete these steps, then recheck claim readiness.
+              Complete eligibility and prior authorization in Claim Journey before submission.
             </Alert>
           )}
 
@@ -2265,9 +2198,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
           {!check && aiCheckLocked && (
             <Alert severity="info" sx={{ mt: 2 }}>
-              This is a historical or finalized claim with no recorded claim-readiness check.
-              Existing payer or approval amounts remain valid historical data, but readiness,
-              rejection risk, and blockers cannot be inferred retroactively.
+              No historical readiness check is available for this finalized claim.
             </Alert>
           )}
 
@@ -2276,229 +2207,158 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <Stack
                 direction={{ xs: "column", sm: "row" }}
                 justifyContent="space-between"
-                alignItems={{ xs: "flex-start", sm: "center" }}
+                alignItems={{ xs: "flex-start", sm: "flex-end" }}
                 spacing={1}
                 sx={{ mt: 2 }}
               >
-                <Box>
-                  <Typography variant="subtitle1" fontWeight={700}>
-                    Claim readiness
-                  </Typography>
-                  <Typography
-                    variant="h4"
-                    fontWeight={800}
-                    sx={{ color: readinessTextColor(check.score) }}
-                  >
-                    {check.score}%
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                    Checked {new Date(check.createdAt).toLocaleString()}
+                <Typography
+                  variant="h3"
+                  fontWeight={850}
+                  lineHeight={1}
+                  sx={{ color: readinessTextColor(check.score) }}
+                  data-testid="readiness-score"
+                >
+                  {check.score}%
+                </Typography>
+
+                <Typography variant="caption" color="text.secondary">
+                  Checked {new Date(check.createdAt).toLocaleString()}
+                </Typography>
+              </Stack>
+
+              <Box sx={{ mt: 1.5, mb: 2.25 }}>
+                <Box
+                  data-testid="readiness-progress"
+                  sx={{
+                    position: "relative",
+                    height: 14,
+                    borderRadius: 999,
+                    overflow: "hidden",
+                    backgroundColor: "action.hover"
+                  }}
+                >
+                  <Box
+                    sx={{
+                      height: "100%",
+                      width: `${Math.max(0, Math.min(100, Number(check.score) || 0))}%`,
+                      borderRadius: 999,
+                      transition: "width 650ms ease",
+                      backgroundColor:
+                        check.score >= 80
+                          ? "success.main"
+                          : check.score >= 50
+                          ? "warning.main"
+                          : "error.main"
+                    }}
+                  />
+                  <Box
+                    title="80% submission threshold"
+                    sx={{
+                      position: "absolute",
+                      top: 0,
+                      bottom: 0,
+                      left: "80%",
+                      width: 2,
+                      backgroundColor: "text.primary",
+                      opacity: 0.28
+                    }}
+                  />
+                </Box>
+                <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    0
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    This percentage shows progress toward submission requirements; blocking items can still prevent submission.
+                    Submit threshold 80%
                   </Typography>
-                </Box>
-
-                {check.comparison?.scoreDelta != null && (
-                  <Chip
-                    color={
-                      check.comparison.scoreDelta > 0
-                        ? "success"
-                        : check.comparison.scoreDelta < 0
-                        ? "error"
-                        : "default"
-                    }
-                    label={
-                      check.comparison.scoreDelta > 0
-                        ? `+${check.comparison.scoreDelta}% since previous check`
-                        : check.comparison.scoreDelta < 0
-                        ? `${check.comparison.scoreDelta}% since previous check`
-                        : "No score change"
-                    }
-                  />
-                )}
-              </Stack>
-
-              <LinearProgress
-                variant="determinate"
-                value={check.score}
-                color={readinessColor(check.score)}
-                sx={{ height: 12, borderRadius: 6, my: 2 }}
-              />
+                  <Typography variant="caption" color="text.secondary">
+                    100
+                  </Typography>
+                </Stack>
+              </Box>
 
               {check.isStale ? (
-                <Alert severity="warning" sx={{ mb: 2 }}>
-                  <b>Claim information changed after this readiness check.</b>{" "}
-                  {check.staleReason || "Claim information was updated"}.
-                  {liveResolvedIssues.length > 0
-                    ? ` ${liveResolvedIssues.length} previous issue(s) now appear resolved from the latest claim data.`
-                    : ""}
-                  {" "}Recheck claim readiness to recalculate the score before submission.
+                <Alert severity="warning" sx={{ mb: 1.5 }} data-testid="readiness-stale">
+                  Claim information changed. Recheck readiness to recalculate the score and current blockers.
+                </Alert>
+              ) : issues.length === 0 ? (
+                <Alert severity="success" sx={{ mb: 1.5 }}>
+                  No readiness issues found. This claim can be submitted.
                 </Alert>
               ) : (
-                <Alert severity={readinessColor(check.score)} sx={{ mb: 2 }}>
-                  {check.score >= 80 && !hasBlock
-                    ? "This readiness check is current and meets the submission threshold."
-                    : "This readiness check is current. Complete the actions below, then check readiness again."}
-                </Alert>
-              )}
+                <Stack spacing={1} sx={{ mt: 0.5 }}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    Fix before submission
+                  </Typography>
 
-              {check.comparison && (
-                <Stack
-                  direction={{ xs: "column", sm: "row" }}
-                  spacing={1}
-                  sx={{ mb: 2, flexWrap: "wrap" }}
-                >
-                  {check.comparison.resolvedIssues?.length > 0 && (
-                    <Chip
-                      size="small"
-                      color="success"
-                      label={`${check.comparison.resolvedIssues.length} issue(s) resolved`}
-                    />
-                  )}
-                  {check.comparison.newIssues?.length > 0 && (
-                    <Chip
-                      size="small"
-                      color="error"
-                      label={`${check.comparison.newIssues.length} new issue(s)`}
-                    />
-                  )}
-                  {check.isStale && liveResolvedIssues.length > 0 && (
-                    <Chip
-                      size="small"
-                      color="success"
-                      variant="outlined"
-                      label={`${liveResolvedIssues.length} resolved since this check`}
-                    />
-                  )}
-                </Stack>
-              )}
-
-              <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: "wrap" }}>
-                <Tooltip title="Rule-based estimate derived from the same readiness gaps and claim-risk checks. It is not a payer probability.">
-                  <Chip
-                    label={`Estimated Rejection Risk: ${pct(check.riskScore)} (${check.riskLevel || "—"})`}
-                    color={riskChipColor(check.riskLevel)}
-                  />
-                </Tooltip>
-
-                {canSubmit && (
-                  <Chip label="Ready for submission" color="success" />
-                )}
-              </Stack>
-
-              {Array.isArray(check.riskFactors) && check.riskFactors.length > 0 && (
-                <Stack spacing={1} sx={{ mt: 2 }}>
-                  <Typography variant="subtitle2">Top risk drivers</Typography>
-                  {check.riskFactors.map((f, idx) => (
-                    <Chip key={idx} label={f} variant="outlined" />
-                  ))}
-                </Stack>
-              )}
-
-              {issues.length === 0 ? (
-                <Chip label="Claim is ready for submission" color="success" sx={{ mt: 2 }} />
-              ) : (
-                <Stack spacing={1.25} sx={{ mt: 2 }}>
-                  {check.isStale && liveResolvedIssues.length > 0 && (
-                    <>
-                      <Typography variant="subtitle2" color="success.main">
-                        Completed since the last readiness check
-                      </Typography>
-                      {liveResolvedIssues.map((issue, idx) => (
-                        <Paper
-                          key={`resolved-${idx}`}
-                          variant="outlined"
-                          sx={{
-                            p: 1.5,
-                            borderColor: "success.light",
-                            backgroundColor: "rgba(46,125,50,0.04)"
-                          }}
+                  {issues
+                    .filter((issue) => ["BLOCK", "WARN"].includes(issue.severity))
+                    .map((issue, idx) => (
+                      <Paper
+                        key={idx}
+                        data-testid={`readiness-issue-${issue.rule || issue.field || issue.fixTarget || idx}`}
+                        variant="outlined"
+                        sx={{
+                          px: 1.5,
+                          py: 1.25,
+                          borderColor:
+                            issue.severity === "BLOCK"
+                              ? "error.light"
+                              : "warning.light",
+                          borderLeftWidth: 4
+                        }}
+                      >
+                        <Stack
+                          direction={{ xs: "column", sm: "row" }}
+                          alignItems={{ xs: "stretch", sm: "center" }}
+                          justifyContent="space-between"
+                          spacing={1.25}
                         >
-                          <Stack
-                            direction={{ xs: "column", sm: "row" }}
-                            alignItems={{ xs: "stretch", sm: "center" }}
-                            justifyContent="space-between"
-                            spacing={1}
-                          >
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              label={issue.severity}
+                              color={issue.severity === "BLOCK" ? "error" : "warning"}
+                            />
                             <Typography variant="body2" fontWeight={600}>
-                              {issueDisplayMessage(issue, { resolved: true })}
+                              {issueDisplayMessage(issue)}
                             </Typography>
-                            <Chip size="small" color="success" label="Completed — recheck readiness" />
                           </Stack>
-                        </Paper>
-                      ))}
-                    </>
-                  )}
 
-                  {unresolvedDisplayedIssues.length > 0 && (
-                    <Typography variant="subtitle2">
-                      Action required to improve this claim
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<BuildCircle />}
+                            onClick={() => fixIssue(issue)}
+                            disabled={claim.status === "SUBMITTED"}
+                            sx={{ flexShrink: 0 }}
+                          >
+                            {fixButtonLabel(issue)}
+                          </Button>
+                        </Stack>
+                      </Paper>
+                    ))}
+
+                  {!hasBlock && check.score >= 80 && (
+                    <Typography variant="caption" color="success.main" fontWeight={700}>
+                      Submission threshold met. Remaining warnings do not block submission.
                     </Typography>
                   )}
-
-                  {unresolvedDisplayedIssues.map((issue, idx) => (
-                    <Paper
-                      key={idx}
-                      data-testid={`readiness-issue-${issue.field || issue.fixTarget || idx}`}
-                      variant="outlined"
-                      sx={{
-                        p: 1.5,
-                        borderColor:
-                          issue.severity === "BLOCK"
-                            ? "error.light"
-                            : "warning.light"
-                      }}
-                    >
-                      <Stack
-                        direction={{ xs: "column", sm: "row" }}
-                        alignItems={{ xs: "stretch", sm: "center" }}
-                        justifyContent="space-between"
-                        spacing={1.5}
-                      >
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Chip
-                            size="small"
-                            label={issue.severity}
-                            color={
-                              issue.severity === "BLOCK"
-                                ? "error"
-                                : "warning"
-                            }
-                          />
-                          <Typography variant="body2" fontWeight={600}>
-                            {issueDisplayMessage(issue)}
-                          </Typography>
-                        </Stack>
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color={issue.severity === "BLOCK" ? "error" : "warning"}
-                          startIcon={<BuildCircle />}
-                          onClick={() => fixIssue(issue)}
-                          disabled={claim.status === "SUBMITTED"}
-                          sx={{ flexShrink: 0 }}
-                        >
-                          {fixButtonLabel(issue)}
-                        </Button>
-                      </Stack>
-                    </Paper>
-                  ))}
                 </Stack>
               )}
 
               {checkHistory.length > 1 && (
-                <Box sx={{ mt: 2 }}>
+                <Box sx={{ mt: 1.5 }}>
                   <Button
                     size="small"
                     variant="text"
                     endIcon={readinessHistoryExpanded ? <ExpandLess /> : <ExpandMore />}
                     onClick={() => setReadinessHistoryExpanded((value) => !value)}
-                    sx={{ fontWeight: 800 }}
                   >
                     {readinessHistoryExpanded
-                      ? "Hide Claim Readiness History"
-                      : `View Claim Readiness History (${checkHistory.length})`}
+                      ? "Hide readiness history"
+                      : `Readiness history (${checkHistory.length})`}
                   </Button>
 
                   <Collapse in={readinessHistoryExpanded}>
@@ -2519,34 +2379,19 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                           <Stack direction="row" spacing={1} alignItems="center">
                             <Chip
                               size="small"
-                              color={readinessColor(item.score)}
+                              variant="outlined"
                               label={`${item.score}%`}
                             />
                             <Typography variant="body2">
                               {new Date(item.createdAt).toLocaleString()}
                             </Typography>
                             {item.isStale && (
-                              <Chip size="small" variant="outlined" color="warning" label="Out of date" />
+                              <Chip size="small" variant="outlined" label="Out of date" />
                             )}
                             {index === 0 && !item.isStale && (
                               <Chip size="small" variant="outlined" color="success" label="Current" />
                             )}
                           </Stack>
-                          {item.comparison?.scoreDelta != null && (
-                            <Typography
-                              variant="caption"
-                              color={
-                                item.comparison.scoreDelta > 0
-                                  ? "success.main"
-                                  : item.comparison.scoreDelta < 0
-                                  ? "error.main"
-                                  : "text.secondary"
-                              }
-                            >
-                              {item.comparison.scoreDelta > 0 ? "+" : ""}
-                              {item.comparison.scoreDelta}% vs previous
-                            </Typography>
-                          )}
                         </Paper>
                       ))}
                     </Stack>
@@ -2558,7 +2403,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
           {!check && (
             <Typography color="text.secondary" sx={{ mt: 2 }}>
-              Check claim readiness first. Submission will be enabled only when required items are complete.
+              Run readiness to calculate the score and show only the fields that need attention.
             </Typography>
           )}
         </CardContent>
