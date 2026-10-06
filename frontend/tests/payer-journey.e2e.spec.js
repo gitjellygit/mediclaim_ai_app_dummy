@@ -175,6 +175,20 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
   const claim = await created.json();
 
   try {
+    const connect = await apiContext.post(
+      `/api/claims/${claim.id}/payer-simulation/connect`,
+      {
+        headers,
+        data: { payerCode: "BLUE_HORIZON" }
+      }
+    );
+    expect(connect.ok()).toBeTruthy();
+    const eligibility = await apiContext.post(
+      `/api/claims/${claim.id}/payer-simulation/eligibility`,
+      { headers, data: {} }
+    );
+    expect(eligibility.ok()).toBeTruthy();
+
     const check = await apiContext.post(`/api/claims/${claim.id}/check`, {
       headers,
       data: {}
