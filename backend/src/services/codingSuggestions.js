@@ -77,9 +77,51 @@ export async function syncDocumentCodingSuggestions(
       id: true,
       system: true,
       suggestedCode: true,
-      status: true
+      status: true,
+      finalCode: true,
+      reviewedAt: true,
+      reviewedById: true
     }
   });
+
+  const acceptedOnClaim = await prismaClient.codingSuggestion.findMany({
+    where: {
+      claimId,
+      status: "ACCEPTED"
+    },
+    select: {
+      system: true,
+      suggestedCode: true,
+      finalCode: true,
+      reviewedAt: true,
+      reviewedById: true
+    }
+  });
+  const acceptedByKey = new Map(
+    acceptedOnClaim
+      .filter((item) => item.finalCode === item.suggestedCode)
+      .map((item) => [`${item.system}:${item.suggestedCode}`, item])
+  );
+
+  // If an identical code was already accepted elsewhere on this claim, a
+  // pending duplicate does not need another human decision.
+  for (const item of existing) {
+    const key = `${item.system}:${item.suggestedCode}`;
+    const accepted = acceptedByKey.get(key);
+    if (item.status === "PENDING" && accepted) {
+      await prismaClient.codingSuggestion.update({
+        where: { id: item.id },
+        data: {
+          status: "ACCEPTED",
+          finalCode: item.suggestedCode,
+          reviewedAt: accepted.reviewedAt || new Date(),
+          reviewedById: accepted.reviewedById || null
+        }
+      });
+      item.status = "ACCEPTED";
+      item.finalCode = item.suggestedCode;
+    }
+  }
 
   const desiredKeys = new Set(
     candidates.map((item) => `${item.system}:${item.suggestedCode}`)
@@ -105,11 +147,20 @@ export async function syncDocumentCodingSuggestions(
   for (const candidate of candidates) {
     const key = `${candidate.system}:${candidate.suggestedCode}`;
     if (existingKeys.has(key)) continue;
+    const accepted = acceptedByKey.get(key);
     await prismaClient.codingSuggestion.create({
       data: {
         claimId,
         documentId,
-        ...candidate
+        ...candidate,
+        ...(accepted
+          ? {
+              status: "ACCEPTED",
+              finalCode: candidate.suggestedCode,
+              reviewedAt: accepted.reviewedAt || new Date(),
+              reviewedById: accepted.reviewedById || null
+            }
+          : {})
       }
     });
   }
