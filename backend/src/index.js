@@ -17,8 +17,20 @@ import auditRouter from "./routes/audit.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 dotenv.config();
 
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
-  throw new Error("JWT_SECRET must be configured with at least 32 characters");
+const INSECURE_JWT_SECRETS = new Set([
+  "replace-this-with-a-unique-secret-of-at-least-32-characters",
+  "your-secret-key-here-min-32-chars",
+  "claim-app-ci-only-signing-secret-32-characters"
+]);
+
+if (
+  !process.env.JWT_SECRET ||
+  process.env.JWT_SECRET.length < 32 ||
+  (process.env.NODE_ENV !== "test" && INSECURE_JWT_SECRETS.has(process.env.JWT_SECRET))
+) {
+  throw new Error(
+    "JWT_SECRET must be a unique secret of at least 32 characters and must not use a documented placeholder"
+  );
 }
 
 const app = express();
