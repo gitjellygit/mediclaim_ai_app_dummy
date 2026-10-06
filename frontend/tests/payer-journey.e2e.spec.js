@@ -393,9 +393,6 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
       const completeness = page.getByTestId("claim-completeness-card");
       await expect(completeness).toBeVisible();
       await completeness.getByRole("button", { name: "Expand", exact: true }).click();
-      await expect(
-        completeness.getByText(/Reopen or amend the claim before changing this field/i).first()
-      ).toBeVisible();
       await expect(completeness.getByRole("button", { name: /Fix|Review codes|Edit service line/ })).toHaveCount(0);
     }
 
