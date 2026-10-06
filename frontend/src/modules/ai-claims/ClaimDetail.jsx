@@ -1257,7 +1257,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Box>
               </Box>
 
-              <Divider />
+              <Divider sx={{ gridColumn: "1 / -1" }} />
 
               <Box>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
@@ -1281,7 +1281,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Box>
               </Box>
 
-              <Divider />
+              <Divider sx={{ gridColumn: "1 / -1" }} />
 
               <Box>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
@@ -1300,7 +1300,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Box>
               </Box>
 
-              <Divider />
+              <Divider sx={{ gridColumn: "1 / -1" }} />
 
               <Box>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
@@ -1321,7 +1321,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Box>
               </Box>
 
-              <Divider />
+              <Divider sx={{ gridColumn: "1 / -1" }} />
 
               <Box>
                 <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
@@ -1333,9 +1333,21 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           )}
 
           {editMode && editForm && (
-            <Stack spacing={2} sx={{ mt: 1 }}>
+            <Box
+              sx={{
+                mt: 1,
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  md: "repeat(2, minmax(0, 1fr))",
+                  xl: "repeat(3, minmax(0, 1fr))"
+                },
+                gap: 2,
+                alignItems: "start"
+              }}
+            >
               {fixFocus && (
-                <Alert severity="warning">
+                <Alert severity="warning" sx={{ gridColumn: "1 / -1" }}>
                   {new URLSearchParams(location.search).get("issue")
                     ? `Fixing: ${new URLSearchParams(location.search).get("issue")}. `
                     : ""}
@@ -1523,8 +1535,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 onChange={(e) => updateEditField("patientDob", e.target.value)}
                 fullWidth
               />
-              <Divider />
-              <Typography variant="subtitle2">Encounter Details</Typography>
+              <Divider sx={{ gridColumn: "1 / -1" }} />
+              <Typography variant="subtitle2" sx={{ gridColumn: "1 / -1" }}>Encounter Details</Typography>
               <TextField
                 data-fix-field="dateOfService"
                 label="Date of Service"
@@ -1653,8 +1665,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 onChange={(e) => updateEditField("amount", e.target.value)}
                 fullWidth
               />
-              <Divider />
-              <Typography variant="subtitle2">U.S. Claim Details</Typography>
+              <Divider sx={{ gridColumn: "1 / -1" }} />
+              <Typography variant="subtitle2" sx={{ gridColumn: "1 / -1" }}>U.S. Claim Details</Typography>
               <TextField
                 label="ICD-10-PCS Codes (comma separated)"
                 value={editForm.inpatientProcedureCodes}
@@ -1701,19 +1713,21 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 onChange={(e) => updateEditField("timelyFilingDeadline", e.target.value)}
                 fullWidth
               />
-              <Typography variant="subtitle2">Service Lines</Typography>
-              <ServiceLinesEditor
-                lines={editForm.serviceLines || []}
-                onChange={(serviceLines) => updateEditField("serviceLines", serviceLines)}
-                highlightField={
-                  ["serviceLines", "cptHcpcsCode", "diagnosisPointers", "placeOfService", "revenueCode"].includes(fixFocus)
-                    ? fixFocus
-                    : ""
-                }
-                claimForm={editForm.claimForm}
-                diagnosisCodes={String(editForm.icd10Codes || "").split(",").map(normalizeIcd10Cm).filter(Boolean)}
-              />
-            </Stack>
+              <Box sx={{ gridColumn: "1 / -1" }}>
+                <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Service Lines</Typography>
+                <ServiceLinesEditor
+                  lines={editForm.serviceLines || []}
+                  onChange={(serviceLines) => updateEditField("serviceLines", serviceLines)}
+                  highlightField={
+                    ["serviceLines", "cptHcpcsCode", "diagnosisPointers", "placeOfService", "revenueCode"].includes(fixFocus)
+                      ? fixFocus
+                      : ""
+                  }
+                  claimForm={editForm.claimForm}
+                  diagnosisCodes={String(editForm.icd10Codes || "").split(",").map(normalizeIcd10Cm).filter(Boolean)}
+                />
+              </Box>
+            </Box>
           )}
         </CardContent>
       </Card>
@@ -1786,7 +1800,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               >
                 Auto Detect with AI (Recommended)
               </MenuItem>
-              <Divider />
+              <Divider sx={{ gridColumn: "1 / -1" }} />
               {DOC_TYPES.map((type) => (
                 <MenuItem
                   key={type}
