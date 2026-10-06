@@ -207,3 +207,34 @@ test("R1 - claim mode continues to override external connector config for local 
     "SIMULATED"
   );
 });
+
+
+test("R2A - STEDI_TEST appears in registry and is configured only with a test key", () => {
+  const withoutKey = new Map(listPayerConnectors({}).map((item) => [item.id, item]));
+  assert.equal(withoutKey.get("STEDI_TEST")?.provider, "STEDI");
+  assert.equal(withoutKey.get("STEDI_TEST")?.environment, "TEST");
+  assert.equal(withoutKey.get("STEDI_TEST")?.configured, false);
+  assert.deepEqual(withoutKey.get("STEDI_TEST")?.capabilities, ["checkEligibility", "listPayers"]);
+
+  const withKey = new Map(
+    listPayerConnectors({ STEDI_TEST_API_KEY: "test-key" }).map((item) => [item.id, item])
+  );
+  assert.equal(withKey.get("STEDI_TEST")?.configured, true);
+});
+
+test("R2A - claim-level connector ID overrides deployment default for LIVE claims", () => {
+  const env = {
+    PAYER_CONNECTOR_ID: "AVAILITY_SANDBOX",
+    STEDI_TEST_API_KEY: "test-key"
+  };
+  const claim = {
+    payerConnectionMode: "LIVE",
+    payerConnectorId: "STEDI_TEST"
+  };
+
+  assert.equal(resolvePayerConnectorId(claim, env), "STEDI_TEST");
+  const status = payerConnectorStatusForClaim(claim, env);
+  assert.equal(status.id, "STEDI_TEST");
+  assert.equal(status.provider, "STEDI");
+  assert.equal(status.configured, true);
+});
