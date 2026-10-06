@@ -95,21 +95,19 @@ test("readiness diagnosis linkage stays truthful through edit, save, recheck and
     await page.reload();
     await expect(page.getByTestId("readiness-issue-US_DIAGNOSIS_CPT_LINK")).toHaveCount(0);
 
-    // Change only the claim ICD. The persisted pointer is now invalid.
+    // Changing only the claim ICD would make the persisted service-line
+    // diagnosis link invalid, so the editor should surface that immediately and
+    // the backend must reject saving the inconsistent intermediate state.
     await page.getByRole("button", { name: "Edit", exact: true }).first().click();
     await page.getByLabel("ICD-10 Codes (comma separated)").fill("E11.9");
     await expect(page.getByText(/M54\.50 is not one of the claim ICD-10 codes/i)).toBeVisible();
+
     await page.getByRole("button", { name: "Save", exact: true }).first().click();
-    await expect(page.getByTestId("readiness-stale")).toBeVisible();
+    await expect(page.getByText(/Service-line diagnosis codes must match ICD-10-CM diagnoses/i)).toBeVisible();
 
-    await page.getByRole("button", { name: "Recheck Readiness" }).click();
-    await expect(page.getByTestId("readiness-issue-US_DIAGNOSIS_CPT_LINK")).toBeVisible();
-
-    // Fix the pointer to the new diagnosis; blocker must clear and stay clear.
-    await page.getByTestId("readiness-issue-US_DIAGNOSIS_CPT_LINK")
-      .getByRole("button", { name: "Edit Service Line" })
-      .click();
+    // Fix the pointer in the same edit session, then save atomically.
     await page.getByLabel("Linked Diagnosis Codes").first().fill("E11.9");
+    await expect(page.getByText(/not one of the claim ICD-10 codes/i)).toHaveCount(0);
     await page.getByRole("button", { name: "Save", exact: true }).first().click();
     await expect(page.getByTestId("readiness-stale")).toBeVisible();
 
