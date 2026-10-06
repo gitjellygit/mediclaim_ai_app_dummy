@@ -138,7 +138,7 @@ export function registerDefaultPayerConnectors() {
     mode: "LIVE",
     provider: "STEDI",
     environment: PAYER_CONNECTOR_ENVIRONMENTS.TEST,
-    capabilities: ["checkEligibility", "listPayers"],
+    capabilities: ["checkEligibility", "listPayers", "submitClaim"],
     configured: (env) => Boolean(env.STEDI_TEST_API_KEY),
     factory: (_context, env) => createStediTestConnector({ env })
   });
