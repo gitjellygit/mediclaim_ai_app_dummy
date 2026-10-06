@@ -610,7 +610,12 @@ router.post("/:id/payer-simulation/remittance", async (req, res) => {
       return res.status(409).json({ error: "Connect a mock payer first" });
     }
     if (!["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(claim.payerClaimStatus || "")) {
-      return res.status(409).json({ error: "A final payable payer status is required before remittance" });
+      return res.json({
+        unchanged: true,
+        available: false,
+        message: "No remittance is available yet. Refresh again after payer adjudication.",
+        claim
+      });
     }
     if (claim.remittanceStatus === "POSTED") {
       return res.json({

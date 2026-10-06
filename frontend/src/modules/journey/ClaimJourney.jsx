@@ -68,6 +68,15 @@ function humanStatus(status) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function normalizePayerName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function journeyStepState(key, stages) {
   if (!stages) return "pending";
 
@@ -656,6 +665,17 @@ export default function ClaimJourney() {
     Boolean(claim?.payerConnectorId) &&
     Boolean(connectedConnector?.configured);
   const payerConnected = simulatedPayerConnected || externalPayerConnected;
+  const claimPayerName = normalizePayerName(claim?.payerName);
+  const matchingMockPayers = claimPayerName
+    ? mockPayers.filter(
+        (payer) => normalizePayerName(payer.name) === claimPayerName
+      )
+    : [];
+  const suggestedMockPayer =
+    !payerConnected && matchingMockPayers.length === 1
+      ? matchingMockPayers[0]
+      : null;
+  const payerNameProvenance = claim?.fieldProvenance?.payerName || null;
   const externalPriorAuthSupported =
     externalPayerConnected &&
     connectedConnector?.capabilities?.includes("requestPriorAuth");
@@ -717,6 +737,15 @@ export default function ClaimJourney() {
     try {
       const result = await ClaimsApi.simulatePayerRemittance(claim.id);
       await loadJourney(claim.id);
+
+      if (result?.available === false) {
+        showToast(
+          result.message || "No remittance is available yet.",
+          "info"
+        );
+        return;
+      }
+
       setRemittanceDialogData(remittanceDisplayData(result));
       setRemittanceDialogOpen(true);
       if (!result?.unchanged) {
@@ -1111,6 +1140,56 @@ export default function ClaimJourney() {
                         Change payer
                       </Button>
                     </Stack>
+                  ) : suggestedMockPayer && !payerEditing ? (
+                    <Stack
+                      spacing={0.75}
+                      sx={{ minWidth: { md: 430 } }}
+                      data-testid="suggested-payer-confirmation"
+                    >
+                      <Typography variant="caption" color="text.secondary">
+                        {payerNameProvenance?.source === "DOCUMENT_AI"
+                          ? "Payer detected from uploaded document"
+                          : "Payer matched from claim information"}
+                      </Typography>
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        spacing={1}
+                        alignItems={{ xs: "stretch", sm: "center" }}
+                      >
+                        <TextField
+                          size="small"
+                          label="Suggested payer"
+                          value={suggestedMockPayer.name}
+                          InputProps={{ readOnly: true }}
+                          fullWidth
+                        />
+                        <Button
+                          variant="contained"
+                          disabled={action === "payer-connect"}
+                          onClick={async () => {
+                            setSelectedMockPayer(suggestedMockPayer.code);
+                            const result = await runAction(
+                              "payer-connect",
+                              () => ClaimsApi.connectMockPayer(claim.id, suggestedMockPayer.code),
+                              "Payer connected"
+                            );
+                            if (result) setPayerEditing(false);
+                          }}
+                        >
+                          {action === "payer-connect" ? "Connecting..." : "Confirm payer"}
+                        </Button>
+                        <Button
+                          variant="text"
+                          onClick={() => {
+                            setSelectedMockPayer("");
+                            setPayerEditing(true);
+                          }}
+                          disabled={action !== ""}
+                        >
+                          Choose different
+                        </Button>
+                      </Stack>
+                    </Stack>
                   ) : (
                     <Stack
                       direction={{ xs: "column", sm: "row" }}
@@ -1152,7 +1231,7 @@ export default function ClaimJourney() {
                       >
                         {action === "payer-connect" ? "Connecting..." : "Connect"}
                       </Button>
-                      {simulatedPayerConnected && payerEditing && (
+                      {(simulatedPayerConnected || suggestedMockPayer) && payerEditing && (
                         <Button
                           variant="text"
                           onClick={() => {
@@ -1548,22 +1627,32 @@ export default function ClaimJourney() {
                   Submitted: {date(stages.claim.submissionDate)}
                 </Typography>
                 {(simulatedPayerConnected || externalSubmissionSupported) && (
-                  <Button
-                    variant="contained"
-                    size="small"
-                    disabled={
-                      action !== "" ||
-                      Boolean(submissionTransaction) ||
-                      !stages.claim.actionable
-                    }
-                    onClick={submitConnectedClaim}
-                  >
-                    {action === "payer-submit"
-                      ? "Submitting..."
-                      : submissionTransaction
-                      ? "Sent to Payer"
-                      : "Submit to Payer"}
-                  </Button>
+                  <>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      disabled={
+                        action !== "" ||
+                        Boolean(submissionTransaction) ||
+                        !stages.claim.actionable
+                      }
+                      onClick={submitConnectedClaim}
+                    >
+                      {action === "payer-submit"
+                        ? "Sending..."
+                        : submissionTransaction
+                        ? "Sent to Payer"
+                        : claim.claimSubmissionDate || claim.status === "SUBMITTED"
+                        ? "Send to Payer"
+                        : "Submit to Payer"}
+                    </Button>
+                    {(claim.claimSubmissionDate || claim.status === "SUBMITTED") &&
+                      !submissionTransaction && (
+                        <Typography variant="caption" color="warning.main">
+                          Claim is submitted internally but payer transmission is still pending.
+                        </Typography>
+                      )}
+                  </>
                 )}
                 <Button
                   variant="outlined"
@@ -1729,25 +1818,23 @@ export default function ClaimJourney() {
                 ) : payerConnected ? (
                   <>
                     <Alert severity="info">
-                      {claim.approvedAmount != null
-                        ? `Claim adjudication is complete. Expected payer payment: ${money(claim.approvedAmount)}.`
-                        : "Claim adjudication is complete."}
-                      {" "}Check the payer when you are ready to retrieve the remittance.
+                      {["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(
+                        claim.payerClaimStatus || ""
+                      )
+                        ? claim.approvedAmount != null
+                          ? `Claim adjudication is complete. Expected payer payment: ${money(claim.approvedAmount)}.`
+                          : "Claim adjudication is complete. Refresh to retrieve the remittance."
+                        : "Remittance is awaiting payer adjudication. Refresh to check whether an 835 is available yet."}
                     </Alert>
 
                     <Button
                       variant="contained"
                       size="small"
-                      disabled={
-                        !stages.remittance.actionable ||
-                        action !== "" ||
-                        !["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(
-                          claim.payerClaimStatus || ""
-                        )
-                      }
+                      startIcon={<Refresh />}
+                      disabled={!stages.remittance.actionable || action !== ""}
                       onClick={checkConnectedRemittance}
                     >
-                      {action === "remittance" ? "Checking Remittance..." : "Check Remittance"}
+                      {action === "remittance" ? "Refreshing..." : "Refresh Remittance"}
                     </Button>
                   </>
                 ) : (
