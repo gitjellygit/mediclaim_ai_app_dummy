@@ -112,7 +112,7 @@ function journeyStepState(key, stages) {
   return "pending";
 }
 
-function JourneyProgress({ stages, onStepClick, payerConnected }) {
+function JourneyProgress({ stages, onStepClick, payerConnectionRequired }) {
   const steps = [
     { key: "eligibility", label: "Eligibility" },
     { key: "prior-auth", label: "Prior Auth" },
@@ -164,7 +164,7 @@ function JourneyProgress({ stages, onStepClick, payerConnected }) {
         {steps.map((step, index) => {
           const rawState = journeyStepState(step.key, stages);
           const state =
-            !payerConnected && ["eligibility", "prior-auth"].includes(step.key)
+            payerConnectionRequired && ["eligibility", "prior-auth"].includes(step.key)
               ? "pending"
               : rawState;
           const style = stateStyles[state];
@@ -602,6 +602,13 @@ export default function ClaimJourney() {
     journey?.payerConnection?.mode === "SIMULATED" &&
     Boolean(journey?.payerConnection?.simulatedPayerCode);
   const payerTransactions = claim?.payerTransactions || [];
+  const workflowAdvanced =
+    Boolean(claim?.claimSubmissionDate) ||
+    ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status || "") ||
+    Boolean(claim?.payerClaimStatus) ||
+    ["RECEIVED", "POSTED"].includes(claim?.remittanceStatus || "");
+  const payerConnectionRequired = !payerConnected && !workflowAdvanced;
+  const historicalConnectionUnavailable = workflowAdvanced && !payerConnected;
   const submissionTransaction = payerTransactions.find(
     (tx) => tx.transactionType === "CLAIM_SUBMISSION"
   );
@@ -745,7 +752,7 @@ export default function ClaimJourney() {
         >
           <JourneyProgress
             stages={stages}
-            payerConnected={payerConnected}
+            payerConnectionRequired={payerConnectionRequired}
             onStepClick={(step) => {
               const element = document.getElementById(`journey-stage-${step}`);
               if (element) {
@@ -905,18 +912,24 @@ export default function ClaimJourney() {
           <Card
             sx={{
               mb: 3,
-              border: !payerConnected ? "2px solid" : undefined,
-              borderColor: !payerConnected ? "warning.main" : undefined,
-              boxShadow: !payerConnected ? 4 : undefined,
-              backgroundColor: !payerConnected ? "warning.50" : "background.paper"
+              border: payerConnectionRequired ? "2px solid" : undefined,
+              borderColor: payerConnectionRequired ? "warning.main" : undefined,
+              boxShadow: payerConnectionRequired ? 4 : undefined,
+              backgroundColor: payerConnectionRequired ? "warning.50" : "background.paper"
             }}
             data-testid="payer-connection-card"
           >
             <CardContent>
               <Stack spacing={2}>
-                {!payerConnected && (
+                {payerConnectionRequired && (
                   <Alert severity="warning" icon={<Lock fontSize="inherit" />}>
                     <b>Payer connection required.</b> Connect the payer first to unlock Eligibility and Prior Authorization.
+                  </Alert>
+                )}
+                {historicalConnectionUnavailable && (
+                  <Alert severity="info">
+                    <b>No payer connection record is available for this historical claim.</b>{" "}
+                    No action is required because this claim has already advanced beyond the pre-submission workflow.
                   </Alert>
                 )}
                 <Stack
@@ -936,7 +949,9 @@ export default function ClaimJourney() {
                     </Stack>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                       {journey?.payerConnection?.simulatedPayer?.description ||
-                        "Select and connect the claim payer before starting eligibility or prior authorization."}
+                        (historicalConnectionUnavailable
+                          ? "Historical payer activity is shown below when available."
+                          : "Select and connect the claim payer before starting eligibility or prior authorization.")}
                       {payerConnected && (
                         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
                           Demo environment · Illustrative responses; no live payer connection
@@ -945,54 +960,74 @@ export default function ClaimJourney() {
                     </Typography>
                   </Box>
 
-                  <Stack
-                    direction={{ xs: "column", sm: "row" }}
-                    spacing={1}
-                    sx={{ minWidth: { md: 430 } }}
-                  >
-                    <FormControl size="small" fullWidth>
-                      <InputLabel>Payer</InputLabel>
-                      <Select
-                        label="Payer"
-                        data-testid="payer-select"
-                        value={selectedMockPayer}
-                        onChange={(e) => setSelectedMockPayer(e.target.value)}
-                        disabled={Boolean(claim.claimSubmissionDate) || ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)}
-                      >
-                        <MenuItem value="">Choose payer</MenuItem>
-                        {mockPayers.map((payer) => (
-                          <MenuItem key={payer.code} value={payer.code}>
-                            {payer.name}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                    <Button
-                      variant="contained"
-                      disabled={
-                        !selectedMockPayer ||
-                        action === "payer-connect" ||
-                        (payerConnected &&
-                          journey?.payerConnection?.simulatedPayerCode === selectedMockPayer) ||
-                        Boolean(claim.claimSubmissionDate) ||
-                        ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
-                      }
-                      onClick={() =>
-                        runAction(
-                          "payer-connect",
-                          () => ClaimsApi.connectMockPayer(claim.id, selectedMockPayer),
-                          "Payer connected"
-                        )
-                      }
+                  {workflowAdvanced ? (
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      justifyContent={{ md: "flex-end" }}
+                      sx={{ minWidth: { md: 360 } }}
                     >
-                      {action === "payer-connect"
-                        ? "Connecting..."
-                        : payerConnected &&
-                          journey?.payerConnection?.simulatedPayerCode === selectedMockPayer
-                        ? "Connected"
-                        : "Connect"}
-                    </Button>
-                  </Stack>
+                      <Typography variant="body2" color="text.secondary">
+                        Payer
+                      </Typography>
+                      <Chip
+                        variant="outlined"
+                        color={payerConnected ? "success" : "default"}
+                        label={
+                          journey?.payerConnection?.simulatedPayer?.name ||
+                          claim.payerName ||
+                          "Connection record unavailable"
+                        }
+                      />
+                    </Stack>
+                  ) : (
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1}
+                      sx={{ minWidth: { md: 430 } }}
+                    >
+                      <FormControl size="small" fullWidth>
+                        <InputLabel>Payer</InputLabel>
+                        <Select
+                          label="Payer"
+                          data-testid="payer-select"
+                          value={selectedMockPayer}
+                          onChange={(e) => setSelectedMockPayer(e.target.value)}
+                        >
+                          <MenuItem value="">Choose payer</MenuItem>
+                          {mockPayers.map((payer) => (
+                            <MenuItem key={payer.code} value={payer.code}>
+                              {payer.name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <Button
+                        variant="contained"
+                        disabled={
+                          !selectedMockPayer ||
+                          action === "payer-connect" ||
+                          (payerConnected &&
+                            journey?.payerConnection?.simulatedPayerCode === selectedMockPayer)
+                        }
+                        onClick={() =>
+                          runAction(
+                            "payer-connect",
+                            () => ClaimsApi.connectMockPayer(claim.id, selectedMockPayer),
+                            "Payer connected"
+                          )
+                        }
+                      >
+                        {action === "payer-connect"
+                          ? "Connecting..."
+                          : payerConnected &&
+                            journey?.payerConnection?.simulatedPayerCode === selectedMockPayer
+                          ? "Connected"
+                          : "Connect"}
+                      </Button>
+                    </Stack>
+                  )}
                 </Stack>
 
                 {payerConnected && (
@@ -1146,8 +1181,10 @@ export default function ClaimJourney() {
               status={stages.eligibility.status}
               actionable={payerConnected && stages.eligibility.actionable}
               blockedReason={
-                !payerConnected
+                payerConnectionRequired
                   ? "Connect the payer above to unlock Eligibility."
+                  : historicalConnectionUnavailable
+                  ? "Historical claim — eligibility is read-only because this claim has already advanced."
                   : stages.eligibility.blockedReason
               }
               onStatusClick={
@@ -1226,8 +1263,10 @@ export default function ClaimJourney() {
               status={stages.priorAuth.status}
               actionable={payerConnected && stages.priorAuth.actionable}
               blockedReason={
-                !payerConnected
+                payerConnectionRequired
                   ? "Connect the payer above before checking Prior Authorization."
+                  : historicalConnectionUnavailable
+                  ? "Historical claim — prior authorization is read-only because this claim has already advanced."
                   : stages.priorAuth.blockedReason
               }
             >
