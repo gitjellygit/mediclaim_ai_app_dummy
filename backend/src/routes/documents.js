@@ -838,7 +838,7 @@ export function documentsRouter(prisma, uploadDir) {
       const materialized = await materializeStoredDocument(doc.path, { uploadDir });
       if (!materialized) {
         return res.status(404).json({
-          error: "Document file not found"
+          error: "File not found on server"
         });
       }
 
