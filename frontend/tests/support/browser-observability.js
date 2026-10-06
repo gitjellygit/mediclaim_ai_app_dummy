@@ -27,10 +27,12 @@ export function observeBrowser(page, testInfo, {
   });
 
   page.on("requestfailed", (request) => {
+    const failure = request.failure()?.errorText || "unknown";
+    if (failure.includes("ERR_ABORTED")) return;
     failedRequests.push({
       method: request.method(),
       url: request.url(),
-      failure: request.failure()?.errorText || "unknown"
+      failure
     });
   });
 
