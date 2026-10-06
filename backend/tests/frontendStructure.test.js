@@ -49,3 +49,32 @@ test("F9 - claim detail delegates data and feature sections to extracted modules
   assert.ok(completeness.includes("auto-filled"));
   assert.ok(completeness.includes("need review"));
 });
+
+
+test("PRISM - enterprise theme and brand shell stay centralized", () => {
+  const main = read("frontend/src/main.jsx");
+  const theme = read("frontend/src/theme/prismTheme.js");
+  const nav = read("frontend/src/layout/LeftNav.jsx");
+  const mobile = read("frontend/src/layout/MainLayout.jsx");
+  const login = read("frontend/src/pages/Login.jsx");
+  const html = read("frontend/index.html");
+
+  assert.ok(main.includes("<ThemeProvider theme={prismTheme}>"));
+  assert.ok(theme.includes('main: "#173B57"'));
+  assert.ok(theme.includes('main: "#2E7C86"'));
+  assert.ok(theme.includes('textTransform: "none"'));
+  assert.ok(theme.includes("minHeight: 36"));
+  assert.ok(theme.includes('fontSize: "0.9rem"'));
+  assert.ok(theme.includes("MuiCard"));
+  assert.ok(theme.includes("MuiOutlinedInput"));
+
+  assert.ok(nav.includes("PRISM"));
+  assert.ok(nav.includes("Payer & Revenue Intelligence"));
+  assert.ok(mobile.includes("PRISM"));
+  assert.ok(login.includes("Payer & Revenue Intelligence System for Medicine"));
+  assert.ok(html.includes("PRISM | Revenue Cycle Intelligence"));
+
+  assert.equal(nav.includes("Hospital AI Platform"), false);
+  assert.equal(mobile.includes("Hospital AI Platform"), false);
+  assert.equal(login.includes("Claim AI"), false);
+});
