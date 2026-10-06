@@ -73,7 +73,7 @@ test("document claim creation fills later insurance fields and locks completed b
   const browser = observeBrowser(page, testInfo);
   await login(page);
 
-  const patient = "E2E Autofill Parker";
+  const patient = "Autofill Parker Test";
   let claimId = "";
 
   try {
