@@ -1017,12 +1017,13 @@ export function documentsRouter(prisma, uploadDir) {
         await applyCodingSuggestionToClaim(tx, suggestion, finalCode);
       }
 
+      const reviewedAt = new Date();
       const reviewed = await tx.codingSuggestion.update({
         where: { id: suggestion.id },
         data: {
           status: nextStatus,
           finalCode,
-          reviewedAt: new Date(),
+          reviewedAt,
           reviewedById: req.user.id
         },
         include: {
@@ -1031,6 +1032,24 @@ export function documentsRouter(prisma, uploadDir) {
           }
         }
       });
+
+      if (action === "ACCEPT") {
+        await tx.codingSuggestion.updateMany({
+          where: {
+            claimId: suggestion.claimId,
+            id: { not: suggestion.id },
+            system: suggestion.system,
+            suggestedCode: suggestion.suggestedCode,
+            status: "PENDING"
+          },
+          data: {
+            status: "ACCEPTED",
+            finalCode: suggestion.suggestedCode,
+            reviewedAt,
+            reviewedById: req.user.id
+          }
+        });
+      }
 
       await tx.check.updateMany({
         where: { claimId: suggestion.claimId, isStale: false },
