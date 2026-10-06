@@ -312,6 +312,7 @@ model Claim {
 
   @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
+  @@index([payerConnectorId])
 }
 
 model ServiceLine {
