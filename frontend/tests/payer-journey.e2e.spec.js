@@ -17,13 +17,27 @@ let auth;
 let scenarios = [];
 
 async function selectPayer(page, payerName) {
+  const suggested = page.getByTestId("suggested-payer-confirmation");
+  if (await suggested.count()) {
+    const suggestedInput = suggested.getByLabel("Suggested payer");
+    if ((await suggestedInput.inputValue()) === payerName) {
+      await suggested.getByRole("button", { name: "Confirm payer", exact: true }).click();
+    } else {
+      await suggested.getByRole("button", { name: "Choose different", exact: true }).click();
+    }
+  }
+
   if ((await page.getByTestId("payer-select").count()) === 0) {
     const change = page.getByRole("button", { name: "Change payer", exact: true });
     if (await change.count()) await change.click();
   }
-  await page.getByTestId("payer-select").click();
-  await page.getByRole("option", { name: payerName }).click();
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+
+  if (await page.getByTestId("payer-select").count()) {
+    await page.getByTestId("payer-select").click();
+    await page.getByRole("option", { name: payerName }).click();
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+  }
+
   await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
   await expect(page.getByTestId("connected-payer").locator("input")).toHaveValue(payerName);
   await expect(page.getByTestId("payer-select")).toHaveCount(0);
@@ -250,6 +264,36 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
 });
 
 
+test("Journey preselects exact claim payer and asks for confirmation", async ({ page }) => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+  const created = await apiContext.post("/api/claims", {
+    headers,
+    data: {
+      patientName: "E2E-PAYER-CONFIRM",
+      payerName: "Cedar Health Plan",
+      amount: 100,
+      policyNo: "POL-CONFIRM-1",
+      memberId: "MEM-CONFIRM-1"
+    }
+  });
+  expect(created.ok()).toBeTruthy();
+  const claim = await created.json();
+
+  try {
+    await page.goto(`/journey?claimId=${claim.id}`);
+    const suggested = page.getByTestId("suggested-payer-confirmation");
+    await expect(suggested).toBeVisible();
+    await expect(suggested.getByLabel("Suggested payer")).toHaveValue("Cedar Health Plan");
+    await expect(page.getByTestId("payer-select")).toHaveCount(0);
+
+    await suggested.getByRole("button", { name: "Confirm payer", exact: true }).click();
+    await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
+    await expect(page.getByTestId("connected-payer").locator("input")).toHaveValue("Cedar Health Plan");
+  } finally {
+    await apiContext.delete(`/api/claims/${claim.id}`, { headers });
+  }
+});
+
 test("blocked payer submission offers direct Fix in Claim Details workflow", async ({ page }) => {
   const headers = { Authorization: `Bearer ${auth.accessToken}` };
   const created = await apiContext.post("/api/claims", {
@@ -390,6 +434,9 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
 
     await clickStageButton(claim, "Submit to Payer");
     await expect(claim).toContainText("Submitted");
+    const sentButton = claim.getByRole("button", { name: "Sent to Payer", exact: true });
+    await expect(sentButton).toBeVisible();
+    await expect(sentButton).toBeDisabled();
     // A completed transmission is proven by the payer activity transaction.
     // The UI may hide or replace a completed action rather than keeping a
     // disabled "Sent to Payer" button rendered.
@@ -401,6 +448,16 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     );
     expect(duplicateTransmission.ok()).toBeTruthy();
     expect((await duplicateTransmission.json()).unchanged).toBe(true);
+
+    // Awaiting remittance can be safely refreshed before payer adjudication.
+    const earlyRemittance = await apiContext.post(
+      `/api/claims/${scenario.id}/payer-simulation/remittance`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` } }
+    );
+    expect(earlyRemittance.ok()).toBeTruthy();
+    const earlyRemittanceBody = await earlyRemittance.json();
+    expect(earlyRemittanceBody.unchanged).toBe(true);
+    expect(earlyRemittanceBody.available).toBe(false);
 
     // Status progression is intentionally polled; identical final/pended states
     // must not create unlimited activity rows.
@@ -418,7 +475,7 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
       const activityAfter = await page.locator('[data-testid="payer-connection-card"] .MuiPaper-outlined').count();
       expect(activityAfter).toBe(activityBefore);
 
-      await expect(remittance.getByRole("button", { name: "Check Remittance" })).toBeDisabled();
+      await expect(remittance.getByRole("button", { name: "Refresh Remittance" })).toBeDisabled();
       return;
     }
 
@@ -436,7 +493,7 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
 
     await expect(status.getByRole("button", { name: "Final Status" })).toBeDisabled();
 
-    await clickStageButton(remittance, "Check Remittance");
+    await clickStageButton(remittance, "Refresh Remittance");
     const remittanceDialog = page.getByRole("dialog", { name: "Remittance Received" });
     await expect(remittanceDialog).toBeVisible();
     await expect(remittanceDialog).toContainText("Payer-reported values have been posted and locked");
