@@ -4,6 +4,39 @@ import { writeRequestAudit } from "../services/auditLog.js";
 
 const router = express.Router();
 const EXPORT_LIMIT = 10000;
+const AUDIT_ACCESS_DEDUP_MS = 5 * 60 * 1000;
+
+async function recordAuditTrailAccess(req, count) {
+  const actorUserId = req.user?.id || null;
+  const organizationId = req.user?.organizationId;
+  if (!organizationId) return;
+
+  const recent = await prisma.auditEvent.findFirst({
+    where: {
+      organizationId,
+      actorUserId,
+      action: "AUDIT_TRAIL_ACCESSED",
+      createdAt: {
+        gte: new Date(Date.now() - AUDIT_ACCESS_DEDUP_MS)
+      }
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true }
+  });
+
+  if (recent) return;
+
+  await writeRequestAudit(prisma, req, {
+    action: "AUDIT_TRAIL_ACCESSED",
+    entityType: "AuditEvent",
+    statusCode: 200,
+    metadata: {
+      count,
+      operation: "audit_page_access"
+    }
+  });
+}
+
 
 function parseDate(value, label) {
   if (!value) return null;
@@ -165,12 +198,7 @@ router.get("/", async (req, res) => {
     prisma.auditEvent.count({ where })
   ]);
 
-  await writeRequestAudit(prisma, req, {
-    action: "AUDIT_TRAIL_VIEWED",
-    entityType: "AuditEvent",
-    statusCode: 200,
-    metadata: { count: items.length }
-  });
+  await recordAuditTrailAccess(req, items.length);
 
   res.json({
     items: items.map(serialize),
