@@ -333,6 +333,14 @@ export function documentsRouter(prisma, uploadDir) {
           updatePayload.memberId = extracted.memberId;
         }
 
+        const existingPayerName = String(claim.payerName || "").trim().toLowerCase();
+        const payerIsGeneric =
+          !existingPayerName ||
+          ["insurance", "unknown", "unknown payer", "payer"].includes(existingPayerName);
+        if (payerIsGeneric && extracted.payerName) {
+          updatePayload.payerName = extracted.payerName;
+        }
+
         if (!claim.hospitalName && extracted.hospitalName) {
           updatePayload.hospitalName = extracted.hospitalName;
         }
