@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createPayerConnector,
+  createPayerConnectorById,
   createPayerConnectorForClaim,
+  listPayerConnectors,
+  payerConnectorStatusForClaim,
+  resolvePayerConnectorId,
   resolvePayerConnectorMode
 } from "../src/services/payerGateway.js";
 import {
@@ -129,5 +133,77 @@ test("U6 - unknown connector modes fail instead of silently falling back", () =>
   assert.throws(
     () => createPayerConnector("MAGIC"),
     (error) => error?.code === "PAYER_CONNECTOR_NOT_CONFIGURED"
+  );
+});
+
+
+test("R1 - connector registry exposes provider environment and capabilities", () => {
+  const connectors = listPayerConnectors({});
+  const byId = new Map(connectors.map((item) => [item.id, item]));
+
+  assert.equal(byId.get("LOCAL")?.provider, "CLAIM_APP");
+  assert.equal(byId.get("LOCAL")?.environment, "LOCAL");
+  assert.equal(byId.get("LOCAL")?.configured, true);
+
+  assert.equal(byId.get("SIMULATED")?.environment, "TEST");
+  assert.equal(byId.get("AVAILITY_SANDBOX")?.provider, "AVAILITY");
+  assert.equal(byId.get("AVAILITY_SANDBOX")?.environment, "SANDBOX");
+  assert.deepEqual(byId.get("AVAILITY_SANDBOX")?.capabilities, ["checkEligibility"]);
+  assert.equal(byId.get("AVAILITY_SANDBOX")?.configured, false);
+
+  assert.equal(byId.get("OPTUM_SANDBOX")?.provider, "OPTUM");
+  assert.equal(byId.get("OPTUM_SANDBOX")?.configured, false);
+});
+
+test("R1 - sandbox connectors fail closed until credentials are configured", () => {
+  assert.throws(
+    () => createPayerConnectorById("AVAILITY_SANDBOX", null, {}),
+    (error) =>
+      error?.code === "PAYER_CONNECTOR_UNAVAILABLE" &&
+      error?.connectorId === "AVAILITY_SANDBOX"
+  );
+
+  assert.throws(
+    () => createPayerConnectorById("OPTUM_SANDBOX", null, {}),
+    (error) =>
+      error?.code === "PAYER_CONNECTOR_UNAVAILABLE" &&
+      error?.connectorId === "OPTUM_SANDBOX"
+  );
+});
+
+test("R1 - LIVE mode can resolve an explicit provider connector ID", () => {
+  const env = {
+    PAYER_CONNECTOR_ID: "AVAILITY_SANDBOX",
+    AVAILITY_API_BASE_URL: "https://sandbox.example.test",
+    AVAILITY_CLIENT_ID: "test-client",
+    AVAILITY_CLIENT_SECRET: "test-secret"
+  };
+
+  assert.equal(
+    resolvePayerConnectorId({ payerConnectionMode: "LIVE" }, env),
+    "AVAILITY_SANDBOX"
+  );
+
+  const status = payerConnectorStatusForClaim(
+    { payerConnectionMode: "LIVE" },
+    env
+  );
+  assert.equal(status.id, "AVAILITY_SANDBOX");
+  assert.equal(status.provider, "AVAILITY");
+  assert.equal(status.environment, "SANDBOX");
+  assert.equal(status.configured, true);
+  assert.deepEqual(status.capabilities, ["checkEligibility"]);
+});
+
+test("R1 - claim mode continues to override external connector config for local and simulated workflows", () => {
+  const env = { PAYER_CONNECTOR_ID: "AVAILITY_SANDBOX" };
+
+  assert.equal(
+    resolvePayerConnectorId({ payerConnectionMode: "LOCAL" }, env),
+    "LOCAL"
+  );
+  assert.equal(
+    resolvePayerConnectorId({ payerConnectionMode: "SIMULATED" }, env),
+    "SIMULATED"
   );
 });
