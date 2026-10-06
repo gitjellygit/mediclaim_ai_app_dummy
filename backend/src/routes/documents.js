@@ -2,9 +2,7 @@ import express from "express";
 import { requireRoles } from "../middleware/auth.js";
 import { verifyUploadSignature } from "../middleware/uploadSafety.js";
 import { createDocumentUpload } from "../services/documentUpload.js";
-import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 import {
   getDerivedFieldsFromDocument,
   mergeDerivedFields,
@@ -35,8 +33,6 @@ import {
   validateDocumentIdentityAgainstClaim
 } from "../services/documentIdentity.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 function extractedServiceLines(extracted = {}, sourceDocumentId = null) {
   const codes = Array.isArray(extracted.cptCodes)
@@ -123,7 +119,12 @@ function calculateMatchScore(extracted, existingClaim) {
   
   const docDate = dateOfService || admissionDate;
   if (docDate && existingClaim.dateOfService) {
-    const daysDiff = Math.abs(new Date(docDate) - new Date(existingClaim.dateOfService)) / (1000 * 60 * 60 * 24);
+    const parsedDocDate = parseClaimDate(docDate);
+    const parsedClaimDate = parseClaimDate(existingClaim.dateOfService);
+    const daysDiff =
+      parsedDocDate && parsedClaimDate
+        ? Math.abs(parsedDocDate - parsedClaimDate) / (1000 * 60 * 60 * 24)
+        : Number.POSITIVE_INFINITY;
     if (daysDiff <= 3) {
       score += 15;
     } else if (daysDiff <= 7) {
@@ -379,67 +380,66 @@ export function documentsRouter(prisma, uploadDir) {
 
       }
 
-      const doc = await prisma.document.create({
-        data: documentCreateData({
-          claimId: claim.id,
-          file: req.file,
-          fileHash,
-          intel
-        })
-      });
+      const doc = await prisma.$transaction(async (tx) => {
+        const created = await tx.document.create({
+          data: documentCreateData({
+            claimId: claim.id,
+            file: req.file,
+            fileHash,
+            intel
+          })
+        });
 
-      await persistExtractedServiceLines(prisma, claim.id, extracted, doc.id);
-      await auditDocumentEvent(prisma, req, {
-        claimId: claim.id,
-        documentId: doc.id,
-        action: "DOCUMENT_UPLOADED",
-        metadata: {
-          uploadMode: "SMART",
-          fileName: doc.fileName,
-          type: doc.type,
-          ocrProvider: doc.ocrProvider || null
-        }
-      });
+        await persistExtractedServiceLines(tx, claim.id, extracted, created.id);
 
-      const documentFields = getDerivedFieldsFromDocument(
-        extracted,
-        intel.suggestedType || "OTHER"
-      );
-      const persistedClaim = await prisma.claim.findUnique({
-        where: { id: claim.id },
-        select: { fieldProvenance: true }
-      });
+        const documentFields = getDerivedFieldsFromDocument(
+          extracted,
+          intel.suggestedType || "OTHER"
+        );
+        const persistedClaim = await tx.claim.findUnique({
+          where: { id: claim.id },
+          select: { fieldProvenance: true }
+        });
 
-      await prisma.claim.update({
-        where: { id: claim.id },
-        data: {
-          fieldProvenance: mergeProvenance(
-            persistedClaim?.fieldProvenance,
-            documentProvenance({
-              fields: documentFields,
-              confidence: intel.confidence,
-              documentId: doc.id,
-              fileName: req.file.originalname,
-              documentType: intel.suggestedType || "OTHER"
-            })
-          )
-        }
-      });
+        await tx.claim.update({
+          where: { id: claim.id },
+          data: {
+            fieldProvenance: mergeProvenance(
+              persistedClaim?.fieldProvenance,
+              documentProvenance({
+                fields: documentFields,
+                confidence: intel.confidence,
+                documentId: created.id,
+                fileName: req.file.originalname,
+                documentType: intel.suggestedType || "OTHER"
+              })
+            ),
+            status: "DRAFT"
+          }
+        });
 
-      await prisma.$transaction([
-        prisma.check.updateMany({
+        await tx.check.updateMany({
           where: { claimId: claim.id, isStale: false },
           data: {
             isStale: true,
             staleAt: new Date(),
             staleReason: "Supporting document uploaded"
           }
-        }),
-        prisma.claim.update({
-          where: { id: claim.id },
-          data: { status: "DRAFT" }
-        })
-      ]);
+        });
+
+        return created;
+      });
+
+      await auditDocumentEvent(prisma, req, {
+        claimId: claim.id,
+        documentId: doc.id,
+        action: "DOCUMENT_UPLOADED",
+        metadata: {
+          uploadMode: "SMART",
+          documentType: doc.type,
+          ocrProvider: doc.ocrProvider || null
+        }
+      });
 
       const updatedClaim = await prisma.claim.findUnique({
         where: { id: claim.id },
@@ -595,96 +595,91 @@ export function documentsRouter(prisma, uploadDir) {
       });
     }
 
-    const doc = await prisma.document.create({
-      data: documentCreateData({
+    const { doc, updatedClaim } = await prisma.$transaction(async (tx) => {
+      const created = await tx.document.create({
+        data: documentCreateData({
+          claimId,
+          file: req.file,
+          fileHash,
+          intel,
+          type: requestedType
+        })
+      });
+
+      const extractedPatientName = getExtractedPatientName(intel.extracted);
+      const extractedAmount = getExtractedAmount(intel.extracted);
+
+      await persistExtractedServiceLines(
+        tx,
         claimId,
-        file: req.file,
-        fileHash,
-        intel,
-        type: requestedType
-      })
-    });
-
-    const extractedPatientName = getExtractedPatientName(intel.extracted);
-    const extractedAmount = getExtractedAmount(intel.extracted);
-
-    await persistExtractedServiceLines(
-      prisma,
-      claimId,
-      intel.extracted || {},
-      doc.id
-    );
-
-    const updatePayload = {};
-
-    if (
-      extractedPatientName &&
-      (!claim.patientName ||
-        claim.patientName === "Unknown Patient" ||
-        claim.patientName.trim() === "")
-    ) {
-      updatePayload.patientName = extractedPatientName;
-    }
-
-    if (extractedAmount && (!claim.amount || Number(claim.amount) <= 0)) {
-      updatePayload.amount = extractedAmount;
-      if ((type || intel.suggestedType) === "FINAL_BILL") {
-        updatePayload.totalBilledAmount = extractedAmount;
-      }
-    }
-
-    let updatedClaim = claim;
-
-    if (Object.keys(updatePayload).length > 0) {
-      const derivedFromThisDocument = Object.keys(updatePayload);
-      const documentDerivedFields = mergeDerivedFields(
-        claim.documentDerivedFields,
-        derivedFromThisDocument
+        intel.extracted || {},
+        created.id
       );
 
-      updatedClaim = await prisma.claim.update({
-        where: { id: claimId },
-        data: {
-          ...updatePayload,
-          documentDerivedFields,
-          fieldProvenance: mergeProvenance(
-            claim.fieldProvenance,
-            documentProvenance({
-              fields: derivedFromThisDocument,
-              confidence: intel.confidence,
-              documentId: doc.id,
-              fileName: req.file.originalname,
-              documentType: type || intel.suggestedType || "OTHER"
-            })
-          )
-        },
-        include: {
-          documents: {
-            orderBy: { createdAt: "desc" }
+      const updatePayload = {};
+
+      if (
+        extractedPatientName &&
+        (!claim.patientName ||
+          claim.patientName === "Unknown Patient" ||
+          claim.patientName.trim() === "")
+      ) {
+        updatePayload.patientName = extractedPatientName;
+      }
+
+      if (extractedAmount && (!claim.amount || Number(claim.amount) <= 0)) {
+        updatePayload.amount = extractedAmount;
+        if ((type || intel.suggestedType) === "FINAL_BILL") {
+          updatePayload.totalBilledAmount = extractedAmount;
+        }
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        const derivedFromThisDocument = Object.keys(updatePayload);
+        await tx.claim.update({
+          where: { id: claimId },
+          data: {
+            ...updatePayload,
+            documentDerivedFields: mergeDerivedFields(
+              claim.documentDerivedFields,
+              derivedFromThisDocument
+            ),
+            fieldProvenance: mergeProvenance(
+              claim.fieldProvenance,
+              documentProvenance({
+                fields: derivedFromThisDocument,
+                confidence: intel.confidence,
+                documentId: created.id,
+                fileName: req.file.originalname,
+                documentType: type || intel.suggestedType || "OTHER"
+              })
+            )
           }
+        });
+      }
+
+      await invalidateClaimReadiness(tx, claimId);
+
+      const refreshed = await tx.claim.findUnique({
+        where: { id: claimId },
+        include: {
+          documents: { orderBy: { createdAt: "desc" } },
+          serviceLines: { orderBy: { createdAt: "asc" } },
+          checks: { orderBy: { createdAt: "desc" } }
         }
       });
-    }
 
-    await invalidateClaimReadiness(prisma, claimId);
+      return { doc: created, updatedClaim: refreshed };
+    });
+
     await auditDocumentEvent(prisma, req, {
       claimId,
       documentId: doc.id,
       action: "DOCUMENT_UPLOADED",
       metadata: {
         uploadMode: "MANUAL",
-        fileName: doc.fileName,
-        type: doc.type,
+        documentType: doc.type,
         ocrProvider: doc.ocrProvider || null
-      }
-    });
-
-    updatedClaim = await prisma.claim.findUnique({
-      where: { id: claimId },
-      include: {
-        documents: { orderBy: { createdAt: "desc" } },
-        serviceLines: { orderBy: { createdAt: "asc" } },
-        checks: { orderBy: { createdAt: "desc" } }
       }
     });
 
