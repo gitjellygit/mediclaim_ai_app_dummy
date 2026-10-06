@@ -71,6 +71,16 @@ async function runCheck(id) {
   );
 }
 
+async function updateClaim(id, data) {
+  return apiJson(
+    await apiContext.patch(`/api/claims/${id}`, {
+      headers: { Authorization: `Bearer ${auth.accessToken}` },
+      data
+    }),
+    "update claim"
+  );
+}
+
 function rulesFrom(check) {
   return new Map(
     (check.issues || [])
@@ -273,4 +283,78 @@ test("U7-4 - payer-required prior auth must be approved with authorization numbe
 
   issues = rulesFrom(await runCheck(claim.id));
   expect(issues.has("US_PRIOR_AUTH")).toBe(false);
+});
+
+
+test("U7-5 - diagnosis/service-line linkage stays correct across edit-order permutations", async () => {
+  const claim = await createClaim({
+    patientName: "E2E-U7-LINK-PERMUTATIONS",
+    payerName: "U7 Health",
+    policyNo: "U7-POL-LINK",
+    memberId: "U7-MEM-LINK",
+    amount: 100,
+    billingProviderNpi: "1234567890",
+    icd10Codes: [],
+    serviceLines: [{
+      cptHcpcsCode: "99213",
+      units: 1,
+      charge: 100,
+      diagnosisPointers: ["M54.50"]
+    }]
+  });
+
+  // Service line first: pointer exists but claim diagnosis does not.
+  let issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.get("US_DIAGNOSIS_CPT_LINK")?.severity).toBe("BLOCK");
+
+  // Diagnosis second: exact pointer now resolves.
+  await updateClaim(claim.id, { icd10Codes: ["M54.50"] });
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.has("US_DIAGNOSIS_CPT_LINK")).toBe(false);
+
+  // Change diagnosis only: old pointer becomes invalid again.
+  await updateClaim(claim.id, { icd10Codes: ["E11.9"] });
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.get("US_DIAGNOSIS_CPT_LINK")?.severity).toBe("BLOCK");
+
+  // Change pointer second: blocker resolves again.
+  await updateClaim(claim.id, {
+    serviceLines: [{
+      cptHcpcsCode: "99213",
+      units: 1,
+      charge: 100,
+      diagnosisPointers: ["E11.9"]
+    }]
+  });
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.has("US_DIAGNOSIS_CPT_LINK")).toBe(false);
+});
+
+test("U7-6 - every verified service line must link to a current claim diagnosis", async () => {
+  const claim = await createClaim({
+    patientName: "E2E-U7-LINK-MULTI",
+    payerName: "U7 Health",
+    policyNo: "U7-POL-MULTI",
+    memberId: "U7-MEM-MULTI",
+    amount: 200,
+    billingProviderNpi: "1234567890",
+    icd10Codes: ["M54.50", "E11.9"],
+    serviceLines: [
+      { cptHcpcsCode: "99213", units: 1, charge: 100, diagnosisPointers: ["M54.50"] },
+      { cptHcpcsCode: "99214", units: 1, charge: 100, diagnosisPointers: ["Z99.9"] }
+    ]
+  });
+
+  let issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.get("US_DIAGNOSIS_CPT_LINK")?.severity).toBe("BLOCK");
+  expect(issues.get("US_DIAGNOSIS_CPT_LINK")?.field).toBe("diagnosisPointers");
+
+  await updateClaim(claim.id, {
+    serviceLines: [
+      { cptHcpcsCode: "99213", units: 1, charge: 100, diagnosisPointers: ["M54.50"] },
+      { cptHcpcsCode: "99214", units: 1, charge: 100, diagnosisPointers: ["E11.9"] }
+    ]
+  });
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.has("US_DIAGNOSIS_CPT_LINK")).toBe(false);
 });
