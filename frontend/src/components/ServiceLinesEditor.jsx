@@ -2,6 +2,7 @@ import React from "react";
 import {
   Box,
   Button,
+  Chip,
   Divider,
   Stack,
   TextField,
@@ -31,7 +32,10 @@ export function emptyServiceLine() {
     serviceDateFrom: "",
     serviceDateTo: "",
     revenueCode: "",
-    poaIndicator: ""
+    poaIndicator: "",
+    verified: true,
+    source: "USER",
+    sourceDocumentId: null
   };
 }
 
@@ -48,7 +52,10 @@ export function serviceLineToForm(line = {}) {
     serviceDateFrom: toDateInputValue(line.serviceDateFrom),
     serviceDateTo: toDateInputValue(line.serviceDateTo),
     revenueCode: line.revenueCode || "",
-    poaIndicator: line.poaIndicator || ""
+    poaIndicator: line.poaIndicator || "",
+    verified: line.verified ?? true,
+    source: line.source || "USER",
+    sourceDocumentId: line.sourceDocumentId || null
   };
 }
 
@@ -69,7 +76,11 @@ export function serviceLineToPayload(line = {}) {
     serviceDateFrom: line.serviceDateFrom || null,
     serviceDateTo: line.serviceDateTo || null,
     revenueCode: line.revenueCode?.trim() || null,
-    poaIndicator: line.poaIndicator?.trim() || null
+    poaIndicator: line.poaIndicator?.trim() || null,
+    verified: line.source === "DOCUMENT_OCR" ? Boolean(line.verified) : true,
+    source: line.source === "DOCUMENT_OCR" ? "DOCUMENT_OCR" : "USER",
+    sourceDocumentId:
+      line.source === "DOCUMENT_OCR" ? (line.sourceDocumentId || null) : null
   };
 }
 
@@ -143,11 +154,39 @@ export default function ServiceLinesEditor({
     >
       {lines.map((line, index) => (
         <Box key={index} sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-            <Typography fontWeight={600}>Service Line {index + 1}</Typography>
-            <Button size="small" color="error" onClick={() => removeLine(index)}>
-              Remove
-            </Button>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            justifyContent="space-between"
+            alignItems={{ xs: "flex-start", sm: "center" }}
+            spacing={1}
+            sx={{ mb: 1 }}
+          >
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography fontWeight={600}>Service Line {index + 1}</Typography>
+              {line.source === "DOCUMENT_OCR" && (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  color={line.verified ? "success" : "warning"}
+                  label={line.verified ? "OCR verified" : "OCR suggestion — verify"}
+                />
+              )}
+            </Stack>
+            <Stack direction="row" spacing={1}>
+              {line.source === "DOCUMENT_OCR" && !line.verified && (
+                <Button
+                  size="small"
+                  color="success"
+                  variant="outlined"
+                  onClick={() => updateLine(index, "verified", true)}
+                >
+                  Verify Line
+                </Button>
+              )}
+              <Button size="small" color="error" onClick={() => removeLine(index)}>
+                Remove
+              </Button>
+            </Stack>
           </Stack>
 
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" }, gap: 1.5 }}>
