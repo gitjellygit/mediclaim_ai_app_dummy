@@ -317,38 +317,51 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
     const result = createPayerConnectorForClaim(claim, payer.code).requestPriorAuth(claimForAuth, { sequence: priorCount + 1 });
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
-        priorAuthRequired: result.required,
-        priorAuthStatus: result.status,
-        authorizationNo: result.authorizationNo ?? requestedAuthorizationNo,
-        priorAuthExpiry: result.expiry ? new Date(result.expiry) : claim.priorAuthExpiry,
-        priorAuthCheckedAt: new Date(),
-        fieldProvenance: mergeProvenance(
-          claim.fieldProvenance,
-          systemProvenance(["priorAuthRequired", "priorAuthStatus", "authorizationNo", "priorAuthExpiry"], {
-            source: "SIMULATED_PAYER",
-            label: "Mock Prior Auth Response",
-            sourceDetail: payer.name,
-            verified: false
-          })
-        )
-      }
-    });
+    const { updated, transaction } = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          priorAuthRequired: result.required,
+          priorAuthStatus: result.status,
+          authorizationNo: result.authorizationNo ?? requestedAuthorizationNo,
+          priorAuthExpiry: result.expiry ? new Date(result.expiry) : claim.priorAuthExpiry,
+          priorAuthCheckedAt: new Date(),
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            systemProvenance(
+              ["priorAuthRequired", "priorAuthStatus", "authorizationNo", "priorAuthExpiry"],
+              {
+                source: "SIMULATED_PAYER",
+                label: "Mock Prior Auth Response",
+                sourceDetail: payer.name,
+                verified: false
+              }
+            )
+          )
+        }
+      });
 
-    const transaction = await createPayerTransaction(
-      claim.id,
-      payer.code,
-      "PRIOR_AUTH",
-      result,
-      {
-        transaction: "278-style",
-        procedurePresent: Boolean(claim.procedureText),
-        inputFingerprint
-      }
-    );
-    await markReadinessChecksStale(prisma, claim.id, "Prior authorization information changed");
+      const payerTransaction = await createPayerTransaction(
+        claim.id,
+        payer.code,
+        "PRIOR_AUTH",
+        result,
+        {
+          transaction: "278-style",
+          procedurePresent: Boolean(claim.procedureText),
+          inputFingerprint
+        },
+        tx
+      );
+
+      await markReadinessChecksStale(
+        tx,
+        claim.id,
+        "Prior authorization information changed"
+      );
+
+      return { updated: updatedClaim, transaction: payerTransaction };
+    });
 
     res.json({ result, transaction, claim: updated });
   } catch (error) {
