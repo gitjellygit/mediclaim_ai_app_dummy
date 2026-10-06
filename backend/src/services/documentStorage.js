@@ -206,7 +206,12 @@ export async function materializeStoredDocument(
 
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "claim-doc-"));
   const tempPath = path.join(tempDir, randomUUID());
-  await pipeline(opened.stream, fs.createWriteStream(tempPath));
+  try {
+    await pipeline(opened.stream, fs.createWriteStream(tempPath));
+  } catch (error) {
+    await fs.promises.rm(tempDir, { recursive: true, force: true });
+    throw error;
+  }
 
   return {
     path: tempPath,
