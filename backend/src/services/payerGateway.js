@@ -183,6 +183,9 @@ export function resolvePayerConnectorId(claim, env = process.env) {
  */
 export function createPayerConnector(mode, payerCode, env = process.env) {
   const normalizedMode = String(mode || "LOCAL").toUpperCase();
+  if (!["LOCAL", "SIMULATED", "LIVE"].includes(normalizedMode)) {
+    throw new PayerConnectorNotConfiguredError(normalizedMode);
+  }
   return createPayerConnectorById(normalizedMode, payerCode, env);
 }
 
