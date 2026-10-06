@@ -7,6 +7,13 @@ const SAFE_METADATA_KEYS = new Set([
   "softDeleted","documentCount","riskLevel","score","hasBlockingIssues"
 ]);
 
+function normalizeAuditId(value) {
+  if (value == null) return null;
+  const normalized = String(value).trim();
+  if (!normalized || normalized === "undefined" || normalized === "null") return null;
+  return normalized;
+}
+
 function sanitizeScalar(value) {
   if (value == null) return value;
   if (typeof value === "boolean" || typeof value === "number") return value;
@@ -44,11 +51,11 @@ export async function writeAuditEvent(prisma, {
     return await prisma.auditEvent.create({
       data: {
         organizationId,
-        actorUserId,
-        claimId,
+        actorUserId: normalizeAuditId(actorUserId),
+        claimId: normalizeAuditId(claimId),
         action,
         entityType,
-        entityId,
+        entityId: normalizeAuditId(entityId),
         outcome,
         metadata: sanitizeAuditMetadata(metadata)
       }

@@ -5,10 +5,20 @@ import {
   Divider,
   Stack,
   TextField,
-  Typography
+  Typography,
+  MenuItem
 } from "@mui/material";
 import { formatUSD } from "../utils/currency.js";
 import { toDateInputValue } from "../utils/dateOnly.js";
+import {
+  POA_OPTIONS,
+  POS_OPTIONS,
+  cptHcpcsError,
+  modifiersError,
+  normalizeIcd10Cm,
+  normalizeProcedureCode,
+  revenueCodeError
+} from "../utils/usClaimValidation.js";
 
 export function emptyServiceLine() {
   return {
@@ -44,16 +54,16 @@ export function serviceLineToForm(line = {}) {
 
 export function serviceLineToPayload(line = {}) {
   return {
-    cptHcpcsCode: line.cptHcpcsCode?.trim(),
+    cptHcpcsCode: normalizeProcedureCode(line.cptHcpcsCode),
     modifiers: String(line.modifiers || "")
       .split(",")
-      .map((value) => value.trim())
+      .map((value) => value.trim().toUpperCase())
       .filter(Boolean),
     units: line.units === "" ? null : Number(line.units),
     charge: line.charge === "" ? null : Number(line.charge),
     diagnosisPointers: String(line.diagnosisPointers || "")
       .split(",")
-      .map((value) => value.trim())
+      .map((value) => normalizeIcd10Cm(value))
       .filter(Boolean),
     placeOfService: line.placeOfService?.trim() || null,
     serviceDateFrom: line.serviceDateFrom || null,
@@ -67,7 +77,9 @@ export default function ServiceLinesEditor({
   lines = [],
   onChange,
   readOnly = false,
-  highlightField = ""
+  highlightField = "",
+  claimForm = "",
+  diagnosisCodes = []
 }) {
   if (readOnly) {
     if (!lines.length) {
@@ -145,12 +157,17 @@ export default function ServiceLinesEditor({
               color={isHighlighted("cptHcpcsCode") ? "warning" : "primary"}
               focused={index === 0 && isHighlighted("cptHcpcsCode")}
               value={line.cptHcpcsCode}
-              onChange={(event) => updateLine(index, "cptHcpcsCode", event.target.value)}
+              onChange={(event) => updateLine(index, "cptHcpcsCode", normalizeProcedureCode(event.target.value))}
+              error={!!cptHcpcsError(line.cptHcpcsCode)}
+              helperText={cptHcpcsError(line.cptHcpcsCode) || "CPT: 5 digits; HCPCS: letter + 4 digits"}
+              inputProps={{ maxLength: 5 }}
             />
             <TextField
               label="Modifiers (comma separated)"
               value={line.modifiers}
-              onChange={(event) => updateLine(index, "modifiers", event.target.value)}
+              onChange={(event) => updateLine(index, "modifiers", event.target.value.toUpperCase())}
+              error={!!modifiersError(line.modifiers)}
+              helperText={modifiersError(line.modifiers) || "Up to 4 modifiers; each exactly 2 characters"}
             />
             <TextField
               label="Units"
@@ -168,21 +185,36 @@ export default function ServiceLinesEditor({
             />
             <TextField
               data-fix-field={index === 0 ? "diagnosisPointers" : undefined}
-              label="Diagnosis Pointers"
+              label="Linked Diagnosis Codes"
               color={isHighlighted("diagnosisPointers") ? "warning" : "primary"}
               focused={index === 0 && isHighlighted("diagnosisPointers")}
               value={line.diagnosisPointers}
-              onChange={(event) => updateLine(index, "diagnosisPointers", event.target.value)}
-              helperText="ICD-10-CM codes or line pointers, comma separated"
+              onChange={(event) => updateLine(index, "diagnosisPointers", event.target.value.toUpperCase())}
+              helperText={
+                diagnosisCodes.length
+                  ? `Use claim diagnoses only: ${diagnosisCodes.join(", ")}`
+                  : "Add ICD-10-CM diagnoses to the claim first; then link them here."
+              }
             />
-            <TextField
-              data-fix-field={index === 0 ? "placeOfService" : undefined}
-              label="Place of Service"
-              color={isHighlighted("placeOfService") ? "warning" : "primary"}
-              focused={index === 0 && isHighlighted("placeOfService")}
-              value={line.placeOfService}
-              onChange={(event) => updateLine(index, "placeOfService", event.target.value)}
-            />
+            {claimForm === "PROFESSIONAL" && (
+              <TextField
+                data-fix-field={index === 0 ? "placeOfService" : undefined}
+                label="Place of Service"
+                select
+                color={isHighlighted("placeOfService") ? "warning" : "primary"}
+                focused={index === 0 && isHighlighted("placeOfService")}
+                value={line.placeOfService}
+                onChange={(event) => updateLine(index, "placeOfService", event.target.value)}
+                helperText="CMS two-digit Place of Service code"
+              >
+                <MenuItem value="">Select Place of Service</MenuItem>
+                {POS_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.value} — {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
             <TextField
               label="Service Date From"
               type="date"
@@ -197,19 +229,34 @@ export default function ServiceLinesEditor({
               value={line.serviceDateTo}
               onChange={(event) => updateLine(index, "serviceDateTo", event.target.value)}
             />
-            <TextField
-              data-fix-field={index === 0 ? "revenueCode" : undefined}
-              label="Revenue Code"
-              color={isHighlighted("revenueCode") ? "warning" : "primary"}
-              focused={index === 0 && isHighlighted("revenueCode")}
-              value={line.revenueCode}
-              onChange={(event) => updateLine(index, "revenueCode", event.target.value)}
-            />
-            <TextField
-              label="POA Indicator"
-              value={line.poaIndicator}
-              onChange={(event) => updateLine(index, "poaIndicator", event.target.value)}
-            />
+            {claimForm === "INSTITUTIONAL" && (
+              <>
+                <TextField
+                  data-fix-field={index === 0 ? "revenueCode" : undefined}
+                  label="Revenue Code"
+                  color={isHighlighted("revenueCode") ? "warning" : "primary"}
+                  focused={index === 0 && isHighlighted("revenueCode")}
+                  value={line.revenueCode}
+                  onChange={(event) => updateLine(index, "revenueCode", event.target.value.replace(/\D/g, "").slice(0, 4))}
+                  error={!!revenueCodeError(line.revenueCode)}
+                  helperText={revenueCodeError(line.revenueCode) || "Exactly 4 digits; verify the payer/NUBC code"}
+                  inputProps={{ inputMode: "numeric", maxLength: 4 }}
+                />
+                <TextField
+                  label="POA Indicator"
+                  select
+                  value={line.poaIndicator}
+                  onChange={(event) => updateLine(index, "poaIndicator", event.target.value)}
+                  helperText="Present on Admission indicator when required"
+                >
+                  {POA_OPTIONS.map((option) => (
+                    <MenuItem key={option.value || "none"} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </>
+            )}
           </Box>
         </Box>
       ))}
