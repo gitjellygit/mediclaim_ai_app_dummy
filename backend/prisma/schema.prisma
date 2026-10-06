@@ -289,7 +289,8 @@ model Claim {
   // Connector abstraction: LOCAL today, SIMULATED for demo/testing, LIVE for
   // future clearinghouse/payer integrations. Simulated payer codes are synthetic.
   payerConnectionMode PayerConnectionMode @default(LOCAL)
-  simulatedPayerCode   String?
+  payerConnectorId    String?
+  simulatedPayerCode  String?
 
   // Fields currently supported by uploaded documents. This lets document
   // deletion recompute/clear only document-derived data without wiping
@@ -311,6 +312,7 @@ model Claim {
 
   @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
+  @@index([payerConnectorId])
 }
 
 model ServiceLine {

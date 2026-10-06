@@ -9,6 +9,7 @@ import {
 import { createLocalPayerConnector } from "./localPayerConnector.js";
 import { assertPayerConnector, PAYER_CONNECTOR_METHODS } from "./payerConnector.js";
 import { createLivePayerConnector } from "./livePayerConnector.js";
+import { createStediTestConnector } from "./stediTestConnector.js";
 import {
   PAYER_CONNECTOR_ENVIRONMENTS,
   PAYER_CONNECTOR_IDS,
@@ -132,6 +133,16 @@ export function registerDefaultPayerConnectors() {
     factory: () => createUnavailableSandboxConnector(PAYER_CONNECTOR_IDS.OPTUM_SANDBOX)
   });
 
+  registerPayerConnector({
+    id: PAYER_CONNECTOR_IDS.STEDI_TEST,
+    mode: "LIVE",
+    provider: "STEDI",
+    environment: PAYER_CONNECTOR_ENVIRONMENTS.TEST,
+    capabilities: ["checkEligibility", "listPayers"],
+    configured: (env) => Boolean(env.STEDI_TEST_API_KEY),
+    factory: (_context, env) => createStediTestConnector({ env })
+  });
+
   defaultsRegistered = true;
 }
 
@@ -159,7 +170,8 @@ export function resolvePayerConnectorMode(claim, env = process.env) {
 }
 
 export function resolvePayerConnectorId(claim, env = process.env) {
-  const explicit = String(env.PAYER_CONNECTOR_ID || "").trim().toUpperCase();
+  const claimConnector = String(claim?.payerConnectorId || "").trim().toUpperCase();
+  const explicit = claimConnector || String(env.PAYER_CONNECTOR_ID || "").trim().toUpperCase();
   const mode = resolvePayerConnectorMode(claim, env);
 
   if (mode === "LOCAL") return PAYER_CONNECTOR_IDS.LOCAL;

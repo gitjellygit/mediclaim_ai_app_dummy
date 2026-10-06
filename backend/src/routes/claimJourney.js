@@ -1,6 +1,6 @@
 import express from "express";
 import { auditOnResponse } from "../services/auditLog.js";
-import { emptyMutationSchema, parseMutation, priorAuthEvaluationSchema, payerClaimStatusSchema, remittanceMutationSchema } from "../validation/claimMutations.js";
+import { emptyMutationSchema, parseMutation, priorAuthEvaluationSchema, payerClaimStatusSchema, remittanceMutationSchema, payerConnectorConnectionSchema } from "../validation/claimMutations.js";
 import { prisma } from "../db.js";
 import { validMoney, moneyCents, differenceMoney } from "../utils/money.js";
 import {
@@ -14,7 +14,7 @@ import { buildClaimCompleteness } from "../services/claimCompleteness.js";
 import { getMockPayer } from "../services/payerSimulator.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
-import { createPayerConnector, payerConnectorStatusForClaim } from "../services/payerGateway.js";
+import { createPayerConnector, createPayerConnectorForClaim, payerConnectorStatusForClaim } from "../services/payerGateway.js";
 import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
 
 const router = express.Router();
@@ -24,6 +24,7 @@ router.use((req, res, next) => {
   const claimId = /^\/([^/]+)\/journey/.exec(path)?.[1] || null;
   const action =
     req.method === "GET" && /\/journey$/.test(path) ? "CLAIM_JOURNEY_VIEWED" :
+    /\/payer-connection$/.test(path) ? "PAYER_CONNECTED" :
     /\/eligibility\/precheck$/.test(path) ? "ELIGIBILITY_CHECKED" :
     /\/prior-auth\/evaluate$/.test(path) ? "PRIOR_AUTH_EVALUATED" :
     /\/claim-status$/.test(path) ? "PAYER_STATUS_UPDATED" :
@@ -178,6 +179,83 @@ router.get("/:id/journey", async (req, res) => {
   }
 });
 
+router.post("/:id/journey/payer-connection", async (req, res) => {
+  try {
+    const parsedInput = parseMutation(payerConnectorConnectionSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
+    const { connectorId, payerCode, payerName } = parsedInput.data;
+
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
+    });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+    if (isClaimLocked(claim)) {
+      return res.status(409).json({
+        error: "Payer connection cannot be changed after claim submission"
+      });
+    }
+
+    let connector;
+    try {
+      connector = payerConnectorStatusForClaim({
+        ...claim,
+        payerConnectionMode: "LIVE",
+        payerConnectorId: connectorId
+      });
+    } catch {
+      return res.status(400).json({ error: "Unknown payer connector" });
+    }
+
+    if (connector.mode !== "LIVE") {
+      return res.status(400).json({ error: "External payer connector is required" });
+    }
+    if (!connector.configured) {
+      return res.status(409).json({
+        error: `${connector.provider} ${connector.environment.toLowerCase()} connector is not configured`
+      });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          payerConnectionMode: "LIVE",
+          payerConnectorId: connector.id,
+          payerEdiId: payerCode,
+          payerName: payerName || claim.payerName,
+          simulatedPayerCode: null,
+          eligibilityStatus: "NOT_CHECKED",
+          eligibilityCheckedAt: null,
+          coverageStatus: null,
+          networkStatus: null,
+          deductibleRemaining: null,
+          coinsurancePct: null,
+          priorAuthRequired: null,
+          priorAuthStatus: "NOT_CHECKED",
+          priorAuthCheckedAt: null,
+          authorizationNo: null,
+          priorAuthExpiry: null
+        }
+      });
+
+      await markReadinessChecksStale(tx, claim.id, "Payer connection changed");
+      return updatedClaim;
+    });
+
+    res.json({
+      connector,
+      claim: updated
+    });
+  } catch (error) {
+    if (error?.status) throw error;
+    console.error("[claim-journey] payer connection failed", {
+      claimId: req.params.id,
+      code: error?.code || null
+    });
+    res.status(500).json({ error: "Unable to connect payer" });
+  }
+});
+
 router.post("/:id/journey/eligibility/precheck", async (req, res) => {
   try {
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
@@ -199,8 +277,11 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
       });
     }
 
-    const connector = createPayerConnector("LOCAL");
-    const eligibility = connector.checkEligibility(claim);
+    const connector = createPayerConnectorForClaim(
+      claim,
+      claim.payerEdiId || claim.simulatedPayerCode
+    );
+    const eligibility = await connector.checkEligibility(claim);
     const now = new Date();
     const missing = eligibility.missingFields || [];
     const eligibilityStatus =
@@ -211,7 +292,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
         : "FAILED";
     const coverageStatus = eligibility.coverageStatus || "UNKNOWN";
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const { updated, payerTransaction } = await prisma.$transaction(async (tx) => {
       const updatedClaim = await tx.claim.update({
         where: { id: claim.id },
         data: {
@@ -223,10 +304,23 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
             systemProvenance(
               ["eligibilityStatus", "coverageStatus"],
               {
-                source: "LOCAL_PRECHECK",
-                label: "Local Pre-check",
-                sourceDetail: "No live 270/271 payer connector configured",
-                verified: false
+                source:
+                  connector.connectorEnvironment === "LOCAL"
+                    ? "LOCAL_PRECHECK"
+                    : connector.connectorId || "LOCAL_PRECHECK",
+                label:
+                  connector.connectorEnvironment === "TEST"
+                    ? `${connector.connectorProvider} Test Eligibility`
+                    : connector.connectorEnvironment === "PRODUCTION"
+                    ? `${connector.connectorProvider} Eligibility`
+                    : "Local Pre-check",
+                sourceDetail:
+                  connector.connectorEnvironment === "TEST"
+                    ? "External test-mode 270/271 eligibility response"
+                    : connector.connectorEnvironment === "PRODUCTION"
+                    ? "External production 270/271 eligibility response"
+                    : "No live 270/271 payer connector configured",
+                verified: connector.connectorEnvironment === "PRODUCTION"
               }
             )
           )
@@ -246,7 +340,30 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
         });
       }
 
-      return updatedClaim;
+      let transaction = null;
+      if (connector.connectorEnvironment === "TEST" || connector.connectorEnvironment === "PRODUCTION") {
+        transaction = await tx.payerTransaction.create({
+          data: {
+            claimId: claim.id,
+            transactionId:
+              eligibility.transactionId ||
+              `${connector.connectorId}-ELIG-${claim.id}-${Date.now()}`,
+            mode: connector.connectorEnvironment,
+            payerCode: claim.payerEdiId || claim.payerName,
+            transactionType: "ELIGIBILITY",
+            status: eligibility.status,
+            latencyMs: eligibility.latencyMs || null,
+            requestPayload: {
+              transaction: "270/271",
+              connectorId: connector.connectorId,
+              testMode: connector.connectorEnvironment === "TEST"
+            },
+            responsePayload: eligibility
+          }
+        });
+      }
+
+      return { updated: updatedClaim, payerTransaction: transaction };
     });
 
     logJourneyEvent(claim.id, "eligibility-precheck", eligibilityStatus, {
@@ -261,15 +378,30 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
       status: eligibilityStatus,
       coverageStatus,
       missingFields: missing,
-      livePayerVerification: false,
+      livePayerVerification: connector.connectorEnvironment === "PRODUCTION",
+      connector: {
+        id: connector.connectorId || "LOCAL",
+        provider: connector.connectorProvider || "CLAIM_APP",
+        environment: connector.connectorEnvironment || "LOCAL"
+      },
+      transaction: payerTransaction,
       claim: updated
     });
   } catch (error) {
-    if (error?.status) throw error;
+    if (error?.status && !["STEDI_API_ERROR"].includes(error?.code)) throw error;
     console.error("[claim-journey] eligibility precheck failed", {
       claimId: req.params.id,
-      message: error.message
+      code: error?.code || null
     });
+    if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
+      return res.status(503).json({ error: "Payer connector is not configured" });
+    }
+    if (error?.code === "STEDI_REQUEST_INVALID") {
+      return res.status(400).json({ error: error.message });
+    }
+    if (error?.code === "STEDI_API_ERROR") {
+      return res.status(502).json({ error: "External eligibility service request failed" });
+    }
     res.status(500).json({ error: "Eligibility pre-check failed. Please retry." });
   }
 });
