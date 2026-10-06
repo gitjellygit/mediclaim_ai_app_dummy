@@ -210,43 +210,53 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
     const verified = result.status === "ACTIVE";
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
-        eligibilityStatus: verified ? "VERIFIED" : "FAILED",
-        coverageStatus: result.coverageStatus,
-        networkStatus: result.networkStatus,
-        deductibleRemaining: result.deductibleRemaining,
-        coinsurancePct: result.coinsurancePct,
-        eligibilityCheckedAt: new Date(),
-        fieldProvenance: mergeProvenance(
-          claim.fieldProvenance,
-          systemProvenance(
-            ["eligibilityStatus", "coverageStatus", "networkStatus", "deductibleRemaining", "coinsurancePct"],
-            {
-              source: "SIMULATED_PAYER",
-              label: "Mock 271 Response",
-              sourceDetail: payer.name,
-              verified: false
-            }
+    const { updated, transaction } = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          eligibilityStatus: verified ? "VERIFIED" : "FAILED",
+          coverageStatus: result.coverageStatus,
+          networkStatus: result.networkStatus,
+          deductibleRemaining: result.deductibleRemaining,
+          coinsurancePct: result.coinsurancePct,
+          eligibilityCheckedAt: new Date(),
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            systemProvenance(
+              ["eligibilityStatus", "coverageStatus", "networkStatus", "deductibleRemaining", "coinsurancePct"],
+              {
+                source: "SIMULATED_PAYER",
+                label: "Mock 271 Response",
+                sourceDetail: payer.name,
+                verified: false
+              }
+            )
           )
-        )
-      }
-    });
+        }
+      });
 
-    const transaction = await createPayerTransaction(
-      claim.id,
-      payer.code,
-      "ELIGIBILITY",
-      result,
-      {
-        transaction: "270",
-        memberIdPresent: Boolean(claim.memberId),
-        policyNoPresent: Boolean(claim.policyNo),
-        inputFingerprint
-      }
-    );
-    await markReadinessChecksStale(prisma, claim.id, "Eligibility information changed");
+      const payerTransaction = await createPayerTransaction(
+        claim.id,
+        payer.code,
+        "ELIGIBILITY",
+        result,
+        {
+          transaction: "270",
+          memberIdPresent: Boolean(claim.memberId),
+          policyNoPresent: Boolean(claim.policyNo),
+          inputFingerprint
+        },
+        tx
+      );
+
+      await markReadinessChecksStale(
+        tx,
+        claim.id,
+        "Eligibility information changed"
+      );
+
+      return { updated: updatedClaim, transaction: payerTransaction };
+    });
 
     res.json({ result, transaction, claim: updated, livePayerVerification: false });
   } catch (error) {
