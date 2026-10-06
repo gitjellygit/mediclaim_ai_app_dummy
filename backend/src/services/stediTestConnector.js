@@ -137,14 +137,12 @@ export function normalizeStediEligibilityResponse(body, { latencyMs = null } = {
       ? "ACTIVE"
       : "NEEDS_REVIEW";
 
-  const networkIndicators = benefits
-    .map((entry) => entry?.network?.indicator || entry?.inPlanNetworkIndicator)
-    .filter(Boolean);
-  const networkStatus =
-    networkIndicators.find((value) => value === "IN_NETWORK") ||
-    networkIndicators.find((value) => value === "OUT_OF_NETWORK") ||
-    networkIndicators[0] ||
-    null;
+  const deductibleAmount =
+    firstMoney(benefits, "deductible") ??
+    firstMoney(benefits, "deductibles");
+  const coinsuranceBenefitPct =
+    firstPercent(benefits, "coInsurance") ??
+    firstPercent(benefits, "coinsurance");
 
   return {
     transactionId: body?.id || body?.eligibilityCheckId || body?.transactionId || null,
@@ -152,13 +150,19 @@ export function normalizeStediEligibilityResponse(body, { latencyMs = null } = {
     coverageStatus:
       status === "ACTIVE" ? "ACTIVE" :
       status === "INACTIVE" ? "INACTIVE" : "UNKNOWN",
-    networkStatus,
-    deductibleRemaining:
-      firstMoney(benefits, "deductible") ??
-      firstMoney(benefits, "deductibles"),
-    coinsurancePct:
-      firstPercent(benefits, "coInsurance") ??
-      firstPercent(benefits, "coinsurance"),
+    // Benefit-level network indicators do not prove the requesting provider
+    // is in-network, so do not persist them as provider network status.
+    networkStatus: null,
+    // A returned deductible is not necessarily the patient's remaining
+    // deductible. Keep it in the response summary until we model benefit
+    // periods/remaining amounts explicitly.
+    deductibleRemaining: null,
+    coinsurancePct: null,
+    benefitSummary: {
+      deductibleAmount,
+      coinsuranceBenefitPct,
+      benefitEntryCount: benefits.length
+    },
     missingFields: [],
     latencyMs,
     livePayerVerification: false,
