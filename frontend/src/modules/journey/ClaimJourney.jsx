@@ -607,6 +607,12 @@ export default function ClaimJourney() {
     Boolean(claim?.payerConnectorId) &&
     Boolean(connectedConnector?.configured);
   const payerConnected = simulatedPayerConnected || externalPayerConnected;
+  const externalPriorAuthSupported =
+    externalPayerConnected &&
+    connectedConnector?.capabilities?.includes("requestPriorAuth");
+  const externalSubmissionSupported =
+    externalPayerConnected &&
+    connectedConnector?.capabilities?.includes("submitClaim");
   const payerTransactions = claim?.payerTransactions || [];
   const workflowAdvanced =
     Boolean(claim?.claimSubmissionDate) ||
@@ -977,7 +983,7 @@ export default function ClaimJourney() {
                     </Typography>
                   </Box>
 
-                  {workflowAdvanced ? (
+                  {workflowAdvanced || externalPayerConnected ? (
                     <Stack
                       direction="row"
                       spacing={1}
@@ -1351,6 +1357,7 @@ export default function ClaimJourney() {
                     !payerConnected ||
                     !stages.priorAuth.actionable ||
                     action !== "" ||
+                    (externalPayerConnected && !externalPriorAuthSupported) ||
                     (payerConnected
                       ? ["APPROVED", "NOT_REQUIRED"].includes(stages.priorAuth.status)
                       : authRequired === "" || authFormMatchesSaved)
@@ -1368,6 +1375,8 @@ export default function ClaimJourney() {
                 >
                   {action === "auth"
                     ? "Checking..."
+                    : externalPayerConnected && !externalPriorAuthSupported
+                    ? "Not Available"
                     : ["APPROVED", "NOT_REQUIRED"].includes(stages.priorAuth.status)
                     ? "Authorization Current"
                     : "Check Prior Auth"}
@@ -1390,7 +1399,7 @@ export default function ClaimJourney() {
                 <Typography variant="caption" color="text.secondary">
                   Submitted: {date(stages.claim.submissionDate)}
                 </Typography>
-                {payerConnected && (
+                {(simulatedPayerConnected || externalSubmissionSupported) && (
                   <Button
                     variant="contained"
                     size="small"
