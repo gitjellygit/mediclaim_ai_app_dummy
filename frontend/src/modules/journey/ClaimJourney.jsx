@@ -112,7 +112,7 @@ function journeyStepState(key, stages) {
   return "pending";
 }
 
-function JourneyProgress({ stages, onStepClick }) {
+function JourneyProgress({ stages, onStepClick, payerConnected }) {
   const steps = [
     { key: "eligibility", label: "Eligibility" },
     { key: "prior-auth", label: "Prior Auth" },
@@ -162,7 +162,11 @@ function JourneyProgress({ stages, onStepClick }) {
         }}
       >
         {steps.map((step, index) => {
-          const state = journeyStepState(step.key, stages);
+          const rawState = journeyStepState(step.key, stages);
+          const state =
+            !payerConnected && ["eligibility", "prior-auth"].includes(step.key)
+              ? "pending"
+              : rawState;
           const style = stateStyles[state];
           const previousState =
             index > 0 ? journeyStepState(steps[index - 1].key, stages) : null;
@@ -741,6 +745,7 @@ export default function ClaimJourney() {
         >
           <JourneyProgress
             stages={stages}
+            payerConnected={payerConnected}
             onStepClick={(step) => {
               const element = document.getElementById(`journey-stage-${step}`);
               if (element) {
@@ -897,9 +902,23 @@ export default function ClaimJourney() {
             </CardContent>
           </Card>
 
-          <Card sx={{ mb: 3 }} data-testid="payer-connection-card">
+          <Card
+            sx={{
+              mb: 3,
+              border: !payerConnected ? "2px solid" : undefined,
+              borderColor: !payerConnected ? "warning.main" : undefined,
+              boxShadow: !payerConnected ? 4 : undefined,
+              backgroundColor: !payerConnected ? "warning.50" : "background.paper"
+            }}
+            data-testid="payer-connection-card"
+          >
             <CardContent>
               <Stack spacing={2}>
+                {!payerConnected && (
+                  <Alert severity="warning" icon={<Lock fontSize="inherit" />}>
+                    <b>Payer connection required.</b> Connect the payer first to unlock Eligibility and Prior Authorization.
+                  </Alert>
+                )}
                 <Stack
                   direction={{ xs: "column", md: "row" }}
                   justifyContent="space-between"
@@ -917,7 +936,7 @@ export default function ClaimJourney() {
                     </Stack>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                       {journey?.payerConnection?.simulatedPayer?.description ||
-                        "Select the claim payer to begin payer transactions."}
+                        "Select and connect the claim payer before starting eligibility or prior authorization."}
                       {payerConnected && (
                         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
                           Demo environment · Illustrative responses; no live payer connection
@@ -1125,7 +1144,12 @@ export default function ClaimJourney() {
               stageId="journey-stage-eligibility"
               highlighted={focusedStage === "eligibility"}
               status={stages.eligibility.status}
-              actionable={stages.eligibility.actionable}
+              actionable={payerConnected && stages.eligibility.actionable}
+              blockedReason={
+                !payerConnected
+                  ? "Connect the payer above to unlock Eligibility."
+                  : stages.eligibility.blockedReason
+              }
               onStatusClick={
                 ["NEEDS_REVIEW", "FAILED"].includes(stages.eligibility.status)
                   ? () =>
@@ -1177,14 +1201,11 @@ export default function ClaimJourney() {
                 <Button
                   variant="contained"
                   size="small"
-                  disabled={action !== "" || eligibilityComplete}
+                  disabled={!payerConnected || action !== "" || eligibilityComplete}
                   onClick={() =>
                     runAction(
                       "eligibility",
-                      () =>
-                        payerConnected
-                          ? ClaimsApi.simulatePayerEligibility(claim.id)
-                          : ClaimsApi.runEligibilityPrecheck(claim.id),
+                      () => ClaimsApi.simulatePayerEligibility(claim.id),
                       "Eligibility updated"
                     )
                   }
@@ -1203,8 +1224,12 @@ export default function ClaimJourney() {
               stageId="journey-stage-prior-auth"
               highlighted={focusedStage === "prior-auth"}
               status={stages.priorAuth.status}
-              actionable={stages.priorAuth.actionable}
-              blockedReason={stages.priorAuth.blockedReason}
+              actionable={payerConnected && stages.priorAuth.actionable}
+              blockedReason={
+                !payerConnected
+                  ? "Connect the payer above before checking Prior Authorization."
+                  : stages.priorAuth.blockedReason
+              }
             >
               <Stack spacing={1.2}>
                 {payerConnected ? (
@@ -1217,7 +1242,7 @@ export default function ClaimJourney() {
                       : "No"}
                   </Typography>
                 ) : (
-                  <FormControl size="small" fullWidth disabled={!stages.priorAuth.actionable}>
+                  <FormControl size="small" fullWidth disabled={!payerConnected || !stages.priorAuth.actionable}>
                     <InputLabel>Auth Required? *</InputLabel>
                     <Select
                       label="Auth Required? *"
@@ -1238,6 +1263,7 @@ export default function ClaimJourney() {
                   focused={authRequired === "YES" && !authorizationNo}
                   onChange={(e) => setAuthorizationNo(e.target.value)}
                   disabled={
+                    !payerConnected ||
                     !stages.priorAuth.actionable ||
                     (payerConnected
                       ? claim.priorAuthRequired !== true
@@ -1252,6 +1278,7 @@ export default function ClaimJourney() {
                   value={authExpiry}
                   onChange={(e) => setAuthExpiry(e.target.value)}
                   disabled={
+                    !payerConnected ||
                     !stages.priorAuth.actionable ||
                     (payerConnected
                       ? claim.priorAuthRequired !== true
@@ -1262,6 +1289,7 @@ export default function ClaimJourney() {
                   variant="contained"
                   size="small"
                   disabled={
+                    !payerConnected ||
                     !stages.priorAuth.actionable ||
                     action !== "" ||
                     (payerConnected
@@ -1272,15 +1300,9 @@ export default function ClaimJourney() {
                     runAction(
                       "auth",
                       () =>
-                        payerConnected
-                          ? ClaimsApi.simulatePayerPriorAuth(claim.id, {
-                              authorizationNo
-                            })
-                          : ClaimsApi.evaluatePriorAuth(claim.id, {
-                              required: authRequired === "YES",
-                              authorizationNo,
-                              expiry: authExpiry || null
-                            }),
+                        ClaimsApi.simulatePayerPriorAuth(claim.id, {
+                          authorizationNo
+                        }),
                       "Prior authorization updated"
                     )
                   }
