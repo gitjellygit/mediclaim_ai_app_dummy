@@ -1585,7 +1585,7 @@ test("51 - claim journey uses compact required and conditional field cues", { co
   assert.match(source, /label="Allowed Amount"/);
   assert.match(source, /label="Paid Amount"/);
   assert.match(source, /Auto-calculated; editable/);
-  assert.match(source, /Check Remittance/);
+  assert.match(source, /Refresh Remittance/);
   assert.match(source, /Payer-reported values are locked/);
   assert.doesNotMatch(source, /In production this should come from/);
   assert.doesNotMatch(source, /For a real 835 ERA/);
@@ -2493,7 +2493,7 @@ test("92 - payer simulator frontend exposes connection workflow and transaction 
   assert.match(source, /Check Prior Auth/);
   assert.match(source, /Submit to Payer/);
   assert.match(source, /Check Status/);
-  assert.match(source, /Check Remittance/);
+  assert.match(source, /Refresh Remittance/);
   assert.match(source, /Payer Activity/);
 });
 
@@ -2634,7 +2634,7 @@ test("97 - payer Journey UI uses one action surface and client-facing wording", 
   assert.match(source, /Check Prior Auth/);
   assert.match(source, /Submit to Payer/);
   assert.match(source, /Check Status/);
-  assert.match(source, /Check Remittance/);
+  assert.match(source, /Refresh Remittance/);
   assert.match(source, /Show activity/);
   assert.match(source, /Hide activity/);
   assert.match(source, /Change payer/);
@@ -2661,6 +2661,36 @@ test("F5 - claims router delegates payer simulation and journey concerns to focu
   // Keep this architecture test behavioral instead of enforcing a brittle
   // source-line limit. The assertions above verify that payer/journey routes
   // are delegated and not re-embedded in the claims router.
+});
+
+test("97b - payer Journey confirms exact claim payer and distinguishes payer transmission", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+
+  assert.match(source, /suggested-payer-confirmation/);
+  assert.match(source, /Confirm payer/);
+  assert.match(source, /Choose different/);
+  assert.match(source, /Payer detected from uploaded document/);
+  assert.match(source, /Sent to Payer/);
+  assert.match(source, /payer transmission is still pending/);
+});
+
+test("97c - awaiting connected remittance exposes safe refresh polling", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
+    "utf8"
+  );
+  const payerSource = fs.readFileSync(
+    path.join(backendRoot, "src/routes/claimPayerSimulation.js"),
+    "utf8"
+  );
+
+  assert.match(source, /Refresh Remittance/);
+  assert.match(source, /No remittance is available yet/);
+  assert.match(payerSource, /available: false/);
+  assert.match(payerSource, /No remittance is available yet/);
 });
 
 test("98 - payer switch requires fresh eligibility and authorization", { concurrency: false }, () => {
@@ -2712,7 +2742,7 @@ test("101 - approval estimates do not impersonate a posted remittance", { concur
     "utf8"
   );
   assert.match(source, /Expected Payer Payment/);
-  assert.match(source, /Check Remittance/);
+  assert.match(source, /Refresh Remittance/);
   assert.match(source, /Payer-reported values have been posted and locked/);
   assert.match(source, /View Remittance Details/);
   assert.match(source, /Potential payer underpayment/);
