@@ -393,6 +393,7 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
 
       const completeness = page.getByTestId("claim-completeness-card");
       await expect(completeness).toBeVisible();
+      await completeness.getByRole("button", { name: "Expand", exact: true }).click();
       await completeness.getByRole("button", { name: "View Details" }).click();
       await expect(completeness.getByText(/Informational after submission/).first()).toBeVisible();
       await expect(completeness.getByRole("button", { name: "Fix", exact: true })).toHaveCount(0);
