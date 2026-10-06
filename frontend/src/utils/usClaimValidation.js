@@ -86,8 +86,14 @@ export const revenueCodeError = (value) => !value || /^\d{4}$/.test(String(value
 export const drgError = (value) => !value || /^\d{3}$/.test(String(value).trim())
   ? "" : "DRG must contain exactly 3 digits.";
 
-export const typeOfBillError = (value) => !value || /^0[1-9][0-9A-Z][0-9A-Z]$/i.test(String(value).trim())
-  ? "" : "Type of Bill must be 4 characters, e.g. 0131.";
+export const typeOfBillError = (value) => {
+  if (!value) return "";
+  const raw = String(value).trim().toUpperCase();
+  const normalized = raw.length === 3 ? `0${raw}` : raw;
+  return /^0[1-9][0-9A-Z][0-9A-Z]$/.test(normalized)
+    ? ""
+    : "Type of Bill must be a valid UB-04 value, e.g. 0131 (or 131).";
+};
 
 export const normalizeTin = (value) => String(value || "").replace(/\D/g,"").slice(0,9);
 export const normalizeNpi = (value) => String(value || "").replace(/\D/g,"").slice(0,10);
