@@ -36,6 +36,11 @@ import {
   getExtractedAmount,
   validateDocumentIdentityAgainstClaim
 } from "../services/documentIdentity.js";
+import {
+  applyCodingSuggestionToClaim,
+  syncDocumentCodingSuggestions,
+  validateCodingCode
+} from "../services/codingSuggestions.js";
 
 
 function extractedServiceLines(extracted = {}, sourceDocumentId = null) {
@@ -304,9 +309,6 @@ export function documentsRouter(prisma, uploadDir) {
           claimData.authorizationNo = extracted.authorizationNo;
         }
 
-        if (extracted.icd10Codes && extracted.icd10Codes.length > 0) {
-          claimData.icd10Codes = extracted.icd10Codes;
-        }
 
         claim = await prisma.claim.create({
           data: claimData
@@ -355,9 +357,6 @@ export function documentsRouter(prisma, uploadDir) {
 
         if (!claim.dischargeDate) assignParsedDate(updatePayload, "dischargeDate", extracted.dischargeDate);
 
-        if (extracted.icd10Codes && extracted.icd10Codes.length > 0 && (!claim.icd10Codes || claim.icd10Codes.length === 0)) {
-          updatePayload.icd10Codes = extracted.icd10Codes;
-        }
 
         if (Object.keys(updatePayload).length > 0) {
           claim = await prisma.claim.update({
@@ -400,7 +399,13 @@ export function documentsRouter(prisma, uploadDir) {
           })
         });
 
-        await persistExtractedServiceLines(tx, claim.id, extracted, created.id);
+        await syncDocumentCodingSuggestions(tx, {
+          claimId: claim.id,
+          documentId: created.id,
+          extracted,
+          rawText: intel.rawExtractedText || "",
+          confidence: intel.confidence
+        });
 
         const documentFields = getDerivedFieldsFromDocument(
           extracted,
@@ -637,12 +642,13 @@ export function documentsRouter(prisma, uploadDir) {
       const extractedPatientName = getExtractedPatientName(intel.extracted);
       const extractedAmount = getExtractedAmount(intel.extracted);
 
-      await persistExtractedServiceLines(
-        tx,
+      await syncDocumentCodingSuggestions(tx, {
         claimId,
-        intel.extracted || {},
-        created.id
-      );
+        documentId: created.id,
+        extracted: intel.extracted || {},
+        rawText: intel.rawExtractedText || "",
+        confidence: intel.confidence
+      });
 
       const updatePayload = {};
 
@@ -869,6 +875,14 @@ export function documentsRouter(prisma, uploadDir) {
           ocrProvider: analysis.ocrProvider || analysis.extractionSource || null,
           status: "PROCESSED"
         }
+      });
+
+      await syncDocumentCodingSuggestions(prisma, {
+        claimId: doc.claimId,
+        documentId: doc.id,
+        extracted: analysis.extracted || {},
+        rawText: analysis.rawExtractedText || "",
+        confidence: analysis.confidence
       });
 
       await prisma.$transaction([
