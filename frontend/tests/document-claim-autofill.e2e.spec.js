@@ -128,9 +128,13 @@ test("document claim creation fills later insurance fields and locks completed b
 
     const claims = await browserApi(page, "/api/claims");
     expect(claims.ok).toBe(true);
-    const created = claims.data.find((item) => item.patientName === patient);
-    expect(created).toBeTruthy();
-    claimId = created.id;
+    const listItem = claims.data.find((item) => item.patientName === patient);
+    expect(listItem).toBeTruthy();
+    claimId = listItem.id;
+
+    const detail = await browserApi(page, `/api/claims/${claimId}`);
+    expect(detail.ok).toBe(true);
+    const created = detail.data;
 
     expect(created.payerName).toBe("Cedar Health Plan");
     expect(created.policyNo).toBe("POL-AUTO-77420");
