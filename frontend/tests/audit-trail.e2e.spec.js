@@ -44,7 +44,7 @@ test("Audit CSV export requires a safe scope and rejects unfiltered API export",
   expect(unfiltered.status).toBe(400);
   expect(unfiltered.data.code).toBe("AUDIT_EXPORT_SCOPE_REQUIRED");
 
-  const claimId = page.getByLabel("Claim ID");
+  const claimId = page.getByRole("textbox", { name: "Claim ID", exact: true });
   await claimId.fill("claim-e2e-export-scope");
   await expect(download).toBeEnabled();
 
