@@ -157,6 +157,43 @@ test("document coding Accept flows into readiness and requires valid diagnosis l
     await cptCard.getByRole("button", { name: "Accept" }).click();
     await expect(cptCard.getByText("ACCEPTED", { exact: true })).toBeVisible();
 
+    const duplicateFileName = "coding-readiness-duplicate-e2e.pdf";
+    const duplicateUpload = await uploadPdf(
+      page,
+      claimId,
+      duplicateFileName,
+      buildTextPdfBase64([
+        "Follow-up clinical note",
+        "ICD-10: M54.50"
+      ])
+    );
+    expect(duplicateUpload.ok).toBe(true);
+
+    await page.goto(`/documents?claimId=${claimId}`);
+    const duplicateRow = page.getByRole("row").filter({ hasText: duplicateFileName });
+    await expect(duplicateRow).toBeVisible();
+    await duplicateRow.getByRole("button", { name: /Review 1/i }).click();
+
+    const duplicateIcd = page.getByTestId("coding-suggestion-ICD10_CM-M54.50");
+    await expect(duplicateIcd.getByText("ACCEPTED", { exact: true })).toBeVisible();
+    await expect(duplicateIcd.getByRole("button", { name: "Accept" })).toHaveCount(0);
+    await expect(duplicateIcd.getByRole("button", { name: "Change" })).toHaveCount(0);
+    await expect(duplicateIcd.getByRole("button", { name: "Reject" })).toHaveCount(0);
+
+    const payerConnect = await browserApi(
+      page,
+      `/api/claims/${claimId}/payer-simulation/connect`,
+      { method: "POST", body: { payerCode: "BLUE_HORIZON" } }
+    );
+    expect(payerConnect.ok).toBe(true);
+    const eligibility = await browserApi(
+      page,
+      `/api/claims/${claimId}/payer-simulation/eligibility`,
+      { method: "POST", body: {} }
+    );
+    expect(eligibility.ok).toBe(true);
+    expect(eligibility.data.result.status).toBe("ACTIVE");
+
     // Accepted ICD and CPT now exist on the claim, but the new service line has
     // not yet been linked to the diagnosis. Readiness must catch that exact gap.
     await page.goto(`/claims/${claimId}`);
