@@ -257,6 +257,21 @@ test("config - synthetic fixture endpoints are isolated behind E2E_TEST_MODE and
   assert.ok(fixtures.includes('e2e/payer-journey/seed'));
 });
 
+test("documents - smart upload may fill only empty or generic payer names from extraction", { concurrency: false }, () => {
+  const source = fs.readFileSync(
+    path.join(backendRoot, "src/routes/documents.js"),
+    "utf8"
+  );
+
+  assert.match(source, /payerIsGeneric/);
+  assert.match(source, /\["insurance", "unknown", "unknown payer", "payer"\]/);
+  assert.match(source, /updatePayload\.payerName = extracted\.payerName/);
+  assert.doesNotMatch(
+    source,
+    /if \(extracted\.payerName\) \{\s*updatePayload\.payerName = extracted\.payerName/
+  );
+});
+
 test("H8B-2 - logout-all revokes refresh sessions and existing access tokens", { concurrency: false }, async () => {
   const anonymous = await fetch(`${baseUrl}/api/auth/logout-all`, { method: "POST" });
   assert.equal(anonymous.status, 401);
