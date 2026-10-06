@@ -28,7 +28,11 @@ async function api(page, path) {
 }
 
 test("Audit CSV export requires a safe scope and rejects unfiltered API export", async ({ page }, testInfo) => {
-  const browser = observeBrowser(page, testInfo);
+  const browser = observeBrowser(page, testInfo, {
+    allowConsoleError: (entry) =>
+      entry.text.includes("400 (Bad Request)") &&
+      entry.location?.url?.includes("/api/audit/export")
+  });
 
   await login(page);
   await page.goto("/audit");
