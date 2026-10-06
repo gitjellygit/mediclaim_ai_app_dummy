@@ -382,9 +382,9 @@ export function documentsRouter(prisma, uploadDir) {
         const claimData = {
           organizationId: req.user.organizationId,
           createdById: req.user.id,
+          ...extractedClaimFields,
           patientName: extractedClaimFields.patientName || patientName,
           payerName: extractedClaimFields.payerName || payerName,
-          ...extractedClaimFields,
           documentDerivedFields: getDerivedFieldsFromDocument(
             extracted,
             documentType
