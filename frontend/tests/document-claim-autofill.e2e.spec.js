@@ -160,10 +160,10 @@ test("document claim creation fills later insurance fields and locks completed b
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await page.goto(`/claims/${claimId}`);
 
-    await expect(page.getByText(/Policy No:/)).toContainText("POL-AUTO-77420");
-    await expect(page.getByText(/Member ID:/)).toContainText("CF-AUTO-4411");
-    await expect(page.getByText(/Group Number:/)).toContainText("GRP-AUTO-77");
-    await expect(page.getByText(/Subscriber ID:/)).toContainText("SUB-AUTO-4411");
+    await expect(page.getByText("Policy No:", { exact: true }).locator("..")).toContainText("POL-AUTO-77420");
+    await expect(page.getByText("Member ID:", { exact: true }).locator("..")).toContainText("CF-AUTO-4411");
+    await expect(page.getByText("Group Number:", { exact: true }).locator("..")).toContainText("GRP-AUTO-77");
+    await expect(page.getByText("Subscriber ID:", { exact: true }).locator("..")).toContainText("SUB-AUTO-4411");
 
     await browser.assertClean();
   } finally {
