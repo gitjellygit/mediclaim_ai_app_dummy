@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Box,
   Typography,
@@ -43,11 +43,16 @@ import {
 import { ClaimsApi } from "../../api/claims.js";
 import { getToken } from "../../api/client.js";
 import { useToast } from "../../context/ToastContext.jsx";
+import { useSearchParams } from "react-router-dom";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
 export default function DocumentIntelligence() {
   const { showToast, showDialog, confirmDialog } = useToast();
+  const [searchParams] = useSearchParams();
+  const claimIdFilter = String(searchParams.get("claimId") || "").trim();
+  const openCodingFromQuery = searchParams.get("reviewCoding") === "1";
+  const codingAutoOpened = useRef(false);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -373,12 +378,25 @@ export default function DocumentIntelligence() {
   }
 
   const filteredDocuments = useMemo(() => {
-    if (!searchTerm) return documents;
-    return documents.filter(doc =>
+    const scoped = claimIdFilter
+      ? documents.filter((doc) => doc.claimId === claimIdFilter)
+      : documents;
+
+    if (!searchTerm) return scoped;
+    return scoped.filter(doc =>
       doc.fileName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       doc.type.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [documents, searchTerm]);
+  }, [documents, searchTerm, claimIdFilter]);
+
+  useEffect(() => {
+    if (!openCodingFromQuery || codingAutoOpened.current || loading) return;
+    const candidate = filteredDocuments.find((doc) => extractedCodingCount(doc) > 0);
+    if (!candidate) return;
+
+    codingAutoOpened.current = true;
+    openCodingReview(candidate);
+  }, [openCodingFromQuery, loading, filteredDocuments]);
 
   const paginatedFilteredDocs = filteredDocuments.slice(
     page * rowsPerPage,
@@ -435,7 +453,14 @@ export default function DocumentIntelligence() {
     <>
       <Box sx={{ p: 3 }}>
         <Stack direction="row" justifyContent="space-between" mb={2}>
-          <Typography variant="h4">🧠 Document Intelligence</Typography>
+          <Box>
+            <Typography variant="h4">🧠 Document Intelligence</Typography>
+            {claimIdFilter && (
+              <Typography variant="body2" color="text.secondary">
+                Showing documents for the selected claim.
+              </Typography>
+            )}
+          </Box>
 
           <Button component="label" variant="contained" startIcon={<CloudUpload />}>
             <input type="file" hidden onChange={handleFileUpload} />
