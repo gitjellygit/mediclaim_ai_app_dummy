@@ -4,7 +4,8 @@ import {
   buildStediEligibilityRequest,
   createStediTestConnector,
   listStediPayers,
-  normalizeStediEligibilityResponse
+  normalizeStediEligibilityResponse,
+  searchStediPayers
 } from "../src/services/stediTestConnector.js";
 
 const claim = {
@@ -170,4 +171,51 @@ test("R2A - Stedi payer list uses authenticated payer-network API", async () => 
   assert.equal(result.items.length, 1);
   assert.match(captured.url, /\/payers\?pageSize=25$/);
   assert.equal(captured.options.headers.Authorization, "test-key");
+});
+
+
+test("R2A - Stedi payer search filters for eligibility support", async () => {
+  let captured = null;
+  const fetchImpl = async (url, options) => {
+    captured = { url: String(url), options };
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      async text() {
+        return JSON.stringify({ items: [] });
+      }
+    };
+  };
+
+  await searchStediPayers({
+    query: "Blue Cross",
+    env: {
+      STEDI_TEST_API_KEY: "test-key",
+      STEDI_PAYER_API_BASE_URL: "https://example.test/2024-04-01"
+    },
+    fetchImpl,
+    pageSize: 20
+  });
+
+  assert.match(captured.url, /\/payers\/search\?/);
+  assert.match(captured.url, /query=Blue(?:\+|%20)Cross/);
+  assert.match(captured.url, /eligibilityCheck=SUPPORTED/);
+  assert.equal(captured.options.headers.Authorization, "test-key");
+});
+
+test("R2A - Claim Journey source uses the per-claim external connector for eligibility", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const source = fs.readFileSync(
+    path.resolve(here, "../src/routes/claimJourney.js"),
+    "utf8"
+  );
+
+  assert.match(source, /createPayerConnectorForClaim/);
+  assert.match(source, /payerConnectorId: connectorId/);
+  assert.match(source, /transactionType: "ELIGIBILITY"/);
+  assert.match(source, /connector\.connectorEnvironment === "TEST"/);
 });
