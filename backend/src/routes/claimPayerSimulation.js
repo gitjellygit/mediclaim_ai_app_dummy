@@ -11,6 +11,7 @@ import {
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { createPayerConnectorForClaim } from "../services/payerGateway.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
+import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
 import {
   getMockPayer,
@@ -494,61 +495,71 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
       result.status === "DENIED" ? "DENIED" :
       result.status === "PAID" ? "PAID" : claim.status;
 
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
-        payerClaimStatus: result.status,
-        claimStatusCheckedAt: new Date(),
-        status: assertClaimTransition(claim.status, overallStatus),
-        allowedAmount:
-          result.allowedAmount != null ? result.allowedAmount : claim.allowedAmount,
-        approvedAmount:
-          result.approvedAmount != null ? result.approvedAmount : claim.approvedAmount,
-        patientResponsibility:
-          result.patientResponsibility != null
-            ? result.patientResponsibility
-            : claim.patientResponsibility,
-        fieldProvenance: mergeProvenance(
-          claim.fieldProvenance,
-          systemProvenance(["payerClaimStatus"], {
-            source: "SIMULATED_PAYER",
-            label: "Mock 277 Response",
-            sourceDetail: payer.name,
-            verified: false
-          })
-        )
-      }
-    });
-
-    let denialCase = null;
-    if (["DENIED", "PARTIALLY_APPROVED"].includes(result.status)) {
-      denialCase = await prisma.denialCase.findFirst({
-        where: { claimId: claim.id, status: { in: ["OPEN", "ANALYZED", "CORRECTION_REQUIRED"] } },
-        orderBy: { createdAt: "desc" }
+    const { updated, denialCase, transaction } = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          payerClaimStatus: result.status,
+          claimStatusCheckedAt: new Date(),
+          status: assertClaimTransition(claim.status, overallStatus),
+          allowedAmount:
+            result.allowedAmount != null ? result.allowedAmount : claim.allowedAmount,
+          approvedAmount:
+            result.approvedAmount != null ? result.approvedAmount : claim.approvedAmount,
+          patientResponsibility:
+            result.patientResponsibility != null
+              ? result.patientResponsibility
+              : claim.patientResponsibility,
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            systemProvenance(["payerClaimStatus"], {
+              source: "SIMULATED_PAYER",
+              label: "Mock 277 Response",
+              sourceDetail: payer.name,
+              verified: false
+            })
+          )
+        }
       });
-      if (!denialCase) {
-        denialCase = await prisma.denialCase.create({
-          data: {
-            claimId: claim.id,
-            source: "SIMULATED_PAYER_STATUS",
-            status: "OPEN",
-            denialCategory: result.status === "DENIED" ? "AUTHORIZATION" : "PAYMENT",
-            reasonText: result.reason,
-            denialDate: new Date(),
-            revenueAtRisk: Math.max(0, differenceMoney(claim.amount || 0, claim.paidAmount || 0)),
-            recommendedAction: "Review the simulated payer response and supporting claim data."
-          }
-        });
-      }
-    }
 
-    const transaction = await createPayerTransaction(
-      claim.id,
-      payer.code,
-      "CLAIM_STATUS",
-      result,
-      { transaction: "276", payerClaimNo: claim.insurerClaimNo || null }
-    );
+      let activeDenialCase = null;
+      if (["DENIED", "PARTIALLY_APPROVED"].includes(result.status)) {
+        activeDenialCase = await findActiveDenialCase(tx, claim.id);
+        if (!activeDenialCase) {
+          activeDenialCase = await tx.denialCase.create({
+            data: {
+              claimId: claim.id,
+              source: "SIMULATED_PAYER_STATUS",
+              status: "OPEN",
+              denialCategory: result.status === "DENIED" ? "AUTHORIZATION" : "PAYMENT",
+              reasonText: result.reason,
+              denialDate: new Date(),
+              revenueAtRisk: Math.max(
+                0,
+                differenceMoney(claim.amount || 0, claim.paidAmount || 0)
+              ),
+              recommendedAction:
+                "Review the simulated payer response and supporting claim data."
+            }
+          });
+        }
+      }
+
+      const payerTransaction = await createPayerTransaction(
+        claim.id,
+        payer.code,
+        "CLAIM_STATUS",
+        result,
+        { transaction: "276", payerClaimNo: claim.insurerClaimNo || null },
+        tx
+      );
+
+      return {
+        updated: updatedClaim,
+        denialCase: activeDenialCase,
+        transaction: payerTransaction
+      };
+    });
 
     res.json({ result, transaction, claim: updated, denialCase });
   } catch (error) {
