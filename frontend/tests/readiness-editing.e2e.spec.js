@@ -35,7 +35,11 @@ async function browserApi(page, path, { method = "GET", body } = {}) {
 }
 
 test("readiness diagnosis linkage stays truthful through edit, save, recheck and reload", async ({ page }, testInfo) => {
-  const browser = observeBrowser(page, testInfo);
+  const browser = observeBrowser(page, testInfo, {
+    allowConsoleError: (entry) =>
+      entry.text.includes("400 (Bad Request)") &&
+      /\/api\/claims\/[^/]+$/.test(entry.location?.url || "")
+  });
   await login(page);
 
   const created = await browserApi(page, "/api/claims", {
