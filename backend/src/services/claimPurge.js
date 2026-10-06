@@ -1,8 +1,18 @@
-import { deleteStoredObject } from "./documentStorage.js";
+import { deleteStoredObject, storageKindForPath } from "./documentStorage.js";
+import { resolveStoredDocument } from "./storedDocumentPath.js";
 
-export function resolveClaimDocumentFiles(documents = []) {
+export function resolveClaimDocumentFiles(
+  documents = [],
+  uploadDir = process.env.UPLOAD_DIR || "uploads"
+) {
   return documents
-    .map((doc) => ({ id: doc.id, path: doc.path }))
+    .map((doc) => ({
+      id: doc.id,
+      path:
+        storageKindForPath(doc.path) === "s3"
+          ? doc.path
+          : resolveStoredDocument(doc.path, uploadDir)
+    }))
     .filter((item) => Boolean(item.path));
 }
 
