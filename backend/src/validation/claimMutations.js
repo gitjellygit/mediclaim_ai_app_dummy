@@ -29,7 +29,10 @@ export const serviceLineInputSchema = z.object({
   serviceDateFrom: optionalDateString,
   serviceDateTo: optionalDateString,
   revenueCode: optional(revenueCodeSchema),
-  poaIndicator: optional(poaIndicatorSchema)
+  poaIndicator: optional(poaIndicatorSchema),
+  verified: z.boolean().optional(),
+  source: z.enum(["USER", "DOCUMENT_OCR"]).optional(),
+  sourceDocumentId: z.string().trim().min(1).max(128).nullish()
 }).strict();
 
 export const emptyMutationSchema = z.object({}).strict();
