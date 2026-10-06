@@ -1,3 +1,5 @@
+import { mergeProvenance, systemProvenance } from "./claimFieldProvenance.js";
+
 function uniqueCodes(values = []) {
   return [...new Set(
     (Array.isArray(values) ? values : [])
@@ -146,12 +148,23 @@ export async function applyCodingSuggestionToClaim(
   if (suggestion.system === "ICD10_CM") {
     const claim = await prismaClient.claim.findUnique({
       where: { id: suggestion.claimId },
-      select: { icd10Codes: true }
+      select: { icd10Codes: true, fieldProvenance: true }
     });
     const codes = uniqueCodes([...(claim?.icd10Codes || []), finalCode]);
     await prismaClient.claim.update({
       where: { id: suggestion.claimId },
-      data: { icd10Codes: codes }
+      data: {
+        icd10Codes: codes,
+        fieldProvenance: mergeProvenance(
+          claim?.fieldProvenance,
+          systemProvenance(["icd10Codes"], {
+            source: "DOCUMENT_CODING_REVIEW",
+            label: "Human-verified document coding",
+            sourceDetail: "Accepted or changed from a document coding suggestion",
+            verified: true
+          })
+        )
+      }
     });
     return;
   }
@@ -159,7 +172,7 @@ export async function applyCodingSuggestionToClaim(
   if (suggestion.system === "ICD10_PCS") {
     const claim = await prismaClient.claim.findUnique({
       where: { id: suggestion.claimId },
-      select: { inpatientProcedureCodes: true }
+      select: { inpatientProcedureCodes: true, fieldProvenance: true }
     });
     const codes = uniqueCodes([
       ...(claim?.inpatientProcedureCodes || []),
@@ -167,7 +180,18 @@ export async function applyCodingSuggestionToClaim(
     ]);
     await prismaClient.claim.update({
       where: { id: suggestion.claimId },
-      data: { inpatientProcedureCodes: codes }
+      data: {
+        inpatientProcedureCodes: codes,
+        fieldProvenance: mergeProvenance(
+          claim?.fieldProvenance,
+          systemProvenance(["inpatientProcedureCodes"], {
+            source: "DOCUMENT_CODING_REVIEW",
+            label: "Human-verified document coding",
+            sourceDetail: "Accepted or changed from a document coding suggestion",
+            verified: true
+          })
+        )
+      }
     });
     return;
   }
