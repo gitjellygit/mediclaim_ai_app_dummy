@@ -535,20 +535,13 @@ export default function ClaimsList() {
         maxWidth="md"
       >
         <DialogTitle>
-          Create Claim with AI
+          Create Claim from Documents
         </DialogTitle>
 
         <DialogContent>
-          <Typography color="text.secondary" sx={{ mb: 2 }}>
-            Upload one or more clinical or billing documents. AI will classify the documents,
-            extract structured claim data, detect duplicates, check for an existing patient
-            encounter, and create or consolidate the claim.
+          <Typography color="text.secondary" variant="body2" sx={{ mb: 1.5 }}>
+            Select the patient documents. PRISM will create one claim and fill the fields it can extract safely.
           </Typography>
-
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Processing sequence: OCR / document classification → field extraction → duplicate detection →
-            patient & encounter matching → claim creation or merge.
-          </Alert>
 
           <Button
             component="label"
@@ -567,16 +560,21 @@ export default function ClaimsList() {
           </Button>
 
           {aiFiles.length > 0 && (
-            <Paper variant="outlined" sx={{ p: 2, mt: 2 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Selected documents ({aiFiles.length})
+            <Paper variant="outlined" sx={{ p: 1.5, mt: 1.5 }}>
+              <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
+                {aiFiles.length} document{aiFiles.length === 1 ? "" : "s"} selected
               </Typography>
-              <Stack spacing={0.75}>
-                {aiFiles.map((file) => (
-                  <Typography key={`${file.name}-${file.size}`} variant="body2">
-                    • {file.name}
+              <Stack spacing={0.4}>
+                {aiFiles.slice(0, 5).map((file) => (
+                  <Typography key={`${file.name}-${file.size}`} variant="caption" color="text.secondary">
+                    {file.name}
                   </Typography>
                 ))}
+                {aiFiles.length > 5 && (
+                  <Typography variant="caption" color="text.secondary">
+                    +{aiFiles.length - 5} more
+                  </Typography>
+                )}
               </Stack>
             </Paper>
           )}
@@ -585,7 +583,7 @@ export default function ClaimsList() {
             <Box sx={{ mt: 3 }}>
               <LinearProgress />
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                AI is processing documents and building the claim. Please keep this window open.
+                Processing documents and updating the claim...
               </Typography>
             </Box>
           )}
@@ -593,8 +591,8 @@ export default function ClaimsList() {
           {aiResults.length > 0 && (
             <>
               <Divider sx={{ my: 3 }} />
-              <Typography variant="h6" sx={{ mb: 1.5 }}>
-                Processing Results
+              <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                Results
               </Typography>
 
               <Stack spacing={1}>
@@ -679,9 +677,14 @@ export default function ClaimsList() {
             variant="contained"
             startIcon={<AutoAwesome />}
             onClick={createClaimFromDocuments}
-            disabled={aiCreating || aiFiles.length === 0}
+            disabled={aiCreating || aiFiles.length === 0 || Boolean(aiCreatedClaimId)}
+            data-testid="create-claim-from-documents"
           >
-            {aiCreating ? "Processing..." : "Create Claim with AI"}
+            {aiCreating
+              ? "Processing..."
+              : aiCreatedClaimId
+              ? "Claim Created"
+              : "Create Claim"}
           </Button>
         </DialogActions>
       </Dialog>
