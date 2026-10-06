@@ -208,7 +208,15 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
       page.getByText(/field that needs attention is highlighted below/i)
     ).toBeVisible();
 
-    await page.goto(`/claims/${claim.id}`);
+    await billingNpi.fill("1234567890");
+    await page.getByRole("button", { name: "Save Changes", exact: true }).click();
+
+    await expect(
+      page.getByTestId("readiness-issue-billingProviderNpi")
+    ).toHaveCount(0);
+    await expect(
+      page.getByText(/Completed — recheck readiness/i)
+    ).toBeVisible();
 
     const cptIssue = page.getByTestId("readiness-issue-cptHcpcsCode");
     await expect(cptIssue).toContainText(/CPT\/HCPCS/i);
