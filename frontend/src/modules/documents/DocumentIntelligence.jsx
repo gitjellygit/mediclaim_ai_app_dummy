@@ -657,7 +657,11 @@ export default function DocumentIntelligence() {
               {codingSuggestions.map((suggestion) => {
                 const pending = suggestion.status === "PENDING";
                 return (
-                  <Card key={suggestion.id} variant="outlined">
+                  <Card
+                    key={suggestion.id}
+                    variant="outlined"
+                    data-testid={`coding-suggestion-${suggestion.system}-${suggestion.suggestedCode}`}
+                  >
                     <CardContent>
                       <Stack spacing={1.25}>
                         <Stack
