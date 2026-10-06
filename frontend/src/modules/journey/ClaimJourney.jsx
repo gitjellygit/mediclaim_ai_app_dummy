@@ -745,6 +745,7 @@ export default function ClaimJourney() {
         >
           <JourneyProgress
             stages={stages}
+            payerConnected={payerConnected}
             onStepClick={(step) => {
               const element = document.getElementById(`journey-stage-${step}`);
               if (element) {
