@@ -3289,7 +3289,7 @@ test("stabilization - legacy claim document endpoints prevent directory escape a
     "utf8"
   );
   assert.match(storageSource, /resolveStoredDocument\(storedPath, uploadDir\)/);
-  assert.match(sharedSource, /"private, no-store"/);
+  assert.match(sharedSource, /"private, no-store(?:, max-age=0)?"/);
 });
 
 test("money - create and retrieve exact cent amounts without rounding to dollars", { concurrency: false }, async () => {
