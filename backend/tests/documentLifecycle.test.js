@@ -1733,13 +1733,16 @@ test("57 - posted remittance cannot be edited again", { concurrency: false }, as
   assert.match(body.error, /Posted remittance is locked/i);
 });
 
-test("58 - journey UI disables completed terminal stage controls", { concurrency: false }, () => {
+test("58 - journey UI enforces payer prerequisite and disables terminal controls", { concurrency: false }, () => {
   const source = fs.readFileSync(
     path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
     "utf8"
   );
 
-  assert.match(source, /disabled=\{!stages\.priorAuth\.actionable\}/);
+  assert.match(source, /actionable=\{payerConnected && stages\.eligibility\.actionable\}/);
+  assert.match(source, /actionable=\{payerConnected && stages\.priorAuth\.actionable\}/);
+  assert.match(source, /disabled=\{!payerConnected \|\| action !== "" \|\| eligibilityComplete\}/);
+  assert.match(source, /Connect the payer above before checking Prior Authorization/);
   assert.match(source, /disabled=\{!stages\.claimStatus\.actionable\}/);
   assert.match(
     source,
