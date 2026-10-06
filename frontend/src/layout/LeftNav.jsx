@@ -46,28 +46,36 @@ export default function LeftNav({
       <ListItemButton
         onClick={() => go(path)}
         sx={{
-          backgroundColor: isActive ? "rgba(255,255,255,0.1)" : "transparent",
+          mx: 1,
+          my: 0.25,
+          px: 1.25,
+          minHeight: 42,
+          borderRadius: 1,
+          backgroundColor: isActive ? "rgba(255,255,255,0.12)" : "transparent",
           "&:hover": {
             backgroundColor: isActive
-              ? "rgba(255,255,255,0.2)"
-              : "rgba(255,255,255,0.05)"
+              ? "rgba(255,255,255,0.16)"
+              : "rgba(255,255,255,0.06)"
           }
         }}
       >
         <ListItemIcon
           sx={{
             color: isActive ? "#fff" : "rgba(255,255,255,0.7)",
-            minWidth: 44
+            minWidth: 38
           }}
         >
           {icon}
         </ListItemIcon>
         <ListItemText
           primary={label}
-          primaryTypographyProps={{ noWrap: true }}
+          primaryTypographyProps={{
+            noWrap: true,
+            fontSize: 13.5,
+            fontWeight: isActive ? 650 : 450
+          }}
           sx={{
-            color: isActive ? "#fff" : "rgba(255,255,255,0.9)",
-            fontWeight: isActive ? 600 : 400
+            color: isActive ? "#fff" : "rgba(255,255,255,0.82)"
           }}
         />
       </ListItemButton>
@@ -79,20 +87,40 @@ export default function LeftNav({
       sx={{
         width,
         height: "100%",
-        backgroundColor: "#114aa6",
+        backgroundColor: "#102F47",
         color: "#fff",
         display: "flex",
         flexDirection: "column"
       }}
     >
-      <Box sx={{ p: 2, fontWeight: 600, fontSize: 18 }}>
-        Hospital AI Platform
+      <Box
+        sx={{
+          px: 2,
+          py: 2.1,
+          borderBottom: "1px solid rgba(255,255,255,0.08)"
+        }}
+      >
+        <Box sx={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.08em" }}>
+          PRISM
+        </Box>
+        <Box
+          sx={{
+            mt: 0.25,
+            fontSize: 10.5,
+            lineHeight: 1.35,
+            letterSpacing: "0.045em",
+            color: "rgba(255,255,255,0.62)",
+            textTransform: "uppercase"
+          }}
+        >
+          Payer & Revenue Intelligence
+        </Box>
       </Box>
 
       <List sx={{ flex: 1, overflowY: "auto" }}>
         <NavItem
           icon={<DescriptionIcon />}
-          label="AI Claims"
+          label="Claims"
           path="/claims"
           isActive={isActivePath("/claims")}
         />
