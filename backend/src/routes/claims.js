@@ -100,6 +100,7 @@ function normalizeServiceLines(lines = []) {
       };
     }
 
+    const source = line.source === "DOCUMENT_OCR" ? "DOCUMENT_OCR" : "USER";
     normalized.push({
       cptHcpcsCode: line.cptHcpcsCode,
       modifiers: line.modifiers || [],
@@ -111,9 +112,10 @@ function normalizeServiceLines(lines = []) {
       serviceDateTo,
       revenueCode: line.revenueCode || null,
       poaIndicator: line.poaIndicator || null,
-      verified: true,
-      source: "USER",
-      sourceDocumentId: null
+      verified: source === "DOCUMENT_OCR" ? Boolean(line.verified) : true,
+      source,
+      sourceDocumentId:
+        source === "DOCUMENT_OCR" ? (line.sourceDocumentId || null) : null
     });
   }
 
