@@ -77,9 +77,11 @@ test("R2A - normalizes current Stedi plans response into CLAIM APP eligibility",
   assert.equal(normalized.transactionId, "ec_test_123");
   assert.equal(normalized.status, "ACTIVE");
   assert.equal(normalized.coverageStatus, "ACTIVE");
-  assert.equal(normalized.networkStatus, "IN_NETWORK");
-  assert.equal(normalized.deductibleRemaining, 750);
-  assert.equal(normalized.coinsurancePct, 20);
+  assert.equal(normalized.networkStatus, null);
+  assert.equal(normalized.deductibleRemaining, null);
+  assert.equal(normalized.coinsurancePct, null);
+  assert.equal(normalized.benefitSummary.deductibleAmount, 750);
+  assert.equal(normalized.benefitSummary.coinsuranceBenefitPct, 20);
   assert.equal(normalized.latencyMs, 42);
   assert.equal(normalized.testMode, true);
 });
