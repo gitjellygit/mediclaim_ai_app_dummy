@@ -129,10 +129,22 @@ test("document coding Accept flows into readiness and requires valid diagnosis l
     );
     expect(uploaded.ok).toBe(true);
 
-    await page.goto("/documents");
-    const row = page.getByRole("row").filter({ hasText: fileName });
-    await expect(row).toBeVisible();
-    await row.getByRole("button", { name: /Review 2/i }).click();
+    await page.goto(`/claims/${claimId}`);
+    const completion = page.getByTestId("claim-completeness-card");
+    await expect(completion).toBeVisible();
+    await expect(page.getByText("Claim Automation", { exact: true })).toHaveCount(0);
+
+    await completion.getByRole("button", { name: "Expand" }).click();
+    await expect(completion.getByText("ICD-10", { exact: true })).toBeVisible();
+    await expect(
+      completion.getByText(/document contains an ICD-10 suggestion/i)
+    ).toBeVisible();
+    await expect(
+      completion.getByText("CPT / HCPCS Service Line", { exact: true })
+    ).toBeVisible();
+
+    await completion.getByRole("button", { name: "Review codes" }).first().click();
+    await expect(page).toHaveURL(new RegExp(`/documents\\?claimId=${claimId}&reviewCoding=1`));
 
     const icdCard = page.getByTestId("coding-suggestion-ICD10_CM-M54.50");
     const cptCard = page.getByTestId("coding-suggestion-CPT-99213");
