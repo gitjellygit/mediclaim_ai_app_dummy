@@ -292,7 +292,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
         : "FAILED";
     const coverageStatus = eligibility.coverageStatus || "UNKNOWN";
 
-    const updated = await prisma.$transaction(async (tx) => {
+    const { updated, payerTransaction } = await prisma.$transaction(async (tx) => {
       const updatedClaim = await tx.claim.update({
         where: { id: claim.id },
         data: {
@@ -337,7 +337,30 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
         });
       }
 
-      return updatedClaim;
+      let transaction = null;
+      if (connector.connectorEnvironment === "TEST" || connector.connectorEnvironment === "PRODUCTION") {
+        transaction = await tx.payerTransaction.create({
+          data: {
+            claimId: claim.id,
+            transactionId:
+              eligibility.transactionId ||
+              `${connector.connectorId}-ELIG-${claim.id}-${Date.now()}`,
+            mode: connector.connectorEnvironment,
+            payerCode: claim.payerEdiId || claim.payerName,
+            transactionType: "ELIGIBILITY",
+            status: eligibility.status,
+            latencyMs: eligibility.latencyMs || null,
+            requestPayload: {
+              transaction: "270/271",
+              connectorId: connector.connectorId,
+              testMode: connector.connectorEnvironment === "TEST"
+            },
+            responsePayload: eligibility
+          }
+        });
+      }
+
+      return { updated: updatedClaim, payerTransaction: transaction };
     });
 
     logJourneyEvent(claim.id, "eligibility-precheck", eligibilityStatus, {
@@ -358,6 +381,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
         provider: connector.connectorProvider || "CLAIM_APP",
         environment: connector.connectorEnvironment || "LOCAL"
       },
+      transaction: payerTransaction,
       claim: updated
     });
   } catch (error) {
