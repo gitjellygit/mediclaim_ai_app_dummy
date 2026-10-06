@@ -10,13 +10,13 @@ export default function MainLayout({ children }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
   return (
-    <Box sx={{ minHeight: "100vh", backgroundColor: "#f5f7fb" }}>
+    <Box sx={{ minHeight: "100vh", backgroundColor: "background.default" }}>
       <AppBar
         position="fixed"
         elevation={1}
         sx={{
           display: { xs: "block", md: "none" },
-          backgroundColor: "#114aa6",
+          backgroundColor: "primary.dark",
           zIndex: (theme) => theme.zIndex.drawer + 1
         }}
       >
@@ -31,7 +31,7 @@ export default function MainLayout({ children }) {
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" noWrap>
-            Hospital AI Platform
+            PRISM
           </Typography>
         </Toolbar>
       </AppBar>
@@ -48,7 +48,7 @@ export default function MainLayout({ children }) {
           minWidth: 0,
           ml: { xs: 0, md: `${SIDEBAR_WIDTH}px` },
           pt: { xs: 8, md: 0 },
-          px: { xs: 1, sm: 2, md: 2.5 },
+          px: { xs: 1.5, sm: 2, md: 2.5 },
           pb: { xs: 2, md: 3 },
           backgroundColor: "#f5f7fb",
           minHeight: "100vh"
