@@ -407,6 +407,10 @@ router.get("/:id", async (req, res) => {
     include: {
       documents: true,
       serviceLines: { orderBy: { createdAt: "asc" } },
+      codingSuggestions: {
+        where: { status: "PENDING" },
+        orderBy: { createdAt: "asc" }
+      },
       checks: { orderBy: { createdAt: "desc" } }
     }
   });
