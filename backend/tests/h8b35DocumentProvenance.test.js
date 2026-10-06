@@ -36,7 +36,7 @@ test("H8B-3.5B - document create and dependent writes are transactional", () => 
 
   assert.match(
     docs,
-    /const doc = await prisma\.\$transaction\(async \(tx\) => \{[\s\S]*tx\.document\.create[\s\S]*persistExtractedServiceLines\(tx/
+    /const doc = await prisma\.\$transaction\(async \(tx\) => \{[\s\S]*tx\.document\.create[\s\S]*syncDocumentCodingSuggestions\(tx/
   );
   assert.match(
     docs,
