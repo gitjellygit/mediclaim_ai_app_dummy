@@ -103,7 +103,9 @@ test("readiness diagnosis linkage stays truthful through edit, save, recheck and
     await expect(page.getByText(/M54\.50 is not one of the claim ICD-10 codes/i)).toBeVisible();
 
     await page.getByRole("button", { name: "Save", exact: true }).first().click();
-    await expect(page.getByText(/Service-line diagnosis codes must match ICD-10-CM diagnoses/i)).toBeVisible();
+    const updateDialog = page.getByRole("dialog", { name: "Claim update failed" });
+    await expect(updateDialog).toContainText(/Service-line diagnosis codes must match ICD-10-CM diagnoses/i);
+    await updateDialog.getByRole("button", { name: "OK", exact: true }).click();
 
     // Fix the pointer in the same edit session, then save atomically.
     await page.getByLabel("Linked Diagnosis Codes").first().fill("E11.9");
