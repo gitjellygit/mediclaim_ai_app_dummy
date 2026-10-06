@@ -763,6 +763,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   async function runAICheck() {
     if (!canRunAI) return showToast("Only CASHIER/ADMIN can check claim readiness", "error");
+    if (claim?.eligibilityStatus !== "VERIFIED") {
+      return showDialog(
+        "Verify payer eligibility in Claim Journey before running readiness.",
+        { title: "Eligibility required", severity: "warning" }
+      );
+    }
     if (aiCheckLocked) {
       return showDialog(
         "This historical or finalized claim is locked. AI readiness cannot be recalculated unless the claim is reopened or amended.",
@@ -2156,7 +2162,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <Button
                 variant="contained"
                 onClick={runAICheck}
-                disabled={aiRunning || !canRunAI || aiCheckLocked}
+                disabled={aiRunning || !canRunAI || aiCheckLocked || !eligibilityClear}
               >
                 {aiRunning
                   ? "Checking..."
@@ -2186,9 +2192,34 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
             </Stack>
           </Stack>
 
-          {claim.status !== "SUBMITTED" && (!eligibilityClear || !priorAuthClear) && (
+          {!eligibilityClear && claim.status !== "SUBMITTED" && (
+            <Alert
+              severity="warning"
+              sx={{ mt: 2 }}
+              action={
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={() =>
+                    navigate(`/journey?claimId=${claim.id}&stage=eligibility`, {
+                      state: {
+                        from: location.pathname + location.search,
+                        backLabel: "Back to Claim Detail"
+                      }
+                    })
+                  }
+                >
+                  Verify Eligibility
+                </Button>
+              }
+            >
+              Payer eligibility must be verified before readiness can be run.
+            </Alert>
+          )}
+
+          {eligibilityClear && claim.status !== "SUBMITTED" && !priorAuthClear && (
             <Alert severity="warning" sx={{ mt: 2 }}>
-              Complete eligibility and prior authorization in Claim Journey before submission.
+              Eligibility is verified. Resolve prior authorization in Claim Journey before submission.
             </Alert>
           )}
 

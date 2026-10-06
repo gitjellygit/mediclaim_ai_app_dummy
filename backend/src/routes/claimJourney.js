@@ -11,7 +11,7 @@ import {
 } from "../services/claimFieldProvenance.js";
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { buildClaimCompleteness } from "../services/claimCompleteness.js";
-import { getMockPayer } from "../services/payerSimulator.js";
+import { getMockPayer, payerInputFingerprint } from "../services/payerSimulator.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
 import { createPayerConnector, createPayerConnectorForClaim, payerConnectorStatusForClaim } from "../services/payerGateway.js";
@@ -264,8 +264,8 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
-    // Completed eligibility is idempotent. Re-clicking the same action should
-    // not rewrite timestamps, invalidate readiness, or generate duplicate UX noise.
+    // Eligibility is idempotent when the payer/member inputs have not changed,
+    // including stable negative results such as inactive/member-not-found.
     if (claim.eligibilityStatus === "VERIFIED") {
       return res.json({
         unchanged: true,
@@ -273,6 +273,36 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
         status: claim.eligibilityStatus,
         coverageStatus: claim.coverageStatus,
         livePayerVerification: false,
+        claim
+      });
+    }
+
+    const eligibilityFingerprint = payerInputFingerprint(
+      "ELIGIBILITY",
+      { code: claim.payerEdiId || claim.payerConnectorId || claim.payerName || "PAYER" },
+      claim
+    );
+    const latestEligibilityTransaction = await prisma.payerTransaction.findFirst({
+      where: {
+        claimId: claim.id,
+        transactionType: "ELIGIBILITY"
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (
+      latestEligibilityTransaction?.requestPayload?.inputFingerprint === eligibilityFingerprint &&
+      ["ACTIVE", "INACTIVE", "MEMBER_NOT_FOUND", "FAILED", "NEEDS_REVIEW"].includes(
+        latestEligibilityTransaction.status
+      )
+    ) {
+      return res.json({
+        unchanged: true,
+        message: "Eligibility is already current for the existing payer/member information",
+        status: claim.eligibilityStatus,
+        coverageStatus: claim.coverageStatus,
+        livePayerVerification: false,
+        transaction: latestEligibilityTransaction,
         claim
       });
     }
@@ -356,7 +386,8 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
             requestPayload: {
               transaction: "270/271",
               connectorId: connector.connectorId,
-              testMode: connector.connectorEnvironment === "TEST"
+              testMode: connector.connectorEnvironment === "TEST",
+              inputFingerprint: eligibilityFingerprint
             },
             responsePayload: eligibility
           }

@@ -34,6 +34,42 @@ async function browserApi(page, path, { method = "GET", body } = {}) {
   }, { backendURL, path, method, body });
 }
 
+test("readiness is gated until payer eligibility is verified", async ({ page }, testInfo) => {
+  const browser = observeBrowser(page, testInfo);
+  await login(page);
+
+  const created = await browserApi(page, "/api/claims", {
+    method: "POST",
+    body: {
+      patientName: "E2E Eligibility Gate",
+      payerName: "Gate Health",
+      policyNo: "GATE-POL-1",
+      memberId: "GATE-MEM-1",
+      amount: 100
+    }
+  });
+  expect(created.ok).toBe(true);
+  const claimId = created.data.id;
+
+  try {
+    await page.goto(`/claims/${claimId}`);
+    const readiness = page.getByRole("heading", { name: "Claim Readiness for Submission" });
+    await expect(readiness).toBeVisible();
+
+    const checkButton = page.getByRole("button", { name: "Check Readiness", exact: true });
+    await expect(checkButton).toBeDisabled();
+    await expect(
+      page.getByText(/Payer eligibility must be verified before readiness can be run/i)
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Verify Eligibility", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/journey\\?claimId=${claimId}&stage=eligibility`));
+    await browser.assertClean();
+  } finally {
+    await browserApi(page, `/api/claims/${claimId}`, { method: "DELETE" });
+  }
+});
+
 test("readiness diagnosis linkage stays truthful through edit, save, recheck and reload", async ({ page }, testInfo) => {
   const browser = observeBrowser(page, testInfo, {
     allowConsoleError: (entry) =>
@@ -65,6 +101,20 @@ test("readiness diagnosis linkage stays truthful through edit, save, recheck and
   const claimId = created.data.id;
 
   try {
+    const payerConnect = await browserApi(
+      page,
+      `/api/claims/${claimId}/payer-simulation/connect`,
+      { method: "POST", body: { payerCode: "BLUE_HORIZON" } }
+    );
+    expect(payerConnect.ok).toBe(true);
+    const eligibility = await browserApi(
+      page,
+      `/api/claims/${claimId}/payer-simulation/eligibility`,
+      { method: "POST", body: {} }
+    );
+    expect(eligibility.ok).toBe(true);
+    expect(eligibility.data.result.status).toBe("ACTIVE");
+
     const checked = await browserApi(page, `/api/claims/${claimId}/check`, {
       method: "POST",
       body: {}

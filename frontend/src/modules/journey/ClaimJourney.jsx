@@ -258,6 +258,7 @@ function StageCard({
   statusHelp,
   stageId,
   highlighted = false,
+  errorHighlighted = false,
   children
 }) {
   return (
@@ -269,9 +270,13 @@ function StageCard({
         opacity: 1,
         backgroundColor: actionable ? "background.paper" : "grey.50",
         scrollMarginTop: 96,
-        border: highlighted ? "2px solid" : undefined,
-        borderColor: highlighted ? "warning.main" : undefined,
-        boxShadow: highlighted ? 4 : undefined
+        border: highlighted || errorHighlighted ? "2px solid" : undefined,
+        borderColor: errorHighlighted
+          ? "error.main"
+          : highlighted
+          ? "warning.main"
+          : undefined,
+        boxShadow: highlighted || errorHighlighted ? 4 : undefined
       }}
     >
       <CardContent>
@@ -345,6 +350,7 @@ export default function ClaimJourney() {
   const [action, setAction] = React.useState("");
   const [mockPayers, setMockPayers] = React.useState([]);
   const [selectedMockPayer, setSelectedMockPayer] = React.useState("");
+  const [payerEditing, setPayerEditing] = React.useState(false);
   const [activityExpanded, setActivityExpanded] = React.useState(false);
 
   const [authRequired, setAuthRequired] = React.useState("");
@@ -359,6 +365,8 @@ export default function ClaimJourney() {
   const [paymentReference, setPaymentReference] = React.useState("");
   const [remittanceDialogOpen, setRemittanceDialogOpen] = React.useState(false);
   const [remittanceDialogData, setRemittanceDialogData] = React.useState(null);
+  const [submissionBlock, setSubmissionBlock] = React.useState(null);
+  const [submissionBlockDialogOpen, setSubmissionBlockDialogOpen] = React.useState(false);
 
   /**
    * Search claims on the server so this selector stays fast with tens of
@@ -401,7 +409,18 @@ export default function ClaimJourney() {
       setJourney(data);
 
       const claim = data.claim || {};
+      const latestCheck = Array.isArray(claim.checks) ? claim.checks[0] : null;
+      const latestIssues = Array.isArray(latestCheck?.issues) ? latestCheck.issues : [];
+      if (
+        latestCheck &&
+        !latestCheck.isStale &&
+        Number(latestCheck.score) >= 80 &&
+        !latestIssues.some((issue) => issue?.severity === "BLOCK")
+      ) {
+        setSubmissionBlock(null);
+      }
       setSelectedMockPayer(data?.payerConnection?.simulatedPayerCode || "");
+      setPayerEditing(false);
       setAuthRequired(
         claim.priorAuthRequired == null
           ? ""
@@ -598,6 +617,36 @@ export default function ClaimJourney() {
     };
   }
 
+  function goToClaimFixes() {
+    if (!claim?.id) return;
+    setSubmissionBlockDialogOpen(false);
+    navigate(`/claims/${claim.id}?section=readiness`, {
+      state: claimReturnState()
+    });
+  }
+
+  function showSubmissionBlock(readiness, fallbackMessage = "") {
+    const issues = Array.isArray(readiness?.issues)
+      ? readiness.issues.filter((issue) => issue?.severity === "BLOCK")
+      : [];
+    const score = Number.isFinite(Number(readiness?.score))
+      ? Number(readiness.score)
+      : null;
+
+    setSubmissionBlock({
+      score,
+      issues,
+      message:
+        fallbackMessage ||
+        (issues.length
+          ? `${issues.length} blocking issue${issues.length === 1 ? "" : "s"} must be fixed before submission.`
+          : score != null && score < 80
+          ? `Claim readiness is ${score}%. A score of at least 80% is required before submission.`
+          : "This claim needs attention before it can be submitted.")
+    });
+    setSubmissionBlockDialogOpen(true);
+  }
+
   const connectedConnector = journey?.payerConnection?.connector || null;
   const simulatedPayerConnected =
     journey?.payerConnection?.mode === "SIMULATED" &&
@@ -692,19 +741,36 @@ export default function ClaimJourney() {
     setPageError("");
     try {
       if (!claim.claimSubmissionDate && claim.status !== "SUBMITTED") {
-        // Submission always uses a fresh readiness result. If the claim changed
-        // after eligibility/auth, refresh readiness automatically rather than
-        // forcing the user to bounce to another screen.
-        await ClaimsApi.runCheck(claim.id);
+        const readiness = await ClaimsApi.runCheck(claim.id);
+        const blockers = Array.isArray(readiness?.issues)
+          ? readiness.issues.filter((issue) => issue?.severity === "BLOCK")
+          : [];
+
+        if (blockers.length > 0 || Number(readiness?.score || 0) < 80) {
+          showSubmissionBlock(readiness);
+          await loadJourney(claim.id);
+          return;
+        }
+
         await ClaimsApi.submit(claim.id);
       }
+
       const result = await ClaimsApi.simulatePayerSubmission(claim.id);
+      setSubmissionBlock(null);
       await loadJourney(claim.id);
       if (!result?.unchanged) showToast("Claim sent to payer", "success");
     } catch (error) {
       const message = error.message || "Unable to submit claim";
-      setPageError(message);
-      showToast(message, "error");
+      const submissionPrerequisiteError =
+        error?.status === 400 &&
+        /blocking issues|readiness|AI Check|eligibility|prior authorization/i.test(message);
+
+      if (submissionPrerequisiteError) {
+        showSubmissionBlock(null, message);
+      } else {
+        setPageError(message);
+        showToast(message, "error");
+      }
     } finally {
       setAction("");
     }
@@ -1021,6 +1087,30 @@ export default function ClaimJourney() {
                         label={claim.payerName || connectedConnector?.provider || "External payer"}
                       />
                     </Stack>
+                  ) : simulatedPayerConnected && !payerEditing ? (
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1}
+                      alignItems={{ xs: "stretch", sm: "center" }}
+                      justifyContent={{ md: "flex-end" }}
+                      sx={{ minWidth: { md: 430 } }}
+                    >
+                      <TextField
+                        size="small"
+                        label="Payer"
+                        value={journey?.payerConnection?.simulatedPayer?.name || claim.payerName || ""}
+                        InputProps={{ readOnly: true }}
+                        data-testid="connected-payer"
+                        fullWidth
+                      />
+                      <Button
+                        variant="outlined"
+                        onClick={() => setPayerEditing(true)}
+                        disabled={action !== ""}
+                      >
+                        Change payer
+                      </Button>
+                    </Stack>
                   ) : (
                     <Stack
                       direction={{ xs: "column", sm: "row" }}
@@ -1048,24 +1138,32 @@ export default function ClaimJourney() {
                         disabled={
                           !selectedMockPayer ||
                           action === "payer-connect" ||
-                          (payerConnected &&
+                          (simulatedPayerConnected &&
                             journey?.payerConnection?.simulatedPayerCode === selectedMockPayer)
                         }
-                        onClick={() =>
-                          runAction(
+                        onClick={async () => {
+                          const result = await runAction(
                             "payer-connect",
                             () => ClaimsApi.connectMockPayer(claim.id, selectedMockPayer),
-                            "Payer connected"
-                          )
-                        }
+                            payerConnected ? "Payer changed" : "Payer connected"
+                          );
+                          if (result) setPayerEditing(false);
+                        }}
                       >
-                        {action === "payer-connect"
-                          ? "Connecting..."
-                          : payerConnected &&
-                            journey?.payerConnection?.simulatedPayerCode === selectedMockPayer
-                          ? "Connected"
-                          : "Connect"}
+                        {action === "payer-connect" ? "Connecting..." : "Connect"}
                       </Button>
+                      {simulatedPayerConnected && payerEditing && (
+                        <Button
+                          variant="text"
+                          onClick={() => {
+                            setSelectedMockPayer(journey?.payerConnection?.simulatedPayerCode || "");
+                            setPayerEditing(false);
+                          }}
+                          disabled={action !== ""}
+                        >
+                          Cancel
+                        </Button>
+                      )}
                     </Stack>
                   )}
                 </Stack>
@@ -1074,59 +1172,78 @@ export default function ClaimJourney() {
                   <>
                     <Divider />
                     <Box>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                        <Typography variant="subtitle2" fontWeight={800}>
-                          Payer Activity
-                        </Typography>
-                        {payerTransactions.length > 5 && (
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        justifyContent="space-between"
+                        alignItems={{ xs: "stretch", sm: "center" }}
+                        spacing={1}
+                      >
+                        <Box>
+                          <Typography variant="subtitle2" fontWeight={800}>
+                            Payer Activity
+                          </Typography>
+                          {payerTransactions.length > 0 ? (
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                              <Typography variant="body2" color="text.secondary">
+                                Latest: {humanStatus(payerTransactions[0].transactionType)}
+                              </Typography>
+                              <Chip
+                                size="small"
+                                color={stageColor(payerTransactions[0].status)}
+                                label={humanStatus(payerTransactions[0].status)}
+                              />
+                            </Stack>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                              No payer activity yet. Start with Eligibility below.
+                            </Typography>
+                          )}
+                        </Box>
+
+                        {payerTransactions.length > 0 && (
                           <Button
                             size="small"
                             variant="text"
                             onClick={() => setActivityExpanded((value) => !value)}
+                            data-testid="payer-activity-toggle"
                           >
                             {activityExpanded
-                              ? "Show Recent"
-                              : `View All (${payerTransactions.length})`}
+                              ? "Hide activity"
+                              : `Show activity (${payerTransactions.length})`}
                           </Button>
                         )}
                       </Stack>
 
-                      {!payerTransactions.length ? (
-                        <Typography variant="body2" color="text.secondary">
-                          No payer transactions yet. Start with Eligibility below.
-                        </Typography>
-                      ) : (
-                        <Stack spacing={1}>
-                          {payerTransactions
-                            .slice(0, activityExpanded ? payerTransactions.length : 5)
-                            .map((tx) => (
-                              <Paper key={tx.id} variant="outlined" sx={{ p: 1.25 }}>
-                                <Stack
-                                  direction={{ xs: "column", sm: "row" }}
-                                  justifyContent="space-between"
-                                  spacing={1}
-                                >
-                                  <Box>
-                                    <Typography variant="body2" fontWeight={700}>
-                                      {humanStatus(tx.transactionType)}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      {tx.transactionId} • {tx.latencyMs || 0} ms
-                                    </Typography>
-                                  </Box>
-                                  <Chip
-                                    size="small"
-                                    color={stageColor(tx.status)}
-                                    label={humanStatus(tx.status)}
-                                  />
-                                </Stack>
-                                {tx.responsePayload?.reason && (
-                                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                                    {tx.responsePayload.reason}
+                      {activityExpanded && payerTransactions.length > 0 && (
+                        <Stack spacing={1} sx={{ mt: 1.25 }} data-testid="payer-activity-history">
+                          {payerTransactions.map((tx) => (
+                            <Paper key={tx.id} variant="outlined" sx={{ p: 1.25 }}>
+                              <Stack
+                                direction={{ xs: "column", sm: "row" }}
+                                justifyContent="space-between"
+                                spacing={1}
+                              >
+                                <Box>
+                                  <Typography variant="body2" fontWeight={700}>
+                                    {humanStatus(tx.transactionType)}
                                   </Typography>
-                                )}
-                              </Paper>
-                            ))}
+                                  <Typography variant="caption" color="text.secondary">
+                                    {tx.transactionId} • {tx.latencyMs || 0} ms
+                                  </Typography>
+                                </Box>
+                                <Chip
+                                  size="small"
+                                  color={stageColor(tx.status)}
+                                  label={humanStatus(tx.status)}
+                                />
+                              </Stack>
+                              {tx.responsePayload?.reason && (
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                                  {tx.responsePayload.reason}
+                                </Typography>
+                              )}
+                            </Paper>
+                          ))}
                         </Stack>
                       )}
                     </Box>
@@ -1405,11 +1522,25 @@ export default function ClaimJourney() {
               title={STAGE_LABELS.claim}
               stageId="journey-stage-claim"
               highlighted={focusedStage === "claim"}
+              errorHighlighted={Boolean(submissionBlock)}
               status={stages.claim.status}
               actionable={stages.claim.actionable}
               blockedReason={stages.claim.blockedReason}
             >
               <Stack spacing={1.2}>
+                {submissionBlock && (
+                  <Alert
+                    severity="error"
+                    data-testid="submission-blocked-alert"
+                    action={
+                      <Button color="inherit" size="small" onClick={goToClaimFixes}>
+                        Fix Claim
+                      </Button>
+                    }
+                  >
+                    {submissionBlock.message}
+                  </Alert>
+                )}
                 <Typography variant="body2"><b>Claimed *:</b> {money(claim.amount)}</Typography>
                 <Typography variant="body2"><b>Billed:</b> {money(claim.totalBilledAmount)}</Typography>
                 <Typography variant="body2"><b>Documents *:</b> {claim.documents?.length || 0}</Typography>
@@ -1436,15 +1567,18 @@ export default function ClaimJourney() {
                 )}
                 <Button
                   variant="outlined"
+                  color={submissionBlock ? "error" : "primary"}
                   size="small"
                   disabled={!stages.claim.actionable}
                   onClick={() =>
-                    navigate(`/claims/${claim.id}`, {
-                      state: claimReturnState()
-                    })
+                    submissionBlock
+                      ? goToClaimFixes()
+                      : navigate(`/claims/${claim.id}`, {
+                          state: claimReturnState()
+                        })
                   }
                 >
-                  View Claim Details
+                  {submissionBlock ? "Fix in Claim Details" : "View Claim Details"}
                 </Button>
               </Stack>
             </StageCard>
@@ -1748,6 +1882,52 @@ export default function ClaimJourney() {
           </Alert>
         </>
       )}
+
+      <Dialog
+        open={submissionBlockDialogOpen}
+        onClose={() => setSubmissionBlockDialogOpen(false)}
+        fullWidth
+        maxWidth="sm"
+        aria-labelledby="submission-blocked-dialog-title"
+      >
+        <DialogTitle id="submission-blocked-dialog-title">
+          Claim needs attention before submission
+        </DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {submissionBlock?.message || "This claim cannot be submitted yet."}
+          </Alert>
+
+          {submissionBlock?.score != null && (
+            <Typography variant="body2" sx={{ mb: 1.5 }}>
+              <b>Readiness score:</b> {submissionBlock.score}%
+            </Typography>
+          )}
+
+          {submissionBlock?.issues?.length > 0 && (
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" fontWeight={700}>
+                Fix these {submissionBlock.issues.length} blocking issue{submissionBlock.issues.length === 1 ? "" : "s"}:
+              </Typography>
+              {submissionBlock.issues.map((issue, index) => (
+                <Paper key={`${issue.rule || issue.field || "block"}-${index}`} variant="outlined" sx={{ p: 1.25 }}>
+                  <Typography variant="body2">
+                    {issue.message || "Claim information needs attention"}
+                  </Typography>
+                </Paper>
+              ))}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSubmissionBlockDialogOpen(false)}>
+            Close
+          </Button>
+          <Button variant="contained" color="error" onClick={goToClaimFixes} autoFocus>
+            Fix in Claim Details
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={remittanceDialogOpen}

@@ -2635,7 +2635,10 @@ test("97 - payer Journey UI uses one action surface and client-facing wording", 
   assert.match(source, /Submit to Payer/);
   assert.match(source, /Check Status/);
   assert.match(source, /Check Remittance/);
-  assert.match(source, /View All/);
+  assert.match(source, /Show activity/);
+  assert.match(source, /Hide activity/);
+  assert.match(source, /Change payer/);
+  assert.match(source, /connected-payer/);
   assert.match(source, /Expected Payer Payment/);
   assert.doesNotMatch(source, />SIMULATED</);
   assert.doesNotMatch(source, />LOCAL</);
