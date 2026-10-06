@@ -24,7 +24,6 @@ import {
   DOC_TYPE_LABELS,
   formatDate,
   formatMoney,
-  readinessColor,
   readinessTextColor,
   provenanceChipColor
 } from "./claim-detail/claimDetailUtils.js";
