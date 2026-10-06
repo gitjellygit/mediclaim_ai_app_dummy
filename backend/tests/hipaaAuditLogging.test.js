@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { sanitizeAuditMetadata } from "../src/services/auditLog.js";
+import { sanitizeAuditMetadata, writeAuditEvent } from "../src/services/auditLog.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,7 +48,7 @@ test("H8B-3 - admin audit route and UI are wired", () => {
   assert.match(app, /path:\s*"\/audit"/);
   assert.match(nav, /label="Audit Trail"/);
   assert.match(nav, /user\?\.role === "ADMIN"/);
-  assert.match(screen, /Security and PHI-access history/);
+  assert.match(screen, /Organization security and PHI-access history/);
   assert.match(screen, /Claim ID/);
 });
 
@@ -83,4 +83,81 @@ test("H8B-3 - permanent purge audit metadata does not retain patient name", () =
   const block = claims.slice(purgeIndex, purgeIndex + 700);
   assert.doesNotMatch(block, /patientName/);
   assert.match(block, /documentCount/);
+});
+
+
+test("H8B-3 extension - audit event stores request context separately from PHI-safe metadata", async () => {
+  let created = null;
+  const prisma = {
+    auditEvent: {
+      async create(input) {
+        created = input.data;
+        return input.data;
+      }
+    }
+  };
+
+  await writeAuditEvent(prisma, {
+    organizationId: "org-1",
+    actorUserId: "user-1",
+    action: "CLAIM_VIEWED",
+    entityType: "Claim",
+    entityId: "claim-1",
+    claimId: "claim-1",
+    outcome: "SUCCESS",
+    ipAddress: "203.0.113.10",
+    userAgent: "Example Browser",
+    httpMethod: "GET",
+    httpPath: "/api/claims/:id",
+    requestId: "req-123",
+    statusCode: 200,
+    metadata: {
+      patientName: "Do not store me",
+      memberId: "MEM-SECRET",
+      status: "READY"
+    }
+  });
+
+  assert.equal(created.ipAddress, "203.0.113.10");
+  assert.equal(created.userAgent, "Example Browser");
+  assert.equal(created.httpMethod, "GET");
+  assert.equal(created.httpPath, "/api/claims/:id");
+  assert.equal(created.requestId, "req-123");
+  assert.equal(created.statusCode, 200);
+  assert.deepEqual(created.metadata, { status: "READY" });
+});
+
+test("H8B-3 extension - audit API supports forensic filters and CSV export", () => {
+  const source = fs.readFileSync(path.join(root, "backend/src/routes/audit.js"), "utf8");
+  for (const filter of [
+    "actorEmail", "ipAddress", "requestId", "httpMethod", "statusCode",
+    "entityId", "from", "to"
+  ]) {
+    assert.ok(source.includes(filter), filter);
+  }
+  assert.match(source, /router\.get\("\/export"/);
+  assert.match(source, /AUDIT_TRAIL_EXPORTED/);
+  assert.match(source, /EXPORT_LIMIT = 10000/);
+  assert.match(source, /safeMetadata/);
+});
+
+test("H8B-3 extension - audit UI exposes download, timestamp and forensic request filters", () => {
+  const screen = fs.readFileSync(path.join(root, "frontend/src/modules/audit/AuditTrail.jsx"), "utf8");
+  assert.match(screen, /Download CSV/);
+  assert.match(screen, /label="From"/);
+  assert.match(screen, /label="To"/);
+  assert.match(screen, /label="User email"/);
+  assert.match(screen, /label="IP address"/);
+  assert.match(screen, /label="Request ID"/);
+  assert.match(screen, /HTTP status/);
+  assert.match(screen, /User agent/);
+  assert.match(screen, /Safe operational metadata/);
+});
+
+test("Medical Consistency remains implemented but is hidden from the left navigation", () => {
+  const nav = fs.readFileSync(path.join(root, "frontend/src/layout/LeftNav.jsx"), "utf8");
+  const app = fs.readFileSync(path.join(root, "frontend/src/App.jsx"), "utf8");
+
+  assert.doesNotMatch(nav, /label="Medical Consistency"/);
+  assert.match(app, /\/medical-ai/);
 });
