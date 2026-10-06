@@ -598,9 +598,15 @@ export default function ClaimJourney() {
     };
   }
 
-  const payerConnected =
+  const connectedConnector = journey?.payerConnection?.connector || null;
+  const simulatedPayerConnected =
     journey?.payerConnection?.mode === "SIMULATED" &&
     Boolean(journey?.payerConnection?.simulatedPayerCode);
+  const externalPayerConnected =
+    journey?.payerConnection?.mode === "LIVE" &&
+    Boolean(claim?.payerConnectorId) &&
+    Boolean(connectedConnector?.configured);
+  const payerConnected = simulatedPayerConnected || externalPayerConnected;
   const payerTransactions = claim?.payerTransactions || [];
   const workflowAdvanced =
     Boolean(claim?.claimSubmissionDate) ||
@@ -949,12 +955,23 @@ export default function ClaimJourney() {
                     </Stack>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                       {journey?.payerConnection?.simulatedPayer?.description ||
-                        (historicalConnectionUnavailable
+                        (externalPayerConnected
+                          ? `${connectedConnector?.provider || "External"} ${String(
+                              connectedConnector?.environment || ""
+                            ).toLowerCase()} connector`
+                          : historicalConnectionUnavailable
                           ? "Historical payer activity is shown below when available."
                           : "Select and connect the claim payer before starting eligibility or prior authorization.")}
-                      {payerConnected && (
+                      {simulatedPayerConnected && (
                         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
                           Demo environment · Illustrative responses; no live payer connection
+                        </Typography>
+                      )}
+                      {externalPayerConnected && (
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
+                          {connectedConnector?.environment === "TEST"
+                            ? "Test environment · Responses are not production payer verification"
+                            : "External payer connector"}
                         </Typography>
                       )}
                     </Typography>
@@ -1242,7 +1259,10 @@ export default function ClaimJourney() {
                   onClick={() =>
                     runAction(
                       "eligibility",
-                      () => ClaimsApi.simulatePayerEligibility(claim.id),
+                      () =>
+                        externalPayerConnected
+                          ? ClaimsApi.runEligibilityPrecheck(claim.id)
+                          : ClaimsApi.simulatePayerEligibility(claim.id),
                       "Eligibility updated"
                     )
                   }
