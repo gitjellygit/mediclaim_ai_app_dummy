@@ -207,39 +207,43 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
         : "FAILED";
     const coverageStatus = eligibility.coverageStatus || "UNKNOWN";
 
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
-        eligibilityStatus,
-        coverageStatus,
-        eligibilityCheckedAt: now,
-        fieldProvenance: mergeProvenance(
-          claim.fieldProvenance,
-          systemProvenance(
-            ["eligibilityStatus", "coverageStatus"],
-            {
-              source: "LOCAL_PRECHECK",
-              label: "Local Pre-check",
-              sourceDetail: "No live 270/271 payer connector configured",
-              verified: false
-            }
-          )
-        )
-      }
-    });
-
-    // Journey changes invalidate an old readiness result.
-    await markReadinessChecksStale(
-      prisma,
-      claim.id,
-      "Eligibility information changed"
-    );
-    if (claim.status === "READY") {
-      await prisma.claim.update({
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
         where: { id: claim.id },
-        data: { status: assertClaimTransition(claim.status, "DRAFT") }
+        data: {
+          eligibilityStatus,
+          coverageStatus,
+          eligibilityCheckedAt: now,
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            systemProvenance(
+              ["eligibilityStatus", "coverageStatus"],
+              {
+                source: "LOCAL_PRECHECK",
+                label: "Local Pre-check",
+                sourceDetail: "No live 270/271 payer connector configured",
+                verified: false
+              }
+            )
+          )
+        }
       });
-    }
+
+      await markReadinessChecksStale(
+        tx,
+        claim.id,
+        "Eligibility information changed"
+      );
+
+      if (claim.status === "READY") {
+        await tx.claim.update({
+          where: { id: claim.id },
+          data: { status: assertClaimTransition(claim.status, "DRAFT") }
+        });
+      }
+
+      return updatedClaim;
+    });
 
     logJourneyEvent(claim.id, "eligibility-precheck", eligibilityStatus, {
       missingFieldCount: missing.length
