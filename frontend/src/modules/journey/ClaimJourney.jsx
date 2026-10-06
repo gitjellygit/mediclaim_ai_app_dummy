@@ -983,7 +983,7 @@ export default function ClaimJourney() {
                     </Typography>
                   </Box>
 
-                  {workflowAdvanced || externalPayerConnected ? (
+                  {workflowAdvanced ? (
                     <Stack
                       direction="row"
                       spacing={1}
@@ -1002,6 +1002,23 @@ export default function ClaimJourney() {
                           claim.payerName ||
                           "Connection record unavailable"
                         }
+                      />
+                    </Stack>
+                  ) : externalPayerConnected ? (
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      justifyContent={{ md: "flex-end" }}
+                      sx={{ minWidth: { md: 360 } }}
+                    >
+                      <Typography variant="body2" color="text.secondary">
+                        Payer
+                      </Typography>
+                      <Chip
+                        variant="outlined"
+                        color="success"
+                        label={claim.payerName || connectedConnector?.provider || "External payer"}
                       />
                     </Stack>
                   ) : (
