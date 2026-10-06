@@ -1178,7 +1178,8 @@ test("33 - AI readiness issues expose contextual fix actions", { concurrency: fa
   assert.match(source, /Upload Document/);
   assert.match(source, /Check Eligibility/);
   assert.match(source, /Review Prior Auth/);
-  assert.match(source, /Action required to improve this claim/);
+  assert.match(source, /Fix before submission/);
+  assert.match(source, /readiness-issue-/);
 });
 
 
@@ -1876,24 +1877,20 @@ test("61 - stale AI check cannot be used for claim submission", { concurrency: f
   assert.match(body.error, /changed after the last AI Check/i);
 });
 
-test("62 - readiness UI uses red yellow green thresholds and history", { concurrency: false }, () => {
-  const detailSource = fs.readFileSync(
+test("62 - readiness UI uses a clear submission threshold and collapsed history", { concurrency: false }, () => {
+  const source = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
-  const utilsSource = fs.readFileSync(
-    path.join(frontendRoot, "src/modules/ai-claims/claim-detail/claimDetailUtils.js"),
-    "utf8"
-  );
-  const source = `${detailSource}\n${utilsSource}`;
 
-  assert.match(source, /if \(value < 40\) return "error"/);
-  assert.match(source, /if \(value < 70\) return "warning"/);
-  assert.match(source, /return "success"/);
-  assert.match(source, /Claim Readiness History/);
-  assert.match(source, /Recheck Claim Readiness/);
-  assert.match(source, /Claim information changed after this readiness check/);
-  assert.match(source, /since previous check/);
+  assert.match(source, /check\.score >= 80/);
+  assert.match(source, /check\.score >= 50/);
+  assert.match(source, /Submit threshold 80%/);
+  assert.match(source, /Readiness history/);
+  assert.match(source, /Recheck Readiness/);
+  assert.match(source, /Claim information changed\. Recheck readiness/);
+  assert.doesNotMatch(source, /Estimated Rejection Risk/);
+  assert.doesNotMatch(source, /Top risk drivers/);
 });
 
 test("63 - current submission eligibility rejects stale readiness result in UI", { concurrency: false }, () => {
@@ -1933,7 +1930,7 @@ test("64 - low readiness cannot display deceptively low rejection risk", { concu
   assert.equal(body.riskLevel, "HIGH");
 });
 
-test("65 - AI check refresh keeps claim detail mounted and returns to readiness area", { concurrency: false }, () => {
+test("65 - AI check refresh keeps claim detail mounted and returns to simplified readiness area", { concurrency: false }, () => {
   const source = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
@@ -1941,8 +1938,9 @@ test("65 - AI check refresh keeps claim detail mounted and returns to readiness 
 
   assert.match(source, /load\(\{ silent: true \}\)/);
   assert.match(source, /readinessRef\.current\?\.scrollIntoView/);
-  assert.match(source, /Estimated Rejection Risk/);
-  assert.match(source, /not a payer probability/);
+  assert.match(source, /data-testid="readiness-score"/);
+  assert.match(source, /data-testid="readiness-progress"/);
+  assert.doesNotMatch(source, /Estimated Rejection Risk/);
 });
 
 test("66 - claim-readiness dialog shows domain-specific staged workflow", { concurrency: false }, () => {
@@ -1978,17 +1976,17 @@ test("67 - claim detail silently refreshes after journey navigation or tab focus
   assert.match(source, /load\(\{ silent: true \}\)/);
 });
 
-test("68 - stale readiness issues are reconciled against current eligibility and prior auth", { concurrency: false }, () => {
+test("68 - stale readiness never guesses whether old issues are resolved", { concurrency: false }, () => {
   const source = fs.readFileSync(
     path.join(frontendRoot, "src/modules/ai-claims/ClaimDetail.jsx"),
     "utf8"
   );
 
-  assert.match(source, /function isIssueResolvedByCurrentClaim\(issue\)/);
-  assert.match(source, /claim\?\.eligibilityStatus === "VERIFIED"/);
-  assert.match(source, /\["APPROVED", "NOT_REQUIRED"\]\.includes\(claim\?\.priorAuthStatus\)/);
-  assert.match(source, /Completed since the last readiness check/);
-  assert.match(source, /Completed — recheck readiness/);
+  assert.doesNotMatch(source, /function isIssueResolvedByCurrentClaim\(issue\)/);
+  assert.match(source, /data-testid="readiness-stale"/);
+  assert.match(source, /Recheck readiness to recalculate the score and current blockers/);
+  assert.doesNotMatch(source, /Completed since the last readiness check/);
+  assert.doesNotMatch(source, /Completed — recheck readiness/);
 });
 
 test("69 - journey fix workflow provides contextual return to claim detail", { concurrency: false }, () => {
