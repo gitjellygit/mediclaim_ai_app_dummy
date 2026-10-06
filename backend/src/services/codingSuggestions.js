@@ -148,13 +148,16 @@ export async function applyCodingSuggestionToClaim(
   if (suggestion.system === "ICD10_CM") {
     const claim = await prismaClient.claim.findUnique({
       where: { id: suggestion.claimId },
-      select: { icd10Codes: true, fieldProvenance: true }
+      select: { icd10Codes: true, fieldProvenance: true, documentDerivedFields: true }
     });
     const codes = uniqueCodes([...(claim?.icd10Codes || []), finalCode]);
     await prismaClient.claim.update({
       where: { id: suggestion.claimId },
       data: {
         icd10Codes: codes,
+        documentDerivedFields: (claim?.documentDerivedFields || []).filter(
+          (field) => field !== "icd10Codes"
+        ),
         fieldProvenance: mergeProvenance(
           claim?.fieldProvenance,
           systemProvenance(["icd10Codes"], {
