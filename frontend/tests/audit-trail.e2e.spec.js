@@ -59,8 +59,8 @@ test("Audit CSV export requires a safe scope and rejects unfiltered API export",
   await claimId.fill("");
   await expect(download).toBeDisabled();
 
-  const from = page.getByLabel("From");
-  const to = page.getByLabel("To");
+  const from = page.locator('input[type="datetime-local"]').nth(0);
+  const to = page.locator('input[type="datetime-local"]').nth(1);
   await from.fill("2026-10-01T00:00");
   await to.fill("2026-10-15T23:59");
   await expect(download).toBeEnabled();
