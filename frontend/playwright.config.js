@@ -25,6 +25,16 @@ export default defineConfig({
   },
   webServer: [
     {
+      command: "node tests/support/stedi-mock-server.mjs",
+      url: "http://127.0.0.1:4199/health",
+      timeout: 30_000,
+      reuseExistingServer: false,
+      env: {
+        ...process.env,
+        STEDI_MOCK_PORT: "4199"
+      }
+    },
+    {
       command: "cd ../backend && npx prisma generate && npx prisma migrate deploy && npm run dev",
       url: "http://127.0.0.1:4101/health",
       timeout: 60_000,
@@ -33,6 +43,12 @@ export default defineConfig({
         ...process.env,
         PORT: "4101",
         E2E_TEST_MODE: "true",
+        STEDI_TEST_API_KEY:
+          process.env.STEDI_TEST_API_KEY || "e2e-stedi-test-key",
+        STEDI_API_BASE_URL:
+          process.env.STEDI_API_BASE_URL || "http://127.0.0.1:4199/2026-06-01",
+        STEDI_PAYER_API_BASE_URL:
+          process.env.STEDI_PAYER_API_BASE_URL || "http://127.0.0.1:4199/2024-04-01",
         JWT_SECRET:
           process.env.JWT_SECRET ||
           "claim-app-e2e-local-signing-secret-32-characters"
