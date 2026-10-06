@@ -557,8 +557,18 @@ model AuditEvent {
   outcome     String
   metadata    Json?
 
+  // Request/security context. These fields intentionally contain no claim PHI.
+  ipAddress   String?
+  userAgent   String?
+  httpMethod  String?
+  httpPath    String?
+  requestId   String?
+  statusCode  Int?
+
   @@index([organizationId, createdAt])
   @@index([claimId])
   @@index([actorUserId])
   @@index([createdAt])
+  @@index([ipAddress])
+  @@index([requestId])
 }
