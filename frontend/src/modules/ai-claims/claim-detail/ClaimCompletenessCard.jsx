@@ -1,4 +1,5 @@
 import React from "react";
+import { ExpandLess, ExpandMore } from "@mui/icons-material";
 import {
   Box,
   Button,
@@ -14,6 +15,7 @@ import {
 } from "@mui/material";
 
 export default function ClaimCompletenessCard({ completeness, onFixItem, claimStatus }) {
+  const [sectionExpanded, setSectionExpanded] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
   const [filter, setFilter] = React.useState("all");
 
@@ -46,6 +48,7 @@ export default function ClaimCompletenessCard({ completeness, onFixItem, claimSt
   }
 
   function showBucket(bucket) {
+    setSectionExpanded(true);
     setFilter(bucket);
     setExpanded(true);
   }
@@ -98,8 +101,19 @@ export default function ClaimCompletenessCard({ completeness, onFixItem, claimSt
               label={`${completeness.notApplicableFields} N/A`}
             />
           </Stack>
+
+          <Button
+            size="small"
+            variant="text"
+            endIcon={sectionExpanded ? <ExpandLess /> : <ExpandMore />}
+            onClick={() => setSectionExpanded((value) => !value)}
+            sx={{ flexShrink: 0 }}
+          >
+            {sectionExpanded ? "Collapse" : "Expand"}
+          </Button>
         </Stack>
 
+        <Collapse in={sectionExpanded}>
         <LinearProgress
           variant="determinate"
           value={completeness.score}
@@ -240,6 +254,7 @@ export default function ClaimCompletenessCard({ completeness, onFixItem, claimSt
                 </Paper>
               ))}
           </Box>
+        </Collapse>
         </Collapse>
       </CardContent>
     </Card>
