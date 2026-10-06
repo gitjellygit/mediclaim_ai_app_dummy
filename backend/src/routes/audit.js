@@ -48,6 +48,46 @@ function parseDate(value, label) {
   return parsed;
 }
 
+const MAX_EXPORT_RANGE_DAYS = 31;
+
+function validateExportScope(req) {
+  const claimId = String(req.query.claimId || "").trim();
+  const entityId = String(req.query.entityId || "").trim();
+  const requestId = String(req.query.requestId || "").trim();
+
+  if (claimId || entityId || requestId) return;
+
+  const from = parseDate(req.query.from, "From");
+  const to = parseDate(req.query.to, "To");
+
+  if (!from || !to) {
+    const error = new Error(
+      "CSV export requires Claim ID, Entity ID, Request ID, or both From and To dates"
+    );
+    error.status = 400;
+    error.code = "AUDIT_EXPORT_SCOPE_REQUIRED";
+    throw error;
+  }
+
+  if (from > to) {
+    const error = new Error("From must be before To");
+    error.status = 400;
+    error.code = "AUDIT_EXPORT_RANGE_INVALID";
+    throw error;
+  }
+
+  const rangeMs = to.getTime() - from.getTime();
+  const maxRangeMs = MAX_EXPORT_RANGE_DAYS * 24 * 60 * 60 * 1000;
+  if (rangeMs > maxRangeMs) {
+    const error = new Error(
+      `CSV export date range cannot exceed ${MAX_EXPORT_RANGE_DAYS} days`
+    );
+    error.status = 400;
+    error.code = "AUDIT_EXPORT_RANGE_TOO_LARGE";
+    throw error;
+  }
+}
+
 function buildWhere(req) {
   const where = { organizationId: req.user.organizationId };
 
@@ -156,6 +196,7 @@ function toCsv(items) {
 }
 
 router.get("/export", async (req, res) => {
+  validateExportScope(req);
   const where = buildWhere(req);
   const items = await prisma.auditEvent.findMany({
     where,
