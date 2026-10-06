@@ -119,7 +119,11 @@ test("H8B-4 - local storage remains supported for dev/test", { concurrency: fals
         const opened = await openStoredDocument(storedPath, { uploadDir });
         assert.ok(opened);
         assert.equal(opened.backend, "local");
-        opened.stream.destroy();
+        let bytesRead = 0;
+        for await (const chunk of opened.stream) {
+          bytesRead += chunk.length;
+        }
+        assert.ok(bytesRead > 0);
 
         const materialized = await materializeStoredDocument(storedPath, {
           uploadDir
