@@ -7,7 +7,6 @@ import {
   ListItemText
 } from "@mui/material";
 import DescriptionIcon from "@mui/icons-material/Description";
-import VerifiedIcon from "@mui/icons-material/Verified";
 import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -114,12 +113,6 @@ export default function LeftNav({
           label="Payment Variance"
           path="/payments"
           isActive={isActivePath("/payments")}
-        />
-        <NavItem
-          icon={<VerifiedIcon />}
-          label="Medical Consistency"
-          path="/medical-ai"
-          isActive={isActivePath("/medical-ai")}
         />
         <NavItem
           icon={<MonetizationOnIcon />}
