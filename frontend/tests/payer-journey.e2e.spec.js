@@ -315,8 +315,17 @@ test("blocked payer submission offers direct Fix in Claim Details workflow", asy
   const claim = await created.json();
 
   try {
+    const connect = await apiContext.post(
+      `/api/claims/${claim.id}/payer-simulation/connect`,
+      {
+        headers,
+        data: { payerCode: "BLUE_HORIZON" }
+      }
+    );
+    expect(connect.ok()).toBeTruthy();
+
     await page.goto(`/journey?claimId=${claim.id}`);
-    await selectPayer(page, payerNames.BLUE_HORIZON);
+    await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
 
     const eligibility = page.getByTestId("journey-stage-eligibility");
     const priorAuth = page.getByTestId("journey-stage-prior-auth");
@@ -475,7 +484,10 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
       const activityAfter = await page.locator('[data-testid="payer-connection-card"] .MuiPaper-outlined').count();
       expect(activityAfter).toBe(activityBefore);
 
-      await expect(remittance.getByRole("button", { name: "Refresh Remittance" })).toBeDisabled();
+      const refreshRemittance = remittance.getByRole("button", { name: "Refresh Remittance" });
+      await expect(refreshRemittance).toBeEnabled();
+      await refreshRemittance.click();
+      await expect(remittance).toContainText(/Awaiting/i);
       return;
     }
 
