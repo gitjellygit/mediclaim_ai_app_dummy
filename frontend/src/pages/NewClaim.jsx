@@ -169,7 +169,12 @@ export default function NewClaim() {
         e.amount = "Claimed amount cannot exceed billed amount";
       }
 
-      const activeLines = form.serviceLines.filter((line) => line.cptHcpcsCode?.trim());
+      const activeLines = form.serviceLines.filter((line) =>
+        line.cptHcpcsCode?.trim() ||
+        line.revenueCode?.trim() ||
+        String(line.units || "").trim() ||
+        String(line.charge || "").trim()
+      );
       if (activeLines.length === 0) {
         e.serviceLines = "At least one service line is required";
       } else if (form.claimForm === "PROFESSIONAL" && activeLines.some((line) => !line.placeOfService?.trim())) {
