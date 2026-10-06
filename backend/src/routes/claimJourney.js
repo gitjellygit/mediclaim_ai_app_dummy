@@ -14,7 +14,7 @@ import { buildClaimCompleteness } from "../services/claimCompleteness.js";
 import { getMockPayer } from "../services/payerSimulator.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
-import { createPayerConnector } from "../services/payerGateway.js";
+import { createPayerConnector, payerConnectorStatusForClaim } from "../services/payerGateway.js";
 import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
 
 const router = express.Router();
@@ -161,9 +161,12 @@ router.get("/:id/journey", async (req, res) => {
         simulatedPayerCode: claim.simulatedPayerCode || null,
         simulatedPayer: claim.simulatedPayerCode
           ? getMockPayer(claim.simulatedPayerCode)
-          : null
+          : null,
+        connector: payerConnectorStatusForClaim(claim)
       },
-      livePayerConnectorConfigured: false
+      livePayerConnectorConfigured:
+        payerConnectorStatusForClaim(claim).mode === "LIVE" &&
+        payerConnectorStatusForClaim(claim).configured
     });
   } catch (error) {
     if (error?.status) throw error;
