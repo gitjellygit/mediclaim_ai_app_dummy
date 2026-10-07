@@ -721,6 +721,9 @@ export default function ClaimJourney() {
   const submissionTransaction = payerTransactions.find(
     (tx) => tx.transactionType === "CLAIM_SUBMISSION"
   );
+  const internalClaimSubmitted =
+    Boolean(claim?.claimSubmissionDate) ||
+    ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status || "");
   const acknowledged = ["ACCEPTED", "PENDED"].includes(submissionTransaction?.status);
   const latestRemittance = payerTransactions.find(
     (tx) => tx.transactionType === "REMITTANCE"
@@ -1728,30 +1731,43 @@ export default function ClaimJourney() {
                 </Typography>
                 {(simulatedPayerConnected || externalSubmissionSupported) && (
                   <>
-                    <Button
-                      variant="contained"
-                      size="small"
-                      disabled={
-                        action !== "" ||
-                        Boolean(submissionTransaction) ||
-                        !stages.claim.actionable
-                      }
-                      onClick={submitConnectedClaim}
-                    >
-                      {action === "payer-submit"
-                        ? "Sending..."
-                        : submissionTransaction
-                        ? "Sent to Payer"
-                        : claim.claimSubmissionDate || claim.status === "SUBMITTED"
-                        ? "Send to Payer"
-                        : "Submit to Payer"}
-                    </Button>
-                    {(claim.claimSubmissionDate || claim.status === "SUBMITTED") &&
-                      !submissionTransaction && (
-                        <Typography variant="caption" color="warning.main">
-                          Claim is submitted internally but payer transmission is still pending.
-                        </Typography>
-                      )}
+                    {submissionTransaction ? (
+                      <Button
+                        variant="contained"
+                        size="small"
+                        disabled
+                      >
+                        Sent to Payer
+                      </Button>
+                    ) : internalClaimSubmitted ? (
+                      <Alert
+                        severity="info"
+                        data-testid="payer-transmission-pending"
+                        action={
+                          <Button
+                            color="inherit"
+                            size="small"
+                            disabled={action !== ""}
+                            onClick={submitConnectedClaim}
+                          >
+                            {action === "payer-submit"
+                              ? "Transmitting..."
+                              : "Transmit to Payer"}
+                          </Button>
+                        }
+                      >
+                        Claim submission is complete. Payer transmission is a separate step.
+                      </Alert>
+                    ) : (
+                      <Button
+                        variant="contained"
+                        size="small"
+                        disabled={action !== "" || !stages.claim.actionable}
+                        onClick={submitConnectedClaim}
+                      >
+                        {action === "payer-submit" ? "Submitting..." : "Submit to Payer"}
+                      </Button>
+                    )}
                   </>
                 )}
                 <Button
