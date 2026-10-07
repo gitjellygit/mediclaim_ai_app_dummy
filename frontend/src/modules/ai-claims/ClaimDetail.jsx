@@ -2047,6 +2047,25 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                           severity: "warning"
                         }
                       );
+                    } else if (result?.identityValidation?.status === "REVIEW") {
+                      const fields = (result?.identityValidation?.warnings || [])
+                        .map((field) =>
+                          ({
+                            patientName: "patient name",
+                            memberId: "member ID",
+                            policyNo: "policy number",
+                            patientDob: "date of birth"
+                          })[field] || field
+                        )
+                        .join(", ");
+                      showDialog(
+                        result?.message ||
+                          `The document was uploaded, but please review the extracted ${fields || "patient identifier"}.`,
+                        {
+                          title: "Document uploaded — identity needs review",
+                          severity: "warning"
+                        }
+                      );
                     } else if (result?.identityValidation?.status === "UNVERIFIED") {
                       showDialog(
                         result?.message ||
