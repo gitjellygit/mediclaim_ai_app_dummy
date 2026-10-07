@@ -647,7 +647,7 @@ router.post("/e2e/r3-claim-status/seed", async (req, res) => {
     return res.status(404).json({ error: "Not found" });
   }
 
-  const patientName = "E2E-R3-CLAIM-STATUS";
+  const patientName = "E2E R3 Patient";
 
   try {
     await prisma.claim.deleteMany({
@@ -709,7 +709,7 @@ router.delete("/e2e/r3-claim-status/cleanup", async (req, res) => {
     const result = await prisma.claim.deleteMany({
       where: {
         organizationId: req.user.organizationId,
-        patientName: "E2E-R3-CLAIM-STATUS"
+        patientName: "E2E R3 Patient"
       }
     });
     res.json({ deleted: result.count });
