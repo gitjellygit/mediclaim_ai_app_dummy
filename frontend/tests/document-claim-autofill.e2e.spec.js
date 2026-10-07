@@ -269,3 +269,86 @@ test("prior-auth classification survives insurance-like fields and staff can ove
     }
   }
 });
+
+
+test("claim-centric ICD review resolves duplicate document suggestions and supports chip editing", async ({ page }, testInfo) => {
+  const browser = observeBrowser(page, testInfo);
+  await login(page);
+
+  let claimId = "";
+  try {
+    const created = await browserApi(page, "/api/claims", {
+      method: "POST",
+      body: {
+        patientName: "Coding Review Patient",
+        payerName: "Cedar Health Plan",
+        memberId: "CF-CODE-101",
+        policyNo: "POL-CODE-101",
+        amount: 900
+      }
+    });
+    expect(created.ok).toBe(true);
+    claimId = created.data.id;
+
+    for (const [name, title] of [
+      ["coding-note-one.pdf", "Progress Note"],
+      ["coding-note-two.pdf", "Radiology Report"]
+    ]) {
+      const upload = await browserUploadPdf(
+        page,
+        claimId,
+        name,
+        buildTextPdf([
+          title,
+          "Patient Name: Coding Review Patient",
+          "Member ID: CF-CODE-101",
+          "Diagnosis: Lumbar radiculopathy",
+          "ICD-10: M54.16"
+        ])
+      );
+      expect(upload.ok).toBe(true);
+    }
+
+    await page.goto(`/claims/${claimId}`);
+    const review = page.getByTestId("claim-icd-review");
+    await expect(review).toBeVisible();
+
+    // Duplicate suggestions from two documents are shown once at claim level.
+    await expect(review.getByTestId("pending-icd-M54.16")).toHaveCount(1);
+    await review.getByTestId("pending-icd-M54.16").click();
+
+    await expect(review.getByTestId("pending-icd-M54.16")).toHaveCount(0);
+    await expect(review.getByTestId("accepted-icd-M54.16")).toBeVisible();
+
+    let detail = await browserApi(page, `/api/claims/${claimId}`);
+    expect(detail.ok).toBe(true);
+    expect(detail.data.icd10Codes).toContain("M54.16");
+    expect(detail.data.codingSuggestions.filter((item) => item.status === "PENDING")).toHaveLength(0);
+
+    // Both source documents immediately reflect that there is nothing left to review.
+    await page.goto(`/documents?claimId=${claimId}`);
+    await expect(page.getByText("Reviewed", { exact: true })).toHaveCount(2);
+    await expect(page.getByRole("button", { name: /Review \d+/ })).toHaveCount(0);
+
+    // Claim Details supports direct removal and Enter-to-add.
+    await page.goto(`/claims/${claimId}`);
+    const acceptedChip = page.getByTestId("accepted-icd-M54.16");
+    await acceptedChip.locator("svg").click();
+    await expect(page.getByTestId("accepted-icd-M54.16")).toHaveCount(0);
+
+    const addInput = page.getByRole("textbox", { name: "Add ICD-10 code" });
+    await addInput.fill("Z00.00");
+    await addInput.press("Enter");
+    await expect(page.getByTestId("accepted-icd-Z00.00")).toBeVisible();
+
+    detail = await browserApi(page, `/api/claims/${claimId}`);
+    expect(detail.ok).toBe(true);
+    expect(detail.data.icd10Codes).toEqual(["Z00.00"]);
+
+    await browser.assertClean();
+  } finally {
+    if (claimId) {
+      await browserApi(page, `/api/claims/${claimId}`, { method: "DELETE" });
+    }
+  }
+});
