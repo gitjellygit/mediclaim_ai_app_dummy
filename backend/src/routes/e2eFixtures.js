@@ -686,7 +686,7 @@ router.post("/e2e/r3-claim-status/seed", async (req, res) => {
         insurerClaimNo: "E2E-R3-PAYER-CLAIM",
         remittanceStatus: "NOT_AVAILABLE",
         payerConnectionMode: "LIVE",
-        payerConnectorId: "STEDI_TEST"
+        payerConnectorId: "STEDI_PRODUCTION"
       }
     });
 
