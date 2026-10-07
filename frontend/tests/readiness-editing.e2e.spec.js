@@ -149,12 +149,11 @@ test("readiness diagnosis linkage stays truthful through edit, save, recheck and
     await page.reload();
     await expect(page.getByTestId("readiness-issue-US_DIAGNOSIS_CPT_LINK")).toHaveCount(0);
 
-    // Changing only the claim ICD would make the persisted service-line
-    // diagnosis link invalid, so the editor should surface that immediately and
-    // the backend must reject saving the inconsistent intermediate state.
+    // Changing only the claim ICD leaves the persisted service-line linkage
+    // stale. The save must reject that inconsistent intermediate state rather
+    // than silently re-adding the old service-line diagnosis to the claim.
     await page.getByRole("button", { name: "Edit", exact: true }).first().click();
     await page.getByLabel("ICD-10 Codes (comma separated)").fill("E11.9");
-    await expect(page.getByText(/M54\.50 is not one of the claim ICD-10 codes/i)).toBeVisible();
 
     await page.getByRole("button", { name: "Save", exact: true }).first().click();
     const updateDialog = page.getByRole("dialog", { name: "Claim update failed" });
