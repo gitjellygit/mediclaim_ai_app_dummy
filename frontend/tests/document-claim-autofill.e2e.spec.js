@@ -69,6 +69,30 @@ async function browserApi(page, path, { method = "GET", body } = {}) {
   }, { backendURL, path, method, body });
 }
 
+async function browserUploadPdf(page, claimId, fileName, buffer) {
+  const base64 = buffer.toString("base64");
+  return page.evaluate(async ({ backendURL, claimId, fileName, base64 }) => {
+    const token = localStorage.getItem("accessToken");
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const form = new FormData();
+    form.append("claimId", claimId);
+    form.append("file", new File([bytes], fileName, { type: "application/pdf" }));
+
+    const response = await fetch(`${backendURL}/api/documents/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+      body: form
+    });
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      data: text ? JSON.parse(text) : null
+    };
+  }, { backendURL, claimId, fileName, base64 });
+}
+
 test("document claim creation fills later insurance fields and locks completed batch", async ({ page }, testInfo) => {
   const browser = observeBrowser(page, testInfo);
   await login(page);
@@ -164,6 +188,79 @@ test("document claim creation fills later insurance fields and locks completed b
     await expect(page.getByText("Member ID:", { exact: true }).locator("..")).toContainText("CF-AUTO-4411");
     await expect(page.getByText("Group Number:", { exact: true }).locator("..")).toContainText("GRP-AUTO-77");
     await expect(page.getByText("Subscriber ID:", { exact: true }).locator("..")).toContainText("SUB-AUTO-4411");
+
+    await browser.assertClean();
+  } finally {
+    if (claimId) {
+      await browserApi(page, `/api/claims/${claimId}`, { method: "DELETE" });
+    }
+  }
+});
+
+
+test("prior-auth classification survives insurance-like fields and staff can override saved type", async ({ page }, testInfo) => {
+  const browser = observeBrowser(page, testInfo);
+  await login(page);
+
+  let claimId = "";
+  try {
+    const created = await browserApi(page, "/api/claims", {
+      method: "POST",
+      body: {
+        patientName: "Emma Reynolds",
+        payerName: "Cedar Health Plan",
+        memberId: "CF-ER-1001",
+        policyNo: "POL-ER-77101",
+        amount: 500
+      }
+    });
+    expect(created.ok).toBe(true);
+    claimId = created.data.id;
+
+    const fileName = "P101_Emma_Reynolds_prior_authorization.pdf";
+    const upload = await browserUploadPdf(
+      page,
+      claimId,
+      fileName,
+      buildTextPdf([
+        "Prior Authorization Approval",
+        "Patient Name: Emma Reynolds",
+        "Payer Name: Cedar Health Plan",
+        "Member ID: CF-ER-1001",
+        "Group Number: GRP-2026-77",
+        "Authorization Number: AUTH-ER-9001",
+        "Authorization Status: APPROVED",
+        "Approved Service: CPT 72148"
+      ])
+    );
+
+    expect(upload.ok).toBe(true);
+    expect(upload.data.type).toBe("PRIOR_AUTHORIZATION");
+    expect(upload.data.suggestedType).toBe("PRIOR_AUTHORIZATION");
+    expect(upload.data.identityValidation.status).toBe("MATCH");
+    expect(upload.data.identityValidation.conflicts).toEqual([]);
+
+    await page.goto(`/claims/${claimId}`);
+    const row = page.getByRole("row").filter({ hasText: fileName });
+    await expect(row).toBeVisible();
+
+    const typeField = row.getByTestId(`document-type-${upload.data.id}`);
+    await expect(typeField).toBeVisible();
+    await typeField.getByRole("combobox").click();
+    await page.getByRole("option", { name: "Other", exact: true }).click();
+
+    await expect(row.getByTestId(`document-type-${upload.data.id}`).getByRole("combobox"))
+      .toHaveText("Other");
+
+    const detailAfterManual = await browserApi(page, `/api/claims/${claimId}`);
+    expect(detailAfterManual.ok).toBe(true);
+    const savedDoc = detailAfterManual.data.documents.find((doc) => doc.id === upload.data.id);
+    expect(savedDoc.type).toBe("OTHER");
+    expect(savedDoc.suggestedType).toBe("PRIOR_AUTHORIZATION");
+
+    await row.getByRole("button", { name: "Use AI Type", exact: true }).click();
+    await expect(row.getByTestId(`document-type-${upload.data.id}`).getByRole("combobox"))
+      .toHaveText("Prior Authorization");
 
     await browser.assertClean();
   } finally {
