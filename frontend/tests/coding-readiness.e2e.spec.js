@@ -172,13 +172,17 @@ test("document coding Accept flows into readiness and requires valid diagnosis l
     await page.goto(`/documents?claimId=${claimId}`);
     const duplicateRow = page.getByRole("row").filter({ hasText: duplicateFileName });
     await expect(duplicateRow).toBeVisible();
-    await duplicateRow.getByRole("button", { name: /Review 1/i }).click();
+    await expect(duplicateRow.getByText("Reviewed", { exact: true })).toBeVisible();
+    await expect(duplicateRow.getByRole("button", { name: /Review \d+/ })).toHaveCount(0);
 
-    const duplicateIcd = page.getByTestId("coding-suggestion-ICD10_CM-M54.50");
-    await expect(duplicateIcd.getByText("ACCEPTED", { exact: true })).toBeVisible();
-    await expect(duplicateIcd.getByRole("button", { name: "Accept" })).toHaveCount(0);
-    await expect(duplicateIcd.getByRole("button", { name: "Change" })).toHaveCount(0);
-    await expect(duplicateIcd.getByRole("button", { name: "Reject" })).toHaveCount(0);
+    const duplicateSuggestions = await browserApi(
+      page,
+      `/api/documents/${duplicateUpload.data.id}/coding-suggestions`
+    );
+    expect(duplicateSuggestions.ok).toBe(true);
+    expect(duplicateSuggestions.data.items).toHaveLength(1);
+    expect(duplicateSuggestions.data.items[0].status).toBe("ACCEPTED");
+    expect(duplicateSuggestions.data.items[0].finalCode).toBe("M54.50");
 
     const payerConnect = await browserApi(
       page,
