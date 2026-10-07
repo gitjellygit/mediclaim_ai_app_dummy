@@ -9,7 +9,10 @@ import {
 import { createLocalPayerConnector } from "./localPayerConnector.js";
 import { assertPayerConnector, PAYER_CONNECTOR_METHODS } from "./payerConnector.js";
 import { createLivePayerConnector } from "./livePayerConnector.js";
-import { createStediTestConnector } from "./stediTestConnector.js";
+import {
+  createStediProductionConnector,
+  createStediTestConnector
+} from "./stediTestConnector.js";
 import { createAvailitySandboxConnector } from "./availitySandboxConnector.js";
 import {
   PAYER_CONNECTOR_ENVIRONMENTS,
@@ -144,15 +147,23 @@ export function registerDefaultPayerConnectors() {
     mode: "LIVE",
     provider: "STEDI",
     environment: PAYER_CONNECTOR_ENVIRONMENTS.TEST,
-    capabilities: (env) => [
-      "checkEligibility",
-      "listPayers",
-      ...(env.STEDI_CLAIM_STATUS_API_KEY && env.STEDI_CLAIM_STATUS_URL
-        ? ["getStatus"]
-        : [])
-    ],
+    capabilities: ["checkEligibility", "listPayers"],
     configured: (env) => Boolean(env.STEDI_TEST_API_KEY),
     factory: (_context, env) => createStediTestConnector({ env })
+  });
+
+  registerPayerConnector({
+    id: PAYER_CONNECTOR_IDS.STEDI_PRODUCTION,
+    mode: "LIVE",
+    provider: "STEDI",
+    environment: PAYER_CONNECTOR_ENVIRONMENTS.PRODUCTION,
+    capabilities: (env) => [
+      "checkEligibility",
+      ...(env.STEDI_CLAIM_STATUS_URL ? ["getStatus"] : [])
+    ],
+    configured: (env) =>
+      Boolean(env.STEDI_PRODUCTION_API_KEY && env.STEDI_CLAIM_STATUS_URL),
+    factory: (_context, env) => createStediProductionConnector({ env })
   });
 
   defaultsRegistered = true;
