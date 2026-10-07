@@ -161,8 +161,7 @@ export function registerDefaultPayerConnectors() {
       "checkEligibility",
       ...(env.STEDI_CLAIM_STATUS_URL ? ["getStatus"] : [])
     ],
-    configured: (env) =>
-      Boolean(env.STEDI_PRODUCTION_API_KEY && env.STEDI_CLAIM_STATUS_URL),
+    configured: (env) => Boolean(env.STEDI_PRODUCTION_API_KEY),
     factory: (_context, env) => createStediProductionConnector({ env })
   });
 
