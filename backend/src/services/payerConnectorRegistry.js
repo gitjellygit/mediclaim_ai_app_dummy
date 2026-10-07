@@ -54,7 +54,10 @@ export function registerPayerConnector({
     mode: String(mode || normalizedId).toUpperCase(),
     provider: provider || normalizedId,
     environment: environment || PAYER_CONNECTOR_ENVIRONMENTS.LOCAL,
-    capabilities: Object.freeze([...(capabilities || [])]),
+    capabilities:
+      typeof capabilities === "function"
+        ? capabilities
+        : Object.freeze([...(capabilities || [])]),
     configured: typeof configured === "function" ? configured : () => Boolean(configured ?? true),
     factory
   });
@@ -70,13 +73,21 @@ export function getPayerConnectorDescriptor(id) {
   return descriptor;
 }
 
+function resolveCapabilities(descriptor, env = process.env) {
+  const value =
+    typeof descriptor.capabilities === "function"
+      ? descriptor.capabilities(env)
+      : descriptor.capabilities;
+  return Object.freeze([...(value || [])]);
+}
+
 export function listPayerConnectorDescriptors(env = process.env) {
   return [...registry.values()].map((descriptor) => ({
     id: descriptor.id,
     mode: descriptor.mode,
     provider: descriptor.provider,
     environment: descriptor.environment,
-    capabilities: descriptor.capabilities,
+    capabilities: resolveCapabilities(descriptor, env),
     configured: Boolean(descriptor.configured(env))
   }));
 }
@@ -96,7 +107,7 @@ export function createRegisteredPayerConnector(id, context = {}, env = process.e
     connectorId: descriptor.id,
     connectorProvider: descriptor.provider,
     connectorEnvironment: descriptor.environment,
-    connectorCapabilities: descriptor.capabilities
+    connectorCapabilities: resolveCapabilities(descriptor, env)
   });
 }
 
