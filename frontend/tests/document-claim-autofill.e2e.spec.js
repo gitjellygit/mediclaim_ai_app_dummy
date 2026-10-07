@@ -149,6 +149,17 @@ test("document claim creation fills later insurance fields and locks completed b
 
     await expect(dialog.getByTestId("create-claim-from-documents")).toHaveText("Claim Created");
     await expect(dialog.getByTestId("create-claim-from-documents")).toBeDisabled();
+    await expect(dialog.getByRole("columnheader", { name: "Detected Type" })).toBeVisible();
+    await expect(
+      dialog.getByRole("columnheader", { name: "AI Classification Confidence" })
+    ).toBeVisible();
+    await expect(dialog.getByText("Progress Note", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Insurance Card", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("NEW", { exact: true })).toHaveCount(0);
+    await expect(dialog.getByText("MERGED", { exact: true })).toHaveCount(0);
+    await expect(
+      dialog.getByText(/classifier is about the detected document type/i)
+    ).toBeVisible();
 
     const claims = await browserApi(page, "/api/claims");
     expect(claims.ok).toBe(true);
@@ -344,10 +355,21 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
     await expect(review).toBeVisible();
 
     // Duplicate suggestions from two documents are shown once at claim level.
-    await expect(review.getByTestId("pending-icd-M54.16")).toHaveCount(1);
-    await review.getByTestId("pending-icd-M54.16").click();
+    await expect(review.getByText("1 to review", { exact: true })).toBeVisible();
+    await review.getByTestId("open-icd-review").click();
 
-    await expect(review.getByTestId("pending-icd-M54.16")).toHaveCount(0);
+    const codingDialog = page.getByRole("dialog", {
+      name: "Review AI-generated ICD-10-CM codes"
+    });
+    await expect(codingDialog).toBeVisible();
+    await expect(codingDialog.getByTestId("pending-icd-M54.16")).toHaveCount(1);
+    await expect(codingDialog.getByText(/Source:/)).toBeVisible();
+    await codingDialog
+      .getByTestId("pending-icd-M54.16")
+      .getByRole("button", { name: "Accept", exact: true })
+      .click();
+
+    await expect(codingDialog).toHaveCount(0);
     await expect(review.getByTestId("accepted-icd-M54.16")).toBeVisible();
 
     let detail = await browserApi(page, `/api/claims/${claimId}`);

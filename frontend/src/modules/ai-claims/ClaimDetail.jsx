@@ -3,7 +3,8 @@ import {
   Box, Card, CardContent, Typography, Button, Chip, Stack,
   Table, TableHead, TableRow, TableCell, TableBody, TableContainer, TablePagination,
   LinearProgress, Divider, TextField, Paper, Checkbox, IconButton, Tooltip,
-  Collapse, Alert, Snackbar, MenuItem, Autocomplete
+  Collapse, Alert, Snackbar, MenuItem, Autocomplete,
+  Dialog, DialogTitle, DialogContent, DialogActions
 } from "@mui/material";
 import {
   DeleteForever, ExpandMore, ExpandLess, Visibility, Download, 
@@ -121,6 +122,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [bulkDeleteLoading, setBulkDeleteLoading] = React.useState(false);
   const [newIcdCode, setNewIcdCode] = React.useState("");
   const [codingActionId, setCodingActionId] = React.useState("");
+  const [icdReviewOpen, setIcdReviewOpen] = React.useState(false);
   const [fixFocus, setFixFocus] = React.useState("");
   const [fixFields, setFixFields] = React.useState([]);
   const [readinessHistoryExpanded, setReadinessHistoryExpanded] = React.useState(false);
@@ -138,6 +140,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     return [...byCode.values()];
   }, [claim?.codingSuggestions]);
 
+  React.useEffect(() => {
+    if (icdReviewOpen && pendingIcdSuggestions.length === 0) {
+      setIcdReviewOpen(false);
+    }
+  }, [icdReviewOpen, pendingIcdSuggestions.length]);
   React.useEffect(() => {
     if (!claim) return;
     setEditForm({
@@ -1345,21 +1352,38 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                         )}
                       </Stack>
                       {!aiCheckLocked && (
-                        <TextField
-                          size="small"
-                          placeholder="Add ICD-10 and press Enter"
-                          value={newIcdCode}
-                          onChange={(event) => setNewIcdCode(event.target.value.toUpperCase())}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              addIcdCode();
-                            }
-                          }}
-                          disabled={Boolean(codingActionId)}
-                          inputProps={{ "aria-label": "Add ICD-10 code" }}
-                          sx={{ width: { xs: "100%", md: 250 } }}
-                        />
+                        <Stack
+                          direction={{ xs: "column", sm: "row" }}
+                          spacing={1}
+                          alignItems={{ xs: "stretch", sm: "center" }}
+                        >
+                          {pendingIcdSuggestions.length > 0 && (
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              onClick={() => setIcdReviewOpen(true)}
+                              disabled={Boolean(codingActionId)}
+                              data-testid="open-icd-review"
+                            >
+                              Review AI Suggestions ({pendingIcdSuggestions.length})
+                            </Button>
+                          )}
+                          <TextField
+                            size="small"
+                            placeholder="Add ICD-10 and press Enter"
+                            value={newIcdCode}
+                            onChange={(event) => setNewIcdCode(event.target.value.toUpperCase())}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                addIcdCode();
+                              }
+                            }}
+                            disabled={Boolean(codingActionId)}
+                            inputProps={{ "aria-label": "Add ICD-10 code" }}
+                            sx={{ width: { xs: "100%", md: 250 } }}
+                          />
+                        </Stack>
                       )}
                     </Stack>
 
@@ -1376,18 +1400,6 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                         />
                       ))}
 
-                      {pendingIcdSuggestions.map((suggestion) => (
-                        <Chip
-                          key={suggestion.id}
-                          label={`${suggestion.suggestedCode} · Accept`}
-                          color="warning"
-                          variant="outlined"
-                          onClick={() => reviewClaimIcdSuggestion(suggestion, "ACCEPT")}
-                          onDelete={() => reviewClaimIcdSuggestion(suggestion, "REJECT")}
-                          disabled={Boolean(codingActionId)}
-                          data-testid={`pending-icd-${suggestion.suggestedCode}`}
-                        />
-                      ))}
 
                       {(claim.icd10Codes || []).length === 0 &&
                         pendingIcdSuggestions.length === 0 && (
@@ -1398,7 +1410,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                     </Stack>
                     {pendingIcdSuggestions.length > 0 && (
                       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
-                        Click a suggested code to accept it, or × to reject it. Identical suggestions across documents are resolved together.
+                        AI-generated codes are pending human review. Review them here without leaving the claim.
                       </Typography>
                     )}
                   </Box>
@@ -2666,6 +2678,116 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         </CardContent>
       </Card>
 
+      <Dialog
+        open={icdReviewOpen}
+        onClose={() => !codingActionId && setIcdReviewOpen(false)}
+        fullWidth
+        maxWidth="md"
+        aria-labelledby="icd-review-title"
+      >
+        <DialogTitle id="icd-review-title">
+          Review AI-generated ICD-10-CM codes
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Review each code before it is added to the claim. Source documents and extracted evidence stay visible here so you do not need to leave Claim Details.
+          </Typography>
+
+          <Stack spacing={1.5}>
+            {pendingIcdSuggestions.map((suggestion) => {
+              const sourceDocument = (claim?.documents || []).find(
+                (document) => document.id === suggestion.documentId
+              );
+
+              return (
+                <Paper
+                  key={suggestion.id}
+                  variant="outlined"
+                  sx={{ p: 2 }}
+                  data-testid={`pending-icd-${suggestion.suggestedCode}`}
+                >
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    justifyContent="space-between"
+                    spacing={2}
+                  >
+                    <Box sx={{ minWidth: 0 }}>
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                        <Chip size="small" label="ICD-10-CM" variant="outlined" />
+                        <Typography variant="h6" fontWeight={800}>
+                          {suggestion.suggestedCode}
+                        </Typography>
+                      </Stack>
+
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        Source: {sourceDocument?.fileName || "Supporting document"}
+                      </Typography>
+
+                      {suggestion.evidenceText && (
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            mt: 1,
+                            p: 1.25,
+                            bgcolor: "action.hover",
+                            borderRadius: 1
+                          }}
+                        >
+                          {suggestion.evidenceText}
+                        </Typography>
+                      )}
+                    </Box>
+
+                    <Stack
+                      direction={{ xs: "row", sm: "column" }}
+                      spacing={1}
+                      justifyContent="flex-start"
+                      sx={{ minWidth: { sm: 145 } }}
+                    >
+                      <Button
+                        variant="contained"
+                        size="small"
+                        onClick={() => reviewClaimIcdSuggestion(suggestion, "ACCEPT")}
+                        disabled={Boolean(codingActionId)}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        size="small"
+                        onClick={() => reviewClaimIcdSuggestion(suggestion, "REJECT")}
+                        disabled={Boolean(codingActionId)}
+                      >
+                        Reject
+                      </Button>
+                      {sourceDocument && (
+                        <Button
+                          variant="text"
+                          size="small"
+                          startIcon={<Visibility />}
+                          onClick={() => handlePreview(sourceDocument)}
+                          disabled={Boolean(codingActionId)}
+                        >
+                          View source
+                        </Button>
+                      )}
+                    </Stack>
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setIcdReviewOpen(false)}
+            disabled={Boolean(codingActionId)}
+          >
+            Done
+          </Button>
+        </DialogActions>
+      </Dialog>
       <AICheckProgress open={aiRunning} />
     </Box>
   );
