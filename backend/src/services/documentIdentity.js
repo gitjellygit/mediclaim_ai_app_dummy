@@ -58,26 +58,6 @@ function getExtractedIdentity(extracted = {}) {
   };
 }
 
-function editDistance(a, b) {
-  if (a === b) return 0;
-  if (!a) return b?.length || 0;
-  if (!b) return a.length;
-
-  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= a.length; i += 1) {
-    const current = [i];
-    for (let j = 1; j <= b.length; j += 1) {
-      current[j] = Math.min(
-        previous[j] + 1,
-        current[j - 1] + 1,
-        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
-      );
-    }
-    for (let j = 0; j < current.length; j += 1) previous[j] = current[j];
-  }
-  return previous[b.length];
-}
-
 const OCR_CONFUSION_GROUPS = [
   new Set(["0", "o"]),
   new Set(["1", "i", "l"]),
@@ -110,10 +90,6 @@ function identifiersEquivalent(a, b) {
     if (differences >= 1 && differences <= 2 && onlyOcrConfusions) {
       return { equivalent: true, exact: false, tolerant: true };
     }
-  }
-
-  if (Math.min(left.length, right.length) >= 7 && editDistance(left, right) === 1) {
-    return { equivalent: true, exact: false, tolerant: true };
   }
 
   return { equivalent: false, exact: false, tolerant: false };
