@@ -339,13 +339,17 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
                     ? "LOCAL_PRECHECK"
                     : connector.connectorId || "LOCAL_PRECHECK",
                 label:
-                  connector.connectorEnvironment === "TEST"
+                  connector.connectorEnvironment === "SANDBOX"
+                    ? `${connector.connectorProvider} Sandbox Eligibility`
+                    : connector.connectorEnvironment === "TEST"
                     ? `${connector.connectorProvider} Test Eligibility`
                     : connector.connectorEnvironment === "PRODUCTION"
                     ? `${connector.connectorProvider} Eligibility`
                     : "Local Pre-check",
                 sourceDetail:
-                  connector.connectorEnvironment === "TEST"
+                  connector.connectorEnvironment === "SANDBOX"
+                    ? "External sandbox 270/271 eligibility response"
+                    : connector.connectorEnvironment === "TEST"
                     ? "External test-mode 270/271 eligibility response"
                     : connector.connectorEnvironment === "PRODUCTION"
                     ? "External production 270/271 eligibility response"
@@ -371,7 +375,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
       }
 
       let transaction = null;
-      if (connector.connectorEnvironment === "TEST" || connector.connectorEnvironment === "PRODUCTION") {
+      if (["SANDBOX", "TEST", "PRODUCTION"].includes(connector.connectorEnvironment)) {
         transaction = await tx.payerTransaction.create({
           data: {
             claimId: claim.id,
@@ -386,7 +390,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
             requestPayload: {
               transaction: "270/271",
               connectorId: connector.connectorId,
-              testMode: connector.connectorEnvironment === "TEST",
+              testMode: ["SANDBOX", "TEST"].includes(connector.connectorEnvironment),
               inputFingerprint: eligibilityFingerprint
             },
             responsePayload: eligibility
@@ -419,7 +423,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
       claim: updated
     });
   } catch (error) {
-    if (error?.status && !["STEDI_API_ERROR"].includes(error?.code)) throw error;
+    if (error?.status && !["STEDI_API_ERROR", "AVAILITY_API_ERROR"].includes(error?.code)) throw error;
     console.error("[claim-journey] eligibility precheck failed", {
       claimId: req.params.id,
       code: error?.code || null
@@ -427,10 +431,10 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
     if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
       return res.status(503).json({ error: "Payer connector is not configured" });
     }
-    if (error?.code === "STEDI_REQUEST_INVALID") {
+    if (["STEDI_REQUEST_INVALID", "AVAILITY_REQUEST_INVALID"].includes(error?.code)) {
       return res.status(400).json({ error: error.message });
     }
-    if (error?.code === "STEDI_API_ERROR") {
+    if (["STEDI_API_ERROR", "AVAILITY_API_ERROR"].includes(error?.code)) {
       return res.status(502).json({ error: "External eligibility service request failed" });
     }
     res.status(500).json({ error: "Eligibility pre-check failed. Please retry." });

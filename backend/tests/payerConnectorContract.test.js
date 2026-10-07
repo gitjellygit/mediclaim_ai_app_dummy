@@ -176,7 +176,9 @@ test("R1 - LIVE mode can resolve an explicit provider connector ID", () => {
     PAYER_CONNECTOR_ID: "AVAILITY_SANDBOX",
     AVAILITY_API_BASE_URL: "https://sandbox.example.test",
     AVAILITY_CLIENT_ID: "test-client",
-    AVAILITY_CLIENT_SECRET: "test-secret"
+    AVAILITY_CLIENT_SECRET: "test-secret",
+    AVAILITY_TOKEN_URL: "https://sandbox.example.test/oauth/token",
+    AVAILITY_ELIGIBILITY_URL: "https://sandbox.example.test/eligibility"
   };
 
   assert.equal(
@@ -208,6 +210,27 @@ test("R1 - claim mode continues to override external connector config for local 
   );
 });
 
+
+
+test("R2C - AVAILITY_SANDBOX is configured only with complete OAuth + eligibility endpoints", () => {
+  const incomplete = new Map(
+    listPayerConnectors({
+      AVAILITY_CLIENT_ID: "client",
+      AVAILITY_CLIENT_SECRET: "secret"
+    }).map((item) => [item.id, item])
+  );
+  assert.equal(incomplete.get("AVAILITY_SANDBOX")?.configured, false);
+
+  const complete = new Map(
+    listPayerConnectors({
+      AVAILITY_CLIENT_ID: "client",
+      AVAILITY_CLIENT_SECRET: "secret",
+      AVAILITY_TOKEN_URL: "https://sandbox.example.test/oauth/token",
+      AVAILITY_ELIGIBILITY_URL: "https://sandbox.example.test/eligibility"
+    }).map((item) => [item.id, item])
+  );
+  assert.equal(complete.get("AVAILITY_SANDBOX")?.configured, true);
+});
 
 test("R2A - STEDI_TEST appears in registry and is configured only with a test key", () => {
   const withoutKey = new Map(listPayerConnectors({}).map((item) => [item.id, item]));

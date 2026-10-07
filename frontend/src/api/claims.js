@@ -152,6 +152,17 @@ export const ClaimsApi = {
     return withReadRetry(() => api(`${BASE}/payers/mock`));
   },
 
+  getPayerConnectors() {
+    return withReadRetry(() => api("/api/payer-connectors"));
+  },
+
+  connectExternalPayer(id, data) {
+    return api(`${BASE}/${id}/journey/payer-connection`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+  },
+
   connectMockPayer(id, payerCode) {
     return api(`${BASE}/${id}/payer-simulation/connect`, {
       method: "POST",
