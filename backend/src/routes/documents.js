@@ -661,12 +661,22 @@ export function documentsRouter(prisma, uploadDir) {
         conflictFields: identityValidation.conflicts
       });
 
+      const conflictLabels = {
+        patientName: "patient name",
+        memberId: "member ID",
+        policyNo: "policy number",
+        patientDob: "date of birth"
+      };
+      const conflictingDetails = identityValidation.conflicts
+        .map((field) => conflictLabels[field] || field)
+        .join(", ");
+
       return res.status(409).json({
-        error: "Patient mismatch",
+        error: "Patient identity mismatch",
         message:
-          identityValidation.extractedPatientName
-            ? `This document appears to belong to ${identityValidation.extractedPatientName}, but the current claim is for ${claim.patientName}. The document was not uploaded.`
-            : "The document identity does not match the current claim. The document was not uploaded.",
+          identityValidation.conflicts.includes("patientName")
+            ? `The document patient name does not match this claim. Document: ${identityValidation.extractedPatientName || "Unknown"}; Claim: ${claim.patientName || "Unknown"}.`
+            : `The patient name matches, but the document conflicts with this claim on: ${conflictingDetails}. The document was not uploaded.`,
         code: "DOCUMENT_PATIENT_MISMATCH",
         identityValidation
       });
@@ -1120,6 +1130,92 @@ export function documentsRouter(prisma, uploadDir) {
     });
 
     res.json(updated);
+  });
+
+  // Manual document type override remains available until claim transmission.
+  router.patch("/:id/type", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
+    try {
+      const nextType = String(req.body?.type || "").trim().toUpperCase();
+      if (!DOC_TYPES.includes(nextType)) {
+        return res.status(400).json({
+          error: "Invalid document type",
+          code: "INVALID_DOCUMENT_TYPE"
+        });
+      }
+
+      const doc = await prisma.document.findFirst({
+        where: {
+          id: req.params.id,
+          claim: { organizationId: req.user.organizationId, deletedAt: null }
+        },
+        include: { claim: true }
+      });
+
+      if (!doc) return res.status(404).json({ error: "Document not found" });
+
+      if (isClaimLocked(doc.claim)) {
+        return res.status(409).json({
+          error: "Submitted claims are locked. Document type cannot be changed."
+        });
+      }
+
+      if (doc.type === nextType) {
+        return res.json({
+          ...doc,
+          unchanged: true,
+          message: "Document type is already set to this value"
+        });
+      }
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const changed = await tx.document.update({
+          where: { id: doc.id },
+          data: { type: nextType }
+        });
+
+        await tx.check.updateMany({
+          where: { claimId: doc.claimId, isStale: false },
+          data: {
+            isStale: true,
+            staleAt: new Date(),
+            staleReason: "Document type changed manually"
+          }
+        });
+
+        if (doc.claim?.status === "READY") {
+          await tx.claim.update({
+            where: { id: doc.claimId },
+            data: { status: "DRAFT" }
+          });
+        }
+
+        return changed;
+      });
+
+      await auditDocumentEvent(prisma, req, {
+        claimId: doc.claimId,
+        documentId: doc.id,
+        action: "DOCUMENT_TYPE_CHANGED",
+        metadata: {
+          previousType: doc.type,
+          newType: nextType,
+          changeSource: "MANUAL"
+        }
+      });
+
+      return res.json({
+        ...updated,
+        message: `Document type changed to ${nextType.replaceAll("_", " ")}`
+      });
+    } catch (error) {
+      console.error("[claim-document] manual type update failed", {
+        documentId: req.params.id,
+        code: error?.code || null
+      });
+      return res.status(500).json({
+        error: "Unable to change document type"
+      });
+    }
   });
 
   // Canonical document operations; legacy /api/claims/documents URLs share this router.
