@@ -419,7 +419,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
       claim: updated
     });
   } catch (error) {
-    if (error?.status && !["STEDI_API_ERROR"].includes(error?.code)) throw error;
+    if (error?.status && !["STEDI_API_ERROR", "AVAILITY_API_ERROR"].includes(error?.code)) throw error;
     console.error("[claim-journey] eligibility precheck failed", {
       claimId: req.params.id,
       code: error?.code || null
@@ -427,10 +427,10 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
     if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
       return res.status(503).json({ error: "Payer connector is not configured" });
     }
-    if (error?.code === "STEDI_REQUEST_INVALID") {
+    if (["STEDI_REQUEST_INVALID", "AVAILITY_REQUEST_INVALID"].includes(error?.code)) {
       return res.status(400).json({ error: error.message });
     }
-    if (error?.code === "STEDI_API_ERROR") {
+    if (["STEDI_API_ERROR", "AVAILITY_API_ERROR"].includes(error?.code)) {
       return res.status(502).json({ error: "External eligibility service request failed" });
     }
     res.status(500).json({ error: "Eligibility pre-check failed. Please retry." });
