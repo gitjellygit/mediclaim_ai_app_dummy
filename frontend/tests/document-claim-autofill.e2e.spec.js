@@ -149,6 +149,17 @@ test("document claim creation fills later insurance fields and locks completed b
 
     await expect(dialog.getByTestId("create-claim-from-documents")).toHaveText("Claim Created");
     await expect(dialog.getByTestId("create-claim-from-documents")).toBeDisabled();
+    await expect(dialog.getByRole("columnheader", { name: "Detected Type" })).toBeVisible();
+    await expect(
+      dialog.getByRole("columnheader", { name: "AI Classification Confidence" })
+    ).toBeVisible();
+    await expect(dialog.getByText("Progress Note", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Insurance Card", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("NEW", { exact: true })).toHaveCount(0);
+    await expect(dialog.getByText("MERGED", { exact: true })).toHaveCount(0);
+    await expect(
+      dialog.getByText(/classifier is about the detected document type/i)
+    ).toBeVisible();
 
     const claims = await browserApi(page, "/api/claims");
     expect(claims.ok).toBe(true);
