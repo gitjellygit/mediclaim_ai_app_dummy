@@ -88,11 +88,20 @@ export default function DocumentIntelligence() {
       const claims = await ClaimsApi.list();
 
       const allDocs = claims.flatMap(c =>
-        (c.documents || []).map(d => ({
-          ...d,
-          claimId: c.id,
-          patientName: c.patientName || "Unknown Patient"
-        }))
+        (c.documents || []).map(d => {
+          const suggestions = (c.codingSuggestions || []).filter(
+            (item) => item.documentId === d.id
+          );
+          return {
+            ...d,
+            claimId: c.id,
+            patientName: c.patientName || "Unknown Patient",
+            codingSummary: {
+              total: suggestions.length,
+              pending: suggestions.filter((item) => item.status === "PENDING").length
+            }
+          };
+        })
       );
 
       setDocuments(allDocs);
@@ -157,12 +166,11 @@ export default function DocumentIntelligence() {
   }
 
   function extractedCodingCount(doc) {
-    const extracted = doc?.extracted || {};
-    return [
-      ...(Array.isArray(extracted.icd10Codes) ? extracted.icd10Codes : []),
-      ...(Array.isArray(extracted.cptCodes) ? extracted.cptCodes : []),
-      ...(Array.isArray(extracted.icd10PcsCodes) ? extracted.icd10PcsCodes : [])
-    ].filter(Boolean).length;
+    return Number(doc?.codingSummary?.pending || 0);
+  }
+
+  function totalCodingCount(doc) {
+    return Number(doc?.codingSummary?.total || 0);
   }
 
   async function openCodingReview(doc) {
@@ -216,11 +224,9 @@ export default function DocumentIntelligence() {
         action,
         code
       });
-      setCodingSuggestions((current) =>
-        current.map((item) =>
-          item.id === suggestion.id ? { ...item, ...updated } : item
-        )
-      );
+      const refreshed = await ClaimsApi.getDocumentCodingSuggestions(codingDoc.id);
+      setCodingSuggestions(refreshed?.items || []);
+      await loadDocuments();
       setCodingEdits((current) => ({
         ...current,
         [suggestion.id]: updated.finalCode || current[suggestion.id] || ""
@@ -562,6 +568,14 @@ export default function DocumentIntelligence() {
                           >
                             Review {extractedCodingCount(doc)}
                           </Button>
+                        ) : totalCodingCount(doc) > 0 ? (
+                          <Chip
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                            label="Reviewed"
+                            data-testid={`coding-reviewed-${doc.id}`}
+                          />
                         ) : (
                           <Typography variant="caption" color="text.secondary">
                             No codes
