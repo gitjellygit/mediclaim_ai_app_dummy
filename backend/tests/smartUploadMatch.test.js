@@ -6,12 +6,12 @@ const extracted = { patientName: "Alice Johnson", memberId: "MEM-100", policyNo:
 const matching = { id: "claim-1", patientName: "Alice Johnson", memberId: "MEM-100", policyNo: "POL-200" };
 const score = (_extracted, claim) => claim.score ?? 100;
 
-test("B14 - a conflicting member identifier blocks automatic merging even with matching policy", () => {
+test("B14 - a single conflicting member identifier requires review instead of auto-merge or rejection", () => {
   const conflicting = { ...matching, memberId: "MEM-OTHER", score: 100 };
   const selection = selectSmartUploadMatch(extracted, [conflicting], score);
-  assert.equal(selection.matchStatus, "NEW");
+  assert.equal(selection.matchStatus, "REVIEW");
   assert.equal(selection.claim, null);
-  assert.equal(selection.candidateClaim, null);
+  assert.equal(selection.candidateClaim?.id, conflicting.id);
 });
 
 test("B14 - DOB or policy conflict blocks merging despite high matching member score", () => {

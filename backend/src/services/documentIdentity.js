@@ -58,30 +58,77 @@ function getExtractedIdentity(extracted = {}) {
   };
 }
 
+const OCR_CONFUSION_GROUPS = [
+  new Set(["0", "o"]),
+  new Set(["1", "i", "l"]),
+  new Set(["2", "z"]),
+  new Set(["5", "s"]),
+  new Set(["6", "g"]),
+  new Set(["8", "b"])
+];
+
+function isOcrConfusion(a, b) {
+  if (a === b) return true;
+  return OCR_CONFUSION_GROUPS.some((group) => group.has(a) && group.has(b));
+}
+
+function identifiersEquivalent(a, b) {
+  const left = normalizeIdentityText(a);
+  const right = normalizeIdentityText(b);
+  if (!left || !right) return { equivalent: false, exact: false, tolerant: false };
+  if (left === right) return { equivalent: true, exact: true, tolerant: false };
+
+  if (left.length === right.length && left.length >= 5) {
+    let differences = 0;
+    let onlyOcrConfusions = true;
+    for (let i = 0; i < left.length; i += 1) {
+      if (left[i] === right[i]) continue;
+      differences += 1;
+      if (!isOcrConfusion(left[i], right[i])) onlyOcrConfusions = false;
+      if (differences > 2) break;
+    }
+    if (differences >= 1 && differences <= 2 && onlyOcrConfusions) {
+      return { equivalent: true, exact: false, tolerant: true };
+    }
+  }
+
+  return { equivalent: false, exact: false, tolerant: false };
+}
+
 /**
- * Validates that a document being attached to an existing claim belongs to
- * the same patient/member. Strong conflicting identifiers always block.
- * Patient-name conflicts block only when both names are available and clearly
- * different. Documents with no extractable identity can still be attached,
- * but the response is marked UNVERIFIED so the UI can warn the user.
+ * Identity matching is evidence-based rather than a single-field veto.
+ *
+ * - Exact/tolerant identifiers and patient name/DOB are positive evidence.
+ * - A clear patient-name or DOB conflict remains a hard block.
+ * - Two independent strong identifier conflicts remain a hard block.
+ * - One isolated identifier conflict is REVIEW, not MISMATCH, so OCR noise or
+ *   stale payer-card values do not prevent a valid document from being stored.
  */
 export function validateDocumentIdentityAgainstClaim(claim, extracted = {}) {
   const identity = getExtractedIdentity(extracted);
   const conflicts = [];
   const matches = [];
+  const tolerantMatches = [];
+  const warnings = [];
 
-  const claimMember = normalizeIdentityText(claim.memberId);
-  const docMember = normalizeIdentityText(identity.memberId);
-  if (claimMember && docMember) {
-    if (claimMember === docMember) matches.push("memberId");
-    else conflicts.push("memberId");
+  const member = identifiersEquivalent(claim.memberId, identity.memberId);
+  if (claim.memberId && identity.memberId) {
+    if (member.equivalent) {
+      matches.push("memberId");
+      if (member.tolerant) tolerantMatches.push("memberId");
+    } else {
+      conflicts.push("memberId");
+    }
   }
 
-  const claimPolicy = normalizeIdentityText(claim.policyNo);
-  const docPolicy = normalizeIdentityText(identity.policyNo);
-  if (claimPolicy && docPolicy) {
-    if (claimPolicy === docPolicy) matches.push("policyNo");
-    else conflicts.push("policyNo");
+  const policy = identifiersEquivalent(claim.policyNo, identity.policyNo);
+  if (claim.policyNo && identity.policyNo) {
+    if (policy.equivalent) {
+      matches.push("policyNo");
+      if (policy.tolerant) tolerantMatches.push("policyNo");
+    } else {
+      conflicts.push("policyNo");
+    }
   }
 
   const claimDob = normalizeDateOnly(claim.patientDob);
@@ -106,8 +153,6 @@ export function validateDocumentIdentityAgainstClaim(claim, extracted = {}) {
     if (claimName === docName) {
       matches.push("patientName");
     } else {
-      // Allow common middle-name / suffix variations, but block clearly
-      // different patients such as Alice Johnson vs John Smith.
       const samePersonVariation =
         claimName.includes(docName) || docName.includes(claimName);
 
@@ -116,11 +161,30 @@ export function validateDocumentIdentityAgainstClaim(claim, extracted = {}) {
     }
   }
 
-  if (conflicts.length > 0) {
+  const hardConflict =
+    conflicts.includes("patientName") ||
+    conflicts.includes("patientDob") ||
+    ["memberId", "policyNo"].filter((field) => conflicts.includes(field)).length >= 2;
+
+  if (hardConflict) {
     return {
       status: "MISMATCH",
       conflicts,
       matches,
+      tolerantMatches,
+      warnings,
+      extractedPatientName: identity.patientName || null
+    };
+  }
+
+  if (conflicts.length > 0) {
+    warnings.push(...conflicts);
+    return {
+      status: "REVIEW",
+      conflicts,
+      matches,
+      tolerantMatches,
+      warnings,
       extractedPatientName: identity.patientName || null
     };
   }
@@ -130,6 +194,8 @@ export function validateDocumentIdentityAgainstClaim(claim, extracted = {}) {
       status: "MATCH",
       conflicts: [],
       matches,
+      tolerantMatches,
+      warnings,
       extractedPatientName: identity.patientName || null
     };
   }
@@ -138,7 +204,8 @@ export function validateDocumentIdentityAgainstClaim(claim, extracted = {}) {
     status: "UNVERIFIED",
     conflicts: [],
     matches: [],
+    tolerantMatches,
+    warnings,
     extractedPatientName: identity.patientName || null
   };
 }
-

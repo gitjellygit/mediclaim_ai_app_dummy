@@ -768,7 +768,9 @@ export function documentsRouter(prisma, uploadDir) {
       claim: updatedClaim,
       identityValidation,
       message:
-        identityValidation.status === "UNVERIFIED"
+        identityValidation.status === "REVIEW"
+          ? "Document uploaded. Patient identity mostly matches, but one extracted identifier needs review."
+          : identityValidation.status === "UNVERIFIED"
           ? "Document uploaded, but patient identity could not be verified from the extracted document data."
           : "Document uploaded and patient identity matched the current claim."
     });

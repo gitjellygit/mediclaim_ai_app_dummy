@@ -260,6 +260,38 @@ test("prior-auth classification survives insurance-like fields and staff can ove
     await row.getByRole("button", { name: "Change the saved document type to the AI-detected type", exact: true }).click();
     await expect(typeField).toHaveText("Prior Authorization");
 
+    // A single noisy identifier must not reject another document for the same
+    // patient when the name and policy evidence agree.
+    const insuranceFile = "P101_Emma_Reynolds_insurance_card.pdf";
+    const insuranceUpload = await browserUploadPdf(
+      page,
+      claimId,
+      insuranceFile,
+      buildTextPdf([
+        "Insurance Card",
+        "Patient Name: Emma Reynolds",
+        "Member ID: CF-ER-1007",
+        "Policy Number: POL-ER-77101",
+        "Group Number: GRP-2026-77",
+        "Insurance Company: Cedar Health Plan"
+      ])
+    );
+
+    expect(insuranceUpload.ok).toBe(true);
+    expect(insuranceUpload.data.type).toBe("INSURANCE_CARD");
+    expect(insuranceUpload.data.suggestedType).toBe("INSURANCE_CARD");
+    expect(insuranceUpload.data.identityValidation.status).toBe("REVIEW");
+    expect(insuranceUpload.data.identityValidation.conflicts).toEqual(["memberId"]);
+    expect(insuranceUpload.data.identityValidation.matches).toContain("patientName");
+    expect(insuranceUpload.data.identityValidation.matches).toContain("policyNo");
+
+    await page.goto(`/claims/${claimId}`);
+    const insuranceRow = page.getByRole("row").filter({ hasText: insuranceFile });
+    await expect(insuranceRow).toBeVisible();
+    await expect(
+      insuranceRow.getByRole("combobox", { name: `Document type for ${insuranceFile}` })
+    ).toHaveText("Insurance Card");
+
     await browser.assertClean();
   } finally {
     if (claimId) {
