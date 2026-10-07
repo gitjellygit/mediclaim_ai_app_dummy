@@ -1079,23 +1079,21 @@ export function documentsRouter(prisma, uploadDir) {
         }
       });
 
-      if (action === "ACCEPT") {
-        await tx.codingSuggestion.updateMany({
-          where: {
-            claimId: suggestion.claimId,
-            id: { not: suggestion.id },
-            system: suggestion.system,
-            suggestedCode: suggestion.suggestedCode,
-            status: "PENDING"
-          },
-          data: {
-            status: "ACCEPTED",
-            finalCode: suggestion.suggestedCode,
-            reviewedAt,
-            reviewedById: req.user.id
-          }
-        });
-      }
+      await tx.codingSuggestion.updateMany({
+        where: {
+          claimId: suggestion.claimId,
+          id: { not: suggestion.id },
+          system: suggestion.system,
+          suggestedCode: suggestion.suggestedCode,
+          status: "PENDING"
+        },
+        data: {
+          status: nextStatus,
+          finalCode,
+          reviewedAt,
+          reviewedById: req.user.id
+        }
+      });
 
       await tx.check.updateMany({
         where: { claimId: suggestion.claimId, isStale: false },
