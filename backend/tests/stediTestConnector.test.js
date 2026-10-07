@@ -4,6 +4,7 @@ import {
   buildStediClaimSubmissionRequest,
   buildStediClaimStatusRequest,
   buildStediEligibilityRequest,
+  createStediProductionConnector,
   createStediTestConnector,
   listStediPayers,
   normalizeStediClaimSubmissionResponse,
@@ -508,10 +509,9 @@ test("R3 - connector sends configured production 276 request and receives synchr
     };
   };
 
-  const connector = createStediTestConnector({
+  const connector = createStediProductionConnector({
     env: {
-      STEDI_TEST_API_KEY: "test-key",
-      STEDI_CLAIM_STATUS_API_KEY: "production-status-key",
+      STEDI_PRODUCTION_API_KEY: "production-status-key",
       STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
     },
     fetchImpl
