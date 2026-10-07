@@ -27,6 +27,7 @@ router.use((req, res, next) => {
     /\/payer-connection$/.test(path) ? "PAYER_CONNECTED" :
     /\/eligibility\/precheck$/.test(path) ? "ELIGIBILITY_CHECKED" :
     /\/prior-auth\/evaluate$/.test(path) ? "PRIOR_AUTH_EVALUATED" :
+    /\/claim-status\/refresh$/.test(path) ? "PAYER_STATUS_REFRESHED" :
     /\/claim-status$/.test(path) ? "PAYER_STATUS_UPDATED" :
     /\/remittance$/.test(path) ? "REMITTANCE_UPDATED" :
     null;
