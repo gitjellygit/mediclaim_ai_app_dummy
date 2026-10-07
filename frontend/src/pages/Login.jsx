@@ -82,16 +82,31 @@ export default function Login() {
         minHeight: "100vh",
         display: "flex",
         alignItems: "center",
-        justifyContent: "center"
+        justifyContent: "center",
+        px: 2,
+        background:
+          "radial-gradient(circle at top left, rgba(46,124,134,0.08), transparent 34%), #F4F7FA"
       }}
     >
-      <Card sx={{ width: 420 }}>
-        <CardContent>
-          <Typography variant="h5" gutterBottom>
-            Login
+      <Card sx={{ width: "min(420px, 100%)", borderColor: "divider" }}>
+        <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
+          <Box sx={{ mb: 2.5 }}>
+            <Typography
+              variant="h4"
+              sx={{ fontWeight: 800, letterSpacing: "0.08em", color: "primary.main" }}
+            >
+              PRISM
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Payer & Revenue Intelligence System for Medicine
+            </Typography>
+          </Box>
+
+          <Typography variant="h6" sx={{ mb: 1.5 }}>
+            Sign in
           </Typography>
 
-          <Stack spacing={2}>
+          <Stack spacing={1.5}>
             {lockoutError && (
               <Alert 
                 severity="warning"
@@ -140,7 +155,7 @@ export default function Login() {
               onClick={submit}
               disabled={loading || resetting}
               fullWidth
-              size="large"
+              size="medium"
             >
               {loading ? "Signing in..." : "Sign In"}
             </Button>
