@@ -261,3 +261,35 @@ test("R2A - claim-level connector ID overrides deployment default for LIVE claim
   assert.equal(status.provider, "STEDI");
   assert.equal(status.configured, true);
 });
+
+
+test("R3 - STEDI_TEST advertises getStatus only when production 276/277 is configured", () => {
+  const testOnly = new Map(
+    listPayerConnectors({
+      STEDI_TEST_API_KEY: "test-key"
+    }).map((item) => [item.id, item])
+  );
+  assert.equal(testOnly.get("STEDI_TEST")?.capabilities.includes("getStatus"), false);
+
+  const withStatus = new Map(
+    listPayerConnectors({
+      STEDI_TEST_API_KEY: "test-key",
+      STEDI_CLAIM_STATUS_API_KEY: "production-key",
+      STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
+    }).map((item) => [item.id, item])
+  );
+  assert.equal(withStatus.get("STEDI_TEST")?.capabilities.includes("getStatus"), true);
+
+  const claimStatus = payerConnectorStatusForClaim(
+    {
+      payerConnectionMode: "LIVE",
+      payerConnectorId: "STEDI_TEST"
+    },
+    {
+      STEDI_TEST_API_KEY: "test-key",
+      STEDI_CLAIM_STATUS_API_KEY: "production-key",
+      STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
+    }
+  );
+  assert.equal(claimStatus.capabilities.includes("getStatus"), true);
+});
