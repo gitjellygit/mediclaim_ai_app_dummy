@@ -315,13 +315,9 @@ export default function ClaimsList() {
         results.push({
           fileName: file.name,
           ok: true,
-          matchStatus:
-            result?.matchStatus ||
-            (result?.identityValidation?.status === "MATCH"
-              ? "MERGED"
-              : result?.identityValidation?.status === "UNVERIFIED"
-              ? "REVIEW"
-              : "NEW"),
+          identityStatus:
+            result?.identityValidation?.status ||
+            (result?.matchStatus === "REVIEW" ? "REVIEW" : "MATCH"),
           message: result?.message || "Document processed",
           confidence:
             result?.document?.confidence ??
@@ -595,65 +591,83 @@ export default function ClaimsList() {
                 Results
               </Typography>
 
-              <Stack spacing={1}>
-                {aiResults.map((result) => (
-                  <Paper
-                    key={result.fileName}
-                    variant="outlined"
-                    sx={{ p: 1.5 }}
-                  >
-                    <Stack
-                      direction={{ xs: "column", sm: "row" }}
-                      justifyContent="space-between"
-                      spacing={1}
-                    >
-                      <Box>
-                        <Stack direction="row" spacing={1} alignItems="center">
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small" aria-label="Document processing results">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Document</TableCell>
+                      <TableCell>Detected Type</TableCell>
+                      <TableCell>AI Classification Confidence</TableCell>
+                      <TableCell>Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {aiResults.map((result) => (
+                      <TableRow key={result.fileName}>
+                        <TableCell sx={{ maxWidth: 360 }}>
+                          <Stack direction="row" spacing={1} alignItems="flex-start">
+                            {result.ok ? (
+                              <CheckCircle fontSize="small" color="success" sx={{ mt: 0.25 }} />
+                            ) : (
+                              <ErrorOutline fontSize="small" color="error" sx={{ mt: 0.25 }} />
+                            )}
+                            <Box sx={{ minWidth: 0 }}>
+                              <Typography variant="body2" fontWeight={700} noWrap title={result.fileName}>
+                                {result.fileName}
+                              </Typography>
+                              {!result.ok && (
+                                <Typography variant="caption" color="error.main">
+                                  {result.message}
+                                </Typography>
+                              )}
+                            </Box>
+                          </Stack>
+                        </TableCell>
+                        <TableCell>
                           {result.ok ? (
-                            <CheckCircle fontSize="small" color="success" />
-                          ) : (
-                            <ErrorOutline fontSize="small" color="error" />
-                          )}
-                          <Typography variant="body2" fontWeight={600}>
-                            {result.fileName}
-                          </Typography>
-                        </Stack>
-                        <Typography variant="caption" color="text.secondary">
-                          {result.message}
-                        </Typography>
-                      </Box>
-
-                      {result.ok && (
-                        <Stack direction="row" spacing={1} flexWrap="wrap">
-                          <Chip
-                            size="small"
-                            label={result.type}
-                            variant="outlined"
-                          />
-                          <Chip
-                            size="small"
-                            label={result.matchStatus}
-                            color={
-                              result.matchStatus === "MERGED"
-                                ? "success"
-                                : result.matchStatus === "REVIEW"
-                                ? "warning"
-                                : "info"
-                            }
-                          />
-                          {result.confidence != null && (
                             <Chip
                               size="small"
-                              label={`${result.confidence}% confidence`}
                               variant="outlined"
+                              label={String(result.type || "OTHER")
+                                .toLowerCase()
+                                .split("_")
+                                .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                                .join(" ")}
                             />
+                          ) : (
+                            "—"
                           )}
-                        </Stack>
-                      )}
-                    </Stack>
-                  </Paper>
-                ))}
-              </Stack>
+                        </TableCell>
+                        <TableCell>
+                          {result.ok && result.confidence != null ? (
+                            <Typography variant="body2" fontWeight={700}>
+                              {result.confidence}%
+                            </Typography>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {result.ok ? (
+                            <Chip
+                              size="small"
+                              color={result.identityStatus === "REVIEW" ? "warning" : "success"}
+                              variant={result.identityStatus === "REVIEW" ? "outlined" : "filled"}
+                              label={result.identityStatus === "REVIEW" ? "Needs review" : "Processed"}
+                            />
+                          ) : (
+                            <Chip size="small" color="error" variant="outlined" label="Failed" />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                AI classification confidence reflects how certain the document classifier is about the detected document type. It does not represent coding or clinical accuracy.
+              </Typography>
+
             </>
           )}
         </DialogContent>
