@@ -15,6 +15,7 @@ import {
   POA_OPTIONS,
   POS_OPTIONS,
   cptHcpcsError,
+  icd10CmError,
   modifiersError,
   normalizeIcd10Cm,
   normalizeProcedureCode,
@@ -141,18 +142,43 @@ export default function ServiceLinesEditor({
     (diagnosisCodes || []).map((code) => normalizeIcd10Cm(code)).filter(Boolean)
   );
 
-  const diagnosisPointerError = (line) => {
-    const pointers = String(line?.diagnosisPointers || "")
+  const diagnosisPointersFor = (line) =>
+    String(line?.diagnosisPointers || "")
       .split(",")
       .map((value) => normalizeIcd10Cm(value))
       .filter(Boolean);
 
+  const diagnosisPointerError = (line) => {
+    const pointers = diagnosisPointersFor(line);
+
     if (!line?.cptHcpcsCode?.trim()) return "";
-    if (!pointers.length) return "Link this service line to at least one claim diagnosis.";
-    const invalid = pointers.find((pointer) => !normalizedDiagnosisSet.has(pointer));
-    return invalid
-      ? `${invalid} is not one of the claim ICD-10 codes.`
-      : "";
+    if (!pointers.length) return "Link this service line to at least one diagnosis.";
+    const invalid = pointers.find((pointer) => icd10CmError(pointer));
+    return invalid ? `${invalid}: ${icd10CmError(invalid)}` : "";
+  };
+
+  const appendDiagnosisPointer = (index, line, code) => {
+    const normalized = normalizeIcd10Cm(code);
+    if (!normalized) return;
+    const current = diagnosisPointersFor(line);
+    if (current.includes(normalized)) return;
+    updateLine(index, "diagnosisPointers", [...current, normalized].join(", "));
+  };
+
+  const diagnosisPointerHelper = (line) => {
+    const error = diagnosisPointerError(line);
+    if (error) return error;
+
+    const pointers = diagnosisPointersFor(line);
+    const custom = pointers.filter((pointer) => !normalizedDiagnosisSet.has(pointer));
+
+    if (custom.length) {
+      return `New diagnosis ${custom.join(", ")} will also be added to the claim when saved.`;
+    }
+
+    return diagnosisCodes.length
+      ? "Use a claim diagnosis below, or enter another valid ICD-10-CM code."
+      : "Enter a valid ICD-10-CM code; it will also be added to the claim when saved.";
   };
 
   return (
@@ -240,21 +266,52 @@ export default function ServiceLinesEditor({
               value={line.charge}
               onChange={(event) => updateLine(index, "charge", event.target.value)}
             />
-            <TextField
-              data-fix-field={index === 0 ? "diagnosisPointers" : undefined}
-              label="Linked Diagnosis Codes"
-              color={isHighlighted("diagnosisPointers") ? "warning" : "primary"}
-              focused={index === 0 && isHighlighted("diagnosisPointers")}
-              value={line.diagnosisPointers}
-              onChange={(event) => updateLine(index, "diagnosisPointers", event.target.value.toUpperCase())}
-              error={Boolean(diagnosisPointerError(line))}
-              helperText={
-                diagnosisPointerError(line) ||
-                (diagnosisCodes.length
-                  ? `Use claim diagnoses only: ${diagnosisCodes.join(", ")}`
-                  : "Add ICD-10-CM diagnoses to the claim first; then link them here.")
-              }
-            />
+            <Box>
+              <TextField
+                data-fix-field={index === 0 ? "diagnosisPointers" : undefined}
+                label="Linked Diagnosis Codes"
+                color={isHighlighted("diagnosisPointers") ? "warning" : "primary"}
+                focused={index === 0 && isHighlighted("diagnosisPointers")}
+                value={line.diagnosisPointers}
+                onChange={(event) =>
+                  updateLine(index, "diagnosisPointers", event.target.value.toUpperCase())
+                }
+                error={Boolean(diagnosisPointerError(line))}
+                helperText={diagnosisPointerHelper(line)}
+                fullWidth
+              />
+              {diagnosisCodes.length > 0 && (
+                <Stack
+                  direction="row"
+                  spacing={0.75}
+                  alignItems="center"
+                  flexWrap="wrap"
+                  useFlexGap
+                  sx={{ mt: 0.75 }}
+                  data-testid={`service-line-${index}-diagnosis-suggestions`}
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    Suggested from claim:
+                  </Typography>
+                  {diagnosisCodes.map((code) => {
+                    const normalized = normalizeIcd10Cm(code);
+                    const selected = diagnosisPointersFor(line).includes(normalized);
+                    return (
+                      <Chip
+                        key={normalized}
+                        size="small"
+                        label={selected ? `${normalized} linked` : `Use ${normalized}`}
+                        color={selected ? "success" : "default"}
+                        variant={selected ? "filled" : "outlined"}
+                        clickable={!selected}
+                        onClick={() => appendDiagnosisPointer(index, line, normalized)}
+                        data-testid={`service-line-${index}-diagnosis-suggestion-${normalized}`}
+                      />
+                    );
+                  })}
+                </Stack>
+              )}
+            </Box>
             {claimForm === "PROFESSIONAL" && (
               <TextField
                 data-fix-field={index === 0 ? "placeOfService" : undefined}
