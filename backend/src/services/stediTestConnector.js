@@ -5,7 +5,7 @@ const DEFAULT_CLAIMS_BASE_URL = "https://healthcare.us.stedi.com/2024-04-01";
 
 function required(value, name) {
   if (value == null || value === "") {
-    const error = new Error(`${name} is required for Stedi eligibility`);
+    const error = new Error(`${name} is required for the Stedi request`);
     error.code = "STEDI_REQUEST_INVALID";
     throw error;
   }
@@ -330,7 +330,14 @@ function firstPercent(entries, type) {
   return number <= 1 ? Math.round(number * 100) : Math.round(number);
 }
 
-export function normalizeStediEligibilityResponse(body, { latencyMs = null } = {}) {
+export function normalizeStediEligibilityResponse(
+  body,
+  {
+    latencyMs = null,
+    testMode = true,
+    livePayerVerification = !testMode
+  } = {}
+) {
   const benefits = flattenBenefitGroups(body);
   const statuses = benefits.filter((entry) => entry.type === "statuses");
   const active = statuses.some((entry) =>
@@ -382,8 +389,8 @@ export function normalizeStediEligibilityResponse(body, { latencyMs = null } = {
     },
     missingFields: [],
     latencyMs,
-    livePayerVerification: false,
-    testMode: true,
+    livePayerVerification,
+    testMode,
     rawResult: result || null
   };
 }
@@ -419,8 +426,6 @@ export function createStediTestConnector({
   const apiKey = String(env.STEDI_TEST_API_KEY || "").trim();
   const baseUrl = String(env.STEDI_API_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
   const claimsBaseUrl = String(env.STEDI_CLAIMS_API_BASE_URL || DEFAULT_CLAIMS_BASE_URL).replace(/\/$/, "");
-  const claimStatusApiKey = String(env.STEDI_CLAIM_STATUS_API_KEY || "").trim();
-  const claimStatusUrl = String(env.STEDI_CLAIM_STATUS_URL || "").trim();
 
   if (!apiKey) {
     throw new PayerConnectorUnavailableError(
@@ -494,11 +499,79 @@ export function createStediTestConnector({
       });
     },
 
+    getStatus() {
+      return notYetImplemented("getStatus");
+    },
+
+    getRemittance() {
+      return notYetImplemented("getRemittance");
+    }
+  });
+}
+
+export function createStediProductionConnector({
+  env = process.env,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  const apiKey = String(env.STEDI_PRODUCTION_API_KEY || "").trim();
+  const baseUrl = String(
+    env.STEDI_PRODUCTION_API_BASE_URL || DEFAULT_BASE_URL
+  ).replace(/\/$/, "");
+  const claimStatusUrl = String(env.STEDI_CLAIM_STATUS_URL || "").trim();
+
+  if (!apiKey) {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_PRODUCTION",
+      "STEDI_PRODUCTION_API_KEY is not configured"
+    );
+  }
+  if (typeof fetchImpl !== "function") {
+    throw new Error("Fetch implementation is required for Stedi connector");
+  }
+
+  const unavailable = (operation) => {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_PRODUCTION",
+      `${operation} is not enabled for the current production connector slice`
+    );
+  };
+
+  return Object.freeze({
+    mode: "LIVE",
+
+    async checkEligibility(claim, context = {}) {
+      const payload = buildStediEligibilityRequest(claim, context);
+      const startedAt = Date.now();
+      const response = await fetchImpl(`${baseUrl}/eligibility-check`, {
+        method: "POST",
+        headers: {
+          Authorization: apiKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
+        signal: context.signal
+      });
+      const body = await parseResponse(response);
+      return normalizeStediEligibilityResponse(body, {
+        latencyMs: Date.now() - startedAt,
+        testMode: false,
+        livePayerVerification: true
+      });
+    },
+
+    requestPriorAuth() {
+      return unavailable("requestPriorAuth");
+    },
+
+    submitClaim() {
+      return unavailable("submitClaim");
+    },
+
     async getStatus(claim, context = {}) {
-      if (!claimStatusApiKey || !claimStatusUrl) {
+      if (!claimStatusUrl) {
         throw new PayerConnectorUnavailableError(
-          "STEDI_TEST",
-          "Stedi 276/277 claim status requires STEDI_CLAIM_STATUS_API_KEY and STEDI_CLAIM_STATUS_URL"
+          "STEDI_PRODUCTION",
+          "STEDI_CLAIM_STATUS_URL is not configured"
         );
       }
 
@@ -507,7 +580,7 @@ export function createStediTestConnector({
       const response = await fetchImpl(claimStatusUrl, {
         method: "POST",
         headers: {
-          Authorization: claimStatusApiKey,
+          Authorization: apiKey,
           "Content-Type": "application/json"
         },
         body: JSON.stringify(payload),
@@ -521,7 +594,7 @@ export function createStediTestConnector({
     },
 
     getRemittance() {
-      return notYetImplemented("getRemittance");
+      return unavailable("getRemittance");
     }
   });
 }
