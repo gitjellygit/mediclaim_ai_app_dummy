@@ -2731,7 +2731,11 @@ test("97b - payer Journey confirms exact claim payer and distinguishes payer tra
   assert.match(source, /Choose different/);
   assert.match(source, /Payer detected from uploaded document/);
   assert.match(source, /Sent to Payer/);
-  assert.match(source, /payer transmission is still pending/);
+  assert.match(source, /Transmit to Payer/);
+  assert.match(
+    source,
+    /Claim submission is complete\. Payer transmission is a separate step\./
+  );
 });
 
 test("97c - awaiting connected remittance exposes safe refresh polling", { concurrency: false }, () => {
