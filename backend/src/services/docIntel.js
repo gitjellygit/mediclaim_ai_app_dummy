@@ -256,9 +256,7 @@ export function extractFields(text) {
 
   const policyNo = firstMatch(t, [
     /Policy\s*(?:No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
-    /Policy\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
-    /Member\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
-    /Membership\s*No\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
+    /Policy\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
   const claimNo = firstMatch(t, [
@@ -442,17 +440,24 @@ export function classifyDocument({ fileName, text }) {
   }
 
   if (
-    hasAny(name, ["insurance card", "id card", "member card"]) ||
-    hasAny(text, ["insurance card", "member id", "policy holder", "group number"])
+    hasAny(name, ["prior auth", "authorization", "pre-auth"]) ||
+    hasAny(text, [
+      "prior authorization",
+      "pre-authorization",
+      "authorization number",
+      "authorization status",
+      "approved service",
+      "authorization determination"
+    ])
   ) {
-    return { suggestedType: "INSURANCE_CARD", confidence: 82 };
+    return { suggestedType: "PRIOR_AUTHORIZATION", confidence: 86 };
   }
 
   if (
-    hasAny(name, ["prior auth", "authorization", "pre-auth"]) ||
-    hasAny(text, ["prior authorization", "pre-authorization", "authorization number"])
+    hasAny(name, ["insurance card", "id card", "member card"]) ||
+    hasAny(text, ["insurance card", "member identification", "policy holder", "group number"])
   ) {
-    return { suggestedType: "PRIOR_AUTHORIZATION", confidence: 80 };
+    return { suggestedType: "INSURANCE_CARD", confidence: 82 };
   }
 
   if (
