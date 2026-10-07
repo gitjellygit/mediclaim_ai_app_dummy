@@ -88,6 +88,14 @@ export const ClaimsApi = {
     });
   },
 
+  updateDocumentType(docId, type) {
+    return api(`/api/documents/${docId}/type`, {
+      method: "PATCH",
+      body: JSON.stringify({ type })
+    });
+  },
+
+
   deleteDoc(docId) {
     return api(`${BASE}/documents/${docId}`, {
       method: "DELETE"

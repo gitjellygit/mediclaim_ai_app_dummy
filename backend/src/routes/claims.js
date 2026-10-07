@@ -147,6 +147,14 @@ router.get("/", async (req, res) => {
         },
         serviceLines: {
           orderBy: { createdAt: "asc" }
+        },
+        codingSuggestions: {
+          select: {
+            documentId: true,
+            system: true,
+            suggestedCode: true,
+            status: true
+          }
         }
       },
       orderBy: { createdAt: "desc" }

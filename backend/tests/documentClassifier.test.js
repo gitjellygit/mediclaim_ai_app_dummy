@@ -100,6 +100,11 @@ const fixtures = [
     "PRIOR_AUTHORIZATION"
   ],
   [
+    "authorization_packet.pdf",
+    "Patient Name: Emma Reynolds\nMember ID: CF-ER-1001\nGroup Number: GRP-2026-77\nAuthorization Number: AUTH-ER-9001\nAuthorization Status: APPROVED",
+    "PRIOR_AUTHORIZATION"
+  ],
+  [
     "operative_note.pdf",
     "",
     "OPERATIVE_NOTE"
@@ -162,4 +167,19 @@ Claim Number: CLM-OP-2026-10067
   assert.equal(extracted.medicalRecordNumber, "MRN-OP-2026");
   assert.match(extracted.patientMobile, /303-555-0188/);
   assert.equal(extracted.claimNo, "CLM-OP-2026-10067");
+});
+
+
+test("B11 - member ID does not masquerade as policy number", () => {
+  const extracted = extractFields(`
+Patient Name: Emma Reynolds
+Member ID: CF-ER-1001
+Group Number: GRP-2026-77
+Authorization Number: AUTH-ER-9001
+Authorization Status: APPROVED
+`);
+
+  assert.equal(extracted.memberId, "CF-ER-1001");
+  assert.equal(extracted.policyNo, null);
+  assert.equal(extracted.authorizationNo, "AUTH-ER-9001");
 });

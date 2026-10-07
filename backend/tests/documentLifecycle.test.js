@@ -456,6 +456,43 @@ test("03 - authenticated preview is private/no-store and returns exact bytes", {
   assert.equal(await response.text(), expected);
 });
 
+test("03a - document type can be corrected manually before claim submission", { concurrency: false }, async () => {
+  const claim = await createClaim();
+  const { doc } = await createDocument(claim.id, {
+    type: "INSURANCE_CARD",
+    extracted: {
+      patientName: "Lifecycle Test Patient",
+      memberId: "MEM-1",
+      authorizationNo: "AUTH-1"
+    }
+  });
+
+  const response = await authFetch(`/api/documents/${doc.id}/type`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "PRIOR_AUTHORIZATION" })
+  });
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.type, "PRIOR_AUTHORIZATION");
+
+  const persisted = await prisma.document.findUnique({ where: { id: doc.id } });
+  assert.equal(persisted.type, "PRIOR_AUTHORIZATION");
+
+  await prisma.claim.update({
+    where: { id: claim.id },
+    data: { status: "SUBMITTED", claimSubmissionDate: new Date() }
+  });
+
+  const locked = await authFetch(`/api/documents/${doc.id}/type`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "OTHER" })
+  });
+  assert.equal(locked.status, 409);
+});
+
 test("03b - legacy and current document URLs serve identical protected content", { concurrency: false }, async () => {
   const claim = await createClaim();
   const expected = "shared-serving-regression";

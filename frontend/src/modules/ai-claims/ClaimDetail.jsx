@@ -119,12 +119,24 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [page, setPage] = React.useState(0);
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
   const [bulkDeleteLoading, setBulkDeleteLoading] = React.useState(false);
+  const [newIcdCode, setNewIcdCode] = React.useState("");
+  const [codingActionId, setCodingActionId] = React.useState("");
   const [fixFocus, setFixFocus] = React.useState("");
   const [fixFields, setFixFields] = React.useState([]);
   const [readinessHistoryExpanded, setReadinessHistoryExpanded] = React.useState(false);
   const patientPolicyRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
+
+  const pendingIcdSuggestions = React.useMemo(() => {
+    const byCode = new Map();
+    for (const suggestion of claim?.codingSuggestions || []) {
+      if (suggestion.system !== "ICD10_CM" || suggestion.status !== "PENDING") continue;
+      const code = String(suggestion.suggestedCode || "").trim().toUpperCase();
+      if (code && !byCode.has(code)) byCode.set(code, suggestion);
+    }
+    return [...byCode.values()];
+  }, [claim?.codingSuggestions]);
 
   React.useEffect(() => {
     if (!claim) return;
@@ -230,6 +242,82 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       serviceLines: (claim.serviceLines || []).map(serviceLineToForm),
       claimType: claim.claimType || "MEMBER_REIMBURSEMENT"
     });
+  }
+
+  async function saveIcdCodes(nextCodes, successMessage) {
+    const normalized = [...new Set(
+      (nextCodes || [])
+        .map((code) => normalizeIcd10Cm(code))
+        .filter(Boolean)
+    )];
+
+    const invalid = normalized.find((code) => icd10CmError(code));
+    if (invalid) {
+      showDialog(icd10CmError(invalid), {
+        title: `Invalid ICD-10-CM code: ${invalid}`,
+        severity: "warning"
+      });
+      return false;
+    }
+
+    try {
+      setCodingActionId("claim-icd");
+      await ClaimsApi.update(id, { icd10Codes: normalized });
+      await load();
+      if (successMessage) showToast(successMessage, "success");
+      return true;
+    } catch (error) {
+      showDialog(
+        error?.message || "ICD-10 codes could not be updated.",
+        { title: "ICD-10 update failed", severity: "error" }
+      );
+      return false;
+    } finally {
+      setCodingActionId("");
+    }
+  }
+
+  async function addIcdCode() {
+    const code = normalizeIcd10Cm(newIcdCode);
+    if (!code) return;
+    const error = icd10CmError(code);
+    if (error) {
+      showDialog(error, { title: "Invalid ICD-10-CM code", severity: "warning" });
+      return;
+    }
+    const saved = await saveIcdCodes(
+      [...(claim?.icd10Codes || []), code],
+      `${code} added`
+    );
+    if (saved) setNewIcdCode("");
+  }
+
+  async function removeIcdCode(code) {
+    await saveIcdCodes(
+      (claim?.icd10Codes || []).filter((item) => item !== code),
+      `${code} removed`
+    );
+  }
+
+  async function reviewClaimIcdSuggestion(suggestion, action) {
+    try {
+      setCodingActionId(suggestion.id);
+      await ClaimsApi.reviewCodingSuggestion(suggestion.id, { action });
+      await load();
+      showToast(
+        action === "ACCEPT"
+          ? `${suggestion.suggestedCode} accepted`
+          : `${suggestion.suggestedCode} rejected`,
+        "success"
+      );
+    } catch (error) {
+      showDialog(
+        error?.message || "Coding suggestion could not be reviewed.",
+        { title: "Coding review failed", severity: "error" }
+      );
+    } finally {
+      setCodingActionId("");
+    }
   }
 
   async function saveEdit() {
@@ -835,6 +923,23 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
   }
 
+  async function changeDocumentType(doc, nextType) {
+    if (!canDeleteDoc || !doc?.id || !nextType || nextType === doc.type) return;
+
+    try {
+      const result = await ClaimsApi.updateDocumentType(doc.id, nextType);
+      if (!result?.unchanged) {
+        showToast(result?.message || "Document type updated", "success");
+      }
+      await load();
+    } catch (e) {
+      showDialog(
+        e.message || "The document type could not be changed.",
+        { title: "Document type could not be changed", severity: "error" }
+      );
+    }
+  }
+
   // Table management functions
   function handleSelectDoc(docId) {
     const newSelected = new Set(selectedDocs);
@@ -1216,7 +1321,87 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Typography>
                 <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1.5 }}>
                   <FieldLine claim={claim} field="diagnosisText" label="Diagnosis">{claim.diagnosisText || "—"}</FieldLine>
-                  <FieldLine claim={claim} field="icd10Codes" label="ICD-10">{claim.icd10Codes?.length ? claim.icd10Codes.join(", ") : "—"}</FieldLine>
+                  <Box
+                    sx={{ gridColumn: "1 / -1" }}
+                    data-testid="claim-icd-review"
+                  >
+                    <Stack
+                      direction={{ xs: "column", md: "row" }}
+                      justifyContent="space-between"
+                      alignItems={{ xs: "stretch", md: "center" }}
+                      spacing={1}
+                      sx={{ mb: 1 }}
+                    >
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                        <Typography variant="body2" fontWeight={700}>ICD-10-CM</Typography>
+                        <SourceBadge claim={claim} field="icd10Codes" />
+                        {pendingIcdSuggestions.length > 0 && (
+                          <Chip
+                            size="small"
+                            color="warning"
+                            variant="outlined"
+                            label={`${pendingIcdSuggestions.length} to review`}
+                          />
+                        )}
+                      </Stack>
+                      {!aiCheckLocked && (
+                        <TextField
+                          size="small"
+                          placeholder="Add ICD-10 and press Enter"
+                          value={newIcdCode}
+                          onChange={(event) => setNewIcdCode(event.target.value.toUpperCase())}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              addIcdCode();
+                            }
+                          }}
+                          disabled={Boolean(codingActionId)}
+                          inputProps={{ "aria-label": "Add ICD-10 code" }}
+                          sx={{ width: { xs: "100%", md: 250 } }}
+                        />
+                      )}
+                    </Stack>
+
+                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                      {(claim.icd10Codes || []).map((code) => (
+                        <Chip
+                          key={code}
+                          label={code}
+                          color="success"
+                          variant="outlined"
+                          onDelete={!aiCheckLocked ? () => removeIcdCode(code) : undefined}
+                          disabled={codingActionId === "claim-icd"}
+                          data-testid={`accepted-icd-${code}`}
+                        />
+                      ))}
+
+                      {pendingIcdSuggestions.map((suggestion) => (
+                        <Chip
+                          key={suggestion.id}
+                          label={`${suggestion.suggestedCode} · Accept`}
+                          color="warning"
+                          variant="outlined"
+                          onClick={() => reviewClaimIcdSuggestion(suggestion, "ACCEPT")}
+                          onDelete={() => reviewClaimIcdSuggestion(suggestion, "REJECT")}
+                          disabled={Boolean(codingActionId)}
+                          data-testid={`pending-icd-${suggestion.suggestedCode}`}
+                        />
+                      ))}
+
+                      {(claim.icd10Codes || []).length === 0 &&
+                        pendingIcdSuggestions.length === 0 && (
+                          <Typography variant="body2" color="text.secondary">
+                            No ICD-10-CM codes yet
+                          </Typography>
+                        )}
+                    </Stack>
+                    {pendingIcdSuggestions.length > 0 && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+                        Click a suggested code to accept it, or × to reject it. Identical suggestions across documents are resolved together.
+                      </Typography>
+                    )}
+                  </Box>
                   <FieldLine claim={claim} field="doctorName" label="Doctor">{claim.doctorName || "—"}</FieldLine>
                   <FieldLine claim={claim} field="hospitalName" label="Hospital">{claim.hospitalName || "—"}</FieldLine>
                   <Typography><b>Billing NPI:</b> {claim.billingProviderNpi || "—"}</Typography>
@@ -1964,12 +2149,32 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                             />
                           </TableCell>
                           <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
-                            <Chip
-                              label={doc.type.replace('_', ' ')}
-                              size="small"
-                              color="primary"
-                              variant="outlined"
-                            />
+                            {canDeleteDoc && !aiCheckLocked ? (
+                              <TextField
+                                select
+                                size="small"
+                                value={doc.type}
+                                onChange={(event) => changeDocumentType(doc, event.target.value)}
+                                inputProps={{
+                                  "aria-label": `Document type for ${doc.fileName}`,
+                                  "data-testid": `document-type-${doc.id}`
+                                }}
+                                sx={{ minWidth: 170 }}
+                              >
+                                {DOC_TYPES.map((type) => (
+                                  <MenuItem key={type} value={type}>
+                                    {DOC_TYPE_LABELS[type] || type.replaceAll("_", " ")}
+                                  </MenuItem>
+                                ))}
+                              </TextField>
+                            ) : (
+                              <Chip
+                                label={DOC_TYPE_LABELS[doc.type] || doc.type.replaceAll("_", " ")}
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                              />
+                            )}
                           </TableCell>
                           <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
                             <Stack direction="row" alignItems="center" spacing={1}>

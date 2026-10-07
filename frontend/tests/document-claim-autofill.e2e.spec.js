@@ -69,6 +69,30 @@ async function browserApi(page, path, { method = "GET", body } = {}) {
   }, { backendURL, path, method, body });
 }
 
+async function browserUploadPdf(page, claimId, fileName, buffer) {
+  const base64 = buffer.toString("base64");
+  return page.evaluate(async ({ backendURL, claimId, fileName, base64 }) => {
+    const token = localStorage.getItem("accessToken");
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const form = new FormData();
+    form.append("claimId", claimId);
+    form.append("file", new File([bytes], fileName, { type: "application/pdf" }));
+
+    const response = await fetch(`${backendURL}/api/documents/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+      body: form
+    });
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      data: text ? JSON.parse(text) : null
+    };
+  }, { backendURL, claimId, fileName, base64 });
+}
+
 test("document claim creation fills later insurance fields and locks completed batch", async ({ page }, testInfo) => {
   const browser = observeBrowser(page, testInfo);
   await login(page);
@@ -164,6 +188,160 @@ test("document claim creation fills later insurance fields and locks completed b
     await expect(page.getByText("Member ID:", { exact: true }).locator("..")).toContainText("CF-AUTO-4411");
     await expect(page.getByText("Group Number:", { exact: true }).locator("..")).toContainText("GRP-AUTO-77");
     await expect(page.getByText("Subscriber ID:", { exact: true }).locator("..")).toContainText("SUB-AUTO-4411");
+
+    await browser.assertClean();
+  } finally {
+    if (claimId) {
+      await browserApi(page, `/api/claims/${claimId}`, { method: "DELETE" });
+    }
+  }
+});
+
+
+test("prior-auth classification survives insurance-like fields and staff can override saved type", async ({ page }, testInfo) => {
+  const browser = observeBrowser(page, testInfo);
+  await login(page);
+
+  let claimId = "";
+  try {
+    const created = await browserApi(page, "/api/claims", {
+      method: "POST",
+      body: {
+        patientName: "Emma Reynolds",
+        payerName: "Cedar Health Plan",
+        memberId: "CF-ER-1001",
+        policyNo: "POL-ER-77101",
+        amount: 500
+      }
+    });
+    expect(created.ok).toBe(true);
+    claimId = created.data.id;
+
+    const fileName = "P101_Emma_Reynolds_prior_authorization.pdf";
+    const upload = await browserUploadPdf(
+      page,
+      claimId,
+      fileName,
+      buildTextPdf([
+        "Prior Authorization Approval",
+        "Patient Name: Emma Reynolds",
+        "Payer Name: Cedar Health Plan",
+        "Member ID: CF-ER-1001",
+        "Group Number: GRP-2026-77",
+        "Authorization Number: AUTH-ER-9001",
+        "Authorization Status: APPROVED",
+        "Approved Service: CPT 72148"
+      ])
+    );
+
+    expect(upload.ok).toBe(true);
+    expect(upload.data.type).toBe("PRIOR_AUTHORIZATION");
+    expect(upload.data.suggestedType).toBe("PRIOR_AUTHORIZATION");
+    expect(upload.data.identityValidation.status).toBe("MATCH");
+    expect(upload.data.identityValidation.conflicts).toEqual([]);
+
+    await page.goto(`/claims/${claimId}`);
+    const row = page.getByRole("row").filter({ hasText: fileName });
+    await expect(row).toBeVisible();
+
+    const typeField = row.getByRole("combobox", { name: `Document type for ${fileName}` });
+    await expect(typeField).toBeVisible();
+    await typeField.click();
+    await page.getByRole("option", { name: "Other", exact: true }).click();
+
+    await expect(typeField).toHaveText("Other");
+
+    const detailAfterManual = await browserApi(page, `/api/claims/${claimId}`);
+    expect(detailAfterManual.ok).toBe(true);
+    const savedDoc = detailAfterManual.data.documents.find((doc) => doc.id === upload.data.id);
+    expect(savedDoc.type).toBe("OTHER");
+    expect(savedDoc.suggestedType).toBe("PRIOR_AUTHORIZATION");
+
+    await row.getByRole("button", { name: "Change the saved document type to the AI-detected type", exact: true }).click();
+    await expect(typeField).toHaveText("Prior Authorization");
+
+    await browser.assertClean();
+  } finally {
+    if (claimId) {
+      await browserApi(page, `/api/claims/${claimId}`, { method: "DELETE" });
+    }
+  }
+});
+
+
+test("claim-centric ICD review resolves duplicate document suggestions and supports chip editing", async ({ page }, testInfo) => {
+  const browser = observeBrowser(page, testInfo);
+  await login(page);
+
+  let claimId = "";
+  try {
+    const created = await browserApi(page, "/api/claims", {
+      method: "POST",
+      body: {
+        patientName: "Coding Review Patient",
+        payerName: "Cedar Health Plan",
+        memberId: "CF-CODE-101",
+        policyNo: "POL-CODE-101",
+        amount: 900
+      }
+    });
+    expect(created.ok).toBe(true);
+    claimId = created.data.id;
+
+    for (const [name, title] of [
+      ["coding-note-one.pdf", "Progress Note"],
+      ["coding-note-two.pdf", "Radiology Report"]
+    ]) {
+      const upload = await browserUploadPdf(
+        page,
+        claimId,
+        name,
+        buildTextPdf([
+          title,
+          "Patient Name: Coding Review Patient",
+          "Member ID: CF-CODE-101",
+          "Diagnosis: Lumbar radiculopathy",
+          "ICD-10: M54.16"
+        ])
+      );
+      expect(upload.ok).toBe(true);
+    }
+
+    await page.goto(`/claims/${claimId}`);
+    const review = page.getByTestId("claim-icd-review");
+    await expect(review).toBeVisible();
+
+    // Duplicate suggestions from two documents are shown once at claim level.
+    await expect(review.getByTestId("pending-icd-M54.16")).toHaveCount(1);
+    await review.getByTestId("pending-icd-M54.16").click();
+
+    await expect(review.getByTestId("pending-icd-M54.16")).toHaveCount(0);
+    await expect(review.getByTestId("accepted-icd-M54.16")).toBeVisible();
+
+    let detail = await browserApi(page, `/api/claims/${claimId}`);
+    expect(detail.ok).toBe(true);
+    expect(detail.data.icd10Codes).toContain("M54.16");
+    expect(detail.data.codingSuggestions.filter((item) => item.status === "PENDING")).toHaveLength(0);
+
+    // Both source documents immediately reflect that there is nothing left to review.
+    await page.goto(`/documents?claimId=${claimId}`);
+    await expect(page.getByText("Reviewed", { exact: true })).toHaveCount(2);
+    await expect(page.getByRole("button", { name: /Review \d+/ })).toHaveCount(0);
+
+    // Claim Details supports direct removal and Enter-to-add.
+    await page.goto(`/claims/${claimId}`);
+    const acceptedChip = page.getByTestId("accepted-icd-M54.16");
+    await acceptedChip.locator("svg").click();
+    await expect(page.getByTestId("accepted-icd-M54.16")).toHaveCount(0);
+
+    const addInput = page.getByRole("textbox", { name: "Add ICD-10 code" });
+    await addInput.fill("Z00.00");
+    await addInput.press("Enter");
+    await expect(page.getByTestId("accepted-icd-Z00.00")).toBeVisible();
+
+    detail = await browserApi(page, `/api/claims/${claimId}`);
+    expect(detail.ok).toBe(true);
+    expect(detail.data.icd10Codes).toEqual(["Z00.00"]);
 
     await browser.assertClean();
   } finally {
