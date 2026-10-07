@@ -644,3 +644,65 @@ test("payer switch invalidates old coverage and authorization without reusing ol
   );
   expect(blockedAuth.status()).toBe(409);
 });
+
+
+test("submitted claim exposes status shortcut and separates payer transmission from submission", async ({ page }) => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+  const seedResponse = await apiContext.post("/api/claims/e2e/internal-submitted/seed", {
+    headers
+  });
+  expect(seedResponse.ok()).toBeTruthy();
+  const seeded = await seedResponse.json();
+
+  try {
+    await page.goto(`/claims/${seeded.id}`);
+
+    const statusShortcut = page.getByTestId("view-claim-status");
+    await expect(statusShortcut).toBeVisible();
+    await expect(statusShortcut).toHaveText("View Claim Status");
+    await statusShortcut.click();
+
+    await expect(page).toHaveURL(
+      new RegExp(`/journey\\?claimId=${seeded.id}&stage=claim-status`)
+    );
+
+    const claimStage = page.getByTestId("journey-stage-claim");
+    await expect(claimStage).toContainText("Submitted");
+
+    // Internal claim submission is already complete. Do not present it as
+    // another active submission action.
+    await expect(
+      claimStage.getByRole("button", { name: "Submit to Payer", exact: true })
+    ).toHaveCount(0);
+    await expect(
+      claimStage.getByRole("button", { name: "Send to Payer", exact: true })
+    ).toHaveCount(0);
+
+    const transmission = claimStage.getByTestId("payer-transmission-pending");
+    await expect(transmission).toBeVisible();
+    await expect(transmission).toContainText(
+      "Claim submission is complete. Payer transmission is a separate step."
+    );
+
+    const transmitButton = transmission.getByRole("button", {
+      name: "Transmit to Payer",
+      exact: true
+    });
+    await expect(transmitButton).toBeEnabled();
+    await transmitButton.click();
+
+    const sent = claimStage.getByRole("button", {
+      name: "Sent to Payer",
+      exact: true
+    });
+    await expect(sent).toBeVisible();
+    await expect(sent).toBeDisabled();
+    await expect(page.getByTestId("payer-connection-card")).toContainText(
+      "Claim Submission"
+    );
+  } finally {
+    await apiContext.delete("/api/claims/e2e/internal-submitted/cleanup", {
+      headers
+    });
+  }
+});
