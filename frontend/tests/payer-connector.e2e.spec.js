@@ -148,3 +148,86 @@ test("U6-3 - mock payer discovery remains explicitly simulated", async () => {
   expect(body.payers.length).toBeGreaterThan(0);
   expect(body.payers.some((payer) => payer.code === "BLUE_HORIZON")).toBe(true);
 });
+
+
+test("R3 - external 276/277 refresh updates claim status but does not post 835 payment fields", async ({ page }) => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+  const seedResponse = await apiContext.post("/api/claims/e2e/r3-claim-status/seed", {
+    headers
+  });
+  const seeded = await apiJson(seedResponse, "R3 claim status seed");
+
+  try {
+    const connectorsResponse = await apiContext.get("/api/payer-connectors", {
+      headers
+    });
+    const connectors = await apiJson(connectorsResponse, "payer connector list");
+    const stedi = connectors.find((item) => item.id === "STEDI_TEST");
+    expect(stedi).toBeTruthy();
+    expect(stedi.capabilities).toContain("getStatus");
+
+    await page.addInitScript(
+      ({ accessToken, refreshToken, user }) => {
+        localStorage.setItem("accessToken", accessToken);
+        localStorage.setItem("refreshToken", refreshToken);
+        localStorage.setItem("user", JSON.stringify(user));
+      },
+      auth
+    );
+
+    await page.goto(`/journey?claimId=${seeded.id}`);
+    const statusStage = page.getByTestId("journey-stage-claim-status");
+    await expect(statusStage).toContainText("Acknowledged");
+
+    const refresh = statusStage.getByRole("button", {
+      name: "Refresh 276/277 Status",
+      exact: true
+    });
+    await expect(refresh).toBeEnabled();
+    await refresh.click();
+
+    await expect(statusStage).toContainText("Paid");
+    const finalStatus = statusStage.getByRole("button", {
+      name: "Final Status",
+      exact: true
+    });
+    await expect(finalStatus).toBeDisabled();
+
+    const journeyResponse = await apiContext.get(
+      `/api/claims/${seeded.id}/journey`,
+      { headers }
+    );
+    const journey = await apiJson(journeyResponse, "R3 journey after 277");
+    expect(journey.claim.payerClaimStatus).toBe("PAID");
+    expect(journey.claim.status).toBe("PAID");
+
+    // A 277 can report an amount paid, but payment posting remains an 835 concern.
+    expect(journey.claim.paidAmount).toBeNull();
+    expect(journey.claim.allowedAmount).toBeNull();
+    expect(journey.claim.remittanceStatus).toBe("NOT_AVAILABLE");
+
+    const statusTransaction = journey.claim.payerTransactions.find(
+      (tx) => tx.transactionType === "CLAIM_STATUS"
+    );
+    expect(statusTransaction).toBeTruthy();
+    expect(statusTransaction.mode).toBe("PRODUCTION");
+    expect(statusTransaction.requestPayload.transaction).toBe("276");
+    expect(statusTransaction.requestPayload.responseTransaction).toBe("277");
+    expect(statusTransaction.responsePayload.statusCategoryCode).toBe("F1");
+    expect(statusTransaction.responsePayload.statusCode).toBe("65");
+    expect(statusTransaction.responsePayload.amountPaid).toBe(108.77);
+
+    const connectionCard = page.getByTestId("payer-connection-card");
+    const toggle = connectionCard.getByTestId("payer-activity-toggle");
+    if (await toggle.count()) {
+      await toggle.click();
+      await expect(connectionCard.getByTestId("payer-activity-history")).toContainText(
+        "Claim Status"
+      );
+    }
+  } finally {
+    await apiContext.delete("/api/claims/e2e/r3-claim-status/cleanup", {
+      headers
+    });
+  }
+});
