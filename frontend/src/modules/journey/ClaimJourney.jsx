@@ -359,6 +359,9 @@ export default function ClaimJourney() {
   const [action, setAction] = React.useState("");
   const [mockPayers, setMockPayers] = React.useState([]);
   const [selectedMockPayer, setSelectedMockPayer] = React.useState("");
+  const [externalConnectors, setExternalConnectors] = React.useState([]);
+  const [selectedExternalConnector, setSelectedExternalConnector] = React.useState("");
+  const [externalPayerCode, setExternalPayerCode] = React.useState("");
   const [payerEditing, setPayerEditing] = React.useState(false);
   const [activityExpanded, setActivityExpanded] = React.useState(false);
 
@@ -429,6 +432,10 @@ export default function ClaimJourney() {
         setSubmissionBlock(null);
       }
       setSelectedMockPayer(data?.payerConnection?.simulatedPayerCode || "");
+      setSelectedExternalConnector(
+        data?.payerConnection?.mode === "LIVE" ? claim.payerConnectorId || "" : ""
+      );
+      setExternalPayerCode(claim.payerEdiId || "");
       setPayerEditing(false);
       setAuthRequired(
         claim.priorAuthRequired == null
@@ -487,6 +494,21 @@ export default function ClaimJourney() {
     ClaimsApi.getMockPayers()
       .then((data) => setMockPayers(Array.isArray(data?.payers) ? data.payers : []))
       .catch(() => setMockPayers([]));
+
+    ClaimsApi.getPayerConnectors()
+      .then((data) =>
+        setExternalConnectors(
+          Array.isArray(data?.connectors)
+            ? data.connectors.filter(
+                (connector) =>
+                  connector?.mode === "LIVE" &&
+                  connector?.configured &&
+                  ["SANDBOX", "TEST"].includes(connector?.environment)
+              )
+            : []
+        )
+      )
+      .catch(() => setExternalConnectors([]));
   }, []);
 
   React.useEffect(() => {
@@ -665,6 +687,9 @@ export default function ClaimJourney() {
     Boolean(claim?.payerConnectorId) &&
     Boolean(connectedConnector?.configured);
   const payerConnected = simulatedPayerConnected || externalPayerConnected;
+  const availableExternalConnectors = externalConnectors.filter(
+    (connector) => connector?.configured
+  );
   const claimPayerName = normalizePayerName(claim?.payerName);
   const matchingMockPayers = claimPayerName
     ? mockPayers.filter(
@@ -1039,6 +1064,78 @@ export default function ClaimJourney() {
                     No action is required because this claim has already advanced beyond the pre-submission workflow.
                   </Alert>
                 )}
+                {!workflowAdvanced &&
+                  !payerConnected &&
+                  availableExternalConnectors.length > 0 && (
+                    <Paper
+                      variant="outlined"
+                      sx={{ p: 1.5, borderStyle: "dashed" }}
+                      data-testid="external-payer-connector"
+                    >
+                      <Stack spacing={1}>
+                        <Typography variant="subtitle2" fontWeight={700}>
+                          External sandbox/test connector
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Connect a configured non-production payer connector for demo eligibility.
+                        </Typography>
+                        <Stack
+                          direction={{ xs: "column", md: "row" }}
+                          spacing={1}
+                          alignItems={{ md: "center" }}
+                        >
+                          <FormControl size="small" sx={{ minWidth: 220 }}>
+                            <InputLabel>Connector</InputLabel>
+                            <Select
+                              label="Connector"
+                              value={selectedExternalConnector}
+                              onChange={(event) =>
+                                setSelectedExternalConnector(event.target.value)
+                              }
+                              data-testid="external-connector-select"
+                            >
+                              <MenuItem value="">Choose connector</MenuItem>
+                              {availableExternalConnectors.map((connector) => (
+                                <MenuItem key={connector.id} value={connector.id}>
+                                  {connector.provider} · {humanStatus(connector.environment)}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                          <TextField
+                            size="small"
+                            label="Payer EDI ID"
+                            value={externalPayerCode}
+                            onChange={(event) => setExternalPayerCode(event.target.value)}
+                            inputProps={{ "aria-label": "External payer EDI ID" }}
+                          />
+                          <Button
+                            variant="contained"
+                            disabled={
+                              !selectedExternalConnector ||
+                              !externalPayerCode.trim() ||
+                              action === "payer-connect"
+                            }
+                            onClick={() =>
+                              runAction(
+                                "payer-connect",
+                                () =>
+                                  ClaimsApi.connectExternalPayer(claim.id, {
+                                    connectorId: selectedExternalConnector,
+                                    payerCode: externalPayerCode.trim(),
+                                    payerName: claim.payerName || undefined
+                                  }),
+                                "External payer connected"
+                              )
+                            }
+                          >
+                            {action === "payer-connect" ? "Connecting..." : "Connect external"}
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    </Paper>
+                  )}
+
                 <Stack
                   direction={{ xs: "column", md: "row" }}
                   justifyContent="space-between"
