@@ -722,5 +722,92 @@ router.delete("/e2e/r3-claim-status/cleanup", async (req, res) => {
 });
 
 
+router.post("/e2e/internal-submitted/seed", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const patientName = "E2E Internal Submitted";
+
+  try {
+    await prisma.claim.deleteMany({
+      where: {
+        organizationId: req.user.organizationId,
+        patientName
+      }
+    });
+
+    const claim = await prisma.claim.create({
+      data: {
+        organizationId: req.user.organizationId,
+        createdById: req.user.id,
+        patientName,
+        payerName: "Blue Horizon Health",
+        policyNo: "E2E-INTERNAL-POL",
+        memberId: "E2E-INTERNAL-MEM",
+        amount: 250,
+        totalBilledAmount: 250,
+        claimForm: "PROFESSIONAL",
+        billingProviderNpi: "1234567890",
+        renderingProviderNpi: "1987654321",
+        diagnosisText: "Synthetic internal submission scenario",
+        icd10Codes: ["M54.50"],
+        dateOfService: new Date("2026-10-01T00:00:00.000Z"),
+        eligibilityStatus: "VERIFIED",
+        eligibilityCheckedAt: new Date("2026-10-01T00:00:00.000Z"),
+        priorAuthRequired: false,
+        priorAuthStatus: "NOT_REQUIRED",
+        priorAuthCheckedAt: new Date("2026-10-01T00:00:00.000Z"),
+        status: "SUBMITTED",
+        claimSubmissionDate: new Date("2026-10-02T00:00:00.000Z"),
+        remittanceStatus: "NOT_AVAILABLE",
+        payerConnectionMode: "SIMULATED",
+        simulatedPayerCode: "BLUE_HORIZON",
+        serviceLines: {
+          create: [
+            {
+              cptHcpcsCode: "99213",
+              units: 1,
+              charge: 250,
+              diagnosisPointers: ["M54.50"],
+              placeOfService: "11"
+            }
+          ]
+        }
+      }
+    });
+
+    res.json({ id: claim.id, patientName: claim.patientName });
+  } catch (error) {
+    console.error("[e2e-internal-submitted] seed failed", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({ error: "Unable to seed internal-submitted scenario" });
+  }
+});
+
+router.delete("/e2e/internal-submitted/cleanup", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  try {
+    const result = await prisma.claim.deleteMany({
+      where: {
+        organizationId: req.user.organizationId,
+        patientName: "E2E Internal Submitted"
+      }
+    });
+    res.json({ deleted: result.count });
+  } catch (error) {
+    console.error("[e2e-internal-submitted] cleanup failed", {
+      name: error?.name || "Error"
+    });
+    res.status(500).json({ error: "Unable to clean internal-submitted scenario" });
+  }
+});
+
+
   return router;
 }
