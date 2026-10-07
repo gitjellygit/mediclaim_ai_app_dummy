@@ -22,7 +22,7 @@ test("document identity - matching name/member is not rejected when document has
   assert.ok(result.matches.includes("memberId"));
 });
 
-test("document identity - a real strong identifier conflict still blocks", () => {
+test("document identity - one strong identifier conflict with matching patient evidence requires review", () => {
   const claim = {
     patientName: "Emma Reynolds",
     memberId: "CF-ER-1001",
@@ -35,7 +35,7 @@ test("document identity - a real strong identifier conflict still blocks", () =>
     policyNo: "POL-ER-77101"
   });
 
-  assert.equal(result.status, "MISMATCH");
+  assert.equal(result.status, "REVIEW");
   assert.ok(result.conflicts.includes("memberId"));
   assert.ok(result.matches.includes("patientName"));
   assert.ok(result.matches.includes("policyNo"));
