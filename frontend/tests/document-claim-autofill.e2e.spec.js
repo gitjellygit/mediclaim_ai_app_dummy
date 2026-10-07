@@ -257,7 +257,7 @@ test("prior-auth classification survives insurance-like fields and staff can ove
     expect(savedDoc.type).toBe("OTHER");
     expect(savedDoc.suggestedType).toBe("PRIOR_AUTHORIZATION");
 
-    await row.getByRole("button", { name: "Use AI Type", exact: true }).click();
+    await row.getByRole("button", { name: "Change the saved document type to the AI-detected type", exact: true }).click();
     await expect(typeField).toHaveText("Prior Authorization");
 
     await browser.assertClean();
