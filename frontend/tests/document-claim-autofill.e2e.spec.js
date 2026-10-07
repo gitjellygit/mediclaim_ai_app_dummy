@@ -246,10 +246,11 @@ test("prior-auth classification survives insurance-like fields and staff can ove
 
     const typeField = row.getByTestId(`document-type-${upload.data.id}`);
     await expect(typeField).toBeVisible();
-    await typeField.getByRole("combobox").click();
+    await expect(typeField).toHaveRole("combobox");
+    await typeField.click();
     await page.getByRole("option", { name: "Other", exact: true }).click();
 
-    await expect(row.getByTestId(`document-type-${upload.data.id}`).getByRole("combobox"))
+    await expect(row.getByTestId(`document-type-${upload.data.id}`))
       .toHaveText("Other");
 
     const detailAfterManual = await browserApi(page, `/api/claims/${claimId}`);
@@ -259,7 +260,7 @@ test("prior-auth classification survives insurance-like fields and staff can ove
     expect(savedDoc.suggestedType).toBe("PRIOR_AUTHORIZATION");
 
     await row.getByRole("button", { name: "Use AI Type", exact: true }).click();
-    await expect(row.getByTestId(`document-type-${upload.data.id}`).getByRole("combobox"))
+    await expect(row.getByTestId(`document-type-${upload.data.id}`))
       .toHaveText("Prior Authorization");
 
     await browser.assertClean();
