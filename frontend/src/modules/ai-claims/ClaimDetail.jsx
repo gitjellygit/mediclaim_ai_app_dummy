@@ -835,6 +835,23 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
   }
 
+  async function changeDocumentType(doc, nextType) {
+    if (!canDeleteDoc || !doc?.id || !nextType || nextType === doc.type) return;
+
+    try {
+      const result = await ClaimsApi.updateDocumentType(doc.id, nextType);
+      if (!result?.unchanged) {
+        showToast(result?.message || "Document type updated", "success");
+      }
+      await load();
+    } catch (e) {
+      showDialog(
+        e.message || "The document type could not be changed.",
+        { title: "Document type could not be changed", severity: "error" }
+      );
+    }
+  }
+
   // Table management functions
   function handleSelectDoc(docId) {
     const newSelected = new Set(selectedDocs);
@@ -1964,12 +1981,32 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                             />
                           </TableCell>
                           <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
-                            <Chip
-                              label={doc.type.replace('_', ' ')}
-                              size="small"
-                              color="primary"
-                              variant="outlined"
-                            />
+                            {canDeleteDoc && !aiCheckLocked ? (
+                              <TextField
+                                select
+                                size="small"
+                                value={doc.type}
+                                onChange={(event) => changeDocumentType(doc, event.target.value)}
+                                inputProps={{
+                                  "aria-label": `Document type for ${doc.fileName}`,
+                                  "data-testid": `document-type-${doc.id}`
+                                }}
+                                sx={{ minWidth: 170 }}
+                              >
+                                {DOC_TYPES.map((type) => (
+                                  <MenuItem key={type} value={type}>
+                                    {DOC_TYPE_LABELS[type] || type.replaceAll("_", " ")}
+                                  </MenuItem>
+                                ))}
+                              </TextField>
+                            ) : (
+                              <Chip
+                                label={DOC_TYPE_LABELS[doc.type] || doc.type.replaceAll("_", " ")}
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                              />
+                            )}
                           </TableCell>
                           <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
                             <Stack direction="row" alignItems="center" spacing={1}>
