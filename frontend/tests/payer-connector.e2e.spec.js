@@ -162,7 +162,7 @@ test("R3 - external 276/277 refresh updates claim status but does not post 835 p
       headers
     });
     const connectors = await apiJson(connectorsResponse, "payer connector list");
-    const stedi = connectors.find((item) => item.id === "STEDI_TEST");
+    const stedi = connectors.find((item) => item.id === "STEDI_PRODUCTION");
     expect(stedi).toBeTruthy();
     expect(stedi.capabilities).toContain("getStatus");
 
