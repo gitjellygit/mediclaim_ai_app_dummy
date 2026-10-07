@@ -10,6 +10,7 @@ import { createLocalPayerConnector } from "./localPayerConnector.js";
 import { assertPayerConnector, PAYER_CONNECTOR_METHODS } from "./payerConnector.js";
 import { createLivePayerConnector } from "./livePayerConnector.js";
 import { createStediTestConnector } from "./stediTestConnector.js";
+import { createAvailitySandboxConnector } from "./availitySandboxConnector.js";
 import {
   PAYER_CONNECTOR_ENVIRONMENTS,
   PAYER_CONNECTOR_IDS,
@@ -118,8 +119,13 @@ export function registerDefaultPayerConnectors() {
     environment: PAYER_CONNECTOR_ENVIRONMENTS.SANDBOX,
     capabilities: ["checkEligibility"],
     configured: (env) =>
-      Boolean(env.AVAILITY_CLIENT_ID && env.AVAILITY_CLIENT_SECRET && env.AVAILITY_API_BASE_URL),
-    factory: () => createUnavailableSandboxConnector(PAYER_CONNECTOR_IDS.AVAILITY_SANDBOX)
+      Boolean(
+        env.AVAILITY_CLIENT_ID &&
+        env.AVAILITY_CLIENT_SECRET &&
+        env.AVAILITY_TOKEN_URL &&
+        env.AVAILITY_ELIGIBILITY_URL
+      ),
+    factory: (_context, env) => createAvailitySandboxConnector({ env })
   });
 
   registerPayerConnector({
