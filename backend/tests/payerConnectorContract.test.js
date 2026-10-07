@@ -263,33 +263,40 @@ test("R2A - claim-level connector ID overrides deployment default for LIVE claim
 });
 
 
-test("R3 - STEDI_TEST advertises getStatus only when production 276/277 is configured", () => {
+test("R3 - STEDI_PRODUCTION is separate from test mode and exposes 276/277 when configured", () => {
   const testOnly = new Map(
     listPayerConnectors({
       STEDI_TEST_API_KEY: "test-key"
     }).map((item) => [item.id, item])
   );
   assert.equal(testOnly.get("STEDI_TEST")?.capabilities.includes("getStatus"), false);
+  assert.equal(testOnly.get("STEDI_PRODUCTION")?.configured, false);
 
-  const withStatus = new Map(
+  const withProduction = new Map(
     listPayerConnectors({
-      STEDI_TEST_API_KEY: "test-key",
-      STEDI_CLAIM_STATUS_API_KEY: "production-key",
+      STEDI_PRODUCTION_API_KEY: "production-key",
       STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
     }).map((item) => [item.id, item])
   );
-  assert.equal(withStatus.get("STEDI_TEST")?.capabilities.includes("getStatus"), true);
+  assert.equal(withProduction.get("STEDI_PRODUCTION")?.provider, "STEDI");
+  assert.equal(withProduction.get("STEDI_PRODUCTION")?.environment, "PRODUCTION");
+  assert.equal(withProduction.get("STEDI_PRODUCTION")?.configured, true);
+  assert.equal(
+    withProduction.get("STEDI_PRODUCTION")?.capabilities.includes("getStatus"),
+    true
+  );
 
   const claimStatus = payerConnectorStatusForClaim(
     {
       payerConnectionMode: "LIVE",
-      payerConnectorId: "STEDI_TEST"
+      payerConnectorId: "STEDI_PRODUCTION"
     },
     {
-      STEDI_TEST_API_KEY: "test-key",
-      STEDI_CLAIM_STATUS_API_KEY: "production-key",
+      STEDI_PRODUCTION_API_KEY: "production-key",
       STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
     }
   );
+  assert.equal(claimStatus.id, "STEDI_PRODUCTION");
+  assert.equal(claimStatus.environment, "PRODUCTION");
   assert.equal(claimStatus.capabilities.includes("getStatus"), true);
 });
