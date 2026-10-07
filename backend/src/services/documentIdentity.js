@@ -105,9 +105,9 @@ function identifiersEquivalent(a, b) {
       if (left[i] === right[i]) continue;
       differences += 1;
       if (!isOcrConfusion(left[i], right[i])) onlyOcrConfusions = false;
-      if (differences > 1) break;
+      if (differences > 2) break;
     }
-    if (differences === 1 && onlyOcrConfusions) {
+    if (differences >= 1 && differences <= 2 && onlyOcrConfusions) {
       return { equivalent: true, exact: false, tolerant: true };
     }
   }
