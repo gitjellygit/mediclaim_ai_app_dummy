@@ -49,8 +49,10 @@ export default defineConfig({
           process.env.STEDI_API_BASE_URL || "http://127.0.0.1:4199/2026-06-01",
         STEDI_PAYER_API_BASE_URL:
           process.env.STEDI_PAYER_API_BASE_URL || "http://127.0.0.1:4199/2024-04-01",
-        STEDI_CLAIM_STATUS_API_KEY:
-          process.env.STEDI_CLAIM_STATUS_API_KEY || "e2e-stedi-status-key",
+        STEDI_PRODUCTION_API_KEY:
+          process.env.STEDI_PRODUCTION_API_KEY || "e2e-stedi-status-key",
+        STEDI_PRODUCTION_API_BASE_URL:
+          process.env.STEDI_PRODUCTION_API_BASE_URL || "http://127.0.0.1:4199/2026-06-01",
         STEDI_CLAIM_STATUS_URL:
           process.env.STEDI_CLAIM_STATUS_URL ||
           "http://127.0.0.1:4199/2024-04-01/change/medicalnetwork/claimstatus/v2",
