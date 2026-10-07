@@ -344,15 +344,31 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       .split(",")
       .map((value) => normalizeIcd10Cm(value))
       .filter(Boolean);
-    const serviceLineDiagnosisCodes = (editForm.serviceLines || [])
-      .flatMap((line) =>
-        String(line?.diagnosisPointers || "")
-          .split(",")
-          .map((value) => normalizeIcd10Cm(value))
-          .filter(Boolean)
-      );
+    const normalizeDiagnosisList = (value) =>
+      String(value || "")
+        .split(",")
+        .map((code) => normalizeIcd10Cm(code))
+        .filter(Boolean);
+
+    const intentionallyEditedServiceLineDiagnoses = (editForm.serviceLines || [])
+      .flatMap((line, index) => {
+        const current = normalizeDiagnosisList(line?.diagnosisPointers);
+        const original = (claim?.serviceLines?.[index]?.diagnosisPointers || [])
+          .map((code) => normalizeIcd10Cm(code))
+          .filter(Boolean);
+
+        const changed =
+          current.length !== original.length ||
+          current.some((code, codeIndex) => code !== original[codeIndex]);
+
+        return changed ? current : [];
+      });
+
     const mergedDiagnosisCodes = [
-      ...new Set([...claimDiagnosisCodes, ...serviceLineDiagnosisCodes])
+      ...new Set([
+        ...claimDiagnosisCodes,
+        ...intentionallyEditedServiceLineDiagnoses
+      ])
     ];
 
     const invalidIcd = mergedDiagnosisCodes.find((value) => icd10CmError(value));
