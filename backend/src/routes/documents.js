@@ -696,7 +696,8 @@ export function documentsRouter(prisma, uploadDir) {
           file: req.file,
           fileHash,
           intel,
-          type: requestedType
+          type: requestedType,
+          identityValidation
         })
       });
 
