@@ -27,7 +27,8 @@ const LABELS = {
   totalBilledAmount: "Total Billed",
   authorizationNo: "Authorization Number",
   eligibilityStatus: "Eligibility",
-  priorAuthStatus: "Prior Authorization"
+  priorAuthStatus: "Prior Authorization",
+  documentIdentityReview: "Document Identity Review"
 };
 
 function hasValue(value) {
@@ -162,6 +163,24 @@ export function buildClaimCompleteness(claim) {
       ? "coding-review"
       : "serviceLines"
   });
+  const pendingDocumentIdentityReviews = (claim?.documents || []).filter((doc) => {
+    const review = doc?.extracted?._identityReview;
+    return review && review.reviewed !== true;
+  });
+  if (pendingDocumentIdentityReviews.length > 0) {
+    push({
+      field: "documentIdentityReview",
+      required: true,
+      complete: false,
+      state: "review",
+      reason:
+        pendingDocumentIdentityReviews.length === 1
+          ? "1 uploaded document has an unresolved patient/member identity review"
+          : `${pendingDocumentIdentityReviews.length} uploaded documents have unresolved patient/member identity reviews`,
+      fixTarget: "documents"
+    });
+  }
+
   push({ field: "dateOfService", required: true });
   push({ field: "amount", required: true });
   push({ field: "totalBilledAmount", required: true });
@@ -275,6 +294,19 @@ export function completenessReadinessIssues(claim) {
     "WARN",
     "Date of service is missing"
   );
+
+  const identityReviewItem = summary.fields.find(
+    (entry) => entry.field === "documentIdentityReview"
+  );
+  if (identityReviewItem && ["missing", "review"].includes(identityReviewItem.state)) {
+    issues.push({
+      severity: "BLOCK",
+      message: identityReviewItem.reason || "Document identity review is unresolved",
+      field: "documentIdentityReview",
+      source: "COMPLETENESS",
+      fixTarget: "documents"
+    });
+  }
 
   if (summary.inpatientLikely) {
     addIfIncomplete(
