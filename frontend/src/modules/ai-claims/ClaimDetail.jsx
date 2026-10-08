@@ -314,6 +314,21 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   async function removeIcdCode(code) {
+    const linkedLines = (claim?.serviceLines || []).filter((line) =>
+      (line?.diagnosisPointers || []).includes(code)
+    );
+
+    if (linkedLines.length > 0) {
+      showDialog(
+        `${code} is linked to ${linkedLines.length} service line${linkedLines.length === 1 ? "" : "s"}. Update the service-line diagnosis linkage before removing this verified diagnosis.`,
+        {
+          title: "Diagnosis is in use",
+          severity: "warning"
+        }
+      );
+      return;
+    }
+
     await saveIcdCodes(
       (claim?.icd10Codes || []).filter((item) => item !== code),
       `${code} removed`
@@ -1471,10 +1486,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                       {(claim.icd10Codes || []).map((code) => (
                         <Chip
                           key={code}
-                          label={code}
+                          label={editMode ? code : `${code} ✓ Verified`}
                           color="success"
                           variant="outlined"
-                          onDelete={!aiCheckLocked ? () => removeIcdCode(code) : undefined}
+                          onDelete={
+                            editMode && !aiCheckLocked
+                              ? () => removeIcdCode(code)
+                              : undefined
+                          }
                           disabled={codingActionId === "claim-icd"}
                           data-testid={`accepted-icd-${code}`}
                         />
