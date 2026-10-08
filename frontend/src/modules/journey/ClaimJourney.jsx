@@ -718,6 +718,9 @@ export default function ClaimJourney() {
   const submissionTransaction = payerTransactions.find(
     (tx) => tx.transactionType === "CLAIM_SUBMISSION"
   );
+  const claimAlreadySubmitted =
+    Boolean(claim?.claimSubmissionDate) ||
+    ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status || "");
   const acknowledged = ["ACCEPTED", "PENDED"].includes(submissionTransaction?.status);
   const latestRemittance = payerTransactions.find(
     (tx) => tx.transactionType === "REMITTANCE"
@@ -1731,6 +1734,7 @@ export default function ClaimJourney() {
                       disabled={
                         action !== "" ||
                         Boolean(submissionTransaction) ||
+                        claimAlreadySubmitted ||
                         !stages.claim.actionable
                       }
                       onClick={submitConnectedClaim}
@@ -1739,16 +1743,19 @@ export default function ClaimJourney() {
                         ? "Sending..."
                         : submissionTransaction
                         ? "Sent to Payer"
-                        : claim.claimSubmissionDate || claim.status === "SUBMITTED"
-                        ? "Send to Payer"
+                        : claimAlreadySubmitted
+                        ? "Submitted"
                         : "Submit to Payer"}
                     </Button>
-                    {(claim.claimSubmissionDate || claim.status === "SUBMITTED") &&
-                      !submissionTransaction && (
-                        <Typography variant="caption" color="warning.main">
-                          Claim is submitted internally but payer transmission is still pending.
-                        </Typography>
-                      )}
+                    {claimAlreadySubmitted && !submissionTransaction && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        data-testid="claim-already-submitted-note"
+                      >
+                        This claim was already submitted. A second submission is disabled.
+                      </Typography>
+                    )}
                   </>
                 )}
                 <Button
