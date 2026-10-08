@@ -1167,65 +1167,52 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
   }
 
-  async function handlePreview(doc) {
+  async function handlePreview(doc, pageNumber = null) {
     try {
-      console.log("Previewing document:", doc.id, doc.fileName);
-      
-      // Check if we have a token
-      const token = localStorage.getItem('accessToken');
-      console.log("Token available:", !!token);
-      console.log("Token length:", token?.length || 0);
-      
+      const token = localStorage.getItem("accessToken");
       if (!token) {
-        console.error("No authentication token found");
         showDialog(
           "Your session is missing or has expired. Please log in again to preview documents.",
           { title: "Sign-in required", severity: "warning" }
         );
         return;
       }
-      
-      // Use API_BASE for direct backend connection
+
       const response = await fetch(`${API_BASE}/api/documents/${doc.id}/preview`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`
         }
       });
-      
-      console.log("Response status:", response.status);
-      console.log("Response headers:", [...response.headers.entries()]);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("Preview response not ok:", response.status, response.statusText, errorText);
         showDialog(
           errorText || `Preview failed: ${response.statusText}`,
           { title: "Document preview failed", severity: "error" }
         );
         return;
       }
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      
-      // Check if it's a PDF and open in new tab
+
       if (doc.mimeType?.includes("pdf")) {
-        window.open(url, '_blank');
+        const page =
+          Number.isInteger(Number(pageNumber)) && Number(pageNumber) > 0
+            ? `#page=${Number(pageNumber)}`
+            : "";
+        window.open(`${url}${page}`, "_blank", "noopener,noreferrer");
       } else {
-        // For non-PDFs, try to download instead
-        const a = document.createElement('a');
+        const a = document.createElement("a");
         a.href = url;
         a.download = doc.fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
       }
-      
-      // Clean up the URL after a delay
-      setTimeout(() => window.URL.revokeObjectURL(url), 1000);
-      
+
+      setTimeout(() => window.URL.revokeObjectURL(url), 5000);
     } catch (e) {
-      console.error("Preview error:", e);
       showDialog(
         e?.message || "The document preview could not be loaded. Please try again.",
         { title: "Document preview failed", severity: "error" }
@@ -1235,16 +1222,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   async function handleDownload(doc) {
     try {
-      console.log("Downloading document:", doc.id, doc.fileName);
-      
-      // Check if we have a token
+// Check if we have a token
       const token = localStorage.getItem('accessToken');
-      console.log("Token available:", !!token);
-      console.log("Token length:", token?.length || 0);
-      
-      if (!token) {
-        console.error("No authentication token found");
-        showDialog(
+if (!token) {
+showDialog(
           "Your session is missing or has expired. Please log in again to download documents.",
           { title: "Sign-in required", severity: "warning" }
         );
@@ -1564,7 +1545,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                             size="small"
                             variant="text"
                             startIcon={<Visibility />}
-                            onClick={() => handlePreview(sourceDocument)}
+                            onClick={() =>
+                              handlePreview(sourceDocument, candidate.pageNumber)
+                            }
                             disabled={Boolean(fieldReviewBusyId)}
                           >
                             View source
