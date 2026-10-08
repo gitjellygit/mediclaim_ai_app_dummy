@@ -363,10 +363,26 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
       name: "Review AI coding suggestions"
     });
     await expect(codingDialog).toBeVisible();
-    await expect(codingDialog.getByTestId("pending-coding-ICD10_CM-M54.16")).toHaveCount(1);
-    await expect(codingDialog.getByText(/Source:/)).toBeVisible();
-    await codingDialog
-      .getByTestId("pending-coding-ICD10_CM-M54.16")
+    const icdSuggestion = codingDialog.getByTestId(
+      "pending-coding-ICD10_CM-M54.16"
+    );
+    const cptSuggestion = codingDialog.getByTestId(
+      "pending-coding-CPT-99213"
+    );
+    await expect(icdSuggestion).toHaveCount(1);
+    await expect(cptSuggestion).toHaveCount(1);
+    await expect(icdSuggestion.getByText(/Source:/)).toBeVisible();
+
+    await icdSuggestion
+      .getByRole("button", { name: "Accept", exact: true })
+      .click();
+
+    // CPT remains pending, so the unified modal stays open.
+    await expect(codingDialog).toBeVisible();
+    await expect(icdSuggestion).toHaveCount(0);
+    await expect(cptSuggestion).toBeVisible();
+
+    await cptSuggestion
       .getByRole("button", { name: "Accept", exact: true })
       .click();
 
@@ -375,28 +391,6 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
     await expect(review.getByTestId("accepted-icd-M54.16")).toBeVisible();
 
     let detail = await browserApi(page, `/api/claims/${claimId}`);
-    expect(detail.ok).toBe(true);
-    expect(detail.data.icd10Codes).toContain("M54.16");
-
-    const procedureButton = page.getByTestId("open-procedure-coding-review");
-    await expect(procedureButton).toBeVisible();
-    await procedureButton.click();
-
-    const procedureDialog = page.getByRole("dialog", {
-      name: "Review AI coding suggestions"
-    });
-    await expect(
-      procedureDialog.getByTestId("pending-coding-CPT-99213")
-    ).toBeVisible();
-    await procedureDialog
-      .getByTestId("pending-coding-CPT-99213")
-      .getByRole("button", { name: "Accept", exact: true })
-      .click();
-
-    await expect(procedureDialog).toHaveCount(0);
-    await expect(page).toHaveURL(new RegExp(`/claims/${claimId}$`));
-
-    detail = await browserApi(page, `/api/claims/${claimId}`);
     expect(detail.ok).toBe(true);
     expect(
       detail.data.serviceLines.some(
