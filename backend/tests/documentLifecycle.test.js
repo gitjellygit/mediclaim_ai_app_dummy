@@ -1801,10 +1801,12 @@ test("58 - journey UI enforces payer prerequisite and disables terminal controls
   assert.match(source, /disabled=\{!payerConnected \|\| action !== "" \|\| eligibilityComplete\}/);
   assert.match(source, /Connect the payer above before checking Prior Authorization/);
   assert.match(source, /disabled=\{!stages\.claimStatus\.actionable\}/);
+  assert.match(source, /externalRemittanceSupported/);
   assert.match(
     source,
-    /disabled=\{!stages\.remittance\.actionable \|\| action !== ""\}/
+    /externalPayerConnected && !externalRemittanceSupported/
   );
+  assert.match(source, /Retrieve 835 ERA/);
   assert.match(source, /Refresh Remittance/);
   assert.match(source, /claim\.remittanceStatus === "POSTED"/);
   assert.match(source, /View Remittance Details/);
@@ -2748,8 +2750,8 @@ test("97c - awaiting connected remittance exposes safe refresh polling", { concu
     "utf8"
   );
 
-  assert.match(source, /Refresh Remittance/);
-  assert.match(source, /No remittance is available yet/);
+  assert.match(source, /Retrieve 835 ERA/);
+  assert.match(source, /No matching 835 ERA is available yet/);
   assert.match(payerSource, /available: false/);
   assert.match(payerSource, /No remittance is available yet/);
 });
