@@ -5,9 +5,9 @@ import crypto from "crypto";
 import path from "path";
 import {
   TextractClient,
-  DetectDocumentTextCommand,
-  StartDocumentTextDetectionCommand,
-  GetDocumentTextDetectionCommand
+  AnalyzeDocumentCommand,
+  StartDocumentAnalysisCommand,
+  GetDocumentAnalysisCommand
 } from "@aws-sdk/client-textract";
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
@@ -81,22 +81,90 @@ async function extractPdfText(filePath) {
   }
 }
 
+function textractRelationshipText(block, blockMap) {
+  const childIds = (block?.Relationships || [])
+    .filter((rel) => rel.Type === "CHILD")
+    .flatMap((rel) => rel.Ids || []);
+  return childIds
+    .map((id) => blockMap.get(id))
+    .filter(Boolean)
+    .filter((child) => ["WORD", "SELECTION_ELEMENT"].includes(child.BlockType))
+    .map((child) =>
+      child.BlockType === "SELECTION_ELEMENT"
+        ? child.SelectionStatus === "SELECTED"
+          ? "X"
+          : ""
+        : child.Text || ""
+    )
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+function parseTextractStructured(blocks = []) {
+  const blockMap = new Map(
+    blocks.filter((block) => block?.Id).map((block) => [block.Id, block])
+  );
+  const keyValues = [];
+
+  for (const block of blocks) {
+    if (
+      block?.BlockType !== "KEY_VALUE_SET" ||
+      !Array.isArray(block.EntityTypes) ||
+      !block.EntityTypes.includes("KEY")
+    ) {
+      continue;
+    }
+
+    const key = textractRelationshipText(block, blockMap);
+    const valueIds = (block.Relationships || [])
+      .filter((rel) => rel.Type === "VALUE")
+      .flatMap((rel) => rel.Ids || []);
+    const values = valueIds
+      .map((id) => blockMap.get(id))
+      .filter(Boolean)
+      .map((valueBlock) => textractRelationshipText(valueBlock, blockMap))
+      .filter(Boolean);
+
+    if (!key || values.length === 0) continue;
+    const geometry = block.Geometry?.BoundingBox || null;
+    keyValues.push({
+      key,
+      value: values.join(" "),
+      confidence: Math.round(
+        Math.min(
+          Number(block.Confidence || 100),
+          ...valueIds
+            .map((id) => Number(blockMap.get(id)?.Confidence || 100))
+            .filter(Number.isFinite)
+        )
+      ),
+      pageNumber: block.Page || null,
+      boundingBox: geometry
+    });
+  }
+
+  return {
+    text: blocks
+      .filter((block) => block.BlockType === "LINE")
+      .map((block) => block.Text)
+      .filter(Boolean)
+      .join("\n"),
+    keyValues
+  };
+}
+
 async function textractImageBytes(filePath) {
   const bytes = fs.readFileSync(filePath);
 
   const result = await textract.send(
-    new DetectDocumentTextCommand({
-      Document: {
-        Bytes: bytes
-      }
+    new AnalyzeDocumentCommand({
+      Document: { Bytes: bytes },
+      FeatureTypes: ["FORMS", "TABLES"]
     })
   );
 
-  return (result.Blocks || [])
-    .filter((block) => block.BlockType === "LINE")
-    .map((block) => block.Text)
-    .filter(Boolean)
-    .join("\n");
+  return parseTextractStructured(result.Blocks || []);
 }
 
 async function uploadToS3ForTextract(filePath, fileName) {
@@ -123,13 +191,14 @@ async function textractPdfViaS3(filePath, fileName) {
 
   try {
     const start = await textract.send(
-      new StartDocumentTextDetectionCommand({
+      new StartDocumentAnalysisCommand({
         DocumentLocation: {
           S3Object: {
             Bucket: TEXTRACT_BUCKET,
             Name: key
           }
-        }
+        },
+        FeatureTypes: ["FORMS", "TABLES"]
       })
     );
 
@@ -141,7 +210,7 @@ async function textractPdfViaS3(filePath, fileName) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       const result = await textract.send(
-        new GetDocumentTextDetectionCommand({
+        new GetDocumentAnalysisCommand({
           JobId: jobId
         })
       );
@@ -152,7 +221,7 @@ async function textractPdfViaS3(filePath, fileName) {
 
         while (nextToken) {
           const next = await textract.send(
-            new GetDocumentTextDetectionCommand({
+            new GetDocumentAnalysisCommand({
               JobId: jobId,
               NextToken: nextToken
             })
@@ -162,11 +231,7 @@ async function textractPdfViaS3(filePath, fileName) {
           nextToken = next.NextToken;
         }
 
-        return blocks
-          .filter((block) => block.BlockType === "LINE")
-          .map((block) => block.Text)
-          .filter(Boolean)
-          .join("\n");
+        return parseTextractStructured(blocks);
       }
 
       if (result.JobStatus === "FAILED") {
@@ -207,6 +272,69 @@ async function extractTextWithTextract({ filePath, fileName, mimeType }) {
   return "";
 }
 
+const STRUCTURED_KEY_ALIASES = {
+  patientName: ["patient name", "name of patient"],
+  dateOfBirth: ["date of birth", "dob", "birth date"],
+  memberId: ["member id", "member number", "membership no"],
+  policyNo: ["policy number", "policy no"],
+  groupNumber: ["group number", "group no", "group id"],
+  subscriberId: ["subscriber id", "subscriber number"],
+  subscriberName: ["subscriber name", "policy holder"],
+  payerName: ["insurance company", "payer name", "carrier name"],
+  payerEdiId: ["payer edi id", "edi payer id"],
+  medicalRecordNumber: ["medical record number", "medical record no", "mrn"],
+  patientMobile: ["patient phone", "patient mobile", "phone", "telephone"],
+  claimNo: ["claim number", "claim no", "claim id", "claim reference"],
+  hospitalName: ["hospital name", "facility name", "name of hospital"],
+  doctorName: ["doctor name", "attending physician", "consultant"],
+  diagnosisText: ["diagnosis", "final diagnosis", "principal diagnosis"],
+  authorizationNo: ["authorization number", "authorization no", "auth no", "pre auth"],
+  dateOfService: ["date of service", "service date", "dos"],
+  admissionDate: ["admission date", "date of admission"],
+  dischargeDate: ["discharge date", "date of discharge"],
+  amount: ["grand total", "total amount", "net amount", "balance due", "amount due"],
+  billingProviderNpi: ["billing provider npi", "billing npi"],
+  renderingProviderNpi: ["rendering provider npi", "rendering npi"],
+  referringProviderNpi: ["referring provider npi", "referring npi"],
+  providerTin: ["provider tin", "tax id", "tax identification number"],
+  providerTaxonomyCode: ["provider taxonomy code", "taxonomy code", "taxonomy"],
+  typeOfBill: ["type of bill"],
+  drgCode: ["drg code", "drg"],
+  planAdministratorName: ["plan administrator name", "plan administrator"],
+  coverageLimit: ["coverage limit"],
+  remainingCoverageLimit: ["remaining coverage limit"]
+};
+
+function normalizeStructuredKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function structuredFieldsFromPairs(keyValues = []) {
+  const values = {};
+  const evidence = {};
+
+  for (const pair of keyValues || []) {
+    const key = normalizeStructuredKey(pair.key);
+    for (const [field, aliases] of Object.entries(STRUCTURED_KEY_ALIASES)) {
+      if (!aliases.includes(key)) continue;
+      if (values[field] == null || Number(pair.confidence || 0) > Number(evidence[field]?.confidence || 0)) {
+        values[field] = clean(pair.value);
+        evidence[field] = {
+          confidence: Math.round(Number(pair.confidence || 0)),
+          pageNumber: pair.pageNumber || null,
+          boundingBox: pair.boundingBox || null,
+          evidenceText: `${pair.key}: ${pair.value}`
+        };
+      }
+    }
+  }
+
+  return { values, evidence };
+}
+
 function firstMatch(text, patterns) {
   for (const pattern of patterns) {
     const match = text.match(pattern);
@@ -237,48 +365,50 @@ function extractCodes(text, pattern) {
   return codesStr.split(/[,;\s]+/).filter(code => code.trim().length > 0);
 }
 
-export function extractFields(text) {
+export function extractFields(text, { keyValues = [] } = {}) {
   const t = text || "";
+  const structured = structuredFieldsFromPairs(keyValues);
+  const s = structured.values;
 
-  const patientName = firstMatch(t, [
+  const patientName = s.patientName || firstMatch(t, [
     /Patient\s*Name\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
     /Name\s*of\s*Patient\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
     /Patient\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
     /Name\s*[:\-]?\s*([A-Za-z .]{3,80})/i
   ]);
 
-  const hospitalName = firstMatch(t, [
+  const hospitalName = s.hospitalName || firstMatch(t, [
     /Hospital\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i,
     /Name\s*of\s*Hospital\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i,
     /Facility\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i,
     /Provider\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,120})/i
   ]);
 
-  const policyNo = firstMatch(t, [
+  const policyNo = s.policyNo || firstMatch(t, [
     /Policy\s*(?:No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Policy\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
-  const claimNo = firstMatch(t, [
+  const claimNo = s.claimNo || firstMatch(t, [
     /Claim\s*(?:No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Claim\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Claim\s*Reference\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
-  const diagnosisText = firstMatch(t, [
+  const diagnosisText = s.diagnosisText || firstMatch(t, [
     /Diagnosis\s*[:\-]?\s*([^\n\r]{3,160})/i,
     /Final\s*Diagnosis\s*[:\-]?\s*([^\n\r]{3,160})/i,
     /Principal\s*Diagnosis\s*[:\-]?\s*([^\n\r]{3,160})/i
   ]);
 
-  const doctorName = firstMatch(t, [
+  const doctorName = s.doctorName || firstMatch(t, [
     /Doctor\s*Name\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
     /Consultant\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
     /Dr\.?\s*([A-Za-z .]{3,80})/i,
     /Attending\s*Physician\s*[:\-]?\s*([A-Za-z .]{3,80})/i
   ]);
 
-  const amountText = firstMatch(t, [
+  const amountText = s.amount || firstMatch(t, [
     /Grand\s*Total\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
     /Net\s*Amount\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
     /Total\s*Amount\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
@@ -289,72 +419,72 @@ export function extractFields(text) {
 
   const amount = parseAmount(amountText);
 
-  const memberId = firstMatch(t, [
+  const memberId = s.memberId || firstMatch(t, [
     /Member\s*ID\b\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Membership\s*No\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Subscriber\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
-  const groupNumber = firstMatch(t, [
+  const groupNumber = s.groupNumber || firstMatch(t, [
     /Group\s*(?:No|Number|ID)?\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
-  const subscriberId = firstMatch(t, [
+  const subscriberId = s.subscriberId || firstMatch(t, [
     /Subscriber\s*ID\b\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Subscriber\s*(?:No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]) || memberId;
 
-  const subscriberName = firstMatch(t, [
+  const subscriberName = s.subscriberName || firstMatch(t, [
     /Subscriber\s*Name\s*[:\-]?\s*([A-Za-z .'-]{3,80})/i,
     /Policy\s*Holder\s*[:\-]?\s*([A-Za-z .'-]{3,80})/i
   ]);
 
-  const payerEdiId = firstMatch(t, [
+  const payerEdiId = s.payerEdiId || firstMatch(t, [
     /Payer\s*EDI\s*(?:ID)?\s*[:\-]?\s*([A-Z0-9\-]+)/i,
     /EDI\s*Payer\s*(?:ID)?\s*[:\-]?\s*([A-Z0-9\-]+)/i
   ]);
 
-  const medicalRecordNumber = firstMatch(t, [
+  const medicalRecordNumber = s.medicalRecordNumber || firstMatch(t, [
     /(?:MRN|Medical\s*Record\s*(?:No|Number))\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
-  const patientMobile = firstMatch(t, [
+  const patientMobile = s.patientMobile || firstMatch(t, [
     /(?:Patient\s*)?(?:Phone|Mobile|Telephone)\s*[:\-]?\s*([+0-9()\-\s]{7,24})/i
   ]);
 
-  const payerName = firstMatch(t, [
+  const payerName = s.payerName || firstMatch(t, [
     /Insurance\s*Company\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,80})/i,
     /Payer\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,80})/i,
     /Carrier\s*Name\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,80})/i
   ]);
 
-  const authorizationNo = firstMatch(t, [
+  const authorizationNo = s.authorizationNo || firstMatch(t, [
     /Authorization\s*(?:No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Auth\s*No\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Pre\s*Auth\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
 
-  const dateOfBirthRaw = firstMatch(t, [
+  const dateOfBirthRaw = s.dateOfBirth || firstMatch(t, [
     /Date\s*of\s*Birth\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
     /DOB\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
     /Birth\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i
   ]);
   const dateOfBirth = toDateOnlyString(dateOfBirthRaw);
 
-  const dateOfServiceRaw = firstMatch(t, [
+  const dateOfServiceRaw = s.dateOfService || firstMatch(t, [
     /Date\s*of\s*Service\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
     /Service\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
     /DOS\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i
   ]);
   const dateOfService = toDateOnlyString(dateOfServiceRaw);
 
-  const admissionDateRaw = firstMatch(t, [
+  const admissionDateRaw = s.admissionDate || firstMatch(t, [
     /Admission\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
     /Date\s*of\s*Admission\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i
   ]);
   const admissionDate = toDateOnlyString(admissionDateRaw);
 
-  const dischargeDateRaw = firstMatch(t, [
+  const dischargeDateRaw = s.dischargeDate || firstMatch(t, [
     /Discharge\s*Date\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i,
     /Date\s*of\s*Discharge\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/i
   ]);
@@ -365,6 +495,39 @@ export function extractFields(text) {
     t,
     /(?:CPT|HCPCS)\s*(?:Code|Codes)?\s*[:\-]?\s*((?:\d{5}|[A-Z]\d{4})(?:\s*,\s*(?:\d{5}|[A-Z]\d{4}))*)/i
   );
+
+  const billingProviderNpi = s.billingProviderNpi || firstMatch(t, [
+    /Billing\s*(?:Provider\s*)?NPI\s*[:\-]?\s*(\d{10})/i
+  ]);
+  const renderingProviderNpi = s.renderingProviderNpi || firstMatch(t, [
+    /Rendering\s*(?:Provider\s*)?NPI\s*[:\-]?\s*(\d{10})/i
+  ]);
+  const referringProviderNpi = s.referringProviderNpi || firstMatch(t, [
+    /Referring\s*(?:Provider\s*)?NPI\s*[:\-]?\s*(\d{10})/i
+  ]);
+  const providerTin = s.providerTin || firstMatch(t, [
+    /(?:Provider\s*)?(?:TIN|Tax\s*ID)\s*[:\-]?\s*(\d{2}-?\d{7})/i
+  ]);
+  const providerTaxonomyCode = s.providerTaxonomyCode || firstMatch(t, [
+    /(?:Provider\s*)?Taxonomy(?:\s*Code)?\s*[:\-]?\s*([A-Z0-9]{10})/i
+  ]);
+  const typeOfBill = s.typeOfBill || firstMatch(t, [
+    /Type\s*of\s*Bill\s*[:\-]?\s*(\d{3,4})/i
+  ]);
+  const drgCode = s.drgCode || firstMatch(t, [
+    /DRG(?:\s*Code)?\s*[:\-]?\s*(\d{3})/i
+  ]);
+  const planAdministratorName = s.planAdministratorName || firstMatch(t, [
+    /Plan\s*Administrator(?:\s*Name)?\s*[:\-]?\s*([^\n\r]{3,120})/i
+  ]);
+  const coverageLimitText = s.coverageLimit || firstMatch(t, [
+    /Coverage\s*Limit\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i
+  ]);
+  const remainingCoverageText = s.remainingCoverageLimit || firstMatch(t, [
+    /Remaining\s*Coverage\s*Limit\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i
+  ]);
+  const coverageLimit = parseAmount(coverageLimitText);
+  const remainingCoverageLimit = parseAmount(remainingCoverageText);
 
   return {
     patientName,
@@ -388,7 +551,18 @@ export function extractFields(text) {
     admissionDate,
     dischargeDate,
     icd10Codes,
-    cptCodes
+    cptCodes,
+    billingProviderNpi,
+    renderingProviderNpi,
+    referringProviderNpi,
+    providerTin,
+    providerTaxonomyCode,
+    typeOfBill,
+    drgCode,
+    planAdministratorName,
+    coverageLimit,
+    remainingCoverageLimit,
+    _fieldEvidence: structured.evidence
   };
 }
 
@@ -483,39 +657,58 @@ export function classifyDocument({ fileName, text }) {
   return { suggestedType: "OTHER", confidence: 55 };
 }
 
-export async function analyzeDocument({ fileName, mimeType, path: filePath }, { ocrExtractor = extractTextWithTextract, pdfExtractor = extractPdfText } = {}) {
+export async function analyzeDocument(
+  { fileName, mimeType, path: filePath },
+  { ocrExtractor = extractTextWithTextract, pdfExtractor = extractPdfText } = {}
+) {
   let rawText = "";
+  let keyValues = [];
   let ocrProvider = "none";
   let providerFailed = false;
+
+  const isPdf =
+    norm(mimeType).includes("pdf") ||
+    path.extname(fileName || "").toLowerCase() === ".pdf";
+
+  // Fast path: searchable PDFs do not need network OCR.
+  if (isPdf) {
+    const pdfText = await pdfExtractor(filePath);
+    if (pdfText?.trim() && pdfText.trim().length >= 40) {
+      rawText = pdfText;
+      ocrProvider = "PDF_PARSE";
+    }
+  }
 
   const deterministicE2eMode =
     process.env.E2E_TEST_MODE === "true" &&
     ocrExtractor === extractTextWithTextract;
 
-  if (deterministicE2eMode) {
-    // Browser tests must not depend on live AWS credentials or external OCR.
-    // Filename-based classification remains deterministic; production behavior
-    // is unchanged because this branch is only enabled by E2E_TEST_MODE.
+  if (!rawText && deterministicE2eMode) {
     ocrProvider = "E2E_FILENAME_ONLY";
-  } else {
+  } else if (!rawText) {
     try {
-      rawText = await ocrExtractor({
+      const ocrResult = await ocrExtractor({
         filePath,
         fileName,
         mimeType
       });
-
-      if (rawText?.trim()) {
-        ocrProvider = "AWS_TEXTRACT";
+      if (typeof ocrResult === "string") {
+        rawText = ocrResult;
+      } else if (ocrResult && typeof ocrResult === "object") {
+        rawText = ocrResult.text || "";
+        keyValues = Array.isArray(ocrResult.keyValues) ? ocrResult.keyValues : [];
       }
+      if (rawText?.trim()) ocrProvider = "AWS_TEXTRACT_FORMS";
     } catch (error) {
-      // Never include OCR content or exception text in logs (possible PHI).
       providerFailed = true;
-      console.error("[doc-intel] OCR provider failed", { provider: "TEXTRACT", name: error?.name || "Error" });
+      console.error("[doc-intel] OCR provider failed", {
+        provider: "TEXTRACT",
+        name: error?.name || "Error"
+      });
     }
   }
 
-  const isPdf = norm(mimeType).includes("pdf") || path.extname(fileName || "").toLowerCase() === ".pdf";
+  // Final local fallback for PDFs if an injected/test OCR provider returned no text.
   if (isPdf && (!rawText || rawText.length < 40)) {
     const pdfText = await pdfExtractor(filePath);
     if (pdfText?.trim()) {
@@ -524,21 +717,42 @@ export async function analyzeDocument({ fileName, mimeType, path: filePath }, { 
     }
   }
 
-  const ocrStatus = providerFailed && !rawText?.trim() ? "FAILED" : rawText?.trim() ? "PROCESSED" : "NO_TEXT";
+  const ocrStatus =
+    providerFailed && !rawText?.trim()
+      ? "FAILED"
+      : rawText?.trim()
+      ? "PROCESSED"
+      : "NO_TEXT";
   if (ocrStatus === "FAILED") ocrProvider = "AWS_TEXTRACT_FAILED";
-  const extracted = extractFields(rawText || "");
-  const classification = classifyDocument({ fileName, text: rawText || "" });
 
-  const fieldsFound = Object.values(extracted).filter(Boolean).length;
-  const extractionConfidence = Math.min(95, 50 + fieldsFound * 8);
+  const extracted = extractFields(rawText || "", { keyValues });
+  const fieldEvidence = extracted._fieldEvidence || {};
+  delete extracted._fieldEvidence;
+
+  const classification = classifyDocument({
+    fileName,
+    text: rawText || ""
+  });
+
+  const fieldsFound = Object.values(extracted).filter((value) =>
+    Array.isArray(value) ? value.length > 0 : Boolean(value)
+  ).length;
+  const extractionConfidence = Math.min(
+    99,
+    ocrProvider === "PDF_PARSE"
+      ? 97 + Math.min(2, Math.floor(fieldsFound / 6))
+      : 65 + Math.min(30, fieldsFound * 4)
+  );
 
   return {
     ...classification,
     extracted,
+    fieldEvidence,
     rawExtractedText: rawText || "",
     extractionConfidence,
     extractionSource: ocrProvider,
     ocrProvider,
-    ocrStatus
+    ocrStatus,
+    structuredFieldCount: Object.keys(fieldEvidence).length
   };
 }
