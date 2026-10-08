@@ -711,9 +711,11 @@ export async function persistAndReconcileFieldCandidates(
     if (matchesCurrent) {
       decision = "SUPPORTED";
       reason = "MATCHES_CURRENT_CLAIM";
-    } else if (manualSource && !claimFieldIsEmpty(claim, fieldName)) {
+    } else if (!claimFieldIsEmpty(claim, fieldName)) {
       decision = "CONFIRM";
-      reason = "MANUAL_VALUE_PROTECTED";
+      reason = manualSource
+        ? "MANUAL_VALUE_PROTECTED"
+        : "CONFLICTS_WITH_CURRENT_CLAIM_VALUE";
     } else if (meetsThreshold && hasConsensus && noConflict) {
       decision = "AUTO_FILLED";
       reason =
