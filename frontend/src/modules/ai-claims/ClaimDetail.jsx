@@ -169,6 +169,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [fixFields, setFixFields] = React.useState([]);
   const [readinessHistoryExpanded, setReadinessHistoryExpanded] = React.useState(false);
   const patientPolicyRef = React.useRef(null);
+  const extractionReviewRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
 
@@ -621,6 +622,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       setFixFocus("documents");
       setFixFields(["documents"]);
       scrollToRef(documentsRef);
+      return;
+    }
+
+    if (issue?.fixTarget === "extraction-review") {
+      scrollToRef(extractionReviewRef);
       return;
     }
 
@@ -1426,8 +1432,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
       {!claimFinalized && reviewableFieldCandidates.length > 0 && (
         <Card
+          ref={extractionReviewRef}
           variant="outlined"
-          sx={{ mb: 2, borderColor: "warning.light" }}
+          sx={{ mb: 2, borderColor: "warning.light", scrollMarginTop: 88 }}
           data-testid="extraction-field-review-card"
         >
           <CardContent>
