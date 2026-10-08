@@ -93,7 +93,7 @@ test("Journey landing page waits for explicit claim selection", async ({ page })
   await page.goto("/journey");
 
   await expect(page.getByRole("heading", { name: "Claim Journey" })).toBeVisible();
-  await expect(page.getByLabel("Choose a Claim")).toBeVisible();
+  await expect(page.getByLabel("Search or Select Claim")).toBeVisible();
   await expect(
     page.getByText(
       /Choose a claim above to view its complete lifecycle/i
@@ -113,6 +113,8 @@ test("Journey deep link loads the requested claim and uses clear claim-detail la
   await expect(page.getByText(scenario.patientName, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "View Claim Details" }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Claim" })).toHaveCount(0);
+  await expect(page.getByTestId("insurance-on-file-card")).toBeVisible();
+  await expect(page.getByText("Insurance on File", { exact: true })).toBeVisible();
 });
 
 test("Payer connection is required before eligibility and prior authorization", async ({ page }) => {
@@ -619,7 +621,13 @@ test("payer switch invalidates old coverage and authorization without reusing ol
   expect(state.authorizationNo).toBeNull();
 
   await clickStageButton(eligibility, "Check Eligibility");
-  await expect(eligibility).toContainText("Failed");
+  await expect(eligibility).toContainText("Inactive Coverage");
+  await expect(eligibility).toContainText("Checked against");
+  await expect(eligibility).toContainText(scenario.memberId);
+  await expect(eligibility).toContainText(scenario.policyNo);
+  await expect(
+    eligibility.getByRole("button", { name: "Review Insurance Details" })
+  ).toBeVisible();
   await expect(priorAuth.getByRole("button", { name: "Check Prior Auth" })).toBeDisabled();
 
   const beforeDuplicate = await apiContext.get(
