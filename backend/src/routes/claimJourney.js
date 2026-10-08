@@ -392,8 +392,10 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
         message: "Eligibility is already current for the existing payer/member information",
         status: claim.eligibilityStatus,
         coverageStatus: claim.coverageStatus,
-        livePayerVerification: false,
-        transaction: latestEligibilityTransaction,
+        livePayerVerification:
+          latestEligibilityTransaction.mode === "PRODUCTION" ||
+          latestEligibilityTransaction.responsePayload?.livePayerVerification === true,
+        transaction: sanitizePayerTransaction(latestEligibilityTransaction),
         claim
       });
     }
@@ -518,7 +520,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
         provider: connector.connectorProvider || "CLAIM_APP",
         environment: connector.connectorEnvironment || "LOCAL"
       },
-      transaction: payerTransaction,
+      transaction: sanitizePayerTransaction(payerTransaction),
       claim: updated
     });
   } catch (error) {
@@ -755,8 +757,8 @@ router.post("/:id/journey/claim-status/refresh", async (req, res) => {
             : result.status === "NEEDS_REVIEW"
             ? "The payer returned multiple possible claims; review the 277 response before updating status"
             : "The payer could not provide a usable claim status response",
-        result,
-        transaction,
+        result: stripSensitivePayerPayload(result),
+        transaction: sanitizePayerTransaction(transaction),
         claim
       });
     }
@@ -1343,8 +1345,8 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
 
     return res.json({
       message: "835 ERA retrieved and posted",
-      result,
-      transaction: posted.transaction,
+      result: stripSensitivePayerPayload(result),
+      transaction: sanitizePayerTransaction(posted.transaction),
       claim: posted.updatedClaim,
       denialCase: posted.denialCase,
       underpaymentCase: posted.underpaymentCase,
