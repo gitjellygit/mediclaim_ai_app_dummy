@@ -100,3 +100,40 @@ application role, enable appropriate encryption/key policies, logging,
 retention/backup controls, and complete the deployment/compliance review before
 real PHI is used. Engineering controls support HIPAA readiness but do not by
 themselves constitute HIPAA certification.
+
+## Production payer safety
+
+Real payer connectivity is fail-closed.
+
+For Stedi production, both of these must be configured:
+
+```env
+STEDI_PRODUCTION_API_KEY=<secret>
+STEDI_PRODUCTION_PHI_CONFIRMED=true
+```
+
+`STEDI_PRODUCTION_PHI_CONFIRMED` is an application safety interlock confirming that the deployment has explicitly approved PHI transmission to the configured Stedi account. It is **not** proof of a BAA, HIPAA compliance, or legal approval.
+
+Additional safeguards:
+
+- Stedi test connectivity and the test payer directory are refused when `NODE_ENV=production`.
+- Only ADMIN users can attach/change an external payer connector on a claim.
+- External payer calls time out after 15 seconds.
+- 270/271, 276/277, and 835 application records store normalized minimum-necessary results rather than full raw payer responses/X12.
+- Browser-triggered ERA refresh uses the claim's persisted Patient Control Number; callers cannot request an arbitrary external Stedi transaction.
+- One upstream 835 can be associated with multiple application claims; idempotency is enforced per transaction + claim.
+- Dependent eligibility requires subscriber identity, including subscriber DOB rather than reusing the patient's DOB.
+
+Do not enable production payer connectivity until vendor agreements/BAAs, deployment security review, access controls, logging, retention, incident response, and other applicable compliance requirements are approved.
+
+## Code quality commands
+
+Both backend and frontend expose:
+
+```bash
+npm run lint
+npm run format:check
+npm run format
+```
+
+The repository intentionally does not mass-reformat existing code as part of production-hardening changes; formatting can be applied in isolated cleanup commits to keep functional reviews readable.
