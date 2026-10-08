@@ -189,3 +189,38 @@ test("hardening - upstream Stedi errors are translated before generic HTTP statu
   assert.match(journey, /sendConnectorFailure\(res, error, "835 ERA"\)/);
   assert.match(journey, /sendConnectorFailure\(res, error, "Eligibility"\)/);
 });
+
+
+test("hardening - cached eligibility responses stay sanitized and preserve production verification", () => {
+  const journey = read("backend/src/routes/claimJourney.js");
+
+  assert.match(
+    journey,
+    /transaction:\s*sanitizePayerTransaction\(latestEligibilityTransaction\)/
+  );
+  assert.match(
+    journey,
+    /latestEligibilityTransaction\.mode === "PRODUCTION"/
+  );
+  assert.doesNotMatch(
+    journey,
+    /livePayerVerification:\s*false,\s*transaction:\s*latestEligibilityTransaction/
+  );
+});
+
+test("hardening - payer transaction responses are sanitized before returning to the browser", () => {
+  const journey = read("backend/src/routes/claimJourney.js");
+
+  assert.match(
+    journey,
+    /transaction:\s*sanitizePayerTransaction\(payerTransaction\)/
+  );
+  assert.match(
+    journey,
+    /transaction:\s*sanitizePayerTransaction\(posted\.transaction\)/
+  );
+  assert.match(
+    journey,
+    /result:\s*stripSensitivePayerPayload\(result\)/
+  );
+});
