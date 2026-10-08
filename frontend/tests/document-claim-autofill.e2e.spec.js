@@ -717,7 +717,8 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
           "Patient Name: Coding Review Patient",
           "Member ID: CF-CODE-101",
           "Diagnosis: Lumbar radiculopathy",
-          "ICD-10: M54.16"
+          "ICD-10: M54.16",
+          ...(name === "coding-note-one.pdf" ? ["CPT: 99213"] : [])
         ])
       );
       expect(upload.ok).toBe(true);
@@ -749,7 +750,6 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
     expect(detail.ok).toBe(true);
     expect(detail.data.icd10Codes).toContain("M54.16");
 
-    // CPT/HCPCS suggestions are reviewed from the same Claim Details modal.
     const procedureButton = page.getByTestId("open-procedure-coding-review");
     await expect(procedureButton).toBeVisible();
     await procedureButton.click();
@@ -1485,7 +1485,8 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
           "Patient Name: Coding Review Patient",
           "Member ID: CF-CODE-101",
           "Diagnosis: Lumbar radiculopathy",
-          "ICD-10: M54.16"
+          "ICD-10: M54.16",
+          ...(name === "coding-note-one.pdf" ? ["CPT: 99213"] : [])
         ])
       );
       expect(upload.ok).toBe(true);
