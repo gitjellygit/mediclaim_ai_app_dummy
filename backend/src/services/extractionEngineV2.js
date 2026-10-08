@@ -561,6 +561,35 @@ function candidateScore(candidate) {
   );
 }
 
+export function safeInitialClaimSeed({
+  documentType,
+  extracted = {},
+  intel = {},
+  rawText = ""
+}) {
+  const candidates = buildFieldCandidates({
+    claimId: "seed",
+    documentId: "seed",
+    documentType,
+    extracted,
+    intel,
+    rawText
+  });
+  const patch = {};
+
+  for (const candidate of candidates) {
+    const spec = FIELDS[candidate.fieldName];
+    if (!spec) continue;
+    if (candidate.validationStatus !== "VALID") continue;
+    if ((spec.consensusForAuto || 1) > 1) continue;
+    if (candidateScore(candidate) < spec.threshold) continue;
+    const value = toClaimValue(candidate.fieldName, candidate.normalizedValue);
+    if (value != null && value !== "") patch[candidate.fieldName] = value;
+  }
+
+  return patch;
+}
+
 export async function persistAndReconcileFieldCandidates(
   prisma,
   {
