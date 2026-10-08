@@ -9,7 +9,10 @@ import {
 import { createLocalPayerConnector } from "./localPayerConnector.js";
 import { assertPayerConnector, PAYER_CONNECTOR_METHODS } from "./payerConnector.js";
 import { createLivePayerConnector } from "./livePayerConnector.js";
-import { createStediTestConnector } from "./stediTestConnector.js";
+import {
+  createStediProductionConnector,
+  createStediTestConnector
+} from "./stediTestConnector.js";
 import { createAvailitySandboxConnector } from "./availitySandboxConnector.js";
 import {
   PAYER_CONNECTOR_ENVIRONMENTS,
@@ -149,6 +152,19 @@ export function registerDefaultPayerConnectors() {
     factory: (_context, env) => createStediTestConnector({ env })
   });
 
+  registerPayerConnector({
+    id: PAYER_CONNECTOR_IDS.STEDI_PRODUCTION,
+    mode: "LIVE",
+    provider: "STEDI",
+    environment: PAYER_CONNECTOR_ENVIRONMENTS.PRODUCTION,
+    capabilities: (env) => [
+      "checkEligibility",
+      ...(env.STEDI_CLAIM_STATUS_URL ? ["getStatus"] : [])
+    ],
+    configured: (env) => Boolean(env.STEDI_PRODUCTION_API_KEY),
+    factory: (_context, env) => createStediProductionConnector({ env })
+  });
+
   defaultsRegistered = true;
 }
 
@@ -209,15 +225,13 @@ export function createPayerConnector(mode, payerCode, env = process.env) {
 
 export function payerConnectorStatusForClaim(claim, env = process.env) {
   const id = resolvePayerConnectorId(claim, env);
-  const descriptor = getPayerConnectorDescriptor(id);
-  return {
-    id: descriptor.id,
-    mode: descriptor.mode,
-    provider: descriptor.provider,
-    environment: descriptor.environment,
-    capabilities: descriptor.capabilities,
-    configured: Boolean(descriptor.configured(env))
-  };
+  const descriptor = listPayerConnectorDescriptors(env).find(
+    (item) => item.id === id
+  );
+  if (!descriptor) {
+    throw new PayerConnectorNotConfiguredError(id);
+  }
+  return descriptor;
 }
 
 export function createPayerConnectorForClaim(claim, payerCode, env = process.env) {

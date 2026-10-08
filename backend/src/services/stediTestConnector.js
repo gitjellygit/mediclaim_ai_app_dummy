@@ -5,7 +5,7 @@ const DEFAULT_CLAIMS_BASE_URL = "https://healthcare.us.stedi.com/2024-04-01";
 
 function required(value, name) {
   if (value == null || value === "") {
-    const error = new Error(`${name} is required for Stedi eligibility`);
+    const error = new Error(`${name} is required for the Stedi request`);
     error.code = "STEDI_REQUEST_INVALID";
     throw error;
   }
@@ -74,6 +74,170 @@ export function buildStediEligibilityRequest(claim, context = {}) {
       ]
     },
     externalPatientId: String(claim.id || "").slice(0, 36) || undefined
+  };
+}
+
+function compactDate(value) {
+  const normalized = dateOnly(value);
+  return normalized ? normalized.replaceAll("-", "") : null;
+}
+
+export function buildStediClaimStatusRequest(claim, context = {}) {
+  if (context.requestPayload) return context.requestPayload;
+
+  const names = patientNameParts(claim);
+  const payerId = context.payerId || claim.payerEdiId;
+  const memberId = claim.subscriberId || claim.memberId;
+  const dateOfBirth = compactDate(claim.patientDob);
+  const providerNpi =
+    context.providerNpi || claim.billingProviderNpi || claim.renderingProviderNpi;
+  const beginningDateOfService = compactDate(
+    claim.dateOfService || claim.admissionDate || claim.procedureDate
+  );
+  const endDateOfService = compactDate(
+    claim.dischargeDate || claim.dateOfService || claim.admissionDate || claim.procedureDate
+  );
+
+  required(payerId, "payerEdiId");
+  required(memberId, "memberId/subscriberId");
+  required(dateOfBirth, "patientDob");
+  required(names.firstName, "subscriber first name");
+  required(names.lastName, "subscriber last name");
+  required(providerNpi, "provider NPI");
+  required(beginningDateOfService, "dateOfService/admissionDate");
+
+  return {
+    tradingPartnerServiceId: payerId,
+    providers: [
+      {
+        npi: providerNpi,
+        organizationName:
+          context.providerName || claim.hospitalName || "CLAIM APP Provider",
+        providerType: "BillingProvider"
+      }
+    ],
+    subscriber: {
+      dateOfBirth,
+      firstName: names.firstName,
+      lastName: names.lastName,
+      memberId
+    },
+    encounter: {
+      beginningDateOfService,
+      ...(endDateOfService && endDateOfService !== beginningDateOfService
+        ? { endDateOfService }
+        : {})
+    }
+  };
+}
+
+function selectClaimStatusResult(claims, claim = {}) {
+  if (!Array.isArray(claims) || claims.length === 0) return null;
+  if (claims.length === 1) return claims[0];
+
+  const expected = String(claim.insurerClaimNo || claim.payerReferenceNo || "").trim();
+  if (!expected) return null;
+
+  return (
+    claims.find((item) => {
+      const status = item?.claimStatus || {};
+      return [
+        status.tradingPartnerClaimNumber,
+        status.trackingNumber,
+        status.patientAccountNumber,
+        status.clearingHouseClaimNumber
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).trim() === expected);
+    }) || null
+  );
+}
+
+function normalizedPayerStatus(status = {}) {
+  const category = String(status.statusCategoryCode || "").toUpperCase();
+  const description = [
+    status.statusCategoryCodeValue,
+    status.statusCodeValue
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toUpperCase();
+
+  if (
+    category === "F1" ||
+    Number(status.amountPaid || 0) > 0 ||
+    /\bPAID\b/.test(description)
+  ) {
+    return "PAID";
+  }
+  if (category === "F2" || /DENIAL|DENIED|REJECTED/.test(description)) {
+    return "DENIED";
+  }
+  if (category === "F0" || category === "F3" || /FINALIZED|APPROVED/.test(description)) {
+    return "APPROVED";
+  }
+  if (/^P[1-5]$/.test(category) || /PENDING|IN PROCESS|PROCESSING/.test(description)) {
+    return "IN_REVIEW";
+  }
+  if (category === "D0") return "NOT_FOUND";
+  if (category === "E1") return "UNAVAILABLE";
+  return "ACKNOWLEDGED";
+}
+
+export function normalizeStediClaimStatusResponse(body, {
+  claim = {},
+  latencyMs = null
+} = {}) {
+  const claims = Array.isArray(body?.claims) ? body.claims : [];
+  const selected = selectClaimStatusResult(claims, claim);
+
+  if (!selected) {
+    return {
+      transactionId: body?.controlNumber || body?.id || null,
+      status: claims.length > 1 ? "NEEDS_REVIEW" : "NOT_FOUND",
+      claimCount: claims.length,
+      latencyMs,
+      transactionType: "276/277",
+      livePayerVerification: true,
+      testMode: false,
+      raw: body
+    };
+  }
+
+  const claimStatus = selected.claimStatus || {};
+  return {
+    transactionId:
+      body?.controlNumber ||
+      claimStatus.trackingNumber ||
+      claimStatus.tradingPartnerClaimNumber ||
+      body?.id ||
+      null,
+    status: normalizedPayerStatus(claimStatus),
+    claimCount: claims.length,
+    statusCategoryCode: claimStatus.statusCategoryCode || null,
+    statusCategoryCodeValue: claimStatus.statusCategoryCodeValue || null,
+    statusCode: claimStatus.statusCode || null,
+    statusCodeValue: claimStatus.statusCodeValue || null,
+    payerClaimNo:
+      claimStatus.tradingPartnerClaimNumber ||
+      claimStatus.trackingNumber ||
+      claim.insurerClaimNo ||
+      null,
+    patientAccountNumber: claimStatus.patientAccountNumber || null,
+    submittedAmount:
+      claimStatus.submittedAmount != null
+        ? Number(claimStatus.submittedAmount)
+        : null,
+    amountPaid:
+      claimStatus.amountPaid != null ? Number(claimStatus.amountPaid) : null,
+    paidDate: claimStatus.paidDate || null,
+    effectiveDate: claimStatus.effectiveDate || null,
+    checkNumber: claimStatus.checkNumber || null,
+    latencyMs,
+    transactionType: "276/277",
+    livePayerVerification: true,
+    testMode: false,
+    raw: body
   };
 }
 
@@ -166,7 +330,14 @@ function firstPercent(entries, type) {
   return number <= 1 ? Math.round(number * 100) : Math.round(number);
 }
 
-export function normalizeStediEligibilityResponse(body, { latencyMs = null } = {}) {
+export function normalizeStediEligibilityResponse(
+  body,
+  {
+    latencyMs = null,
+    testMode = true,
+    livePayerVerification = !testMode
+  } = {}
+) {
   const benefits = flattenBenefitGroups(body);
   const statuses = benefits.filter((entry) => entry.type === "statuses");
   const active = statuses.some((entry) =>
@@ -218,8 +389,8 @@ export function normalizeStediEligibilityResponse(body, { latencyMs = null } = {
     },
     missingFields: [],
     latencyMs,
-    livePayerVerification: false,
-    testMode: true,
+    livePayerVerification,
+    testMode,
     rawResult: result || null
   };
 }
@@ -334,6 +505,96 @@ export function createStediTestConnector({
 
     getRemittance() {
       return notYetImplemented("getRemittance");
+    }
+  });
+}
+
+export function createStediProductionConnector({
+  env = process.env,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  const apiKey = String(env.STEDI_PRODUCTION_API_KEY || "").trim();
+  const baseUrl = String(
+    env.STEDI_PRODUCTION_API_BASE_URL || DEFAULT_BASE_URL
+  ).replace(/\/$/, "");
+  const claimStatusUrl = String(env.STEDI_CLAIM_STATUS_URL || "").trim();
+
+  if (!apiKey) {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_PRODUCTION",
+      "STEDI_PRODUCTION_API_KEY is not configured"
+    );
+  }
+  if (typeof fetchImpl !== "function") {
+    throw new Error("Fetch implementation is required for Stedi connector");
+  }
+
+  const unavailable = (operation) => {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_PRODUCTION",
+      `${operation} is not enabled for the current production connector slice`
+    );
+  };
+
+  return Object.freeze({
+    mode: "LIVE",
+
+    async checkEligibility(claim, context = {}) {
+      const payload = buildStediEligibilityRequest(claim, context);
+      const startedAt = Date.now();
+      const response = await fetchImpl(`${baseUrl}/eligibility-check`, {
+        method: "POST",
+        headers: {
+          Authorization: apiKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
+        signal: context.signal
+      });
+      const body = await parseResponse(response);
+      return normalizeStediEligibilityResponse(body, {
+        latencyMs: Date.now() - startedAt,
+        testMode: false,
+        livePayerVerification: true
+      });
+    },
+
+    requestPriorAuth() {
+      return unavailable("requestPriorAuth");
+    },
+
+    submitClaim() {
+      return unavailable("submitClaim");
+    },
+
+    async getStatus(claim, context = {}) {
+      if (!claimStatusUrl) {
+        throw new PayerConnectorUnavailableError(
+          "STEDI_PRODUCTION",
+          "STEDI_CLAIM_STATUS_URL is not configured"
+        );
+      }
+
+      const payload = buildStediClaimStatusRequest(claim, context);
+      const startedAt = Date.now();
+      const response = await fetchImpl(claimStatusUrl, {
+        method: "POST",
+        headers: {
+          Authorization: apiKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
+        signal: context.signal
+      });
+      const body = await parseResponse(response);
+      return normalizeStediClaimStatusResponse(body, {
+        claim,
+        latencyMs: Date.now() - startedAt
+      });
+    },
+
+    getRemittance() {
+      return unavailable("getRemittance");
     }
   });
 }

@@ -31,7 +31,15 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
 
-    if (req.headers.authorization !== "e2e-stedi-test-key") {
+    const claimStatusPath =
+      req.method === "POST" &&
+      req.url === "/2024-04-01/change/medicalnetwork/claimstatus/v2";
+
+    const expectedAuthorization = claimStatusPath
+      ? "e2e-stedi-status-key"
+      : "e2e-stedi-test-key";
+
+    if (req.headers.authorization !== expectedAuthorization) {
       return json(res, 401, { message: "invalid test key" });
     }
 
@@ -64,6 +72,51 @@ const server = http.createServer(async (req, res) => {
             transactionSupport: { eligibilityCheck: "SUPPORTED" }
           }
         ]
+      });
+    }
+
+    if (
+      req.method === "POST" &&
+      req.url === "/2024-04-01/change/medicalnetwork/claimstatus/v2"
+    ) {
+      const raw = await readBody(req);
+      const payload = raw ? JSON.parse(raw) : {};
+      if (
+        !payload?.tradingPartnerServiceId ||
+        !payload?.subscriber?.memberId ||
+        !payload?.subscriber?.dateOfBirth ||
+        !payload?.providers?.[0]?.npi ||
+        !payload?.encounter?.beginningDateOfService
+      ) {
+        return json(res, 400, { message: "missing required mock 276 fields" });
+      }
+
+      return json(res, 200, {
+        controlNumber: `status_e2e_${Date.now()}`,
+        tradingPartnerServiceId: payload.tradingPartnerServiceId,
+        claims: [
+          {
+            claimStatus: {
+              amountPaid: "108.77",
+              paidDate: "2026-10-06",
+              effectiveDate: "2026-10-06",
+              checkNumber: "E2E-CHECK-100",
+              patientAccountNumber: "E2E-R3-PCN",
+              statusCategoryCode: "F1",
+              statusCategoryCodeValue:
+                "Finalized/Payment - The claim/line has been paid.",
+              statusCode: "65",
+              statusCodeValue: "Claim/line has been paid.",
+              submittedAmount: "250.00",
+              tradingPartnerClaimNumber: "E2E-R3-PAYER-CLAIM"
+            }
+          }
+        ],
+        payer: {
+          organizationName: "AETNA E2E",
+          payerIdentification: payload.tradingPartnerServiceId
+        },
+        x12: "STC*F1:65*20261006**250.00*108.77~"
       });
     }
 

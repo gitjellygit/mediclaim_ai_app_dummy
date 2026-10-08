@@ -27,6 +27,7 @@ router.use((req, res, next) => {
     /\/payer-connection$/.test(path) ? "PAYER_CONNECTED" :
     /\/eligibility\/precheck$/.test(path) ? "ELIGIBILITY_CHECKED" :
     /\/prior-auth\/evaluate$/.test(path) ? "PRIOR_AUTH_EVALUATED" :
+    /\/claim-status\/refresh$/.test(path) ? "PAYER_STATUS_REFRESHED" :
     /\/claim-status$/.test(path) ? "PAYER_STATUS_UPDATED" :
     /\/remittance$/.test(path) ? "REMITTANCE_UPDATED" :
     null;
@@ -569,6 +570,231 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
       message: error.message
     });
     res.status(500).json({ error: "Prior authorization update failed. Please retry." });
+  }
+});
+
+router.post("/:id/journey/claim-status/refresh", async (req, res) => {
+  try {
+    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
+
+    const claim = await prisma.claim.findFirst({
+      where: {
+        id: req.params.id,
+        organizationId: orgId(req),
+        deletedAt: null
+      }
+    });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    if (!isClaimSubmittedOrLater(claim)) {
+      return res.status(409).json({
+        error: "Claim must be submitted before a 276/277 status check can run"
+      });
+    }
+
+    const finalStatuses = ["APPROVED", "PARTIALLY_APPROVED", "DENIED", "PAID"];
+    if (finalStatuses.includes(claim.payerClaimStatus)) {
+      return res.json({
+        unchanged: true,
+        message: "Payer claim status is already final",
+        claim
+      });
+    }
+
+    const connectorStatus = payerConnectorStatusForClaim(claim);
+    if (
+      connectorStatus.mode !== "LIVE" ||
+      !connectorStatus.configured ||
+      !connectorStatus.capabilities.includes("getStatus")
+    ) {
+      return res.status(409).json({
+        error: "The connected payer does not support configured 276/277 claim status checks",
+        code: "CLAIM_STATUS_CONNECTOR_UNAVAILABLE"
+      });
+    }
+
+    const connector = createPayerConnectorForClaim(claim);
+    const result = await connector.getStatus(claim);
+    const now = new Date();
+    const storableStatuses = new Set([
+      "ACKNOWLEDGED",
+      "IN_REVIEW",
+      "APPROVED",
+      "PARTIALLY_APPROVED",
+      "DENIED",
+      "PAID"
+    ]);
+    const normalizedStatus = storableStatuses.has(result.status)
+      ? result.status
+      : null;
+
+    const transactionMode =
+      result.livePayerVerification === true
+        ? "PRODUCTION"
+        : connector.connectorEnvironment;
+
+    const transaction = await prisma.payerTransaction.create({
+      data: {
+        claimId: claim.id,
+        transactionId:
+          result.transactionId ||
+          `${connector.connectorId}-STATUS-${claim.id}-${Date.now()}`,
+        mode: transactionMode,
+        payerCode: claim.payerEdiId || claim.payerName || connector.connectorProvider,
+        transactionType: "CLAIM_STATUS",
+        status: result.status || "NEEDS_REVIEW",
+        latencyMs: result.latencyMs || null,
+        requestPayload: {
+          transaction: "276",
+          responseTransaction: "277",
+          connectorId: connector.connectorId,
+          productionPayerResponse: result.livePayerVerification === true
+        },
+        responsePayload: result
+      }
+    });
+
+    if (!normalizedStatus) {
+      return res.json({
+        unchanged: true,
+        available: result.status !== "UNAVAILABLE",
+        message:
+          result.status === "NOT_FOUND"
+            ? "The payer did not return a matching claim for this 276 request"
+            : result.status === "NEEDS_REVIEW"
+            ? "The payer returned multiple possible claims; review the 277 response before updating status"
+            : "The payer could not provide a usable claim status response",
+        result,
+        transaction,
+        claim
+      });
+    }
+
+    const { updated, denialCase } = await prisma.$transaction(async (tx) => {
+      const updatedClaim = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          payerClaimStatus: normalizedStatus,
+          claimStatusCheckedAt: now,
+          insurerClaimNo: result.payerClaimNo || claim.insurerClaimNo,
+          status: assertClaimTransition(
+            claim.status,
+            normalizedStatus === "DENIED"
+              ? "DENIED"
+              : normalizedStatus === "PAID"
+              ? "PAID"
+              : claim.status
+          ),
+          fieldProvenance: mergeProvenance(
+            claim.fieldProvenance,
+            systemProvenance(
+              ["payerClaimStatus", "insurerClaimNo"],
+              {
+                source: "PAYER_277",
+                label: "277 Claim Status Response",
+                sourceDetail:
+                  result.statusCategoryCode && result.statusCode
+                    ? `Stedi 277 ${result.statusCategoryCode}/${result.statusCode}`
+                    : "Stedi 276/277 real-time claim status",
+                verified: result.livePayerVerification === true
+              }
+            )
+          )
+        }
+      });
+
+      let activeDenialCase = null;
+      if (["DENIED", "PARTIALLY_APPROVED"].includes(normalizedStatus)) {
+        activeDenialCase = await findActiveDenialCase(tx, claim.id);
+        if (!activeDenialCase) {
+          const claimed = Number(claim.amount || 0);
+          const paid = Number(claim.paidAmount || 0);
+          const allowedAmount = Number(claim.allowedAmount || 0);
+          const revenueAtRisk =
+            paid > 0
+              ? Math.max(0, differenceMoney(claim.amount, claim.paidAmount))
+              : allowedAmount > 0
+              ? Math.max(0, differenceMoney(claim.amount, claim.allowedAmount))
+              : claimed;
+
+          activeDenialCase = await tx.denialCase.create({
+            data: {
+              claimId: claim.id,
+              source: "PAYER_STATUS",
+              status: "OPEN",
+              denialCategory: null,
+              denialDate: now,
+              revenueAtRisk
+            }
+          });
+
+          await tx.auditEvent.create({
+            data: {
+              organizationId: orgId(req),
+              claimId: claim.id,
+              actorUserId: req.user?.id || null,
+              action: "DENIAL_CASE_AUTO_CREATED",
+              entityType: "DenialCase",
+              entityId: activeDenialCase.id,
+              outcome: "SUCCESS",
+              metadata: {
+                payerStatus: normalizedStatus,
+                sourceTransactionId: transaction.transactionId
+              }
+            }
+          });
+        }
+      }
+
+      return { updated: updatedClaim, denialCase: activeDenialCase };
+    });
+
+    logJourneyEvent(claim.id, "payer-status-277", normalizedStatus, {
+      connectorId: connector.connectorId
+    });
+
+    return res.json({
+      message: "276/277 claim status refreshed",
+      result,
+      transaction,
+      claim: updated,
+      denialCase,
+      paymentNotice:
+        result.amountPaid != null
+          ? "The 277 reported a payment amount. Payment fields remain unchanged until an 835 ERA is received."
+          : null
+    });
+  } catch (error) {
+    if (error?.status) throw error;
+    console.error("[claim-journey] external claim status refresh failed", {
+      claimId: req.params.id,
+      code: error?.code || null,
+      message: error?.message || "Unknown error"
+    });
+
+    if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
+      return res.status(503).json({
+        error: "Claim status connector is not configured",
+        code: error.code
+      });
+    }
+    if (error?.code === "STEDI_REQUEST_INVALID") {
+      return res.status(400).json({
+        error: error.message,
+        code: error.code
+      });
+    }
+    if (error?.code === "STEDI_API_ERROR") {
+      return res.status(502).json({
+        error: "External 276/277 claim status request failed",
+        code: error.code
+      });
+    }
+
+    return res.status(500).json({
+      error: "Unable to refresh payer claim status"
+    });
   }
 });
 

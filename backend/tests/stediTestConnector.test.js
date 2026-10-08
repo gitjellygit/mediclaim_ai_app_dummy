@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildStediClaimSubmissionRequest,
+  buildStediClaimStatusRequest,
   buildStediEligibilityRequest,
+  createStediProductionConnector,
   createStediTestConnector,
   listStediPayers,
   normalizeStediClaimSubmissionResponse,
+  normalizeStediClaimStatusResponse,
   normalizeStediEligibilityResponse,
   searchStediPayers
 } from "../src/services/stediTestConnector.js";
@@ -391,4 +394,140 @@ test("R2B - Stedi claim edit errors normalize to rejected 277CA state", () => {
   assert.equal(result.errors.length, 1);
   assert.equal(result.errors[0].code, "A3");
   assert.equal(result.has277CA, true);
+});
+
+
+test("R3 - builds minimal Stedi 276 claim status request from normalized claim fields", () => {
+  const payload = buildStediClaimStatusRequest({
+    ...claim,
+    dateOfService: new Date("2026-10-01T00:00:00.000Z")
+  });
+
+  assert.equal(payload.tradingPartnerServiceId, "61101");
+  assert.equal(payload.providers.length, 1);
+  assert.equal(payload.providers[0].npi, "1999999984");
+  assert.equal(payload.providers[0].providerType, "BillingProvider");
+  assert.equal(payload.subscriber.firstName, "Jane");
+  assert.equal(payload.subscriber.lastName, "Doe");
+  assert.equal(payload.subscriber.memberId, "MEMBER123");
+  assert.equal(payload.subscriber.dateOfBirth, "19750505");
+  assert.equal(payload.encounter.beginningDateOfService, "20261001");
+});
+
+test("R3 - normalizes paid 277 response without turning it into an ERA", () => {
+  const result = normalizeStediClaimStatusResponse(
+    {
+      controlNumber: "277-control-1",
+      claims: [
+        {
+          claimStatus: {
+            statusCategoryCode: "F1",
+            statusCategoryCodeValue: "Finalized/Payment - The claim/line has been paid.",
+            statusCode: "65",
+            statusCodeValue: "Claim/line has been paid.",
+            amountPaid: "108.77",
+            tradingPartnerClaimNumber: "PAYER-CLM-100"
+          }
+        }
+      ]
+    },
+    { claim: { insurerClaimNo: "PAYER-CLM-100" }, latencyMs: 31 }
+  );
+
+  assert.equal(result.status, "PAID");
+  assert.equal(result.transactionId, "277-control-1");
+  assert.equal(result.payerClaimNo, "PAYER-CLM-100");
+  assert.equal(result.amountPaid, 108.77);
+  assert.equal(result.livePayerVerification, true);
+  assert.equal(result.testMode, false);
+  assert.equal(result.transactionType, "276/277");
+});
+
+test("R3 - normalizes pending and denied 277 categories", () => {
+  const pending = normalizeStediClaimStatusResponse({
+    claims: [{
+      claimStatus: {
+        statusCategoryCode: "P1",
+        statusCategoryCodeValue: "Pending/In Process",
+        statusCode: "20",
+        statusCodeValue: "Accepted for processing"
+      }
+    }]
+  });
+  assert.equal(pending.status, "IN_REVIEW");
+
+  const denied = normalizeStediClaimStatusResponse({
+    claims: [{
+      claimStatus: {
+        statusCategoryCode: "F2",
+        statusCategoryCodeValue: "Finalized/Denial",
+        statusCode: "88",
+        statusCodeValue: "Entity not eligible for benefits"
+      }
+    }]
+  });
+  assert.equal(denied.status, "DENIED");
+});
+
+test("R3 - multiple unmatched payer claims require review instead of arbitrary selection", () => {
+  const result = normalizeStediClaimStatusResponse(
+    {
+      controlNumber: "multi-277",
+      claims: [
+        { claimStatus: { tradingPartnerClaimNumber: "A", statusCategoryCode: "P1" } },
+        { claimStatus: { tradingPartnerClaimNumber: "B", statusCategoryCode: "F1" } }
+      ]
+    },
+    { claim: { insurerClaimNo: "C" } }
+  );
+
+  assert.equal(result.status, "NEEDS_REVIEW");
+  assert.equal(result.claimCount, 2);
+});
+
+test("R3 - connector sends configured production 276 request and receives synchronous 277", async () => {
+  let captured = null;
+  const fetchImpl = async (url, options) => {
+    captured = { url: String(url), options };
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      async text() {
+        return JSON.stringify({
+          controlNumber: "status-control-1",
+          claims: [{
+            claimStatus: {
+              statusCategoryCode: "P1",
+              statusCategoryCodeValue: "Pending/In Process",
+              statusCode: "20",
+              statusCodeValue: "Accepted for processing"
+            }
+          }]
+        });
+      }
+    };
+  };
+
+  const connector = createStediProductionConnector({
+    env: {
+      STEDI_PRODUCTION_API_KEY: "production-status-key",
+      STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
+    },
+    fetchImpl
+  });
+
+  const result = await connector.getStatus({
+    ...claim,
+    dateOfService: new Date("2026-10-01T00:00:00.000Z")
+  });
+
+  assert.equal(
+    captured.url,
+    "https://status.example.test/change/medicalnetwork/claimstatus/v2"
+  );
+  assert.equal(captured.options.headers.Authorization, "production-status-key");
+  assert.equal(JSON.parse(captured.options.body).tradingPartnerServiceId, "61101");
+  assert.equal(result.status, "IN_REVIEW");
+  assert.equal(result.livePayerVerification, true);
 });

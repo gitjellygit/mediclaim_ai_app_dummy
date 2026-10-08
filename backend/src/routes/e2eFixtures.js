@@ -642,5 +642,85 @@ router.delete("/e2e/tenant-isolation/cleanup", async (req, res) => {
 });
 
 
+router.post("/e2e/r3-claim-status/seed", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const patientName = "E2E R3 Patient";
+
+  try {
+    await prisma.claim.deleteMany({
+      where: {
+        organizationId: req.user.organizationId,
+        patientName
+      }
+    });
+
+    const claim = await prisma.claim.create({
+      data: {
+        organizationId: req.user.organizationId,
+        createdById: req.user.id,
+        patientName,
+        subscriberName: patientName,
+        patientDob: new Date("1982-03-14T00:00:00.000Z"),
+        payerName: "Aetna E2E",
+        payerEdiId: "60054",
+        policyNo: "E2E-R3-POLICY",
+        memberId: "E2E-R3-MEMBER",
+        amount: 250,
+        totalBilledAmount: 250,
+        claimForm: "PROFESSIONAL",
+        billingProviderNpi: "1999999984",
+        hospitalName: "Riverside E2E Medical Center",
+        diagnosisText: "Synthetic E2E claim status scenario",
+        icd10Codes: ["M54.50"],
+        dateOfService: new Date("2026-10-01T00:00:00.000Z"),
+        eligibilityStatus: "VERIFIED",
+        priorAuthRequired: false,
+        priorAuthStatus: "NOT_REQUIRED",
+        status: "SUBMITTED",
+        claimSubmissionDate: new Date("2026-10-02T00:00:00.000Z"),
+        payerClaimStatus: "ACKNOWLEDGED",
+        claimStatusCheckedAt: new Date("2026-10-02T00:00:00.000Z"),
+        insurerClaimNo: "E2E-R3-PAYER-CLAIM",
+        remittanceStatus: "NOT_AVAILABLE",
+        payerConnectionMode: "LIVE",
+        payerConnectorId: "STEDI_PRODUCTION"
+      }
+    });
+
+    res.json({ id: claim.id, patientName: claim.patientName });
+  } catch (error) {
+    console.error("[e2e-r3-claim-status] seed failed", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({ error: "Unable to seed R3 claim-status scenario" });
+  }
+});
+
+router.delete("/e2e/r3-claim-status/cleanup", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  try {
+    const result = await prisma.claim.deleteMany({
+      where: {
+        organizationId: req.user.organizationId,
+        patientName: "E2E R3 Patient"
+      }
+    });
+    res.json({ deleted: result.count });
+  } catch (error) {
+    console.error("[e2e-r3-claim-status] cleanup failed", {
+      name: error?.name || "Error"
+    });
+    res.status(500).json({ error: "Unable to clean R3 claim-status scenario" });
+  }
+});
+
+
   return router;
 }

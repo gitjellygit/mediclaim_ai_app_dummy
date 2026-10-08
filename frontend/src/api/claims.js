@@ -206,6 +206,13 @@ export const ClaimsApi = {
     });
   },
 
+  refreshPayerStatus(id) {
+    return api(`${BASE}/${id}/journey/claim-status/refresh`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  },
+
   updatePayerStatus(id, payerClaimStatus) {
     return api(`${BASE}/${id}/journey/claim-status`, {
       method: "PATCH",

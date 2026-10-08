@@ -707,6 +707,9 @@ export default function ClaimJourney() {
   const externalSubmissionSupported =
     externalPayerConnected &&
     connectedConnector?.capabilities?.includes("submitClaim");
+  const externalStatusSupported =
+    externalPayerConnected &&
+    connectedConnector?.capabilities?.includes("getStatus");
   const payerTransactions = claim?.payerTransactions || [];
   const workflowAdvanced =
     Boolean(claim?.claimSubmissionDate) ||
@@ -1820,16 +1823,24 @@ export default function ClaimJourney() {
                   disabled={
                     !stages.claimStatus.actionable ||
                     action !== "" ||
-                    (payerConnected ? finalPayerStatus || !acknowledged : payerStatusUnchanged)
+                    (simulatedPayerConnected
+                      ? finalPayerStatus || !acknowledged
+                      : externalPayerConnected
+                      ? finalPayerStatus || !externalStatusSupported
+                      : payerStatusUnchanged)
                   }
                   onClick={() =>
                     runAction(
                       "status",
                       () =>
-                        payerConnected
+                        simulatedPayerConnected
                           ? ClaimsApi.simulatePayerStatus(claim.id)
+                          : externalPayerConnected
+                          ? ClaimsApi.refreshPayerStatus(claim.id)
                           : ClaimsApi.updatePayerStatus(claim.id, payerStatus),
-                      "Payer status updated"
+                      externalPayerConnected
+                        ? "276/277 claim status refreshed"
+                        : "Payer status updated"
                     )
                   }
                 >
@@ -1837,6 +1848,10 @@ export default function ClaimJourney() {
                     ? "Checking..."
                     : finalPayerStatus
                     ? "Final Status"
+                    : externalPayerConnected && !externalStatusSupported
+                    ? "276/277 Not Configured"
+                    : externalPayerConnected
+                    ? "Refresh 276/277 Status"
                     : "Check Status"}
                 </Button>
               </Stack>
