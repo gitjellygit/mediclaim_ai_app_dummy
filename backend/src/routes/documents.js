@@ -3,6 +3,7 @@ import { requireRoles } from "../middleware/auth.js";
 import { verifyUploadSignature } from "../middleware/uploadSafety.js";
 import { createDocumentUpload } from "../services/documentUpload.js";
 import fs from "fs";
+import { randomUUID } from "crypto";
 import {
   getDerivedFieldsFromDocument,
   mergeDerivedFields,
@@ -287,6 +288,8 @@ export function documentsRouter(prisma, uploadDir) {
       const payerName = extracted.payerName || "Insurance";
 
       let claim = null;
+      let pendingNewClaimData = null;
+      let pendingNewClaimId = null;
       let matchStatus = "NEW";
       let matchScore = 0;
       let candidateClaim = null;
@@ -354,9 +357,12 @@ export function documentsRouter(prisma, uploadDir) {
         };
 
 
-        claim = await prisma.claim.create({
-          data: claimData
-        });
+        pendingNewClaimId = randomUUID();
+        pendingNewClaimData = claimData;
+        claim = {
+          id: pendingNewClaimId,
+          ...claimData
+        };
       } else {
         const updatePayload = buildMissingClaimAutofill(
           claim,
@@ -396,6 +402,15 @@ export function documentsRouter(prisma, uploadDir) {
       req.file.storagePath = storedDocumentPath;
 
       const doc = await prisma.$transaction(async (tx) => {
+        if (pendingNewClaimData) {
+          claim = await tx.claim.create({
+            data: {
+              id: pendingNewClaimId,
+              ...pendingNewClaimData
+            }
+          });
+        }
+
         const created = await tx.document.create({
           data: documentCreateData({
             claimId: claim.id,
