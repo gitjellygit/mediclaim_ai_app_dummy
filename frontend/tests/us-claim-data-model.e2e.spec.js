@@ -191,3 +191,31 @@ test("U3-3 - edit US claim metadata and replace service lines", async ({ page })
   expect(claim.serviceLines[0].cptHcpcsCode).toBe("99214");
   expect(Number(claim.serviceLines[0].charge)).toBe(999.99);
 });
+
+
+test("U3-4 - service lines suggest claim ICD codes and custom codes are promoted to claim diagnoses", async ({ page }) => {
+  await page.goto(`/claims/${claimId}`);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+
+  const linkedDiagnosis = page.getByLabel("Linked Diagnosis Codes");
+  await linkedDiagnosis.fill("");
+
+  const suggestions = page.getByTestId("service-line-0-diagnosis-suggestions");
+  await expect(suggestions).toContainText("Suggested from claim");
+  const suggestion = page.getByTestId("service-line-0-diagnosis-suggestion-M54.50");
+  await expect(suggestion).toHaveText("Use M54.50");
+  await suggestion.click();
+  await expect(linkedDiagnosis).toHaveValue("M54.50");
+
+  await linkedDiagnosis.fill("E11.9");
+  await expect(
+    page.getByText(/E11\.9 will also be added to the claim when saved/i)
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+
+  const claim = await getClaim(claimId);
+  expect(claim.icd10Codes).toContain("M54.50");
+  expect(claim.icd10Codes).toContain("E11.9");
+  expect(claim.serviceLines[0].diagnosisPointers).toEqual(["E11.9"]);
+});

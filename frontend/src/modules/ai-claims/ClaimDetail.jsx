@@ -340,11 +340,38 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       ["DRG", editForm.drgCode && drgError(editForm.drgCode)]
     ].filter(([, message]) => message);
 
-    const invalidIcd = String(editForm.icd10Codes || "")
+    const claimDiagnosisCodes = String(editForm.icd10Codes || "")
       .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .find((value) => icd10CmError(value));
+      .map((value) => normalizeIcd10Cm(value))
+      .filter(Boolean);
+    const normalizeDiagnosisList = (value) =>
+      String(value || "")
+        .split(",")
+        .map((code) => normalizeIcd10Cm(code))
+        .filter(Boolean);
+
+    const intentionallyEditedServiceLineDiagnoses = (editForm.serviceLines || [])
+      .flatMap((line, index) => {
+        const current = normalizeDiagnosisList(line?.diagnosisPointers);
+        const original = (claim?.serviceLines?.[index]?.diagnosisPointers || [])
+          .map((code) => normalizeIcd10Cm(code))
+          .filter(Boolean);
+
+        const changed =
+          current.length !== original.length ||
+          current.some((code, codeIndex) => code !== original[codeIndex]);
+
+        return changed ? current : [];
+      });
+
+    const mergedDiagnosisCodes = [
+      ...new Set([
+        ...claimDiagnosisCodes,
+        ...intentionallyEditedServiceLineDiagnoses
+      ])
+    ];
+
+    const invalidIcd = mergedDiagnosisCodes.find((value) => icd10CmError(value));
     if (invalidIcd) validationErrors.push(["ICD-10-CM", `${invalidIcd}: ${icd10CmError(invalidIcd)}`]);
 
     const invalidPcs = String(editForm.inpatientProcedureCodes || "")
@@ -409,9 +436,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       procedureDate: editForm.procedureDate || null,
       amount: parseFloat(editForm.amount),
       totalBilledAmount: parseFloat(editForm.totalBilledAmount) || null,
-      icd10Codes: editForm.icd10Codes
-        ? editForm.icd10Codes.split(",").map((c) => c.trim()).filter(Boolean)
-        : [],
+      icd10Codes: mergedDiagnosisCodes,
       inpatientProcedureCodes: editForm.inpatientProcedureCodes
         ? editForm.inpatientProcedureCodes.split(",").map((c) => c.trim()).filter(Boolean)
         : [],
@@ -1245,7 +1270,23 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       >
         <Button onClick={onBack}>← {backLabel}</Button>
 
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {claimFinalized && (
+            <Button
+              variant="contained"
+              onClick={() =>
+                navigate(`/journey?claimId=${claim.id}&stage=claim-status`, {
+                  state: {
+                    from: location.pathname + location.search,
+                    backLabel: "Back to Claim Detail"
+                  }
+                })
+              }
+              data-testid="view-claim-status"
+            >
+              View Claim Status
+            </Button>
+          )}
           {isAdmin && (
             <Button variant="outlined" onClick={() => navigate(`/audit?claimId=${claim.id}`)}>
               View Audit Trail

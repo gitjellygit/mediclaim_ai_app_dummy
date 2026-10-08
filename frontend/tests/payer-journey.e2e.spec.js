@@ -644,3 +644,103 @@ test("payer switch invalidates old coverage and authorization without reusing ol
   );
   expect(blockedAuth.status()).toBe(409);
 });
+
+
+test("submitted claim exposes status shortcut and separates payer transmission from submission", async ({ page }) => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+
+  // Re-seed at the end of this file so this focused test starts from a clean
+  // payer-journey scenario without changing the shared scenarios used above.
+  const reseed = await apiContext.post("/api/claims/e2e/payer-journey/seed", {
+    headers
+  });
+  expect(reseed.ok()).toBeTruthy();
+  const seeded = await reseed.json();
+  const scenario = seeded.scenarios.find((item) => item.key === "BLUE");
+  expect(scenario).toBeTruthy();
+
+  const connect = await apiContext.post(
+    `/api/claims/${scenario.id}/payer-simulation/connect`,
+    {
+      headers,
+      data: { payerCode: "BLUE_HORIZON" }
+    }
+  );
+  expect(connect.ok()).toBeTruthy();
+
+  const eligibility = await apiContext.post(
+    `/api/claims/${scenario.id}/payer-simulation/eligibility`,
+    { headers, data: {} }
+  );
+  expect(eligibility.ok()).toBeTruthy();
+
+  const priorAuth = await apiContext.post(
+    `/api/claims/${scenario.id}/payer-simulation/prior-auth`,
+    { headers, data: {} }
+  );
+  expect(priorAuth.ok()).toBeTruthy();
+  expect((await priorAuth.json()).result.status).toBe("NOT_REQUIRED");
+
+  const readiness = await apiContext.post(`/api/claims/${scenario.id}/check`, {
+    headers,
+    data: {}
+  });
+  expect(readiness.ok()).toBeTruthy();
+  const readinessBody = await readiness.json();
+  expect(readinessBody.score).toBeGreaterThanOrEqual(80);
+  expect(
+    (readinessBody.issues || []).filter((issue) => issue?.severity === "BLOCK")
+  ).toHaveLength(0);
+
+  // Submit from the Claim Details/API workflow only. No payer transmission has
+  // happened yet.
+  const submit = await apiContext.post(`/api/claims/${scenario.id}/submit`, {
+    headers,
+    data: {}
+  });
+  expect(submit.ok()).toBeTruthy();
+
+  await page.goto(`/claims/${scenario.id}`);
+
+  const statusShortcut = page.getByTestId("view-claim-status");
+  await expect(statusShortcut).toBeVisible();
+  await expect(statusShortcut).toHaveText("View Claim Status");
+  await statusShortcut.click();
+
+  await expect(page).toHaveURL(
+    new RegExp(`/journey\\?claimId=${scenario.id}&stage=claim-status`)
+  );
+
+  const claimStage = page.getByTestId("journey-stage-claim");
+  await expect(claimStage).toContainText("Submitted");
+
+  await expect(
+    claimStage.getByRole("button", { name: "Submit to Payer", exact: true })
+  ).toHaveCount(0);
+  await expect(
+    claimStage.getByRole("button", { name: "Send to Payer", exact: true })
+  ).toHaveCount(0);
+
+  const transmission = claimStage.getByTestId("payer-transmission-pending");
+  await expect(transmission).toBeVisible();
+  await expect(transmission).toContainText(
+    "Claim submission is complete. Payer transmission is a separate step."
+  );
+
+  const transmitButton = transmission.getByRole("button", {
+    name: "Transmit to Payer",
+    exact: true
+  });
+  await expect(transmitButton).toBeEnabled();
+  await transmitButton.click();
+
+  const sent = claimStage.getByRole("button", {
+    name: "Sent to Payer",
+    exact: true
+  });
+  await expect(sent).toBeVisible();
+  await expect(sent).toBeDisabled();
+  await expect(page.getByTestId("payer-connection-card")).toContainText(
+    "Claim Submission"
+  );
+});
