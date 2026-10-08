@@ -144,18 +144,28 @@ test("document coding Accept flows into readiness and requires valid diagnosis l
     ).toBeVisible();
 
     await completion.getByRole("button", { name: "Review codes" }).first().click();
-    await expect(page).toHaveURL(new RegExp(`/documents\\?claimId=${claimId}&reviewCoding=1`));
+    await expect(page).toHaveURL(new RegExp(`/claims/${claimId}$`));
 
-    const icdCard = page.getByTestId("coding-suggestion-ICD10_CM-M54.50");
-    const cptCard = page.getByTestId("coding-suggestion-CPT-99213");
+    const codingDialog = page.getByRole("dialog", {
+      name: "Review AI coding suggestions"
+    });
+    const icdCard = codingDialog.getByTestId(
+      "pending-coding-ICD10_CM-M54.50"
+    );
+    const cptCard = codingDialog.getByTestId(
+      "pending-coding-CPT-99213"
+    );
     await expect(icdCard).toBeVisible();
     await expect(cptCard).toBeVisible();
 
     await icdCard.getByRole("button", { name: "Accept" }).click();
-    await expect(icdCard.getByText("ACCEPTED", { exact: true })).toBeVisible();
+    await expect(codingDialog).toBeVisible();
+    await expect(icdCard).toHaveCount(0);
+    await expect(cptCard).toBeVisible();
 
     await cptCard.getByRole("button", { name: "Accept" }).click();
-    await expect(cptCard.getByText("ACCEPTED", { exact: true })).toBeVisible();
+    await expect(codingDialog).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/claims/${claimId}$`));
 
     const duplicateFileName = "coding-readiness-duplicate-e2e.pdf";
     const duplicateUpload = await uploadPdf(
