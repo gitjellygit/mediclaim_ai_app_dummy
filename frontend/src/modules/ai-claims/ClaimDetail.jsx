@@ -24,7 +24,6 @@ import {
   DOC_TYPE_LABELS,
   formatDate,
   formatMoney,
-  readinessTextColor,
   provenanceChipColor
 } from "./claim-detail/claimDetailUtils.js";
 import ServiceLinesEditor, { emptyServiceLine, serviceLineToForm, serviceLineToPayload } from "../../components/ServiceLinesEditor.jsx";
@@ -2337,7 +2336,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                             {(() => {
                               const review = documentIdentityReview(doc);
                               if (!review) {
-                                return <Chip size="small" label="Matched" color="success" variant="outlined" />;
+                                return <Chip size="small" label="Accepted" color="success" variant="outlined" />;
                               }
                               if (review.reviewed) {
                                 return <Chip size="small" label="Reviewed" color="success" variant="outlined" />;
