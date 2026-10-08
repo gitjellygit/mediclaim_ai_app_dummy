@@ -51,9 +51,6 @@ function SourceBadge({ claim, field }) {
   const source = claim?.fieldProvenance?.[field];
   if (!source) return null;
 
-  const confidence =
-    source.confidence != null ? ` • ${source.confidence}%` : "";
-
   return (
     <Tooltip
       title={
@@ -68,7 +65,7 @@ function SourceBadge({ claim, field }) {
         size="small"
         variant="outlined"
         color={provenanceChipColor(source.source)}
-        label={`${source.label || source.source}${confidence}`}
+        label={source.label || source.source}
         sx={{ ml: 0.75, height: 22, fontSize: "0.68rem" }}
       />
     </Tooltip>
@@ -131,21 +128,37 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
 
-  const pendingIcdSuggestions = React.useMemo(() => {
-    const byCode = new Map();
+  const pendingCodingSuggestions = React.useMemo(() => {
+    const bySystemAndCode = new Map();
     for (const suggestion of claim?.codingSuggestions || []) {
-      if (suggestion.system !== "ICD10_CM" || suggestion.status !== "PENDING") continue;
+      if (suggestion.status !== "PENDING") continue;
       const code = String(suggestion.suggestedCode || "").trim().toUpperCase();
-      if (code && !byCode.has(code)) byCode.set(code, suggestion);
+      const key = `${suggestion.system}:${code}`;
+      if (code && !bySystemAndCode.has(key)) {
+        bySystemAndCode.set(key, suggestion);
+      }
     }
-    return [...byCode.values()];
+    return [...bySystemAndCode.values()];
   }, [claim?.codingSuggestions]);
 
+  const pendingIcdSuggestions = React.useMemo(
+    () => pendingCodingSuggestions.filter((suggestion) => suggestion.system === "ICD10_CM"),
+    [pendingCodingSuggestions]
+  );
+
+  const pendingProcedureSuggestions = React.useMemo(
+    () =>
+      pendingCodingSuggestions.filter((suggestion) =>
+        ["CPT", "HCPCS", "ICD10_PCS"].includes(suggestion.system)
+      ),
+    [pendingCodingSuggestions]
+  );
+
   React.useEffect(() => {
-    if (icdReviewOpen && pendingIcdSuggestions.length === 0) {
+    if (icdReviewOpen && pendingCodingSuggestions.length === 0) {
       setIcdReviewOpen(false);
     }
-  }, [icdReviewOpen, pendingIcdSuggestions.length]);
+  }, [icdReviewOpen, pendingCodingSuggestions.length]);
   React.useEffect(() => {
     if (!claim) return;
     setEditForm({
@@ -307,7 +320,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     );
   }
 
-  async function reviewClaimIcdSuggestion(suggestion, action) {
+  async function reviewClaimCodingSuggestion(suggestion, action) {
     try {
       setCodingActionId(suggestion.id);
       await ClaimsApi.reviewCodingSuggestion(suggestion.id, { action });
@@ -1260,7 +1273,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       return;
     }
     if (item.fixTarget === "coding-review") {
-      navigate(`/documents?claimId=${claim.id}&reviewCoding=1`);
+      setIcdReviewOpen(true);
       return;
     }
     if (item.fixTarget === "serviceLines") {
@@ -1558,9 +1571,27 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               <Divider sx={{ gridColumn: "1 / -1" }} />
 
               <Box>
-                <Typography variant="subtitle1" fontWeight={800} color="text.primary" sx={{ mb: 1 }}>
-                  Service Lines
-                </Typography>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  justifyContent="space-between"
+                  alignItems={{ xs: "stretch", sm: "center" }}
+                  spacing={1}
+                  sx={{ mb: 1 }}
+                >
+                  <Typography variant="subtitle1" fontWeight={800} color="text.primary">
+                    Service Lines
+                  </Typography>
+                  {!aiCheckLocked && pendingProcedureSuggestions.length > 0 && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setIcdReviewOpen(true)}
+                      data-testid="open-procedure-coding-review"
+                    >
+                      Review AI Coding Suggestions ({pendingProcedureSuggestions.length})
+                    </Button>
+                  )}
+                </Stack>
                 <ServiceLinesEditor lines={claim.serviceLines || []} readOnly />
               </Box>
             </Stack>
@@ -2842,7 +2873,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
             return (
               <Stack spacing={2}>
                 <Typography variant="body2" color="text.secondary">
-                  This document was uploaded because most patient evidence matched, but one extracted identifier conflicted. Confirm that the document belongs to this claim before submission.
+                  Most patient details match this claim, but one identifier is different. Review the values below and decide whether the current claim value should be kept or edited.
                 </Typography>
                 <Paper variant="outlined" sx={{ p: 1.5 }}>
                   <Typography variant="subtitle2" fontWeight={800}>
@@ -2854,31 +2885,43 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                         {conflictLabels[field] || field}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Claim: {claimValues[field] || "—"}
+                        Current claim value: {claimValues[field] || "—"}
                       </Typography>
                       <Typography variant="body2" color="warning.dark">
-                        Document: {docValues[field] || "—"}
+                        This document shows: {docValues[field] || "—"}
                       </Typography>
                     </Box>
                   ))}
                 </Paper>
                 <Alert severity="info">
-                  If the claim value is wrong, close this dialog and edit the patient/policy field first. If the claim value is correct and this document still belongs to the same patient, confirm the review below.
+                  If the document value is the correct one, edit the claim value. If the current claim value is correct and this document still belongs to the same patient, keep the claim value and mark this review complete.
                 </Alert>
               </Stack>
             );
           })()}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>
           <Button onClick={() => setIdentityReviewDoc(null)} disabled={identityReviewBusy}>
             Cancel
+          </Button>
+          <Button
+            variant="outlined"
+            disabled={identityReviewBusy}
+            onClick={() => {
+              const review = documentIdentityReview(identityReviewDoc) || {};
+              const field = (review.conflicts || [])[0];
+              setIdentityReviewDoc(null);
+              if (field) openClaimEdit(field, [field]);
+            }}
+          >
+            Edit claim value
           </Button>
           <Button
             variant="contained"
             onClick={() => completeDocumentIdentityReview(identityReviewDoc)}
             disabled={identityReviewBusy}
           >
-            {identityReviewBusy ? "Saving..." : "Confirm document belongs to this claim"}
+            {identityReviewBusy ? "Saving..." : "Keep claim value & mark reviewed"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2891,15 +2934,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         aria-labelledby="icd-review-title"
       >
         <DialogTitle id="icd-review-title">
-          Review AI-generated ICD-10-CM codes
+          Review AI coding suggestions
         </DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Review each code before it is added to the claim. Source documents and extracted evidence stay visible here so you do not need to leave Claim Details.
+            Review ICD-10-CM, CPT/HCPCS, and procedure-code suggestions here. Accepting or rejecting a code keeps you on Claim Details; use View source only when you need to inspect the supporting document.
           </Typography>
 
           <Stack spacing={1.5}>
-            {pendingIcdSuggestions.map((suggestion) => {
+            {pendingCodingSuggestions.map((suggestion) => {
               const sourceDocument = (claim?.documents || []).find(
                 (document) => document.id === suggestion.documentId
               );
@@ -2909,7 +2952,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   key={suggestion.id}
                   variant="outlined"
                   sx={{ p: 2 }}
-                  data-testid={`pending-icd-${suggestion.suggestedCode}`}
+                  data-testid={`pending-coding-${suggestion.system}-${suggestion.suggestedCode}`}
                 >
                   <Stack
                     direction={{ xs: "column", sm: "row" }}
@@ -2918,7 +2961,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   >
                     <Box sx={{ minWidth: 0 }}>
                       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                        <Chip size="small" label="ICD-10-CM" variant="outlined" />
+                        <Chip
+                          size="small"
+                          label={
+                            suggestion.system === "ICD10_CM"
+                              ? "ICD-10-CM"
+                              : suggestion.system === "ICD10_PCS"
+                              ? "ICD-10-PCS"
+                              : suggestion.system
+                          }
+                          variant="outlined"
+                        />
                         <Typography variant="h6" fontWeight={800}>
                           {suggestion.suggestedCode}
                         </Typography>
@@ -2952,7 +3005,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                       <Button
                         variant="contained"
                         size="small"
-                        onClick={() => reviewClaimIcdSuggestion(suggestion, "ACCEPT")}
+                        onClick={() => reviewClaimCodingSuggestion(suggestion, "ACCEPT")}
                         disabled={Boolean(codingActionId)}
                       >
                         Accept
@@ -2961,7 +3014,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                         variant="outlined"
                         color="error"
                         size="small"
-                        onClick={() => reviewClaimIcdSuggestion(suggestion, "REJECT")}
+                        onClick={() => reviewClaimCodingSuggestion(suggestion, "REJECT")}
                         disabled={Boolean(codingActionId)}
                       >
                         Reject
