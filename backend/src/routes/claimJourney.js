@@ -983,6 +983,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
     );
     const expectedPatientControlNumber =
       req.body?.patientControlNumber ||
+      claim.patientControlNumber ||
       submissionTransaction?.responsePayload?.patientControlNumber ||
       submissionTransaction?.requestPayload?.patientControlNumber ||
       submissionTransaction?.requestPayload?.claimInformation?.patientControlNumber ||
@@ -1101,6 +1102,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
       });
 
       const financialUpdates = {
+        patientControlNumber: expectedPatientControlNumber,
         remittanceStatus: "POSTED",
         remittanceReceivedAt: now,
         paidAmount: result.paidAmount,
