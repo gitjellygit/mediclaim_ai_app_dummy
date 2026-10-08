@@ -1748,12 +1748,10 @@ export default function ClaimJourney() {
                     size="small"
                     startIcon={<Visibility />}
                     onClick={() =>
-                      navigate(`/claims/${claim.id}`, {
-                        state: {
-                          ...claimReturnState(),
-                          focus: "eligibility"
-                        }
-                      })
+                      navigate(
+                        `/claims/${claim.id}?edit=1&focus=payerName,memberId,policyNo,payerEdiId`,
+                        { state: claimReturnState() }
+                      )
                     }
                   >
                     Review Insurance Details
