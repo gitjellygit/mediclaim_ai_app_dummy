@@ -771,7 +771,7 @@ export function createStediTestConnector({
       const expectedPatientControlNumber =
         context.expectedPatientControlNumber ||
         context.patientControlNumber ||
-        claim?.payerReferenceNo ||
+        claim?.patientControlNumber ||
         null;
 
       if (context.transactionId) {
