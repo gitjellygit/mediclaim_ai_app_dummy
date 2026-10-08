@@ -237,7 +237,12 @@ test("R2A - STEDI_TEST appears in registry and is configured only with a test ke
   assert.equal(withoutKey.get("STEDI_TEST")?.provider, "STEDI");
   assert.equal(withoutKey.get("STEDI_TEST")?.environment, "TEST");
   assert.equal(withoutKey.get("STEDI_TEST")?.configured, false);
-  assert.deepEqual(withoutKey.get("STEDI_TEST")?.capabilities, ["checkEligibility", "listPayers"]);
+  assert.deepEqual(withoutKey.get("STEDI_TEST")?.capabilities, [
+    "checkEligibility",
+    "listPayers",
+    "submitClaim",
+    "getRemittance"
+  ]);
 
   const withKey = new Map(
     listPayerConnectors({ STEDI_TEST_API_KEY: "test-key" }).map((item) => [item.id, item])
