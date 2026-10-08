@@ -1153,7 +1153,9 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
     const isDeniedEra = String(result.claimStatusCode || "") === "4";
     const underpaymentAmount = Number(result.potentialUnderpayment || 0);
 
-    const posted = await prisma.$transaction(async (tx) => {
+    let posted;
+    try {
+      posted = await prisma.$transaction(async (tx) => {
       const transaction = await tx.payerTransaction.create({
         data: {
           claimId: claim.id,
@@ -1335,8 +1337,40 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
         });
       }
 
-      return { transaction, updatedClaim, denialCase, underpaymentCase };
-    });
+        return { transaction, updatedClaim, denialCase, underpaymentCase };
+      });
+    } catch (error) {
+      if (error?.code === "P2002") {
+        const duplicateTransaction = await prisma.payerTransaction.findFirst({
+          where: {
+            transactionId: result.transactionId,
+            claimId: claim.id
+          }
+        });
+
+        if (duplicateTransaction) {
+          const currentClaim = await prisma.claim.findFirst({
+            where: {
+              id: claim.id,
+              organizationId: orgId(req),
+              deletedAt: null
+            }
+          });
+
+          return res.json({
+            unchanged: true,
+            message: "This 835 ERA has already been posted to the claim",
+            result: stripSensitivePayerPayload(
+              duplicateTransaction.responsePayload
+            ),
+            transaction: sanitizePayerTransaction(duplicateTransaction),
+            claim: currentClaim || claim
+          });
+        }
+      }
+
+      throw error;
+    }
 
     logJourneyEvent(claim.id, "era-835-posted", "POSTED", {
       transactionId: result.transactionId,
