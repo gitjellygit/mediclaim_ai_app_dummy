@@ -10,6 +10,7 @@ import {
   normalizeStediClaimSubmissionResponse,
   normalizeStediClaimStatusResponse,
   normalizeStediEligibilityResponse,
+  normalizeStedi835Report,
   searchStediPayers
 } from "../src/services/stediTestConnector.js";
 
@@ -530,4 +531,194 @@ test("R3 - connector sends configured production 276 request and receives synchr
   assert.equal(JSON.parse(captured.options.body).tradingPartnerServiceId, "61101");
   assert.equal(result.status, "IN_REVIEW");
   assert.equal(result.livePayerVerification, true);
+});
+
+
+test("R4 - normalizes matched 835 ERA financials and adjustments", () => {
+  const result = normalizeStedi835Report(
+    {
+      meta: {
+        applicationMode: "test",
+        transactionId: "835-test-1"
+      },
+      transactions: [
+        {
+          controlNumber: "CTRL-835-1",
+          paymentAndRemitReassociationDetails: {
+            checkOrEFTTraceNumber: "EFT-10001"
+          },
+          financialInformation: {
+            paymentMethodCode: "ACH",
+            checkIssueOrEFTEffectiveDate: "20261008"
+          },
+          payer: { name: "TEST PAYER" },
+          payee: { npi: "1999999984" },
+          detailInfo: [
+            {
+              paymentInfo: [
+                {
+                  claimPaymentInfo: {
+                    patientControlNumber: "PCN-R4-100",
+                    payerClaimControlNumber: "PAYER-R4-100",
+                    totalClaimChargeAmount: "1000.00",
+                    claimPaymentAmount: "650.00",
+                    patientResponsibilityAmount: "150.00",
+                    claimStatusCode: "1"
+                  },
+                  patientName: {
+                    firstName: "JANE",
+                    lastName: "DOE",
+                    memberId: "MEMBER123"
+                  },
+                  claimAdjustments: [
+                    {
+                      claimAdjustmentGroupCode: "CO",
+                      claimAdjustmentGroupCodeValue: "Contractual Obligation",
+                      adjustmentReasonCode1: "45",
+                      adjustmentReason1: "Charge exceeds fee schedule",
+                      adjustmentAmount1: "200.00"
+                    }
+                  ],
+                  serviceLines: [
+                    {
+                      lineItemControlNumber: "LINE-1",
+                      servicePaymentInformation: {
+                        adjudicatedProcedureCode: "99213",
+                        lineItemChargeAmount: "1000.00",
+                        lineItemProviderPaymentAmount: "650.00"
+                      },
+                      serviceSupplementalAmounts: {
+                        allowedActual: "800.00"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    { expectedPatientControlNumber: "pcn-r4-100" }
+  );
+
+  assert.equal(result.status, "POSTED");
+  assert.equal(result.patientControlNumber, "PCN-R4-100");
+  assert.equal(result.billedAmount, 1000);
+  assert.equal(result.allowedAmount, 800);
+  assert.equal(result.paidAmount, 650);
+  assert.equal(result.patientResponsibility, 150);
+  assert.equal(result.expectedPayerPayment, 650);
+  assert.equal(result.potentialUnderpayment, 0);
+  assert.equal(result.paymentReference, "EFT-10001");
+  assert.equal(result.adjustments[0].groupCode, "CO");
+  assert.equal(result.adjustments[0].reasonCode, "45");
+  assert.equal(result.testMode, true);
+});
+
+test("R4 - 835 normalization refuses unmatched or duplicate claim matches", () => {
+  const payment = (pcn) => ({
+    claimPaymentInfo: {
+      patientControlNumber: pcn,
+      totalClaimChargeAmount: "100",
+      claimPaymentAmount: "80",
+      patientResponsibilityAmount: "20"
+    }
+  });
+  const body = {
+    transactions: [
+      {
+        detailInfo: [
+          {
+            paymentInfo: [
+              payment("PCN-A"),
+              payment("PCN-A"),
+              payment("PCN-B")
+            ]
+          }
+        ]
+      }
+    ]
+  };
+
+  const missing = normalizeStedi835Report(body, {
+    expectedPatientControlNumber: "PCN-Z"
+  });
+  assert.equal(missing.status, "NOT_FOUND");
+
+  const ambiguous = normalizeStedi835Report(body, {
+    expectedPatientControlNumber: "pcn-a"
+  });
+  assert.equal(ambiguous.status, "NEEDS_REVIEW");
+  assert.equal(ambiguous.matchCount, 2);
+});
+
+test("R4 - Stedi test connector retrieves a specific 835 report", async () => {
+  let capturedUrl = "";
+  const fetchImpl = async (url) => {
+    capturedUrl = String(url);
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      async text() {
+        return JSON.stringify({
+          meta: { applicationMode: "test", transactionId: "835-uuid-100" },
+          transactions: [
+            {
+              paymentAndRemitReassociationDetails: {
+                checkOrEFTTraceNumber: "CHECK-100"
+              },
+              detailInfo: [
+                {
+                  paymentInfo: [
+                    {
+                      claimPaymentInfo: {
+                        patientControlNumber: "PCN-100",
+                        totalClaimChargeAmount: "500",
+                        claimPaymentAmount: "400",
+                        patientResponsibilityAmount: "100",
+                        claimStatusCode: "1"
+                      },
+                      serviceLines: [
+                        {
+                          serviceSupplementalAmounts: {
+                            allowedActual: "500"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        });
+      }
+    };
+  };
+
+  const connector = createStediTestConnector({
+    env: {
+      STEDI_TEST_API_KEY: "test-key",
+      STEDI_ERA_API_BASE_URL: "https://era.example.test/2024-04-01"
+    },
+    fetchImpl
+  });
+
+  const result = await connector.getRemittance(
+    { id: "claim-r4" },
+    {
+      transactionId: "835-uuid-100",
+      expectedPatientControlNumber: "PCN-100"
+    }
+  );
+
+  assert.match(
+    capturedUrl,
+    /\/change\/medicalnetwork\/reports\/v2\/835-uuid-100\/835$/
+  );
+  assert.equal(result.status, "POSTED");
+  assert.equal(result.paymentReference, "CHECK-100");
+  assert.equal(result.paidAmount, 400);
 });
