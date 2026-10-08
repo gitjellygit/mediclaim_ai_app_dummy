@@ -1281,7 +1281,15 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
             actualPaidAmount: result.paidAmount,
             varianceAmount: underpaymentAmount,
             sourceTransactionId: result.transactionId,
-            detectedAt: now
+            detectedAt: now,
+            status:
+              existingUnderpaymentCase &&
+              ["RECOVERED", "WRITTEN_OFF", "CLOSED"].includes(
+                existingUnderpaymentCase.status
+              )
+                ? "OPEN"
+                : undefined,
+            resolvedAt: null
           }
         });
       }
