@@ -16,6 +16,7 @@ import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
 import { createPayerConnector, createPayerConnectorForClaim, payerConnectorStatusForClaim } from "../services/payerGateway.js";
 import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
+import { requireRoles } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -47,6 +48,67 @@ router.use((req, res, next) => {
 
 function orgId(req) {
   return req.user.organizationId;
+}
+
+function stripSensitivePayerPayload(value) {
+  if (Array.isArray(value)) return value.map(stripSensitivePayerPayload);
+  if (!value || typeof value !== "object") return value;
+  const safe = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (["raw", "x12"].includes(key)) continue;
+    safe[key] = stripSensitivePayerPayload(item);
+  }
+  return safe;
+}
+
+function sanitizePayerTransaction(transaction) {
+  if (!transaction) return transaction;
+  return {
+    ...transaction,
+    requestPayload: stripSensitivePayerPayload(transaction.requestPayload),
+    responsePayload: stripSensitivePayerPayload(transaction.responsePayload)
+  };
+}
+
+function sendConnectorFailure(res, error, operation) {
+  if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
+    res.status(503).json({
+      error: `${operation} connector is not configured`,
+      code: error.code
+    });
+    return true;
+  }
+  if (["STEDI_REQUEST_INVALID", "AVAILITY_REQUEST_INVALID"].includes(error?.code)) {
+    res.status(400).json({
+      error: "The claim is missing information required for the payer request",
+      code: error.code
+    });
+    return true;
+  }
+  if (["STEDI_API_ERROR", "AVAILITY_API_ERROR"].includes(error?.code)) {
+    const upstreamStatus = Number(error?.status || 0);
+    const status = upstreamStatus === 429 ? 503 : 502;
+    res.status(status).json({
+      error:
+        upstreamStatus === 429
+          ? `${operation} service is temporarily rate limited. Please retry.`
+          : `External ${operation.toLowerCase()} service request failed`,
+      code: error.code
+    });
+    return true;
+  }
+  if (
+    error?.name === "AbortError" ||
+    error?.name === "TimeoutError" ||
+    error?.code === "ABORT_ERR"
+  ) {
+    res.status(504).json({
+      error: `External ${operation.toLowerCase()} service timed out`,
+      code: "PAYER_CONNECTOR_TIMEOUT"
+    });
+    return true;
+  }
+  return false;
 }
 
 // Journey logs intentionally avoid patient/member data so PHI is not written to logs.
@@ -169,9 +231,16 @@ router.get("/:id/journey", async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
+    const sanitizedClaim = {
+      ...claim,
+      payerTransactions: (claim.payerTransactions || []).map(
+        sanitizePayerTransaction
+      )
+    };
+
     res.json({
       claim: {
-        ...claim,
+        ...sanitizedClaim,
         automationSummary: buildAutomationSummary(claim),
         completenessSummary: buildClaimCompleteness(claim)
       },
@@ -198,7 +267,10 @@ router.get("/:id/journey", async (req, res) => {
   }
 });
 
-router.post("/:id/journey/payer-connection", async (req, res) => {
+router.post(
+  "/:id/journey/payer-connection",
+  requireRoles(["ADMIN"]),
+  async (req, res) => {
   try {
     const parsedInput = parseMutation(payerConnectorConnectionSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -450,20 +522,12 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
       claim: updated
     });
   } catch (error) {
-    if (error?.status && !["STEDI_API_ERROR", "AVAILITY_API_ERROR"].includes(error?.code)) throw error;
     console.error("[claim-journey] eligibility precheck failed", {
       claimId: req.params.id,
       code: error?.code || null
     });
-    if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
-      return res.status(503).json({ error: "Payer connector is not configured" });
-    }
-    if (["STEDI_REQUEST_INVALID", "AVAILITY_REQUEST_INVALID"].includes(error?.code)) {
-      return res.status(400).json({ error: error.message });
-    }
-    if (["STEDI_API_ERROR", "AVAILITY_API_ERROR"].includes(error?.code)) {
-      return res.status(502).json({ error: "External eligibility service request failed" });
-    }
+    if (sendConnectorFailure(res, error, "Eligibility")) return;
+    if (error?.status && Number(error.status) < 500) throw error;
     res.status(500).json({ error: "Eligibility pre-check failed. Please retry." });
   }
 });
@@ -802,31 +866,13 @@ router.post("/:id/journey/claim-status/refresh", async (req, res) => {
           : null
     });
   } catch (error) {
-    if (error?.status) throw error;
     console.error("[claim-journey] external claim status refresh failed", {
       claimId: req.params.id,
-      code: error?.code || null,
-      message: error?.message || "Unknown error"
+      code: error?.code || null
     });
 
-    if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
-      return res.status(503).json({
-        error: "Claim status connector is not configured",
-        code: error.code
-      });
-    }
-    if (error?.code === "STEDI_REQUEST_INVALID") {
-      return res.status(400).json({
-        error: error.message,
-        code: error.code
-      });
-    }
-    if (error?.code === "STEDI_API_ERROR") {
-      return res.status(502).json({
-        error: "External 276/277 claim status request failed",
-        code: error.code
-      });
-    }
+    if (sendConnectorFailure(res, error, "Claim status")) return;
+    if (error?.status && Number(error.status) < 500) throw error;
 
     return res.status(500).json({
       error: "Unable to refresh payer claim status"
@@ -970,10 +1016,8 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
 
 router.post("/:id/journey/remittance/refresh", async (req, res) => {
   try {
-    const transactionId =
-      typeof req.body?.transactionId === "string"
-        ? req.body.transactionId.trim() || null
-        : null;
+    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
 
     const claim = await prisma.claim.findFirst({
       where: {
@@ -993,7 +1037,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
       });
     }
 
-    if (claim.remittanceStatus === "POSTED" && !transactionId) {
+    if (claim.remittanceStatus === "POSTED") {
       return res.json({
         unchanged: true,
         message: "Remittance is already posted",
@@ -1017,7 +1061,6 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
       (item) => item.transactionType === "CLAIM_SUBMISSION"
     );
     const expectedPatientControlNumber =
-      req.body?.patientControlNumber ||
       claim.patientControlNumber ||
       submissionTransaction?.responsePayload?.patientControlNumber ||
       submissionTransaction?.requestPayload?.patientControlNumber ||
@@ -1034,7 +1077,6 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
 
     const connector = createPayerConnectorForClaim(claim);
     const result = await connector.getRemittance(claim, {
-      transactionId,
       expectedPatientControlNumber,
       startDateTime: claim.claimSubmissionDate || null
     });
@@ -1068,21 +1110,18 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
       });
     }
 
-    const existingTransaction = await prisma.payerTransaction.findUnique({
-      where: { transactionId: result.transactionId }
+    const existingTransaction = await prisma.payerTransaction.findFirst({
+      where: {
+        transactionId: result.transactionId,
+        claimId: claim.id
+      }
     });
     if (existingTransaction) {
-      if (existingTransaction.claimId !== claim.id) {
-        return res.status(409).json({
-          error: "This 835 ERA transaction is already associated with another claim",
-          code: "ERA_TRANSACTION_CONFLICT"
-        });
-      }
       return res.json({
         unchanged: true,
         message: "This 835 ERA has already been posted to the claim",
-        result: existingTransaction.responsePayload,
-        transaction: existingTransaction,
+        result: stripSensitivePayerPayload(existingTransaction.responsePayload),
+        transaction: sanitizePayerTransaction(existingTransaction),
         claim
       });
     }
@@ -1160,7 +1199,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
               sourceDetail: result.testMode
                 ? "Stedi test ERA"
                 : "Stedi production ERA",
-              verified: true
+              verified: result.testMode !== true
             }
           )
         )
@@ -1313,25 +1352,13 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
         "Claim status was not inferred from the 835 payment amount. Use 276/277 for payer claim status."
     });
   } catch (error) {
-    if (error?.status) throw error;
     console.error("[claim-journey] external ERA refresh failed", {
       claimId: req.params.id,
-      code: error?.code || null,
-      message: error?.message || "Unknown error"
+      code: error?.code || null
     });
 
-    if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
-      return res.status(503).json({
-        error: "835 ERA connector is not configured",
-        code: error.code
-      });
-    }
-    if (error?.code === "STEDI_API_ERROR") {
-      return res.status(502).json({
-        error: "External 835 ERA request failed",
-        code: error.code
-      });
-    }
+    if (sendConnectorFailure(res, error, "835 ERA")) return;
+    if (error?.status && Number(error.status) < 500) throw error;
 
     return res.status(500).json({
       error: "Unable to retrieve 835 ERA"
