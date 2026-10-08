@@ -406,10 +406,17 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
     await expect(page.getByText("Reviewed", { exact: true })).toHaveCount(2);
     await expect(page.getByRole("button", { name: /Review \d+/ })).toHaveCount(0);
 
-    // Claim Details supports direct removal and Enter-to-add.
+    // Human-verified ICDs are non-destructive in view mode.
     await page.goto(`/claims/${claimId}`);
     const acceptedChip = page.getByTestId("accepted-icd-M54.16");
-    await acceptedChip.locator("svg").click();
+    await expect(acceptedChip).toContainText("Verified");
+    await expect(acceptedChip.locator("svg")).toHaveCount(0);
+
+    // Removal is available only after explicitly entering Edit mode.
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    const editableAcceptedChip = page.getByTestId("accepted-icd-M54.16");
+    await expect(editableAcceptedChip.locator("svg")).toHaveCount(1);
+    await editableAcceptedChip.locator("svg").click();
     await expect(page.getByTestId("accepted-icd-M54.16")).toHaveCount(0);
 
     const addInput = page.getByRole("textbox", { name: "Add ICD-10 code" });
