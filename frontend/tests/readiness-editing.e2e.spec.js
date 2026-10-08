@@ -53,7 +53,7 @@ test("readiness is gated until payer eligibility is verified", async ({ page }, 
 
   try {
     await page.goto(`/claims/${claimId}`);
-    const readiness = page.getByRole("heading", { name: "Claim Readiness for Submission" });
+    const readiness = page.getByRole("heading", { name: "Submission Readiness" });
     await expect(readiness).toBeVisible();
 
     const checkButton = page.getByRole("button", { name: "Check Readiness", exact: true });
@@ -122,7 +122,7 @@ test("readiness diagnosis linkage stays truthful through edit, save, recheck and
     expect(checked.ok).toBe(true);
 
     await page.goto(`/claims/${claimId}`);
-    await expect(page.getByRole("heading", { name: "Claim Readiness for Submission" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Submission Readiness" })).toBeVisible();
     const linkIssue = page.getByTestId("readiness-issue-US_DIAGNOSIS_CPT_LINK");
     await expect(linkIssue).toBeVisible();
 
@@ -142,7 +142,8 @@ test("readiness diagnosis linkage stays truthful through edit, save, recheck and
     await page.getByRole("button", { name: "Recheck Readiness" }).click();
     await expect(page.getByTestId("readiness-stale")).toHaveCount(0);
     await expect(page.getByTestId("readiness-issue-US_DIAGNOSIS_CPT_LINK")).toHaveCount(0);
-    const fixedScore = Number((await page.getByTestId("readiness-score").textContent()).replace("%", ""));
+    const scoreText = await page.getByTestId("readiness-score").textContent();
+    const fixedScore = Number((scoreText.match(/(\d+)\/100/) || [])[1]);
     expect(fixedScore).toBeGreaterThan(0);
 
     // Reload must preserve the resolved state.
