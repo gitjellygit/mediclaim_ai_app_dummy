@@ -742,7 +742,9 @@ export default function ClaimJourney() {
   function remittanceDisplayData(result = null) {
     const response = result?.result || result || latestRemittance?.responsePayload || {};
     return {
-      billedAmount: Number(claim?.amount ?? claim?.totalBilledAmount ?? 0),
+      billedAmount: Number(
+        response.billedAmount ?? claim?.amount ?? claim?.totalBilledAmount ?? 0
+      ),
       allowedAmount: Number(response.allowedAmount ?? claim?.allowedAmount ?? 0),
       expectedPayerPayment: Number(
         response.expectedPayerPayment ??
@@ -758,8 +760,9 @@ export default function ClaimJourney() {
         response.paymentReference || claim?.paymentReference || "—",
       potentialUnderpayment: Number(response.potentialUnderpayment || 0),
       sourceLabel:
+        response.transactionType === "835" ||
         latestRemittance?.responsePayload?.transactionType === "835"
-          ? latestRemittance?.mode === "TEST"
+          ? response.testMode === true || latestRemittance?.mode === "TEST"
             ? "Stedi test 835 ERA"
             : "Payer 835 ERA"
           : journey?.payerConnection?.mode === "SIMULATED"
