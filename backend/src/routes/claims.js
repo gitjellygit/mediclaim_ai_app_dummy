@@ -141,21 +141,20 @@ router.get("/", async (req, res) => {
         organizationId: orgId(req),
         deletedAt: null
       },
-      include: {
-        documents: {
-          orderBy: { createdAt: "desc" }
-        },
-        serviceLines: {
-          orderBy: { createdAt: "asc" }
-        },
-        codingSuggestions: {
-          select: {
-            documentId: true,
-            system: true,
-            suggestedCode: true,
-            status: true
-          }
-        }
+      select: {
+        id: true,
+        patientName: true,
+        payerName: true,
+        policyNo: true,
+        memberId: true,
+        medicalRecordNumber: true,
+        payerReferenceNo: true,
+        groupNumber: true,
+        subscriberId: true,
+        payerEdiId: true,
+        status: true,
+        amount: true,
+        createdAt: true
       },
       orderBy: { createdAt: "desc" }
     });
