@@ -932,6 +932,311 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
   }
 });
 
+router.post("/:id/journey/remittance/refresh", async (req, res) => {
+  try {
+    const transactionId =
+      typeof req.body?.transactionId === "string"
+        ? req.body.transactionId.trim() || null
+        : null;
+
+    const claim = await prisma.claim.findFirst({
+      where: {
+        id: req.params.id,
+        organizationId: orgId(req),
+        deletedAt: null
+      },
+      include: {
+        payerTransactions: { orderBy: { createdAt: "desc" }, take: 50 }
+      }
+    });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    if (!isClaimSubmittedOrLater(claim)) {
+      return res.status(409).json({
+        error: "Claim must be submitted before an 835 ERA can be retrieved"
+      });
+    }
+
+    if (claim.remittanceStatus === "POSTED" && !transactionId) {
+      return res.json({
+        unchanged: true,
+        message: "Remittance is already posted",
+        claim
+      });
+    }
+
+    const connectorStatus = payerConnectorStatusForClaim(claim);
+    if (
+      connectorStatus.mode !== "LIVE" ||
+      !connectorStatus.configured ||
+      !connectorStatus.capabilities.includes("getRemittance")
+    ) {
+      return res.status(409).json({
+        error: "The connected payer does not support configured 835 ERA retrieval",
+        code: "ERA_CONNECTOR_UNAVAILABLE"
+      });
+    }
+
+    const submissionTransaction = claim.payerTransactions.find(
+      (item) => item.transactionType === "CLAIM_SUBMISSION"
+    );
+    const expectedPatientControlNumber =
+      req.body?.patientControlNumber ||
+      submissionTransaction?.responsePayload?.patientControlNumber ||
+      submissionTransaction?.requestPayload?.patientControlNumber ||
+      submissionTransaction?.requestPayload?.claimInformation?.patientControlNumber ||
+      null;
+
+    if (!expectedPatientControlNumber) {
+      return res.status(409).json({
+        error:
+          "The claim has no Patient Control Number correlation key from its 837 submission. Retrieve/post the 835 only after the submission correlation is available.",
+        code: "ERA_CORRELATION_KEY_MISSING"
+      });
+    }
+
+    const connector = createPayerConnectorForClaim(claim);
+    const result = await connector.getRemittance(claim, {
+      transactionId,
+      expectedPatientControlNumber,
+      startDateTime: claim.claimSubmissionDate || null
+    });
+
+    if (["NOT_AVAILABLE", "NOT_FOUND"].includes(result.status)) {
+      return res.json({
+        unchanged: true,
+        available: false,
+        message: "No matching 835 ERA is available yet",
+        result,
+        claim
+      });
+    }
+
+    if (result.status === "NEEDS_REVIEW") {
+      return res.json({
+        unchanged: true,
+        available: true,
+        needsReview: true,
+        message:
+          "Multiple 835 ERA transactions match this claim. Review the candidate transactions before posting.",
+        result,
+        claim
+      });
+    }
+
+    if (result.status !== "POSTED" || !result.transactionId) {
+      return res.status(502).json({
+        error: "The payer returned an unusable 835 ERA response",
+        code: "ERA_RESPONSE_INVALID"
+      });
+    }
+
+    const existingTransaction = await prisma.payerTransaction.findUnique({
+      where: { transactionId: result.transactionId }
+    });
+    if (existingTransaction) {
+      if (existingTransaction.claimId !== claim.id) {
+        return res.status(409).json({
+          error: "This 835 ERA transaction is already associated with another claim",
+          code: "ERA_TRANSACTION_CONFLICT"
+        });
+      }
+      return res.json({
+        unchanged: true,
+        message: "This 835 ERA has already been posted to the claim",
+        result: existingTransaction.responsePayload,
+        transaction: existingTransaction,
+        claim
+      });
+    }
+
+    const numericFields = [
+      ["billedAmount", result.billedAmount],
+      ["allowedAmount", result.allowedAmount],
+      ["paidAmount", result.paidAmount],
+      ["patientResponsibility", result.patientResponsibility]
+    ];
+    const invalidMoney = numericFields.find(
+      ([, value]) => value != null && (!Number.isFinite(Number(value)) || Number(value) < 0)
+    );
+    if (invalidMoney) {
+      return res.status(409).json({
+        error:
+          "This 835 contains a reversal or unsupported negative financial value and needs manual review before posting.",
+        code: "ERA_FINANCIAL_REVIEW_REQUIRED",
+        field: invalidMoney[0]
+      });
+    }
+
+    const now = new Date();
+    const firstAdjustment = (result.adjustments || []).find(
+      (item) => item?.reasonCode || item?.reason
+    );
+    const isDeniedEra = String(result.claimStatusCode || "") === "4";
+    const underpaymentAmount = Number(result.potentialUnderpayment || 0);
+
+    const posted = await prisma.$transaction(async (tx) => {
+      const transaction = await tx.payerTransaction.create({
+        data: {
+          claimId: claim.id,
+          transactionId: result.transactionId,
+          mode: result.testMode ? "TEST" : "PRODUCTION",
+          payerCode:
+            claim.payerEdiId ||
+            claim.payerName ||
+            connector.connectorProvider ||
+            "UNKNOWN",
+          transactionType: "REMITTANCE",
+          status: "POSTED",
+          latencyMs: result.latencyMs || null,
+          requestPayload: {
+            transaction: "835",
+            connectorId: connector.connectorId,
+            patientControlNumber: expectedPatientControlNumber,
+            externalTransactionId: result.transactionId
+          },
+          responsePayload: result
+        }
+      });
+
+      const financialUpdates = {
+        remittanceStatus: "POSTED",
+        remittanceReceivedAt: now,
+        paidAmount: result.paidAmount,
+        patientResponsibility: result.patientResponsibility,
+        paymentReference: result.paymentReference || result.transactionId,
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          systemProvenance(
+            [
+              "remittanceStatus",
+              "allowedAmount",
+              "approvedAmount",
+              "paidAmount",
+              "patientResponsibility",
+              "paymentReference"
+            ],
+            {
+              source: "PAYER_835",
+              label: "835 ERA",
+              sourceDetail: result.testMode
+                ? "Stedi test ERA"
+                : "Stedi production ERA",
+              verified: true
+            }
+          )
+        )
+      };
+      if (result.allowedAmount != null) {
+        financialUpdates.allowedAmount = result.allowedAmount;
+        financialUpdates.approvedAmount = result.allowedAmount;
+      }
+
+      const updatedClaim = await tx.claim.update({
+        where: { id: claim.id },
+        data: financialUpdates
+      });
+
+      let denialCase = null;
+      if (isDeniedEra) {
+        denialCase = await findActiveDenialCase(tx, claim.id);
+        if (!denialCase) {
+          denialCase = await tx.denialCase.create({
+            data: {
+              claimId: claim.id,
+              source: "ERA",
+              status: "OPEN",
+              denialCategory: "ERA_ADJUDICATION",
+              groupCode: firstAdjustment?.groupCode || null,
+              carcCode: firstAdjustment?.reasonCode || null,
+              reasonText:
+                firstAdjustment?.reason ||
+                "835 ERA indicates the claim was denied",
+              denialDate: now,
+              revenueAtRisk: Math.max(
+                0,
+                Number(result.billedAmount ?? claim.amount ?? 0) -
+                  Number(result.paidAmount || 0)
+              ),
+              recommendedAction:
+                "Review the 835 adjustment codes and supporting claim data."
+            }
+          });
+        }
+      }
+
+      let underpaymentCase = null;
+      if (
+        !isDeniedEra &&
+        result.expectedPayerPayment != null &&
+        result.paidAmount != null &&
+        underpaymentAmount > 0.009
+      ) {
+        underpaymentCase = await tx.underpaymentCase.upsert({
+          where: { claimId: claim.id },
+          create: {
+            claimId: claim.id,
+            expectedPayerPayment: result.expectedPayerPayment,
+            actualPaidAmount: result.paidAmount,
+            varianceAmount: underpaymentAmount,
+            sourceTransactionId: result.transactionId,
+            reasonCategory: "PAYER_PAYMENT_BELOW_EXPECTED"
+          },
+          update: {
+            expectedPayerPayment: result.expectedPayerPayment,
+            actualPaidAmount: result.paidAmount,
+            varianceAmount: underpaymentAmount,
+            sourceTransactionId: result.transactionId,
+            detectedAt: now
+          }
+        });
+      }
+
+      return { transaction, updatedClaim, denialCase, underpaymentCase };
+    });
+
+    logJourneyEvent(claim.id, "era-835-posted", "POSTED", {
+      transactionId: result.transactionId,
+      testMode: result.testMode === true
+    });
+
+    return res.json({
+      message: "835 ERA retrieved and posted",
+      result,
+      transaction: posted.transaction,
+      claim: posted.updatedClaim,
+      denialCase: posted.denialCase,
+      underpaymentCase: posted.underpaymentCase,
+      claimStatusNotice:
+        "Claim status was not inferred from the 835 payment amount. Use 276/277 for payer claim status."
+    });
+  } catch (error) {
+    if (error?.status) throw error;
+    console.error("[claim-journey] external ERA refresh failed", {
+      claimId: req.params.id,
+      code: error?.code || null,
+      message: error?.message || "Unknown error"
+    });
+
+    if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
+      return res.status(503).json({
+        error: "835 ERA connector is not configured",
+        code: error.code
+      });
+    }
+    if (error?.code === "STEDI_API_ERROR") {
+      return res.status(502).json({
+        error: "External 835 ERA request failed",
+        code: error.code
+      });
+    }
+
+    return res.status(500).json({
+      error: "Unable to retrieve 835 ERA"
+    });
+  }
+});
+
 router.patch("/:id/journey/remittance", async (req, res) => {
   try {
     const parsedInput = parseMutation(remittanceMutationSchema, req.body);
