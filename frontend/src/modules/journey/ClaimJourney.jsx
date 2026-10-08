@@ -69,9 +69,14 @@ function humanStatus(status) {
 }
 
 function eligibilityOutcomeLabel(stage, transaction = null) {
+  const stageStatus = String(stage?.status || "").toUpperCase();
+  if (!stageStatus || ["NOT_CHECKED", "NOT_AVAILABLE"].includes(stageStatus)) {
+    return humanStatus(stageStatus || "NOT_CHECKED");
+  }
+
   const response = transaction?.responsePayload || {};
   const raw = String(
-    response.status || transaction?.status || stage?.status || ""
+    response.status || transaction?.status || stageStatus
   ).toUpperCase();
   const coverage = String(
     response.coverageStatus || stage?.coverageStatus || ""
