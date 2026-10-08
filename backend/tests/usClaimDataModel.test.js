@@ -71,16 +71,20 @@ test("U3 - claim API validates and persists service-line payloads", () => {
   assert.ok(claimsRoute.includes('serviceLines: { orderBy: { createdAt: "asc" } }'));
 });
 
-test("U3 - document intelligence CPT extraction is wired to persisted service lines", () => {
+test("U3 - document intelligence CPT extraction is wired to reviewed coding suggestions", () => {
   const extracted = extractFields(
     "Patient Name: Jane Doe\nICD-10: M54.50\nCPT Codes: 99213, 72100\nDate of Service: 10/01/2026"
   );
   assert.deepEqual(extracted.cptCodes, ["99213", "72100"]);
 
   const documentRoute = read("backend/src/routes/documents.js");
-  assert.ok(documentRoute.includes("persistExtractedServiceLines"));
-  assert.ok(documentRoute.includes("extracted.cptCodes"));
-  assert.ok(documentRoute.includes("prismaClient.serviceLine.createMany"));
+  const codingSuggestions = read("backend/src/services/codingSuggestions.js");
+
+  assert.ok(documentRoute.includes("syncDocumentCodingSuggestions"));
+  assert.ok(codingSuggestions.includes("extracted.cptCodes"));
+  assert.ok(codingSuggestions.includes("applyCodingSuggestionToClaim"));
+  assert.ok(codingSuggestions.includes("prismaClient.serviceLine.create"));
+  assert.ok(codingSuggestions.includes('source: "DOCUMENT_CODING_REVIEW"'));
 });
 
 test("U3 - frontend captures and displays US service-line data", () => {
