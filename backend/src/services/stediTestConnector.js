@@ -814,6 +814,12 @@ export function createStediProductionConnector({
     env.STEDI_PRODUCTION_API_BASE_URL || DEFAULT_BASE_URL
   ).replace(/\/$/, "");
   const claimStatusUrl = String(env.STEDI_CLAIM_STATUS_URL || "").trim();
+  const coreBaseUrl = String(
+    env.STEDI_CORE_API_BASE_URL || "https://core.us.stedi.com/2023-08-01"
+  ).replace(/\/$/, "");
+  const eraBaseUrl = String(
+    env.STEDI_ERA_API_BASE_URL || DEFAULT_CLAIMS_BASE_URL
+  ).replace(/\/$/, "");
 
   if (!apiKey) {
     throw new PayerConnectorUnavailableError(
@@ -889,8 +895,44 @@ export function createStediProductionConnector({
       });
     },
 
-    getRemittance() {
-      return unavailable("getRemittance");
+    async getRemittance(claim, context = {}) {
+      const expectedPatientControlNumber =
+        context.expectedPatientControlNumber ||
+        context.patientControlNumber ||
+        claim?.patientControlNumber ||
+        null;
+
+      if (context.transactionId) {
+        const { body, latencyMs } = await fetchStedi835Report({
+          transactionId: context.transactionId,
+          apiKey,
+          eraBaseUrl,
+          fetchImpl,
+          signal: context.signal
+        });
+        return normalizeStedi835Report(body, {
+          expectedPatientControlNumber,
+          transactionId: context.transactionId,
+          latencyMs
+        });
+      }
+
+      const result = await discoverStedi835({
+        expectedPatientControlNumber,
+        startDateTime:
+          context.startDateTime ||
+          claim?.claimSubmissionDate ||
+          new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        apiKey,
+        coreBaseUrl,
+        eraBaseUrl,
+        fetchImpl,
+        signal: context.signal
+      });
+      return {
+        ...result,
+        testMode: false
+      };
     }
   });
 }
