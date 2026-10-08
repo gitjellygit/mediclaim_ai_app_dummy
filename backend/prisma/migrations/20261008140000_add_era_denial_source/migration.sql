@@ -1,0 +1,1 @@
+ALTER TYPE "DenialCaseSource" ADD VALUE IF NOT EXISTS 'ERA';
