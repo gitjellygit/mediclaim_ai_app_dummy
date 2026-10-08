@@ -1088,7 +1088,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
         unchanged: true,
         available: false,
         message: "No matching 835 ERA is available yet",
-        result,
+        result: stripSensitivePayerPayload(result),
         claim
       });
     }
@@ -1100,7 +1100,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
         needsReview: true,
         message:
           "Multiple 835 ERA transactions match this claim. Review the candidate transactions before posting.",
-        result,
+        result: stripSensitivePayerPayload(result),
         claim
       });
     }
