@@ -1370,6 +1370,7 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       data: {
         status: submittedStatus,
         claimSubmissionDate: new Date(),
+        patientControlNumber: claim.patientControlNumber || claim.id,
         payerClaimStatus: "SUBMITTED",
         claimStatusCheckedAt: new Date(),
         remittanceStatus: "AWAITING"

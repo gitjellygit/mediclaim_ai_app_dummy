@@ -241,6 +241,264 @@ export function normalizeStediClaimStatusResponse(body, {
   };
 }
 
+
+function moneyOrNull(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizeAdjustmentRows(rows = [], scope = "CLAIM") {
+  const normalized = [];
+  for (const row of rows || []) {
+    const groupCode = row?.claimAdjustmentGroupCode || null;
+    for (let index = 1; index <= 6; index += 1) {
+      const code = row?.[`adjustmentReasonCode${index}`];
+      const amount = moneyOrNull(row?.[`adjustmentAmount${index}`]);
+      const description = row?.[`adjustmentReason${index}`] || null;
+      if (!code && amount == null && !description) continue;
+      normalized.push({
+        scope,
+        groupCode,
+        groupDescription: row?.claimAdjustmentGroupCodeValue || null,
+        reasonCode: code || null,
+        reason: description,
+        amount
+      });
+    }
+  }
+  return normalized;
+}
+
+function flatten835Payments(body = {}) {
+  const entries = [];
+  for (const transaction of body?.transactions || []) {
+    for (const detail of transaction?.detailInfo || []) {
+      for (const payment of detail?.paymentInfo || []) {
+        entries.push({ transaction, detail, payment });
+      }
+    }
+  }
+  return entries;
+}
+
+function normalizePcn(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function serviceAllowedAmount(payment = {}) {
+  const values = (payment.serviceLines || [])
+    .map((line) => moneyOrNull(line?.serviceSupplementalAmounts?.allowedActual))
+    .filter((value) => value != null);
+  return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+}
+
+export function normalizeStedi835Report(
+  body,
+  {
+    expectedPatientControlNumber = null,
+    transactionId = null,
+    latencyMs = null
+  } = {}
+) {
+  const entries = flatten835Payments(body);
+  const expected = normalizePcn(expectedPatientControlNumber);
+  const matching = expected
+    ? entries.filter(({ payment }) =>
+        normalizePcn(payment?.claimPaymentInfo?.patientControlNumber) === expected
+      )
+    : entries;
+
+  if (expected && matching.length === 0) {
+    return {
+      status: "NOT_FOUND",
+      transactionId: transactionId || body?.meta?.transactionId || null,
+      patientControlNumber: expectedPatientControlNumber || null,
+      matchCount: 0,
+      transactionType: "835",
+      latencyMs,
+      testMode: String(body?.meta?.applicationMode || "").toLowerCase() === "test",
+      raw: body
+    };
+  }
+
+  if (matching.length !== 1) {
+    return {
+      status: matching.length > 1 ? "NEEDS_REVIEW" : "NOT_FOUND",
+      transactionId: transactionId || body?.meta?.transactionId || null,
+      patientControlNumber: expectedPatientControlNumber || null,
+      matchCount: matching.length,
+      transactionType: "835",
+      latencyMs,
+      testMode: String(body?.meta?.applicationMode || "").toLowerCase() === "test",
+      raw: body
+    };
+  }
+
+  const { transaction, payment } = matching[0];
+  const claimPayment = payment?.claimPaymentInfo || {};
+  const claimAdjustments = normalizeAdjustmentRows(
+    payment?.claimAdjustments || [],
+    "CLAIM"
+  );
+  const serviceAdjustments = (payment?.serviceLines || []).flatMap((line) =>
+    normalizeAdjustmentRows(line?.serviceAdjustments || [], "SERVICE").map((item) => ({
+      ...item,
+      lineItemControlNumber: line?.lineItemControlNumber || null,
+      procedureCode:
+        line?.servicePaymentInformation?.adjudicatedProcedureCode || null
+    }))
+  );
+  const allowedAmount = serviceAllowedAmount(payment);
+  const paidAmount = moneyOrNull(claimPayment.claimPaymentAmount);
+  const patientResponsibility = moneyOrNull(
+    claimPayment.patientResponsibilityAmount
+  );
+  const expectedPayerPayment =
+    allowedAmount != null
+      ? Math.max(0, allowedAmount - Number(patientResponsibility || 0))
+      : null;
+  const potentialUnderpayment =
+    expectedPayerPayment != null && paidAmount != null
+      ? Math.max(0, expectedPayerPayment - paidAmount)
+      : null;
+
+  return {
+    status: "POSTED",
+    transactionId:
+      transactionId || body?.meta?.transactionId || transaction?.controlNumber || null,
+    controlNumber: transaction?.controlNumber || null,
+    patientControlNumber: claimPayment.patientControlNumber || null,
+    payerClaimControlNumber: claimPayment.payerClaimControlNumber || null,
+    claimStatusCode: claimPayment.claimStatusCode || null,
+    billedAmount: moneyOrNull(claimPayment.totalClaimChargeAmount),
+    allowedAmount,
+    paidAmount,
+    patientResponsibility,
+    expectedPayerPayment,
+    potentialUnderpayment,
+    paymentReference:
+      transaction?.paymentAndRemitReassociationDetails?.checkOrEFTTraceNumber ||
+      null,
+    paymentMethod: transaction?.financialInformation?.paymentMethodCode || null,
+    paymentDate:
+      transaction?.financialInformation?.checkIssueOrEFTEffectiveDate || null,
+    payerName: transaction?.payer?.name || null,
+    payeeNpi: transaction?.payee?.npi || null,
+    memberId: payment?.patientName?.memberId || null,
+    adjustments: [...claimAdjustments, ...serviceAdjustments],
+    transactionType: "835",
+    latencyMs,
+    testMode: String(body?.meta?.applicationMode || "").toLowerCase() === "test",
+    raw: body
+  };
+}
+
+function stediTransactionType(item = {}) {
+  return (
+    item?.x12?.metadata?.transaction?.transactionSetIdentifier ||
+    item?.x12?.transactionSetIdentifier ||
+    ""
+  );
+}
+
+async function fetchStedi835Report({
+  transactionId,
+  apiKey,
+  eraBaseUrl,
+  fetchImpl,
+  signal
+}) {
+  const startedAt = Date.now();
+  const response = await fetchImpl(
+    `${eraBaseUrl}/change/medicalnetwork/reports/v2/${encodeURIComponent(
+      transactionId
+    )}/835`,
+    {
+      headers: { Authorization: apiKey },
+      signal
+    }
+  );
+  const body = await parseResponse(response);
+  return { body, latencyMs: Date.now() - startedAt };
+}
+
+async function discoverStedi835({
+  expectedPatientControlNumber,
+  startDateTime,
+  apiKey,
+  coreBaseUrl,
+  eraBaseUrl,
+  fetchImpl,
+  signal
+}) {
+  required(expectedPatientControlNumber, "expectedPatientControlNumber");
+
+  const fallbackStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const requestedStart = startDateTime ? new Date(startDateTime) : fallbackStart;
+  const safeStart = Number.isNaN(requestedStart.getTime())
+    ? fallbackStart
+    : requestedStart;
+  // Stedi requires a time at least one minute in the past.
+  const latestAllowed = new Date(Date.now() - 60 * 1000);
+  const pollStart = safeStart > latestAllowed ? latestAllowed : safeStart;
+
+  const url = new URL(`${coreBaseUrl}/polling/transactions`);
+  url.searchParams.set("startDateTime", pollStart.toISOString());
+  url.searchParams.set("pageSize", "100");
+
+  const pollResponse = await fetchImpl(url, {
+    headers: { Authorization: apiKey },
+    signal
+  });
+  const pollBody = await parseResponse(pollResponse);
+  const candidates = (pollBody?.items || [])
+    .filter(
+      (item) =>
+        String(item?.direction || "").toUpperCase() === "INBOUND" &&
+        String(item?.status || "").toLowerCase() === "succeeded" &&
+        String(stediTransactionType(item)) === "835" &&
+        item?.transactionId
+    )
+    .slice(-20)
+    .reverse();
+
+  const matches = [];
+  for (const candidate of candidates) {
+    const { body, latencyMs } = await fetchStedi835Report({
+      transactionId: candidate.transactionId,
+      apiKey,
+      eraBaseUrl,
+      fetchImpl,
+      signal
+    });
+    const normalized = normalizeStedi835Report(body, {
+      expectedPatientControlNumber,
+      transactionId: candidate.transactionId,
+      latencyMs
+    });
+    if (normalized.status === "POSTED") {
+      matches.push(normalized);
+    }
+  }
+
+  if (matches.length === 1) {
+    return {
+      ...matches[0],
+      nextPageToken: pollBody?.nextPageToken || null
+    };
+  }
+
+  return {
+    status: matches.length > 1 ? "NEEDS_REVIEW" : "NOT_AVAILABLE",
+    transactionType: "835",
+    matchCount: matches.length,
+    candidateTransactionIds: matches.map((item) => item.transactionId),
+    nextPageToken: pollBody?.nextPageToken || null,
+    testMode: true
+  };
+}
+
 export function buildStediClaimSubmissionRequest(claim, context = {}) {
   if (context.requestPayload) {
     return {
@@ -426,6 +684,12 @@ export function createStediTestConnector({
   const apiKey = String(env.STEDI_TEST_API_KEY || "").trim();
   const baseUrl = String(env.STEDI_API_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
   const claimsBaseUrl = String(env.STEDI_CLAIMS_API_BASE_URL || DEFAULT_CLAIMS_BASE_URL).replace(/\/$/, "");
+  const coreBaseUrl = String(
+    env.STEDI_CORE_API_BASE_URL || "https://core.us.stedi.com/2023-08-01"
+  ).replace(/\/$/, "");
+  const eraBaseUrl = String(
+    env.STEDI_ERA_API_BASE_URL || DEFAULT_CLAIMS_BASE_URL
+  ).replace(/\/$/, "");
 
   if (!apiKey) {
     throw new PayerConnectorUnavailableError(
@@ -503,8 +767,40 @@ export function createStediTestConnector({
       return notYetImplemented("getStatus");
     },
 
-    getRemittance() {
-      return notYetImplemented("getRemittance");
+    async getRemittance(claim, context = {}) {
+      const expectedPatientControlNumber =
+        context.expectedPatientControlNumber ||
+        context.patientControlNumber ||
+        claim?.patientControlNumber ||
+        null;
+
+      if (context.transactionId) {
+        const { body, latencyMs } = await fetchStedi835Report({
+          transactionId: context.transactionId,
+          apiKey,
+          eraBaseUrl,
+          fetchImpl,
+          signal: context.signal
+        });
+        return normalizeStedi835Report(body, {
+          expectedPatientControlNumber,
+          transactionId: context.transactionId,
+          latencyMs
+        });
+      }
+
+      return discoverStedi835({
+        expectedPatientControlNumber,
+        startDateTime:
+          context.startDateTime ||
+          claim?.claimSubmissionDate ||
+          new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        apiKey,
+        coreBaseUrl,
+        eraBaseUrl,
+        fetchImpl,
+        signal: context.signal
+      });
     }
   });
 }
@@ -518,6 +814,12 @@ export function createStediProductionConnector({
     env.STEDI_PRODUCTION_API_BASE_URL || DEFAULT_BASE_URL
   ).replace(/\/$/, "");
   const claimStatusUrl = String(env.STEDI_CLAIM_STATUS_URL || "").trim();
+  const coreBaseUrl = String(
+    env.STEDI_CORE_API_BASE_URL || "https://core.us.stedi.com/2023-08-01"
+  ).replace(/\/$/, "");
+  const eraBaseUrl = String(
+    env.STEDI_ERA_API_BASE_URL || DEFAULT_CLAIMS_BASE_URL
+  ).replace(/\/$/, "");
 
   if (!apiKey) {
     throw new PayerConnectorUnavailableError(
@@ -593,8 +895,44 @@ export function createStediProductionConnector({
       });
     },
 
-    getRemittance() {
-      return unavailable("getRemittance");
+    async getRemittance(claim, context = {}) {
+      const expectedPatientControlNumber =
+        context.expectedPatientControlNumber ||
+        context.patientControlNumber ||
+        claim?.patientControlNumber ||
+        null;
+
+      if (context.transactionId) {
+        const { body, latencyMs } = await fetchStedi835Report({
+          transactionId: context.transactionId,
+          apiKey,
+          eraBaseUrl,
+          fetchImpl,
+          signal: context.signal
+        });
+        return normalizeStedi835Report(body, {
+          expectedPatientControlNumber,
+          transactionId: context.transactionId,
+          latencyMs
+        });
+      }
+
+      const result = await discoverStedi835({
+        expectedPatientControlNumber,
+        startDateTime:
+          context.startDateTime ||
+          claim?.claimSubmissionDate ||
+          new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        apiKey,
+        coreBaseUrl,
+        eraBaseUrl,
+        fetchImpl,
+        signal: context.signal
+      });
+      return {
+        ...result,
+        testMode: false
+      };
     }
   });
 }

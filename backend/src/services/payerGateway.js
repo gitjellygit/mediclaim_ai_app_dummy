@@ -147,7 +147,7 @@ export function registerDefaultPayerConnectors() {
     mode: "LIVE",
     provider: "STEDI",
     environment: PAYER_CONNECTOR_ENVIRONMENTS.TEST,
-    capabilities: ["checkEligibility", "listPayers"],
+    capabilities: ["checkEligibility", "listPayers", "getRemittance"],
     configured: (env) => Boolean(env.STEDI_TEST_API_KEY),
     factory: (_context, env) => createStediTestConnector({ env })
   });
@@ -159,7 +159,8 @@ export function registerDefaultPayerConnectors() {
     environment: PAYER_CONNECTOR_ENVIRONMENTS.PRODUCTION,
     capabilities: (env) => [
       "checkEligibility",
-      ...(env.STEDI_CLAIM_STATUS_URL ? ["getStatus"] : [])
+      ...(env.STEDI_CLAIM_STATUS_URL ? ["getStatus"] : []),
+      "getRemittance"
     ],
     configured: (env) => Boolean(env.STEDI_PRODUCTION_API_KEY),
     factory: (_context, env) => createStediProductionConnector({ env })

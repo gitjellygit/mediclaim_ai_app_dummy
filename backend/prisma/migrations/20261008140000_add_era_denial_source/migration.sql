@@ -1,0 +1,4 @@
+ALTER TYPE "DenialCaseSource" ADD VALUE IF NOT EXISTS 'ERA';
+
+ALTER TABLE "Claim"
+ADD COLUMN IF NOT EXISTS "patientControlNumber" TEXT;

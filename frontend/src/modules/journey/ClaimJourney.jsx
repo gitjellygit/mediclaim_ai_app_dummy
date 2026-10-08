@@ -707,6 +707,9 @@ export default function ClaimJourney() {
   const externalSubmissionSupported =
     externalPayerConnected &&
     connectedConnector?.capabilities?.includes("submitClaim");
+  const externalRemittanceSupported =
+    externalPayerConnected &&
+    connectedConnector?.capabilities?.includes("getRemittance");
   const externalStatusSupported =
     externalPayerConnected &&
     connectedConnector?.capabilities?.includes("getStatus");
@@ -739,7 +742,9 @@ export default function ClaimJourney() {
   function remittanceDisplayData(result = null) {
     const response = result?.result || result || latestRemittance?.responsePayload || {};
     return {
-      billedAmount: Number(claim?.amount ?? claim?.totalBilledAmount ?? 0),
+      billedAmount: Number(
+        response.billedAmount ?? claim?.amount ?? claim?.totalBilledAmount ?? 0
+      ),
       allowedAmount: Number(response.allowedAmount ?? claim?.allowedAmount ?? 0),
       expectedPayerPayment: Number(
         response.expectedPayerPayment ??
@@ -755,7 +760,12 @@ export default function ClaimJourney() {
         response.paymentReference || claim?.paymentReference || "—",
       potentialUnderpayment: Number(response.potentialUnderpayment || 0),
       sourceLabel:
-        journey?.payerConnection?.mode === "SIMULATED"
+        response.transactionType === "835" ||
+        latestRemittance?.responsePayload?.transactionType === "835"
+          ? response.testMode === true || latestRemittance?.mode === "TEST"
+            ? "Stedi test 835 ERA"
+            : "Payer 835 ERA"
+          : journey?.payerConnection?.mode === "SIMULATED"
           ? "Simulated 835 payer response"
           : "Recorded remittance",
       receivedAt: claim?.remittanceReceivedAt || latestRemittance?.createdAt || null
@@ -766,13 +776,23 @@ export default function ClaimJourney() {
     setAction("remittance");
     setPageError("");
     try {
-      const result = await ClaimsApi.simulatePayerRemittance(claim.id);
+      const result = simulatedPayerConnected
+        ? await ClaimsApi.simulatePayerRemittance(claim.id)
+        : await ClaimsApi.refreshRemittance(claim.id);
       await loadJourney(claim.id);
 
       if (result?.available === false) {
         showToast(
-          result.message || "No remittance is available yet.",
+          result.message || "No matching 835 ERA is available yet.",
           "info"
+        );
+        return;
+      }
+
+      if (result?.needsReview) {
+        showToast(
+          result.message || "Multiple 835 ERA transactions need review before posting.",
+          "warning"
         );
         return;
       }
@@ -780,7 +800,12 @@ export default function ClaimJourney() {
       setRemittanceDialogData(remittanceDisplayData(result));
       setRemittanceDialogOpen(true);
       if (!result?.unchanged) {
-        showToast("Remittance received and posted", "success");
+        showToast(
+          externalPayerConnected
+            ? "835 ERA retrieved and posted"
+            : "Remittance received and posted",
+          "success"
+        );
       }
     } catch (error) {
       const message = error.message || "Unable to check remittance";
@@ -1955,10 +1980,22 @@ export default function ClaimJourney() {
                       variant="contained"
                       size="small"
                       startIcon={<Refresh />}
-                      disabled={!stages.remittance.actionable || action !== ""}
+                      disabled={
+                        !stages.remittance.actionable ||
+                        action !== "" ||
+                        (externalPayerConnected && !externalRemittanceSupported)
+                      }
                       onClick={checkConnectedRemittance}
                     >
-                      {action === "remittance" ? "Refreshing..." : "Refresh Remittance"}
+                      {action === "remittance"
+                        ? externalPayerConnected
+                          ? "Checking 835..."
+                          : "Refreshing..."
+                        : externalPayerConnected && !externalRemittanceSupported
+                        ? "835 ERA Not Configured"
+                        : externalPayerConnected
+                        ? "Retrieve 835 ERA"
+                        : "Refresh Remittance"}
                     </Button>
                   </>
                 ) : (
