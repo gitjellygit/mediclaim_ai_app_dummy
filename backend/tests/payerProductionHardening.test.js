@@ -249,3 +249,18 @@ test("hardening - non-posted ERA responses are sanitized before browser return",
     /needsReview: true,[\s\S]*result: stripSensitivePayerPayload\(result\)/
   );
 });
+
+
+test("hardening - ERA responses never return unsanitized claim payer history", () => {
+  const journey = read("backend/src/routes/claimJourney.js");
+
+  assert.match(journey, /function sanitizeClaimPayerTransactions\(claim\)/);
+  assert.match(
+    journey,
+    /claim:\s*sanitizeClaimPayerTransactions\(claim\)/
+  );
+  assert.match(
+    journey,
+    /claim:\s*sanitizeClaimPayerTransactions\(currentClaim \|\| claim\)/
+  );
+});
