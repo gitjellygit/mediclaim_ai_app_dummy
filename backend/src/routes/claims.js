@@ -1045,6 +1045,22 @@ router.patch("/:id", async (req, res) => {
             });
           }
         }
+
+        if (manuallyChangedFields.length > 0) {
+          await tx.fieldCandidate.updateMany({
+            where: {
+              claimId: req.params.id,
+              fieldName: { in: manuallyChangedFields },
+              decision: { in: ["CONFIRM", "PENDING", "ABSTAINED"] }
+            },
+            data: {
+              decision: "OVERRIDDEN",
+              decisionReason: "HUMAN_EDITED_CLAIM_VALUE",
+              reviewedAt: new Date(),
+              reviewedById: req.user.id
+            }
+          });
+        }
       });
 
       await markReadinessChecksStale(
@@ -1061,6 +1077,15 @@ router.patch("/:id", async (req, res) => {
       include: {
         documents: true,
         serviceLines: { orderBy: { createdAt: "asc" } },
+        fieldCandidates: {
+          where: { decision: { in: ["CONFIRM", "ABSTAINED"] } },
+          include: {
+            document: {
+              select: { id: true, fileName: true, type: true }
+            }
+          },
+          orderBy: { createdAt: "asc" }
+        },
         checks: { orderBy: { createdAt: "desc" } }
       }
     });
