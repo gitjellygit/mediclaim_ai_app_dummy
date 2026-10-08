@@ -47,8 +47,23 @@ export function documentCreateData({
   file,
   fileHash,
   intel,
-  type = null
+  type = null,
+  identityValidation = null
 }) {
+  const identityReview =
+    identityValidation?.status === "REVIEW" ||
+    identityValidation?.status === "UNVERIFIED"
+      ? {
+          status: identityValidation.status,
+          conflicts: identityValidation.conflicts || [],
+          matches: identityValidation.matches || [],
+          tolerantMatches: identityValidation.tolerantMatches || [],
+          warnings: identityValidation.warnings || [],
+          reviewed: false,
+          reviewedAt: null
+        }
+      : null;
+
   return {
     claimId,
     type: type || intel.suggestedType || "OTHER",
@@ -59,7 +74,10 @@ export function documentCreateData({
     fileHash,
     suggestedType: intel.suggestedType || null,
     confidence: intel.confidence ?? null,
-    extracted: intel.extracted || {},
+    extracted: {
+      ...(intel.extracted || {}),
+      ...(identityReview ? { _identityReview: identityReview } : {})
+    },
     rawText: intel.rawExtractedText || null,
     ocrProvider: intel.ocrProvider || intel.extractionSource || null,
     status: "PROCESSED"

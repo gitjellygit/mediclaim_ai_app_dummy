@@ -95,6 +95,13 @@ export const ClaimsApi = {
     });
   },
 
+  reviewDocumentIdentity(docId, decision = "CONFIRMED") {
+    return api(`/api/documents/${docId}/identity-review`, {
+      method: "PATCH",
+      body: JSON.stringify({ decision })
+    });
+  },
+
 
   deleteDoc(docId) {
     return api(`${BASE}/documents/${docId}`, {

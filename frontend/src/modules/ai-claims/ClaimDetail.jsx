@@ -24,7 +24,6 @@ import {
   DOC_TYPE_LABELS,
   formatDate,
   formatMoney,
-  readinessTextColor,
   provenanceChipColor
 } from "./claim-detail/claimDetailUtils.js";
 import ServiceLinesEditor, { emptyServiceLine, serviceLineToForm, serviceLineToPayload } from "../../components/ServiceLinesEditor.jsx";
@@ -123,6 +122,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [newIcdCode, setNewIcdCode] = React.useState("");
   const [codingActionId, setCodingActionId] = React.useState("");
   const [icdReviewOpen, setIcdReviewOpen] = React.useState(false);
+  const [identityReviewDoc, setIdentityReviewDoc] = React.useState(null);
+  const [identityReviewBusy, setIdentityReviewBusy] = React.useState(false);
   const [fixFocus, setFixFocus] = React.useState("");
   const [fixFields, setFixFields] = React.useState([]);
   const [readinessHistoryExpanded, setReadinessHistoryExpanded] = React.useState(false);
@@ -934,6 +935,29 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
   }
 
+  function documentIdentityReview(doc) {
+    const review = doc?.extracted?._identityReview;
+    return review && typeof review === "object" ? review : null;
+  }
+
+  async function completeDocumentIdentityReview(doc) {
+    if (!doc?.id) return;
+    try {
+      setIdentityReviewBusy(true);
+      await ClaimsApi.reviewDocumentIdentity(doc.id, "CONFIRMED");
+      setIdentityReviewDoc(null);
+      await load();
+      showToast("Document identity review completed", "success");
+    } catch (error) {
+      showDialog(
+        error?.message || "The document identity review could not be completed.",
+        { title: "Identity review failed", severity: "error" }
+      );
+    } finally {
+      setIdentityReviewBusy(false);
+    }
+  }
+
   async function applyDocSuggestion(doc) {
     if (!canDeleteDoc) return showToast("Only CASHIER/ADMIN can apply suggestion", "error");
     if (!doc?.suggestedType) return;
@@ -1302,12 +1326,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
       <ClaimSummaryCard claim={claim} />
 
-      <ClaimCompletenessCard
-        completeness={completeness}
-        automation={claim.automationSummary}
-        onFixItem={fixCompletenessItem}
-        claimStatus={claim.status}
-      />
+      {!claimFinalized && (
+        <ClaimCompletenessCard
+          completeness={completeness}
+          automation={claim.automationSummary}
+          onFixItem={fixCompletenessItem}
+          claimStatus={claim.status}
+        />
+      )}
 
       <Card
         ref={patientPolicyRef}
@@ -2200,6 +2226,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                       <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 100 }}>
                         Confidence
                       </TableCell>
+                      <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 130 }}>
+                        Identity
+                      </TableCell>
                       <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 180 }}>
                         Actions
                       </TableCell>
@@ -2304,6 +2333,27 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                             )}
                           </TableCell>
                           <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
+                            {(() => {
+                              const review = documentIdentityReview(doc);
+                              if (!review) {
+                                return <Chip size="small" label="Accepted" color="success" variant="outlined" />;
+                              }
+                              if (review.reviewed) {
+                                return <Chip size="small" label="Reviewed" color="success" variant="outlined" />;
+                              }
+                              return (
+                                <Chip
+                                  size="small"
+                                  label="Needs review"
+                                  color="warning"
+                                  clickable={!claimFinalized}
+                                  onClick={() => !claimFinalized && setIdentityReviewDoc(doc)}
+                                  data-testid={`document-identity-review-${doc.id}`}
+                                />
+                              );
+                            })()}
+                          </TableCell>
+                          <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
                             <Stack direction="row" spacing={0.5}>
                               <Tooltip title="Preview">
                                 <IconButton 
@@ -2359,7 +2409,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                           </TableCell>
                         </TableRow>
                         <TableRow>
-                          <TableCell colSpan={6} sx={{ p: 0, borderBottom: '1px solid #e0e0e0' }}>
+                          <TableCell colSpan={7} sx={{ p: 0, borderBottom: '1px solid #e0e0e0' }}>
                             <Collapse in={expandedRows.has(doc.id)} timeout="auto" unmountOnExit>
                               <Box sx={{ p: 2, backgroundColor: '#fafafa' }}>
                                 <Stack spacing={1}>
@@ -2385,11 +2435,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                                       <Typography variant="subtitle2" fontWeight="bold">
                                         Extracted Data
                                       </Typography>
-                                      {Object.entries(doc.extracted).map(([key, value]) => (
-                                        <Typography key={key} variant="body2" sx={{ pl: 2 }}>
-                                          <strong>{key}:</strong> {value}
-                                        </Typography>
-                                      ))}
+                                      {Object.entries(doc.extracted)
+                                        .filter(([key]) => !key.startsWith("_"))
+                                        .map(([key, value]) => (
+                                          <Typography key={key} variant="body2" sx={{ pl: 2 }}>
+                                            <strong>{key}:</strong> {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                                          </Typography>
+                                        ))}
                                     </Box>
                                   )}
                                 </Stack>
@@ -2433,40 +2485,45 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
             alignItems={{ xs: "stretch", sm: "center" }}
             gap={2}
           >
-            <Typography variant="h6">Claim Readiness for Submission</Typography>
+            <Box>
+              <Typography variant="h6">
+                {claimFinalized
+                  ? "Pre-submission Validation Snapshot"
+                  : "Submission Readiness"}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {claimFinalized
+                  ? "Historical validation captured before the claim was submitted."
+                  : "Validates known claim-format, coding, identity and workflow rules. It does not guarantee payer acceptance."}
+              </Typography>
+            </Box>
 
-            <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap>
-              <Button
-                variant="contained"
-                onClick={runAICheck}
-                disabled={aiRunning || !canRunAI || aiCheckLocked || !eligibilityClear}
-              >
-                {aiRunning
-                  ? "Checking..."
-                  : check?.isStale
-                  ? "Recheck Readiness"
-                  : check
-                  ? "Check Readiness Again"
-                  : "Check Readiness"}
-              </Button>
+            {!claimFinalized && (
+              <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap>
+                <Button
+                  variant="contained"
+                  onClick={runAICheck}
+                  disabled={aiRunning || !canRunAI || aiCheckLocked || !eligibilityClear}
+                >
+                  {aiRunning
+                    ? "Checking..."
+                    : check?.isStale
+                    ? "Recheck Readiness"
+                    : check
+                    ? "Check Readiness Again"
+                    : "Check Readiness"}
+                </Button>
 
-              <Button
-                variant="contained"
-                color="success"
-                onClick={submitClaim}
-                disabled={!canSubmit || submittingClaim || claimFinalized}
-              >
-                {claim.status === "PAID"
-                  ? "Paid"
-                  : claim.status === "DENIED"
-                  ? "Denied"
-                  : claim.status === "SUBMITTED" || claim.claimSubmissionDate
-                  ? "Submitted"
-                  : submittingClaim
-                  ? "Submitting..."
-                  : "Submit Claim"}
-              </Button>
-            </Stack>
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={submitClaim}
+                  disabled={!canSubmit || submittingClaim}
+                >
+                  {submittingClaim ? "Submitting..." : "Submit Claim"}
+                </Button>
+              </Stack>
+            )}
           </Stack>
 
           {!eligibilityClear && claim.status !== "SUBMITTED" && (
@@ -2515,26 +2572,52 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           {check && (
             <>
               <Stack
-                direction={{ xs: "column", sm: "row" }}
+                direction={{ xs: "column", md: "row" }}
                 justifyContent="space-between"
-                alignItems={{ xs: "flex-start", sm: "flex-end" }}
-                spacing={1}
+                alignItems={{ xs: "flex-start", md: "center" }}
+                spacing={1.5}
                 sx={{ mt: 2 }}
               >
-                <Typography
-                  variant="h3"
-                  fontWeight={850}
-                  lineHeight={1}
-                  sx={{ color: readinessTextColor(check.score) }}
-                  data-testid="readiness-score"
-                >
-                  {check.score}%
-                </Typography>
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+                  <Chip
+                    color={!check.isStale && !hasBlock && check.score >= 80 ? "success" : "error"}
+                    label={!check.isStale && !hasBlock && check.score >= 80 ? "Ready to submit" : "Not ready"}
+                    data-testid="readiness-status"
+                  />
+                  <Chip
+                    variant="outlined"
+                    label={`Validation score ${check.score}/100`}
+                    data-testid="readiness-score"
+                  />
+                  {completeness?.score != null && (
+                    <Chip
+                      variant="outlined"
+                      color={completeness.score >= 90 ? "success" : completeness.score >= 70 ? "warning" : "error"}
+                      label={`Claim completeness ${completeness.score}%`}
+                      data-testid="readiness-completeness"
+                    />
+                  )}
+                  <Chip
+                    variant="outlined"
+                    color={
+                      check.riskLevel === "HIGH"
+                        ? "error"
+                        : check.riskLevel === "MED"
+                        ? "warning"
+                        : "success"
+                    }
+                    label={`Residual risk ${String(check.riskLevel || "LOW").toLowerCase()}`}
+                    data-testid="readiness-risk"
+                  />
+                </Stack>
 
                 <Typography variant="caption" color="text.secondary">
                   Checked {new Date(check.createdAt).toLocaleString()}
                 </Typography>
               </Stack>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                A 100/100 validation score means all currently configured validation rules passed. It is not a prediction of zero payer rejection or denial risk.
+              </Typography>
 
               <Box sx={{ mt: 1.5, mb: 2.25 }}>
                 <Box
@@ -2587,13 +2670,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Stack>
               </Box>
 
-              {check.isStale ? (
+              {claimFinalized ? (
+                <Alert severity="info" sx={{ mb: 1.5 }}>
+                  The claim is already submitted. Missing/review tasks are no longer shown as active work. This validation snapshot is retained for audit history.
+                </Alert>
+              ) : check.isStale ? (
                 <Alert severity="warning" sx={{ mb: 1.5 }} data-testid="readiness-stale">
                   Claim information changed. Recheck readiness to recalculate the score and current blockers.
                 </Alert>
               ) : issues.length === 0 ? (
                 <Alert severity="success" sx={{ mb: 1.5 }}>
-                  No readiness issues found. This claim can be submitted.
+                  All configured submission checks passed. Payer acceptance is still subject to payer-specific edits, coverage and payment policy.
                 </Alert>
               ) : (
                 <Stack spacing={1} sx={{ mt: 0.5 }}>
@@ -2718,6 +2805,83 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(identityReviewDoc)}
+        onClose={() => !identityReviewBusy && setIdentityReviewDoc(null)}
+        fullWidth
+        maxWidth="sm"
+        aria-labelledby="document-identity-review-title"
+      >
+        <DialogTitle id="document-identity-review-title">
+          Review document identity
+        </DialogTitle>
+        <DialogContent dividers>
+          {identityReviewDoc && (() => {
+            const review = documentIdentityReview(identityReviewDoc) || {};
+            const conflictLabels = {
+              patientName: "Patient name",
+              memberId: "Member ID",
+              policyNo: "Policy number",
+              patientDob: "Date of birth"
+            };
+            const claimValues = {
+              patientName: claim?.patientName,
+              memberId: claim?.memberId,
+              policyNo: claim?.policyNo,
+              patientDob: formatUSDateOnly(claim?.patientDob)
+            };
+            const docValues = {
+              patientName: identityReviewDoc?.extracted?.patientName,
+              memberId: identityReviewDoc?.extracted?.memberId,
+              policyNo: identityReviewDoc?.extracted?.policyNo,
+              patientDob:
+                identityReviewDoc?.extracted?.dateOfBirth ||
+                identityReviewDoc?.extracted?.patientDob
+            };
+            return (
+              <Stack spacing={2}>
+                <Typography variant="body2" color="text.secondary">
+                  This document was uploaded because most patient evidence matched, but one extracted identifier conflicted. Confirm that the document belongs to this claim before submission.
+                </Typography>
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
+                  <Typography variant="subtitle2" fontWeight={800}>
+                    {identityReviewDoc.fileName}
+                  </Typography>
+                  {(review.conflicts || []).map((field) => (
+                    <Box key={field} sx={{ mt: 1 }}>
+                      <Typography variant="body2" fontWeight={700}>
+                        {conflictLabels[field] || field}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Claim: {claimValues[field] || "—"}
+                      </Typography>
+                      <Typography variant="body2" color="warning.dark">
+                        Document: {docValues[field] || "—"}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Paper>
+                <Alert severity="info">
+                  If the claim value is wrong, close this dialog and edit the patient/policy field first. If the claim value is correct and this document still belongs to the same patient, confirm the review below.
+                </Alert>
+              </Stack>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIdentityReviewDoc(null)} disabled={identityReviewBusy}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => completeDocumentIdentityReview(identityReviewDoc)}
+            disabled={identityReviewBusy}
+          >
+            {identityReviewBusy ? "Saving..." : "Confirm document belongs to this claim"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={icdReviewOpen}

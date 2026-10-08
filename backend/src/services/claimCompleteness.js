@@ -9,11 +9,21 @@
 const LABELS = {
   patientName: "Patient Name",
   patientDob: "Patient DOB",
+  claimForm: "Claim Form",
   memberId: "Member ID",
   payerName: "Payer",
   policyNo: "Policy Number",
   hospitalName: "Hospital",
   doctorName: "Doctor",
+  subscriberName: "Subscriber Name",
+  groupNumber: "Group Number",
+  billingProviderNpi: "Billing Provider NPI",
+  renderingProviderNpi: "Rendering Provider NPI",
+  providerTin: "Provider TIN",
+  providerTaxonomy: "Provider Taxonomy",
+  placeOfService: "Place of Service",
+  typeOfBill: "Type of Bill",
+  revenueCode: "Revenue Code",
   diagnosisText: "Diagnosis",
   icd10Codes: "ICD-10",
   serviceLines: "CPT / HCPCS Service Line",
@@ -27,7 +37,8 @@ const LABELS = {
   totalBilledAmount: "Total Billed",
   authorizationNo: "Authorization Number",
   eligibilityStatus: "Eligibility",
-  priorAuthStatus: "Prior Authorization"
+  priorAuthStatus: "Prior Authorization",
+  documentIdentityReview: "Document Identity Review"
 };
 
 function hasValue(value) {
@@ -120,7 +131,9 @@ export function buildClaimCompleteness(claim) {
   };
 
   // Core claim identity / coding / financial fields.
+  push({ field: "claimForm", required: true });
   push({ field: "patientName", required: true });
+  push({ field: "patientDob", required: true });
   push({ field: "payerName", required: true });
   push({ field: "policyNo", required: true });
   push({ field: "memberId", required: true });
@@ -162,11 +175,65 @@ export function buildClaimCompleteness(claim) {
       ? "coding-review"
       : "serviceLines"
   });
+  const pendingDocumentIdentityReviews = (claim?.documents || []).filter((doc) => {
+    const review = doc?.extracted?._identityReview;
+    return review && review.reviewed !== true;
+  });
+  if (pendingDocumentIdentityReviews.length > 0) {
+    push({
+      field: "documentIdentityReview",
+      required: true,
+      complete: false,
+      state: "review",
+      reason:
+        pendingDocumentIdentityReviews.length === 1
+          ? "1 uploaded document has an unresolved patient/member identity review"
+          : `${pendingDocumentIdentityReviews.length} uploaded documents have unresolved patient/member identity reviews`,
+      fixTarget: "documents"
+    });
+  }
+
   push({ field: "dateOfService", required: true });
   push({ field: "amount", required: true });
   push({ field: "totalBilledAmount", required: true });
 
-  // Useful context, but not universal hard submission gates.
+  // U.S. provider/subscriber context. Some values are payer- or encounter-specific,
+  // so recommended fields improve completeness without becoming universal blockers.
+  push({
+    field: "subscriberName",
+    required: false,
+    reason: "Recommended to preserve subscriber identity when available"
+  });
+  push({
+    field: "groupNumber",
+    required: false,
+    reason: "Recommended when the payer card/plan supplies a group number"
+  });
+  push({
+    field: "billingProviderNpi",
+    required: true,
+    reason: "Billing provider NPI is required for the configured U.S. submission workflow"
+  });
+  push({
+    field: "renderingProviderNpi",
+    required: claim?.claimForm === "PROFESSIONAL",
+    conditional: true,
+    applicable: claim?.claimForm === "PROFESSIONAL",
+    reason:
+      claim?.claimForm === "PROFESSIONAL"
+        ? "Professional claims require a rendering provider NPI in this workflow"
+        : "Not applicable to this claim form"
+  });
+  push({
+    field: "providerTin",
+    required: false,
+    reason: "Recommended billing-provider identifier; payer requirements vary"
+  });
+  push({
+    field: "providerTaxonomy",
+    required: false,
+    reason: "Recommended when required by payer/provider enrollment rules"
+  });
   push({
     field: "hospitalName",
     required: false,
@@ -176,6 +243,48 @@ export function buildClaimCompleteness(claim) {
     field: "doctorName",
     required: false,
     reason: "Recommended when available"
+  });
+
+  const verifiedLines = Array.isArray(claim?.serviceLines)
+    ? claim.serviceLines.filter((line) => line?.verified !== false)
+    : [];
+  push({
+    field: "placeOfService",
+    required: claim?.claimForm === "PROFESSIONAL",
+    conditional: true,
+    applicable: claim?.claimForm === "PROFESSIONAL",
+    complete:
+      claim?.claimForm !== "PROFESSIONAL" ||
+      (verifiedLines.length > 0 && verifiedLines.every((line) => Boolean(line?.placeOfService))),
+    reason:
+      claim?.claimForm === "PROFESSIONAL"
+        ? "Professional service lines require Place of Service"
+        : "Not applicable to this claim form",
+    fixTarget: "serviceLines"
+  });
+  push({
+    field: "typeOfBill",
+    required: claim?.claimForm === "INSTITUTIONAL",
+    conditional: true,
+    applicable: claim?.claimForm === "INSTITUTIONAL",
+    reason:
+      claim?.claimForm === "INSTITUTIONAL"
+        ? "Institutional claims require Type of Bill"
+        : "Not applicable to this claim form"
+  });
+  push({
+    field: "revenueCode",
+    required: claim?.claimForm === "INSTITUTIONAL",
+    conditional: true,
+    applicable: claim?.claimForm === "INSTITUTIONAL",
+    complete:
+      claim?.claimForm !== "INSTITUTIONAL" ||
+      (verifiedLines.length > 0 && verifiedLines.every((line) => Boolean(line?.revenueCode))),
+    reason:
+      claim?.claimForm === "INSTITUTIONAL"
+        ? "Institutional service lines require revenue codes"
+        : "Not applicable to this claim form",
+    fixTarget: "serviceLines"
   });
 
   // Journey prerequisites.
@@ -275,6 +384,19 @@ export function completenessReadinessIssues(claim) {
     "WARN",
     "Date of service is missing"
   );
+
+  const identityReviewItem = summary.fields.find(
+    (entry) => entry.field === "documentIdentityReview"
+  );
+  if (identityReviewItem && ["missing", "review"].includes(identityReviewItem.state)) {
+    issues.push({
+      severity: "BLOCK",
+      message: identityReviewItem.reason || "Document identity review is unresolved",
+      field: "documentIdentityReview",
+      source: "COMPLETENESS",
+      fixTarget: "documents"
+    });
+  }
 
   if (summary.inpatientLikely) {
     addIfIncomplete(

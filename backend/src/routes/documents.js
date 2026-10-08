@@ -696,7 +696,8 @@ export function documentsRouter(prisma, uploadDir) {
           file: req.file,
           fileHash,
           intel,
-          type: requestedType
+          type: requestedType,
+          identityValidation
         })
       });
 
@@ -1214,6 +1215,118 @@ export function documentsRouter(prisma, uploadDir) {
       });
       return res.status(500).json({
         error: "Unable to change document type"
+      });
+    }
+  });
+
+  router.patch("/:id/identity-review", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
+    try {
+      const decision = String(req.body?.decision || "CONFIRMED").trim().toUpperCase();
+      if (!["CONFIRMED"].includes(decision)) {
+        return res.status(400).json({
+          error: "Invalid identity review decision",
+          code: "INVALID_IDENTITY_REVIEW_DECISION"
+        });
+      }
+
+      const doc = await prisma.document.findFirst({
+        where: {
+          id: req.params.id,
+          claim: { organizationId: req.user.organizationId, deletedAt: null }
+        },
+        include: { claim: true }
+      });
+
+      if (!doc) return res.status(404).json({ error: "Document not found" });
+      if (isClaimLocked(doc.claim)) {
+        return res.status(409).json({
+          error: "Submitted claims are locked. Identity review cannot be changed."
+        });
+      }
+
+      const extracted =
+        doc.extracted && typeof doc.extracted === "object" && !Array.isArray(doc.extracted)
+          ? doc.extracted
+          : {};
+      const review =
+        extracted._identityReview && typeof extracted._identityReview === "object"
+          ? extracted._identityReview
+          : null;
+
+      if (!review) {
+        return res.json({
+          ...doc,
+          unchanged: true,
+          message: "This document has no pending identity review"
+        });
+      }
+
+      if (review.reviewed === true) {
+        return res.json({
+          ...doc,
+          unchanged: true,
+          message: "Document identity has already been reviewed"
+        });
+      }
+
+      const nextExtracted = {
+        ...extracted,
+        _identityReview: {
+          ...review,
+          reviewed: true,
+          reviewedAt: new Date().toISOString(),
+          reviewedByUserId: req.user?.id || null,
+          decision
+        }
+      };
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const changed = await tx.document.update({
+          where: { id: doc.id },
+          data: { extracted: nextExtracted }
+        });
+
+        await tx.check.updateMany({
+          where: { claimId: doc.claimId, isStale: false },
+          data: {
+            isStale: true,
+            staleAt: new Date(),
+            staleReason: "Document identity review resolved"
+          }
+        });
+
+        if (doc.claim?.status === "READY") {
+          await tx.claim.update({
+            where: { id: doc.claimId },
+            data: { status: "DRAFT" }
+          });
+        }
+
+        return changed;
+      });
+
+      await auditDocumentEvent(prisma, req, {
+        claimId: doc.claimId,
+        documentId: doc.id,
+        action: "DOCUMENT_IDENTITY_REVIEWED",
+        metadata: {
+          decision,
+          conflicts: Array.isArray(review.conflicts) ? review.conflicts : [],
+          previousStatus: review.status || null
+        }
+      });
+
+      return res.json({
+        ...updated,
+        message: "Document identity review completed"
+      });
+    } catch (error) {
+      console.error("[claim-document] identity review update failed", {
+        documentId: req.params.id,
+        code: error?.code || null
+      });
+      return res.status(500).json({
+        error: "Unable to complete document identity review"
       });
     }
   });
