@@ -123,6 +123,8 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [newIcdCode, setNewIcdCode] = React.useState("");
   const [codingActionId, setCodingActionId] = React.useState("");
   const [icdReviewOpen, setIcdReviewOpen] = React.useState(false);
+  const [identityReviewDoc, setIdentityReviewDoc] = React.useState(null);
+  const [identityReviewBusy, setIdentityReviewBusy] = React.useState(false);
   const [fixFocus, setFixFocus] = React.useState("");
   const [fixFields, setFixFields] = React.useState([]);
   const [readinessHistoryExpanded, setReadinessHistoryExpanded] = React.useState(false);
@@ -934,6 +936,29 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
   }
 
+  function documentIdentityReview(doc) {
+    const review = doc?.extracted?._identityReview;
+    return review && typeof review === "object" ? review : null;
+  }
+
+  async function completeDocumentIdentityReview(doc) {
+    if (!doc?.id) return;
+    try {
+      setIdentityReviewBusy(true);
+      await ClaimsApi.reviewDocumentIdentity(doc.id, "CONFIRMED");
+      setIdentityReviewDoc(null);
+      await load();
+      showToast("Document identity review completed", "success");
+    } catch (error) {
+      showDialog(
+        error?.message || "The document identity review could not be completed.",
+        { title: "Identity review failed", severity: "error" }
+      );
+    } finally {
+      setIdentityReviewBusy(false);
+    }
+  }
+
   async function applyDocSuggestion(doc) {
     if (!canDeleteDoc) return showToast("Only CASHIER/ADMIN can apply suggestion", "error");
     if (!doc?.suggestedType) return;
@@ -1302,12 +1327,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
       <ClaimSummaryCard claim={claim} />
 
-      <ClaimCompletenessCard
-        completeness={completeness}
-        automation={claim.automationSummary}
-        onFixItem={fixCompletenessItem}
-        claimStatus={claim.status}
-      />
+      {!claimFinalized && (
+        <ClaimCompletenessCard
+          completeness={completeness}
+          automation={claim.automationSummary}
+          onFixItem={fixCompletenessItem}
+          claimStatus={claim.status}
+        />
+      )}
 
       <Card
         ref={patientPolicyRef}
@@ -2200,6 +2227,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                       <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 100 }}>
                         Confidence
                       </TableCell>
+                      <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 130 }}>
+                        Identity
+                      </TableCell>
                       <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 180 }}>
                         Actions
                       </TableCell>
@@ -2304,6 +2334,27 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                             )}
                           </TableCell>
                           <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
+                            {(() => {
+                              const review = documentIdentityReview(doc);
+                              if (!review) {
+                                return <Chip size="small" label="Matched" color="success" variant="outlined" />;
+                              }
+                              if (review.reviewed) {
+                                return <Chip size="small" label="Reviewed" color="success" variant="outlined" />;
+                              }
+                              return (
+                                <Chip
+                                  size="small"
+                                  label="Needs review"
+                                  color="warning"
+                                  clickable={!claimFinalized}
+                                  onClick={() => !claimFinalized && setIdentityReviewDoc(doc)}
+                                  data-testid={`document-identity-review-${doc.id}`}
+                                />
+                              );
+                            })()}
+                          </TableCell>
+                          <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
                             <Stack direction="row" spacing={0.5}>
                               <Tooltip title="Preview">
                                 <IconButton 
@@ -2359,7 +2410,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                           </TableCell>
                         </TableRow>
                         <TableRow>
-                          <TableCell colSpan={6} sx={{ p: 0, borderBottom: '1px solid #e0e0e0' }}>
+                          <TableCell colSpan={7} sx={{ p: 0, borderBottom: '1px solid #e0e0e0' }}>
                             <Collapse in={expandedRows.has(doc.id)} timeout="auto" unmountOnExit>
                               <Box sx={{ p: 2, backgroundColor: '#fafafa' }}>
                                 <Stack spacing={1}>
@@ -2385,11 +2436,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                                       <Typography variant="subtitle2" fontWeight="bold">
                                         Extracted Data
                                       </Typography>
-                                      {Object.entries(doc.extracted).map(([key, value]) => (
-                                        <Typography key={key} variant="body2" sx={{ pl: 2 }}>
-                                          <strong>{key}:</strong> {value}
-                                        </Typography>
-                                      ))}
+                                      {Object.entries(doc.extracted)
+                                        .filter(([key]) => !key.startsWith("_"))
+                                        .map(([key, value]) => (
+                                          <Typography key={key} variant="body2" sx={{ pl: 2 }}>
+                                            <strong>{key}:</strong> {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                                          </Typography>
+                                        ))}
                                     </Box>
                                   )}
                                 </Stack>
@@ -2718,6 +2771,83 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(identityReviewDoc)}
+        onClose={() => !identityReviewBusy && setIdentityReviewDoc(null)}
+        fullWidth
+        maxWidth="sm"
+        aria-labelledby="document-identity-review-title"
+      >
+        <DialogTitle id="document-identity-review-title">
+          Review document identity
+        </DialogTitle>
+        <DialogContent dividers>
+          {identityReviewDoc && (() => {
+            const review = documentIdentityReview(identityReviewDoc) || {};
+            const conflictLabels = {
+              patientName: "Patient name",
+              memberId: "Member ID",
+              policyNo: "Policy number",
+              patientDob: "Date of birth"
+            };
+            const claimValues = {
+              patientName: claim?.patientName,
+              memberId: claim?.memberId,
+              policyNo: claim?.policyNo,
+              patientDob: formatUSDateOnly(claim?.patientDob)
+            };
+            const docValues = {
+              patientName: identityReviewDoc?.extracted?.patientName,
+              memberId: identityReviewDoc?.extracted?.memberId,
+              policyNo: identityReviewDoc?.extracted?.policyNo,
+              patientDob:
+                identityReviewDoc?.extracted?.dateOfBirth ||
+                identityReviewDoc?.extracted?.patientDob
+            };
+            return (
+              <Stack spacing={2}>
+                <Typography variant="body2" color="text.secondary">
+                  This document was uploaded because most patient evidence matched, but one extracted identifier conflicted. Confirm that the document belongs to this claim before submission.
+                </Typography>
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
+                  <Typography variant="subtitle2" fontWeight={800}>
+                    {identityReviewDoc.fileName}
+                  </Typography>
+                  {(review.conflicts || []).map((field) => (
+                    <Box key={field} sx={{ mt: 1 }}>
+                      <Typography variant="body2" fontWeight={700}>
+                        {conflictLabels[field] || field}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Claim: {claimValues[field] || "—"}
+                      </Typography>
+                      <Typography variant="body2" color="warning.dark">
+                        Document: {docValues[field] || "—"}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Paper>
+                <Alert severity="info">
+                  If the claim value is wrong, close this dialog and edit the patient/policy field first. If the claim value is correct and this document still belongs to the same patient, confirm the review below.
+                </Alert>
+              </Stack>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIdentityReviewDoc(null)} disabled={identityReviewBusy}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => completeDocumentIdentityReview(identityReviewDoc)}
+            disabled={identityReviewBusy}
+          >
+            {identityReviewBusy ? "Saving..." : "Confirm document belongs to this claim"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={icdReviewOpen}
