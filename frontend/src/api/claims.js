@@ -126,6 +126,13 @@ export const ClaimsApi = {
     });
   },
 
+  listDocuments(claimId = "") {
+    const params = new URLSearchParams();
+    if (claimId) params.set("claimId", claimId);
+    const query = params.toString();
+    return withReadRetry(() => api(`/api/documents${query ? `?${query}` : ""}`));
+  },
+
   getDocumentCodingSuggestions(docId) {
     return api(`/api/documents/${docId}/coding-suggestions`);
   },
