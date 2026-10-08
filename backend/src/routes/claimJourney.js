@@ -29,6 +29,7 @@ router.use((req, res, next) => {
     /\/prior-auth\/evaluate$/.test(path) ? "PRIOR_AUTH_EVALUATED" :
     /\/claim-status\/refresh$/.test(path) ? "PAYER_STATUS_REFRESHED" :
     /\/claim-status$/.test(path) ? "PAYER_STATUS_UPDATED" :
+    /\/remittance\/refresh$/.test(path) ? "ERA_835_REFRESHED" :
     /\/remittance$/.test(path) ? "REMITTANCE_UPDATED" :
     null;
 
