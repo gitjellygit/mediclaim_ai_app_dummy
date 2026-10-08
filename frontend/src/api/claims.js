@@ -102,6 +102,13 @@ export const ClaimsApi = {
     });
   },
 
+  reviewFieldCandidate(claimId, candidateId, action) {
+    return api(`${BASE}/${claimId}/field-candidates/${candidateId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action })
+    });
+  },
+
 
   deleteDoc(docId) {
     return api(`${BASE}/documents/${docId}`, {
