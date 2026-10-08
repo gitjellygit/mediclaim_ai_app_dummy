@@ -24,7 +24,8 @@ test("U2 - claim schema uses US insurance terminology and claim types", () => {
     "planAdministratorName String?",
     "coverageLimit      Decimal?",
     "remainingCoverageLimit Decimal?",
-    "payerReferenceNo    String?"
+    "patientControlNumber String?",
+    "payerReferenceNo"
   ]) {
     assert.ok(schema.includes(expected), expected);
   }
