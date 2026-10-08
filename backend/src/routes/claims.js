@@ -798,6 +798,21 @@ router.patch("/:id", async (req, res) => {
     const anyClaimDataChanged =
       patchChangedFields.length > 0 || serviceLinesChanged;
 
+    const payerIdentityFields = new Set([
+      "payerName",
+      "payerEdiId",
+      "memberId",
+      "policyNo",
+      "groupNumber",
+      "subscriberId",
+      "subscriberName",
+      "subscriberRelationship",
+      "coordinationOfBenefits"
+    ]);
+    const payerIdentityChanged = patchChangedFields.some((field) =>
+      payerIdentityFields.has(field)
+    );
+
     const manuallyChangedFields = changedFields(existing, payload);
     const documentDerivedFields = removeManuallyEditedFields(
       existing.documentDerivedFields,
@@ -821,6 +836,21 @@ router.patch("/:id", async (req, res) => {
             where: { id: req.params.id },
             data: {
               ...payload,
+              ...(payerIdentityChanged
+                ? {
+                    eligibilityStatus: "NOT_CHECKED",
+                    eligibilityCheckedAt: null,
+                    coverageStatus: null,
+                    networkStatus: null,
+                    deductibleRemaining: null,
+                    coinsurancePct: null,
+                    priorAuthRequired: null,
+                    priorAuthStatus: "NOT_CHECKED",
+                    priorAuthCheckedAt: null,
+                    authorizationNo: null,
+                    priorAuthExpiry: null
+                  }
+                : {}),
               documentDerivedFields,
               fieldProvenance,
               status: nextStatus
@@ -849,7 +879,9 @@ router.patch("/:id", async (req, res) => {
       await markReadinessChecksStale(
         prisma,
         req.params.id,
-        serviceLinesChanged && patchChangedFields.length === 0
+        payerIdentityChanged
+          ? "Payer/member information changed; eligibility and prior authorization must be rechecked"
+          : serviceLinesChanged && patchChangedFields.length === 0
           ? "Claim service lines changed"
           : "Claim details changed"
       );
