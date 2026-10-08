@@ -544,6 +544,8 @@ model DenialCase {
   rarcCode        String?
   reasonText      String?
   denialDate      DateTime?
+  sourceTransactionId String?
+  payerEvidence       Json?
 
   correctable     Boolean?
   appealEligible  Boolean?
@@ -563,6 +565,7 @@ model DenialCase {
   aiInputVersion String? @default("denial-v1")
 
   @@index([claimId])
+  @@index([sourceTransactionId])
   @@index([status])
   @@index([denialCategory])
 }
