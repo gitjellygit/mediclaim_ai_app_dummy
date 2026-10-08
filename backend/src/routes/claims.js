@@ -54,6 +54,55 @@ function orgId(req) {
   return req.user.organizationId;
 }
 
+async function resolveDocumentIdentityField(
+  tx,
+  candidate,
+  reviewedAt,
+  reviewedByUserId,
+  decision
+) {
+  const extracted =
+    candidate?.document?.extracted &&
+    typeof candidate.document.extracted === "object" &&
+    !Array.isArray(candidate.document.extracted)
+      ? candidate.document.extracted
+      : null;
+  const review =
+    extracted?._identityReview &&
+    typeof extracted._identityReview === "object"
+      ? extracted._identityReview
+      : null;
+
+  if (!review || review.reviewed === true) return;
+
+  const conflicts = Array.isArray(review.conflicts) ? review.conflicts : [];
+  if (!conflicts.includes(candidate.fieldName)) return;
+
+  const resolvedFields = [
+    ...new Set([...(review.resolvedFields || []), candidate.fieldName])
+  ];
+  const fullyResolved = conflicts.every((field) => resolvedFields.includes(field));
+
+  await tx.document.update({
+    where: { id: candidate.documentId },
+    data: {
+      extracted: {
+        ...extracted,
+        _identityReview: {
+          ...review,
+          resolvedFields,
+          reviewed: fullyResolved,
+          reviewedAt: fullyResolved ? reviewedAt.toISOString() : review.reviewedAt || null,
+          reviewedByUserId: fullyResolved
+            ? reviewedByUserId
+            : review.reviewedByUserId || null,
+          decision: fullyResolved ? decision : review.decision || null
+        }
+      }
+    }
+  });
+}
+
 function normalizeServiceLines(lines = []) {
   const parsed = z.array(serviceLineInputSchema).max(500).safeParse(lines);
   if (!parsed.success) {
@@ -497,7 +546,7 @@ router.patch(
         include: {
           claim: true,
           document: {
-            select: { id: true, fileName: true, type: true }
+            select: { id: true, fileName: true, type: true, extracted: true }
           }
         }
       });
@@ -520,14 +569,18 @@ router.patch(
 
       const now = new Date();
       if (action === "REJECT") {
-        const rejected = await prisma.fieldCandidate.update({
-          where: { id: candidate.id },
-          data: {
-            decision: "REJECTED",
-            decisionReason: "HUMAN_REJECTED",
-            reviewedAt: now,
-            reviewedById: req.user.id
-          }
+        const rejected = await prisma.$transaction(async (tx) => {
+          const updatedCandidate = await tx.fieldCandidate.update({
+            where: { id: candidate.id },
+            data: {
+              decision: "REJECTED",
+              decisionReason: "HUMAN_REJECTED",
+              reviewedAt: now,
+              reviewedById: req.user.id
+            }
+          });
+          await resolveDocumentIdentityField(tx, candidate, now, req.user.id, "FIELD_VALUE_REJECTED");
+          return updatedCandidate;
         });
 
         await writeRequestAudit(prisma, req, {
@@ -598,6 +651,14 @@ router.patch(
             reviewedById: req.user.id
           }
         });
+
+        await resolveDocumentIdentityField(
+          tx,
+          candidate,
+          now,
+          req.user.id,
+          "FIELD_VALUE_ACCEPTED"
+        );
 
         await tx.fieldCandidate.updateMany({
           where: {
