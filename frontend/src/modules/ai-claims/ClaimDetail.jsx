@@ -897,8 +897,30 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     try {
       setSubmittingClaim(true);
       await ClaimsApi.submit(id);
+
+      let payerTransmissionCompleted = false;
+      if (
+        claim?.payerConnectionMode === "SIMULATED" &&
+        claim?.simulatedPayerCode
+      ) {
+        try {
+          await ClaimsApi.simulatePayerSubmission(id);
+          payerTransmissionCompleted = true;
+        } catch (transmissionError) {
+          console.warn("[claim-detail] payer transmission after submission failed", {
+            claimId: id,
+            message: transmissionError?.message || "Unknown error"
+          });
+        }
+      }
+
       await load();
-      showToast("Claim submitted successfully", "success");
+      showToast(
+        payerTransmissionCompleted
+          ? "Claim submitted and sent to payer"
+          : "Claim submitted successfully",
+        "success"
+      );
     } catch (e) {
       showDialog(
         e.message || "The claim could not be submitted.",
@@ -907,6 +929,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     } finally {
       setSubmittingClaim(false);
     }
+  }
+
+  function viewClaimStatus() {
+    navigate(`/journey?claimId=${claim.id}&stage=claim-status`, {
+      state: {
+        from: location.pathname + location.search,
+        backLabel: "Back to Claim Detail"
+      }
+    });
   }
 
   async function applyDocSuggestion(doc) {
@@ -2425,6 +2456,16 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   ? "Submitting..."
                   : "Submit Claim"}
               </Button>
+
+              {claimFinalized && (
+                <Button
+                  variant="outlined"
+                  onClick={viewClaimStatus}
+                  data-testid="view-claim-status"
+                >
+                  View Claim Status
+                </Button>
+              )}
             </Stack>
           </Stack>
 
@@ -2460,7 +2501,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           )}
 
           {claim.status === "SUBMITTED" && (
-            <Alert severity="success" sx={{ mt: 2 }}>
+            <Alert
+              severity="success"
+              sx={{ mt: 2 }}
+              action={
+                <Button color="inherit" size="small" onClick={viewClaimStatus}>
+                  View Claim Status
+                </Button>
+              }
+            >
               Claim submitted{claim.claimSubmissionDate ? ` on ${formatDate(claim.claimSubmissionDate)}` : ""}. Claim data and documents are locked.
             </Alert>
           )}
