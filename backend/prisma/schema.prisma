@@ -170,6 +170,7 @@ enum DenialCaseSource {
   MANUAL
   PAYER_STATUS
   SIMULATED_PAYER_STATUS
+  ERA
 }
 
 enum UnderpaymentCaseStatus {
