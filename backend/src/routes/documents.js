@@ -791,6 +791,54 @@ export function documentsRouter(prisma, uploadDir) {
   // Compatibility for callers using POST /api/claims/documents.
   router.post("/", upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
 
+  // List documents for the current organization without bloating the claims list.
+  router.get("/", async (req, res) => {
+    const claimId = String(req.query?.claimId || "").trim();
+    const docs = await prisma.document.findMany({
+      where: {
+        claim: {
+          organizationId: req.user.organizationId,
+          deletedAt: null,
+          ...(claimId ? { id: claimId } : {})
+        }
+      },
+      include: {
+        claim: {
+          select: {
+            id: true,
+            patientName: true
+          }
+        },
+        codingSuggestions: {
+          select: {
+            status: true
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const items = docs.map(({ claim, codingSuggestions, ...doc }) => ({
+      ...doc,
+      claimId: claim.id,
+      patientName: claim.patientName || "Unknown Patient",
+      codingSummary: {
+        total: codingSuggestions.length,
+        pending: codingSuggestions.filter((item) => item.status === "PENDING").length
+      }
+    }));
+
+    await writeRequestAudit(prisma, req, {
+      claimId: claimId || null,
+      action: "DOCUMENT_LIST_VIEWED",
+      entityType: claimId ? "Claim" : "Document",
+      entityId: claimId || null,
+      metadata: { count: items.length, scoped: Boolean(claimId) }
+    });
+
+    res.json(items);
+  });
+
   // List docs for a claim
   router.get("/claim/:claimId", async (req, res) => {
     const docs = await prisma.document.findMany({
