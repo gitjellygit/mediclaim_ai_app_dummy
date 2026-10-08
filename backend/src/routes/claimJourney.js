@@ -70,6 +70,14 @@ function sanitizePayerTransaction(transaction) {
   };
 }
 
+function sanitizeClaimPayerTransactions(claim) {
+  if (!claim || !Array.isArray(claim.payerTransactions)) return claim;
+  return {
+    ...claim,
+    payerTransactions: claim.payerTransactions.map(sanitizePayerTransaction)
+  };
+}
+
 function sendConnectorFailure(res, error, operation) {
   if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
     res.status(503).json({
@@ -231,12 +239,7 @@ router.get("/:id/journey", async (req, res) => {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    const sanitizedClaim = {
-      ...claim,
-      payerTransactions: (claim.payerTransactions || []).map(
-        sanitizePayerTransaction
-      )
-    };
+    const sanitizedClaim = sanitizeClaimPayerTransactions(claim);
 
     res.json({
       claim: {
@@ -1043,7 +1046,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
       return res.json({
         unchanged: true,
         message: "Remittance is already posted",
-        claim
+        claim: sanitizeClaimPayerTransactions(claim)
       });
     }
 
@@ -1089,7 +1092,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
         available: false,
         message: "No matching 835 ERA is available yet",
         result: stripSensitivePayerPayload(result),
-        claim
+        claim: sanitizeClaimPayerTransactions(claim)
       });
     }
 
@@ -1101,7 +1104,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
         message:
           "Multiple 835 ERA transactions match this claim. Review the candidate transactions before posting.",
         result: stripSensitivePayerPayload(result),
-        claim
+        claim: sanitizeClaimPayerTransactions(claim)
       });
     }
 
@@ -1124,7 +1127,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
         message: "This 835 ERA has already been posted to the claim",
         result: stripSensitivePayerPayload(existingTransaction.responsePayload),
         transaction: sanitizePayerTransaction(existingTransaction),
-        claim
+        claim: sanitizeClaimPayerTransactions(claim)
       });
     }
 
@@ -1364,7 +1367,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
               duplicateTransaction.responsePayload
             ),
             transaction: sanitizePayerTransaction(duplicateTransaction),
-            claim: currentClaim || claim
+            claim: sanitizeClaimPayerTransactions(currentClaim || claim)
           });
         }
       }
