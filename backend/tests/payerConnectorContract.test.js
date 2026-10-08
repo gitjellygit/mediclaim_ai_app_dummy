@@ -240,7 +240,6 @@ test("R2A - STEDI_TEST appears in registry and is configured only with a test ke
   assert.deepEqual(withoutKey.get("STEDI_TEST")?.capabilities, [
     "checkEligibility",
     "listPayers",
-    "submitClaim",
     "getRemittance"
   ]);
 
