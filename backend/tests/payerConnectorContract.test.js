@@ -247,6 +247,7 @@ test("R2A - STEDI_TEST appears in registry and is configured only with a test ke
     listPayerConnectors({ STEDI_TEST_API_KEY: "test-key" }).map((item) => [item.id, item])
   );
   assert.equal(withKey.get("STEDI_TEST")?.configured, true);
+  assert.equal(withKey.get("STEDI_TEST")?.capabilities.includes("getRemittance"), true);
 });
 
 test("R2A - claim-level connector ID overrides deployment default for LIVE claims", () => {
@@ -303,4 +304,5 @@ test("R3 - STEDI_PRODUCTION is separate from test mode and exposes 276/277 when 
   assert.equal(claimStatus.id, "STEDI_PRODUCTION");
   assert.equal(claimStatus.environment, "PRODUCTION");
   assert.equal(claimStatus.capabilities.includes("getStatus"), true);
+  assert.equal(claimStatus.capabilities.includes("getRemittance"), true);
 });
