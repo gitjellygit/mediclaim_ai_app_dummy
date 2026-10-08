@@ -85,26 +85,8 @@ export default function DocumentIntelligence() {
   async function loadDocuments() {
     try {
       setLoading(true);
-      const claims = await ClaimsApi.list();
-
-      const allDocs = claims.flatMap(c =>
-        (c.documents || []).map(d => {
-          const suggestions = (c.codingSuggestions || []).filter(
-            (item) => item.documentId === d.id
-          );
-          return {
-            ...d,
-            claimId: c.id,
-            patientName: c.patientName || "Unknown Patient",
-            codingSummary: {
-              total: suggestions.length,
-              pending: suggestions.filter((item) => item.status === "PENDING").length
-            }
-          };
-        })
-      );
-
-      setDocuments(allDocs);
+      const docs = await ClaimsApi.listDocuments(claimIdFilter);
+      setDocuments(Array.isArray(docs) ? docs : []);
     } catch (err) {
       console.error("Failed to load documents:", err);
       setDocuments([]);
