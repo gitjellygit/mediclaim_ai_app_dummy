@@ -284,14 +284,13 @@ export function extractFields(text) {
     /Total\s*Amount\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
     /Total\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
     /Balance\s*Due\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /Amount\s*Due\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i,
-    /\$\s*([0-9,]+\.?[0-9]*)/i
+    /Amount\s*Due\s*[:\-]?\s*(?:USD|\$)?\s*([0-9,]+\.?[0-9]*)/i
   ]);
 
   const amount = parseAmount(amountText);
 
   const memberId = firstMatch(t, [
-    /Member\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Member\s*ID\b\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Membership\s*No\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Subscriber\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]);
@@ -301,7 +300,7 @@ export function extractFields(text) {
   ]);
 
   const subscriberId = firstMatch(t, [
-    /Subscriber\s*ID\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
+    /Subscriber\s*ID\b\s*[:\-]?\s*([A-Z0-9\-\/]+)/i,
     /Subscriber\s*(?:No|Number)\s*[:\-]?\s*([A-Z0-9\-\/]+)/i
   ]) || memberId;
 
@@ -461,17 +460,17 @@ export function classifyDocument({ fileName, text }) {
   }
 
   if (
-    hasAny(name, ["operative note", "op note", "surgery"]) ||
-    hasAny(text, ["operative note", "procedure performed", "surgical procedure"])
-  ) {
-    return { suggestedType: "OPERATIVE_NOTE", confidence: 78 };
-  }
-
-  if (
     hasAny(name, ["progress note", "daily note", "clinical note"]) ||
     hasAny(text, ["progress note", "daily progress", "clinical documentation"])
   ) {
     return { suggestedType: "PROGRESS_NOTE", confidence: 76 };
+  }
+
+  if (
+    hasAny(name, ["operative note", "op note", "surgery"]) ||
+    hasAny(text, ["operative note", "procedure performed", "surgical procedure"])
+  ) {
+    return { suggestedType: "OPERATIVE_NOTE", confidence: 78 };
   }
 
   if (
