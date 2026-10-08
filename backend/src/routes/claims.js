@@ -1212,7 +1212,13 @@ router.post("/:id/check", async (req, res) => {
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
         documents: true,
-        serviceLines: { orderBy: { createdAt: "asc" } }
+        serviceLines: { orderBy: { createdAt: "asc" } },
+        fieldCandidates: {
+          where: {
+            criticality: "CRITICAL",
+            decision: "CONFIRM"
+          }
+        }
       }
     });
 
@@ -1259,6 +1265,22 @@ router.post("/:id/check", async (req, res) => {
         severity: "BLOCK",
         message: "No supporting documents uploaded",
         fixTarget: "documents"
+      });
+    }
+
+    const unresolvedCriticalExtractionFields = [
+      ...new Set((claim.fieldCandidates || []).map((item) => item.fieldName))
+    ];
+    if (unresolvedCriticalExtractionFields.length > 0) {
+      issues.push({
+        severity: "BLOCK",
+        message:
+          unresolvedCriticalExtractionFields.length === 1
+            ? `Confirm the extracted ${unresolvedCriticalExtractionFields[0]} before submission`
+            : `Confirm ${unresolvedCriticalExtractionFields.length} submission-critical extracted fields before submission`,
+        source: "EXTRACTION_V2",
+        fields: unresolvedCriticalExtractionFields,
+        fixTarget: "extraction-review"
       });
     }
 
@@ -1502,7 +1524,14 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
-        checks: { orderBy: { createdAt: "desc" }, take: 1 }
+        checks: { orderBy: { createdAt: "desc" }, take: 1 },
+        fieldCandidates: {
+          where: {
+            criticality: "CRITICAL",
+            decision: "CONFIRM"
+          },
+          select: { id: true, fieldName: true }
+        }
       }
     });
 
@@ -1511,6 +1540,14 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
     }
 
     const latestCheck = claim.checks?.[0];
+
+    if ((claim.fieldCandidates || []).length > 0) {
+      return res.status(400).json({
+        error: "Confirm submission-critical extracted fields before submitting the claim",
+        code: "EXTRACTION_REVIEW_REQUIRED",
+        fields: [...new Set(claim.fieldCandidates.map((item) => item.fieldName))]
+      });
+    }
 
     if (claim.eligibilityStatus !== "VERIFIED") {
       return res.status(400).json({
