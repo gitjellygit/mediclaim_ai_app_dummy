@@ -183,3 +183,42 @@ Authorization Status: APPROVED
   assert.equal(extracted.policyNo, null);
   assert.equal(extracted.authorizationNo, "AUTH-ER-9001");
 });
+
+
+test("Avery regression - Member Identification heading is not parsed as a member ID", () => {
+  const extracted = extractFields(`
+Insurance Card
+Member Identification
+Patient Name: Avery Morgan
+Member ID: AM-884210
+Policy Number: POL-AM-77101
+`);
+
+  assert.equal(extracted.memberId, "AM-884210");
+});
+
+test("Avery regression - coverage limit does not become claimed amount", () => {
+  const insurance = extractFields(`
+Insurance Card
+Patient Name: Avery Morgan
+Coverage Limit: $250,000.00
+Remaining Coverage Limit: $238,500.00
+`);
+  assert.equal(insurance.amount, null);
+
+  const bill = extractFields(`
+Final Bill
+Patient Name: Avery Morgan
+Grand Total: $12,480.00
+`);
+  assert.equal(bill.amount, 12480);
+});
+
+test("Avery regression - explicit progress note wins over generic procedure wording", () => {
+  const result = classifyDocument({
+    fileName: "03_Avery_Morgan_progress_note.pdf",
+    text: "Progress Note\nProcedure Performed: Laparoscopic appendectomy"
+  });
+
+  assert.equal(result.suggestedType, "PROGRESS_NOTE");
+});
