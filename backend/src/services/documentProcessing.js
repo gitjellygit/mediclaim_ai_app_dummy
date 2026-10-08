@@ -1,4 +1,5 @@
 import { analyzeDocument, getFileHash } from "./docIntel.js";
+import { EXTRACTION_ENGINE_VERSION } from "./extractionEngineV2.js";
 
 function processingError(message, status, code) {
   const error = new Error(message);
@@ -7,17 +8,67 @@ function processingError(message, status, code) {
   return error;
 }
 
-export async function inspectUploadedDocument(file) {
+export async function inspectUploadedDocument(
+  file,
+  { prisma = null, organizationId = null } = {}
+) {
   if (!file?.path) {
     throw processingError("Uploaded file is missing", 400, "UPLOAD_FILE_MISSING");
   }
 
   const fileHash = getFileHash(file.path);
+
+  if (prisma && organizationId) {
+    const cached = await prisma.extractionCache.findUnique({
+      where: {
+        organizationId_fileHash_engineVersion: {
+          organizationId,
+          fileHash,
+          engineVersion: EXTRACTION_ENGINE_VERSION
+        }
+      }
+    });
+    if (cached?.result && typeof cached.result === "object") {
+      return {
+        fileHash,
+        intel: {
+          ...cached.result,
+          extractionCacheHit: true
+        },
+        extracted: cached.result.extracted || {},
+        cacheHit: true
+      };
+    }
+  }
+
   const intel = await analyzeDocument({
     fileName: file.originalname,
     mimeType: file.mimetype,
     path: file.path
   });
+
+  if (prisma && organizationId && intel?.ocrStatus !== "FAILED") {
+    await prisma.extractionCache.upsert({
+      where: {
+        organizationId_fileHash_engineVersion: {
+          organizationId,
+          fileHash,
+          engineVersion: EXTRACTION_ENGINE_VERSION
+        }
+      },
+      create: {
+        organizationId,
+        fileHash,
+        engineVersion: EXTRACTION_ENGINE_VERSION,
+        result: intel,
+        sourceProvider: intel.ocrProvider || intel.extractionSource || null
+      },
+      update: {
+        result: intel,
+        sourceProvider: intel.ocrProvider || intel.extractionSource || null
+      }
+    });
+  }
 
   if (intel.ocrStatus === "FAILED") {
     throw processingError(
