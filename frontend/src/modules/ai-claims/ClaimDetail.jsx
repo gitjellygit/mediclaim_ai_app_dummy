@@ -83,6 +83,49 @@ function FieldLine({ claim, field, label, children }) {
   );
 }
 
+const EXTRACTION_FIELD_LABELS = {
+  patientName: "Patient Name",
+  patientDob: "Date of Birth",
+  memberId: "Member ID",
+  policyNo: "Policy Number",
+  groupNumber: "Group Number",
+  subscriberId: "Subscriber ID",
+  subscriberName: "Subscriber Name",
+  payerName: "Payer",
+  payerEdiId: "Payer EDI ID",
+  medicalRecordNumber: "MRN",
+  patientMobile: "Patient Phone",
+  insurerClaimNo: "Claim Number",
+  hospitalName: "Hospital",
+  doctorName: "Doctor",
+  diagnosisText: "Diagnosis",
+  authorizationNo: "Authorization Number",
+  dateOfService: "Date of Service",
+  admissionDate: "Admission Date",
+  dischargeDate: "Discharge Date",
+  amount: "Claimed Amount",
+  totalBilledAmount: "Total Billed",
+  billingProviderNpi: "Billing NPI",
+  renderingProviderNpi: "Rendering NPI",
+  referringProviderNpi: "Referring NPI",
+  providerTin: "Provider TIN",
+  providerTaxonomyCode: "Provider Taxonomy",
+  typeOfBill: "Type of Bill",
+  drgCode: "DRG",
+  planAdministratorName: "Plan Administrator",
+  coverageLimit: "Coverage Limit",
+  remainingCoverageLimit: "Remaining Coverage"
+};
+
+function displayCandidateValue(candidate) {
+  const value = candidate?.normalizedValue;
+  if (value == null || value === "") return "—";
+  if (["amount", "totalBilledAmount", "coverageLimit", "remainingCoverageLimit"].includes(candidate.fieldName)) {
+    return formatMoney(Number(value));
+  }
+  return String(value);
+}
+
 export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const { id: idParam } = useParams();
   const navigate = useNavigate();
@@ -121,12 +164,24 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [icdReviewOpen, setIcdReviewOpen] = React.useState(false);
   const [identityReviewDoc, setIdentityReviewDoc] = React.useState(null);
   const [identityReviewBusy, setIdentityReviewBusy] = React.useState(false);
+  const [fieldReviewBusyId, setFieldReviewBusyId] = React.useState("");
   const [fixFocus, setFixFocus] = React.useState("");
   const [fixFields, setFixFields] = React.useState([]);
   const [readinessHistoryExpanded, setReadinessHistoryExpanded] = React.useState(false);
   const patientPolicyRef = React.useRef(null);
+  const extractionReviewRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
+
+  const reviewableFieldCandidates = React.useMemo(() => {
+    const byValue = new Map();
+    for (const candidate of claim?.fieldCandidates || []) {
+      if (candidate.decision !== "CONFIRM") continue;
+      const key = `${candidate.fieldName}:${candidate.normalizedKey}`;
+      if (!byValue.has(key)) byValue.set(key, candidate);
+    }
+    return [...byValue.values()];
+  }, [claim?.fieldCandidates]);
 
   const pendingCodingSuggestions = React.useMemo(() => {
     const bySystemAndCode = new Map();
@@ -570,6 +625,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       return;
     }
 
+    if (issue?.fixTarget === "extraction-review") {
+      scrollToRef(extractionReviewRef);
+      return;
+    }
+
     if (issue?.fixTarget === "eligibility") {
       navigate(`/journey?claimId=${claim.id}&stage=eligibility`, {
         state: {
@@ -948,6 +1008,28 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
   }
 
+  async function reviewExtractedField(candidate, action) {
+    if (!candidate?.id || fieldReviewBusyId) return;
+    try {
+      setFieldReviewBusyId(candidate.id);
+      await ClaimsApi.reviewFieldCandidate(claim.id, candidate.id, action);
+      await load();
+      showToast(
+        action === "ACCEPT"
+          ? `${EXTRACTION_FIELD_LABELS[candidate.fieldName] || candidate.fieldName} accepted`
+          : "Extracted value rejected",
+        "success"
+      );
+    } catch (error) {
+      showDialog(
+        error?.message || "The extracted field could not be reviewed.",
+        { title: "Field review failed", severity: "error" }
+      );
+    } finally {
+      setFieldReviewBusyId("");
+    }
+  }
+
   function documentIdentityReview(doc) {
     const review = doc?.extracted?._identityReview;
     return review && typeof review === "object" ? review : null;
@@ -1085,65 +1167,52 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
   }
 
-  async function handlePreview(doc) {
+  async function handlePreview(doc, pageNumber = null) {
     try {
-      console.log("Previewing document:", doc.id, doc.fileName);
-      
-      // Check if we have a token
-      const token = localStorage.getItem('accessToken');
-      console.log("Token available:", !!token);
-      console.log("Token length:", token?.length || 0);
-      
+      const token = localStorage.getItem("accessToken");
       if (!token) {
-        console.error("No authentication token found");
         showDialog(
           "Your session is missing or has expired. Please log in again to preview documents.",
           { title: "Sign-in required", severity: "warning" }
         );
         return;
       }
-      
-      // Use API_BASE for direct backend connection
+
       const response = await fetch(`${API_BASE}/api/documents/${doc.id}/preview`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`
         }
       });
-      
-      console.log("Response status:", response.status);
-      console.log("Response headers:", [...response.headers.entries()]);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("Preview response not ok:", response.status, response.statusText, errorText);
         showDialog(
           errorText || `Preview failed: ${response.statusText}`,
           { title: "Document preview failed", severity: "error" }
         );
         return;
       }
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      
-      // Check if it's a PDF and open in new tab
+
       if (doc.mimeType?.includes("pdf")) {
-        window.open(url, '_blank');
+        const page =
+          Number.isInteger(Number(pageNumber)) && Number(pageNumber) > 0
+            ? `#page=${Number(pageNumber)}`
+            : "";
+        window.open(`${url}${page}`, "_blank", "noopener,noreferrer");
       } else {
-        // For non-PDFs, try to download instead
-        const a = document.createElement('a');
+        const a = document.createElement("a");
         a.href = url;
         a.download = doc.fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
       }
-      
-      // Clean up the URL after a delay
-      setTimeout(() => window.URL.revokeObjectURL(url), 1000);
-      
+
+      setTimeout(() => window.URL.revokeObjectURL(url), 5000);
     } catch (e) {
-      console.error("Preview error:", e);
       showDialog(
         e?.message || "The document preview could not be loaded. Please try again.",
         { title: "Document preview failed", severity: "error" }
@@ -1153,16 +1222,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   async function handleDownload(doc) {
     try {
-      console.log("Downloading document:", doc.id, doc.fileName);
-      
-      // Check if we have a token
+// Check if we have a token
       const token = localStorage.getItem('accessToken');
-      console.log("Token available:", !!token);
-      console.log("Token length:", token?.length || 0);
-      
-      if (!token) {
-        console.error("No authentication token found");
-        showDialog(
+if (!token) {
+showDialog(
           "Your session is missing or has expired. Please log in again to download documents.",
           { title: "Sign-in required", severity: "warning" }
         );
@@ -1346,6 +1409,158 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           onFixItem={fixCompletenessItem}
           claimStatus={claim.status}
         />
+      )}
+
+      {!claimFinalized && reviewableFieldCandidates.length > 0 && (
+        <Card
+          ref={extractionReviewRef}
+          variant="outlined"
+          sx={{ mb: 2, borderColor: "warning.light", scrollMarginTop: 88 }}
+          data-testid="extraction-field-review-card"
+        >
+          <CardContent>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              justifyContent="space-between"
+              spacing={1}
+              sx={{ mb: 1.5 }}
+            >
+              <Box>
+                <Typography variant="h6" fontWeight={800}>
+                  AI fields to confirm ({reviewableFieldCandidates.length})
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  These values were extracted but were not safe enough to write silently. Confirm, reject, or edit the claim value.
+                </Typography>
+              </Box>
+              <Chip
+                color="warning"
+                variant="outlined"
+                label="Human confirmation required"
+              />
+            </Stack>
+
+            <Stack spacing={1.25}>
+              {reviewableFieldCandidates.map((candidate) => {
+                const sourceDocument =
+                  (claim.documents || []).find(
+                    (doc) => doc.id === candidate.documentId
+                  ) || candidate.document;
+                return (
+                  <Paper
+                    key={candidate.id}
+                    variant="outlined"
+                    sx={{ p: 1.5 }}
+                    data-testid={`field-candidate-${candidate.fieldName}-${candidate.id}`}
+                  >
+                    <Stack
+                      direction={{ xs: "column", md: "row" }}
+                      justifyContent="space-between"
+                      spacing={2}
+                    >
+                      <Box sx={{ minWidth: 0 }}>
+                        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+                          <Typography variant="subtitle2" fontWeight={800}>
+                            {EXTRACTION_FIELD_LABELS[candidate.fieldName] || candidate.fieldName}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={
+                              candidate.criticality === "CRITICAL"
+                                ? "Submission-critical"
+                                : "Review"
+                            }
+                            color={candidate.criticality === "CRITICAL" ? "error" : "warning"}
+                            variant="outlined"
+                          />
+                          {candidate.consensusCount > 1 && (
+                            <Chip
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                              label={`${candidate.consensusCount} documents agree`}
+                            />
+                          )}
+                        </Stack>
+                        <Typography variant="h6" sx={{ mt: 0.5 }}>
+                          {displayCandidateValue(candidate)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Source: {sourceDocument?.fileName || "Supporting document"}
+                          {candidate.pageNumber ? ` • Page ${candidate.pageNumber}` : ""}
+                        </Typography>
+                        {candidate.evidenceText && (
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              mt: 1,
+                              p: 1,
+                              bgcolor: "action.hover",
+                              borderRadius: 1,
+                              overflowWrap: "anywhere"
+                            }}
+                          >
+                            {candidate.evidenceText}
+                          </Typography>
+                        )}
+                        {candidate.decisionReason === "CONFLICTING_DOCUMENT_VALUES" && (
+                          <Alert severity="warning" sx={{ mt: 1 }}>
+                            Another document contains a different value for this field. Confirm the correct value before submission.
+                          </Alert>
+                        )}
+                      </Box>
+
+                      <Stack
+                        direction={{ xs: "row", md: "column" }}
+                        spacing={0.75}
+                        sx={{ minWidth: { md: 150 } }}
+                      >
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => reviewExtractedField(candidate, "ACCEPT")}
+                          disabled={Boolean(fieldReviewBusyId)}
+                        >
+                          Accept
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => openClaimEdit(candidate.fieldName, [candidate.fieldName])}
+                          disabled={Boolean(fieldReviewBusyId)}
+                        >
+                          Edit manually
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="error"
+                          onClick={() => reviewExtractedField(candidate, "REJECT")}
+                          disabled={Boolean(fieldReviewBusyId)}
+                        >
+                          Reject
+                        </Button>
+                        {sourceDocument && (
+                          <Button
+                            size="small"
+                            variant="text"
+                            startIcon={<Visibility />}
+                            onClick={() =>
+                              handlePreview(sourceDocument, candidate.pageNumber)
+                            }
+                            disabled={Boolean(fieldReviewBusyId)}
+                          >
+                            View source
+                          </Button>
+                        )}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Stack>
+          </CardContent>
+        </Card>
       )}
 
       <Card

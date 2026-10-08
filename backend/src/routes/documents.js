@@ -41,6 +41,11 @@ import {
   syncDocumentCodingSuggestions,
   validateCodingCode
 } from "../services/codingSuggestions.js";
+import {
+  persistAndReconcileFieldCandidates,
+  safeInitialClaimSeed,
+  summarizeExtractionQuality
+} from "../services/extractionEngineV2.js";
 
 
 function extractedServiceLines(extracted = {}, sourceDocumentId = null) {
@@ -263,6 +268,48 @@ function calculateMatchScore(extracted, existingClaim) {
   return Math.min(100, score);
 }
 
+async function applyExtractionV2ToClaim(
+  tx,
+  {
+    claimId,
+    document,
+    intel,
+    extracted,
+    fileName
+  }
+) {
+  const current = await tx.claim.findUnique({
+    where: { id: claimId }
+  });
+  if (!current) return { patch: {}, decisions: [], fieldProvenance: null };
+
+  const reconciled = await persistAndReconcileFieldCandidates(tx, {
+    claim: current,
+    document,
+    extracted,
+    intel,
+    rawText: intel.rawExtractedText || "",
+    provenanceLabel: "Evidence-verified document extraction"
+  });
+
+  const fields = Object.keys(reconciled.patch || {});
+  if (fields.length > 0) {
+    await tx.claim.update({
+      where: { id: claimId },
+      data: {
+        ...reconciled.patch,
+        documentDerivedFields: mergeDerivedFields(
+          current.documentDerivedFields,
+          fields
+        ),
+        fieldProvenance: reconciled.fieldProvenance
+      }
+    });
+  }
+
+  return reconciled;
+}
+
 async function auditDocumentEvent(
   prismaClient,
   req,
@@ -325,7 +372,10 @@ export function documentsRouter(prisma, uploadDir) {
       }
 
       const { fileHash, intel, extracted } =
-        await inspectUploadedDocument(req.file);
+        await inspectUploadedDocument(req.file, {
+          prisma,
+          organizationId: req.user.organizationId
+        });
       const patientName = extracted.patientName || "Unknown Patient";
       const parsedAmount = extracted.amount != null ? Number(extracted.amount) : null;
       const amount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : null;
@@ -378,59 +428,31 @@ export function documentsRouter(prisma, uploadDir) {
 
       if (!claim) {
         const documentType = intel.suggestedType || "OTHER";
-        const extractedClaimFields = canonicalDocumentFields(extracted, documentType);
+        const safeSeed = safeInitialClaimSeed({
+          documentType,
+          extracted,
+          intel,
+          rawText: intel.rawExtractedText || ""
+        });
         const claimData = {
           organizationId: req.user.organizationId,
           createdById: req.user.id,
-          ...extractedClaimFields,
-          patientName: extractedClaimFields.patientName || patientName,
-          payerName: extractedClaimFields.payerName || payerName,
-          documentDerivedFields: getDerivedFieldsFromDocument(
-            extracted,
-            documentType
-          ),
+          ...safeSeed,
+          patientName: safeSeed.patientName || patientName,
+          payerName: safeSeed.payerName || payerName,
+          documentDerivedFields: Object.keys(safeSeed),
           fieldProvenance: documentProvenance({
-            fields: getDerivedFieldsFromDocument(extracted, documentType),
-            confidence: intel.confidence,
+            fields: Object.keys(safeSeed),
+            confidence: intel.extractionConfidence || intel.confidence,
             fileName: req.file.originalname,
             documentType
           }),
           status: "DRAFT"
         };
 
-
         claim = await prisma.claim.create({
           data: claimData
         });
-      } else {
-        const updatePayload = buildMissingClaimAutofill(
-          claim,
-          extracted,
-          intel.suggestedType || "OTHER"
-        );
-
-        if (Object.keys(updatePayload).length > 0) {
-          claim = await prisma.claim.update({
-            where: { id: claim.id },
-            data: {
-              ...updatePayload,
-              documentDerivedFields: mergeDerivedFields(
-                claim.documentDerivedFields,
-                Object.keys(updatePayload)
-              ),
-              fieldProvenance: mergeProvenance(
-                claim.fieldProvenance,
-                documentProvenance({
-                  fields: Object.keys(updatePayload),
-                  confidence: intel.confidence,
-                  fileName: req.file.originalname,
-                  documentType: intel.suggestedType || "OTHER"
-                })
-              )
-            }
-          });
-        }
-
       }
 
       storedDocumentPath = await persistUploadedDocument(req.file, {
@@ -458,6 +480,14 @@ export function documentsRouter(prisma, uploadDir) {
           confidence: intel.confidence
         });
 
+        const extractionV2 = await applyExtractionV2ToClaim(tx, {
+          claimId: claim.id,
+          document: created,
+          intel,
+          extracted,
+          fileName: req.file.originalname
+        });
+
         const documentFields = getDerivedFieldsFromDocument(
           extracted,
           intel.suggestedType || "OTHER"
@@ -467,13 +497,16 @@ export function documentsRouter(prisma, uploadDir) {
           select: { fieldProvenance: true }
         });
 
+        const v2Fields = new Set(Object.keys(extractionV2.patch || {}));
+        const legacyOnlyFields = documentFields.filter((field) => !v2Fields.has(field));
+
         await tx.claim.update({
           where: { id: claim.id },
           data: {
             fieldProvenance: mergeProvenance(
               persistedClaim?.fieldProvenance,
               documentProvenance({
-                fields: documentFields,
+                fields: legacyOnlyFields,
                 confidence: intel.confidence,
                 documentId: created.id,
                 fileName: req.file.originalname,
@@ -628,7 +661,10 @@ export function documentsRouter(prisma, uploadDir) {
       });
     }
 
-    const { fileHash, intel } = await inspectUploadedDocument(req.file);
+    const { fileHash, intel } = await inspectUploadedDocument(req.file, {
+          prisma,
+          organizationId: req.user.organizationId
+        });
 
     const duplicateInClaim = await findDuplicateDocument(prisma, claimId, fileHash);
 
@@ -709,35 +745,16 @@ export function documentsRouter(prisma, uploadDir) {
         confidence: intel.confidence
       });
 
-      const updatePayload = buildMissingClaimAutofill(
-        claim,
-        intel.extracted || {},
-        type || intel.suggestedType || "OTHER"
-      );
-
-      if (Object.keys(updatePayload).length > 0) {
-        const derivedFromThisDocument = Object.keys(updatePayload);
-        await tx.claim.update({
-          where: { id: claimId },
-          data: {
-            ...updatePayload,
-            documentDerivedFields: mergeDerivedFields(
-              claim.documentDerivedFields,
-              derivedFromThisDocument
-            ),
-            fieldProvenance: mergeProvenance(
-              claim.fieldProvenance,
-              documentProvenance({
-                fields: derivedFromThisDocument,
-                confidence: intel.confidence,
-                documentId: created.id,
-                fileName: req.file.originalname,
-                documentType: type || intel.suggestedType || "OTHER"
-              })
-            )
-          }
-        });
-      }
+      const extractionV2 = await applyExtractionV2ToClaim(tx, {
+        claimId,
+        document: {
+          ...created,
+          type: type || created.type || intel.suggestedType || "OTHER"
+        },
+        intel,
+        extracted: intel.extracted || {},
+        fileName: req.file.originalname
+      });
 
       await invalidateClaimReadiness(tx, claimId);
 
@@ -764,8 +781,12 @@ export function documentsRouter(prisma, uploadDir) {
       }
     });
 
+    const fieldCandidates = await prisma.fieldCandidate.findMany({
+      where: { documentId: doc.id }
+    });
     res.status(req.baseUrl === "/api/claims/documents" ? 200 : 201).json({
       ...doc,
+      extractionV2: summarizeExtractionQuality(fieldCandidates),
       claim: updatedClaim,
       identityValidation,
       message:

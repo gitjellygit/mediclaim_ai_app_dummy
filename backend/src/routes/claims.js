@@ -43,11 +43,64 @@ import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../serv
 import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
 import { writeRequestAudit } from "../services/auditLog.js";
+import {
+  candidateClaimPatch,
+  summarizeExtractionQuality
+} from "../services/extractionEngineV2.js";
 
 const router = express.Router();
 
 function orgId(req) {
   return req.user.organizationId;
+}
+
+async function resolveDocumentIdentityField(
+  tx,
+  candidate,
+  reviewedAt,
+  reviewedByUserId,
+  decision
+) {
+  const extracted =
+    candidate?.document?.extracted &&
+    typeof candidate.document.extracted === "object" &&
+    !Array.isArray(candidate.document.extracted)
+      ? candidate.document.extracted
+      : null;
+  const review =
+    extracted?._identityReview &&
+    typeof extracted._identityReview === "object"
+      ? extracted._identityReview
+      : null;
+
+  if (!review || review.reviewed === true) return;
+
+  const conflicts = Array.isArray(review.conflicts) ? review.conflicts : [];
+  if (!conflicts.includes(candidate.fieldName)) return;
+
+  const resolvedFields = [
+    ...new Set([...(review.resolvedFields || []), candidate.fieldName])
+  ];
+  const fullyResolved = conflicts.every((field) => resolvedFields.includes(field));
+
+  await tx.document.update({
+    where: { id: candidate.documentId },
+    data: {
+      extracted: {
+        ...extracted,
+        _identityReview: {
+          ...review,
+          resolvedFields,
+          reviewed: fullyResolved,
+          reviewedAt: fullyResolved ? reviewedAt.toISOString() : review.reviewedAt || null,
+          reviewedByUserId: fullyResolved
+            ? reviewedByUserId
+            : review.reviewedByUserId || null,
+          decision: fullyResolved ? decision : review.decision || null
+        }
+      }
+    }
+  });
 }
 
 function normalizeServiceLines(lines = []) {
@@ -419,6 +472,21 @@ router.get("/:id", async (req, res) => {
         where: { status: "PENDING" },
         orderBy: { createdAt: "asc" }
       },
+      fieldCandidates: {
+        where: {
+          decision: { in: ["CONFIRM", "ABSTAINED"] }
+        },
+        include: {
+          document: {
+            select: {
+              id: true,
+              fileName: true,
+              type: true
+            }
+          }
+        },
+        orderBy: { createdAt: "asc" }
+      },
       checks: { orderBy: { createdAt: "desc" } }
     }
   });
@@ -447,10 +515,204 @@ router.get("/:id", async (req, res) => {
   res.json({
     ...claim,
     checks,
+    extractionSummary: summarizeExtractionQuality(claim.fieldCandidates || []),
     automationSummary: buildAutomationSummary(claim),
     completenessSummary: buildClaimCompleteness(claim)
   });
 });
+
+router.patch(
+  "/:id/field-candidates/:candidateId",
+  requireRoles(["ADMIN", "CASHIER"]),
+  async (req, res) => {
+    try {
+      const action = String(req.body?.action || "").trim().toUpperCase();
+      if (!["ACCEPT", "REJECT"].includes(action)) {
+        return res.status(400).json({
+          error: "Action must be ACCEPT or REJECT",
+          code: "INVALID_FIELD_CANDIDATE_ACTION"
+        });
+      }
+
+      const candidate = await prisma.fieldCandidate.findFirst({
+        where: {
+          id: req.params.candidateId,
+          claimId: req.params.id,
+          claim: {
+            organizationId: orgId(req),
+            deletedAt: null
+          }
+        },
+        include: {
+          claim: true,
+          document: {
+            select: { id: true, fileName: true, type: true, extracted: true }
+          }
+        }
+      });
+
+      if (!candidate) {
+        return res.status(404).json({ error: "Field candidate not found" });
+      }
+
+      assertClaimEditable(
+        candidate.claim,
+        "Submitted or finalized claims are locked. Extraction review cannot be changed."
+      );
+
+      if (!["CONFIRM", "ABSTAINED", "PENDING"].includes(candidate.decision)) {
+        return res.status(409).json({
+          error: "This field candidate has already been resolved",
+          code: "FIELD_CANDIDATE_ALREADY_RESOLVED"
+        });
+      }
+
+      const now = new Date();
+      if (action === "REJECT") {
+        const rejected = await prisma.$transaction(async (tx) => {
+          const updatedCandidate = await tx.fieldCandidate.update({
+            where: { id: candidate.id },
+            data: {
+              decision: "REJECTED",
+              decisionReason: "HUMAN_REJECTED",
+              reviewedAt: now,
+              reviewedById: req.user.id
+            }
+          });
+          await resolveDocumentIdentityField(tx, candidate, now, req.user.id, "FIELD_VALUE_REJECTED");
+          return updatedCandidate;
+        });
+
+        await writeRequestAudit(prisma, req, {
+          claimId: candidate.claimId,
+          action: "EXTRACTION_FIELD_REJECTED",
+          entityType: "FieldCandidate",
+          entityId: candidate.id,
+          metadata: {
+            fieldName: candidate.fieldName,
+            documentId: candidate.documentId
+          }
+        });
+
+        return res.json({ candidate: rejected, applied: false });
+      }
+
+      if (candidate.validationStatus !== "VALID") {
+        return res.status(409).json({
+          error: "This candidate failed validation and cannot be accepted automatically",
+          code: "FIELD_CANDIDATE_INVALID"
+        });
+      }
+
+      const patch = candidateClaimPatch(candidate);
+      if (!Object.keys(patch).length) {
+        return res.status(409).json({
+          error: "This extracted field cannot be applied to the claim",
+          code: "FIELD_CANDIDATE_UNSUPPORTED"
+        });
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        const current = await tx.claim.findUnique({
+          where: { id: candidate.claimId }
+        });
+        const nextProvenance = mergeProvenance(current?.fieldProvenance, {
+          [candidate.fieldName]: {
+            source: "DOCUMENT_REVIEW",
+            label: "Human-confirmed document extraction",
+            sourceDetail: candidate.document?.fileName || "Supporting document",
+            confidence: candidate.semanticConfidence || candidate.sourceConfidence || null,
+            verified: true,
+            documentId: candidate.documentId,
+            updatedAt: now.toISOString()
+          }
+        });
+
+        const updatedClaim = await tx.claim.update({
+          where: { id: candidate.claimId },
+          data: {
+            ...patch,
+            documentDerivedFields: [
+              ...new Set([
+                ...(current?.documentDerivedFields || []),
+                candidate.fieldName
+              ])
+            ],
+            fieldProvenance: nextProvenance
+          }
+        });
+
+        const accepted = await tx.fieldCandidate.update({
+          where: { id: candidate.id },
+          data: {
+            decision: "ACCEPTED",
+            decisionReason: "HUMAN_ACCEPTED",
+            reviewedAt: now,
+            reviewedById: req.user.id
+          }
+        });
+
+        await resolveDocumentIdentityField(
+          tx,
+          candidate,
+          now,
+          req.user.id,
+          "FIELD_VALUE_ACCEPTED"
+        );
+
+        await tx.fieldCandidate.updateMany({
+          where: {
+            claimId: candidate.claimId,
+            fieldName: candidate.fieldName,
+            normalizedKey: candidate.normalizedKey,
+            id: { not: candidate.id },
+            decision: "CONFIRM"
+          },
+          data: {
+            decision: "SUPPORTED",
+            decisionReason: "MATCHES_HUMAN_ACCEPTED_VALUE"
+          }
+        });
+
+        await markReadinessChecksStale(
+          tx,
+          candidate.claimId,
+          `Human confirmed extracted ${candidate.fieldName}`
+        );
+
+        return { updatedClaim, accepted };
+      });
+
+      await writeRequestAudit(prisma, req, {
+        claimId: candidate.claimId,
+        action: "EXTRACTION_FIELD_ACCEPTED",
+        entityType: "FieldCandidate",
+        entityId: candidate.id,
+        metadata: {
+          fieldName: candidate.fieldName,
+          documentId: candidate.documentId
+        }
+      });
+
+      return res.json({
+        candidate: result.accepted,
+        claim: result.updatedClaim,
+        applied: true
+      });
+    } catch (error) {
+      if (error?.status) throw error;
+      console.error("[field-candidate] review failed", {
+        claimId: req.params.id,
+        candidateId: req.params.candidateId,
+        code: error?.code || null
+      });
+      return res.status(500).json({
+        error: "Unable to review extracted field",
+        code: "FIELD_CANDIDATE_REVIEW_FAILED"
+      });
+    }
+  }
+);
 
 router.post("/", async (req, res) => {
   try {
@@ -844,6 +1106,22 @@ router.patch("/:id", async (req, res) => {
             });
           }
         }
+
+        if (manuallyChangedFields.length > 0) {
+          await tx.fieldCandidate.updateMany({
+            where: {
+              claimId: req.params.id,
+              fieldName: { in: manuallyChangedFields },
+              decision: { in: ["CONFIRM", "PENDING", "ABSTAINED"] }
+            },
+            data: {
+              decision: "OVERRIDDEN",
+              decisionReason: "HUMAN_EDITED_CLAIM_VALUE",
+              reviewedAt: new Date(),
+              reviewedById: req.user.id
+            }
+          });
+        }
       });
 
       await markReadinessChecksStale(
@@ -860,6 +1138,15 @@ router.patch("/:id", async (req, res) => {
       include: {
         documents: true,
         serviceLines: { orderBy: { createdAt: "asc" } },
+        fieldCandidates: {
+          where: { decision: { in: ["CONFIRM", "ABSTAINED"] } },
+          include: {
+            document: {
+              select: { id: true, fileName: true, type: true }
+            }
+          },
+          orderBy: { createdAt: "asc" }
+        },
         checks: { orderBy: { createdAt: "desc" } }
       }
     });
@@ -1011,7 +1298,13 @@ router.post("/:id/check", async (req, res) => {
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
         documents: true,
-        serviceLines: { orderBy: { createdAt: "asc" } }
+        serviceLines: { orderBy: { createdAt: "asc" } },
+        fieldCandidates: {
+          where: {
+            criticality: "CRITICAL",
+            decision: "CONFIRM"
+          }
+        }
       }
     });
 
@@ -1058,6 +1351,22 @@ router.post("/:id/check", async (req, res) => {
         severity: "BLOCK",
         message: "No supporting documents uploaded",
         fixTarget: "documents"
+      });
+    }
+
+    const unresolvedCriticalExtractionFields = [
+      ...new Set((claim.fieldCandidates || []).map((item) => item.fieldName))
+    ];
+    if (unresolvedCriticalExtractionFields.length > 0) {
+      issues.push({
+        severity: "BLOCK",
+        message:
+          unresolvedCriticalExtractionFields.length === 1
+            ? `Confirm the extracted ${unresolvedCriticalExtractionFields[0]} before submission`
+            : `Confirm ${unresolvedCriticalExtractionFields.length} submission-critical extracted fields before submission`,
+        source: "EXTRACTION_V2",
+        fields: unresolvedCriticalExtractionFields,
+        fixTarget: "extraction-review"
       });
     }
 
@@ -1301,7 +1610,14 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
-        checks: { orderBy: { createdAt: "desc" }, take: 1 }
+        checks: { orderBy: { createdAt: "desc" }, take: 1 },
+        fieldCandidates: {
+          where: {
+            criticality: "CRITICAL",
+            decision: "CONFIRM"
+          },
+          select: { id: true, fieldName: true }
+        }
       }
     });
 
@@ -1310,6 +1626,14 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
     }
 
     const latestCheck = claim.checks?.[0];
+
+    if ((claim.fieldCandidates || []).length > 0) {
+      return res.status(400).json({
+        error: "Confirm submission-critical extracted fields before submitting the claim",
+        code: "EXTRACTION_REVIEW_REQUIRED",
+        fields: [...new Set(claim.fieldCandidates.map((item) => item.fieldName))]
+      });
+    }
 
     if (claim.eligibilityStatus !== "VERIFIED") {
       return res.status(400).json({

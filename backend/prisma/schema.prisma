@@ -192,8 +192,9 @@ model Organization {
 
   users       User[]
   claims      Claim[]
-  auditEvents AuditEvent[]
-  rules       Rule[]
+  auditEvents       AuditEvent[]
+  rules             Rule[]
+  extractionCaches  ExtractionCache[]
 }
 
 model Claim {
@@ -329,6 +330,7 @@ model Claim {
   auditEvents AuditEvent[]
   payerTransactions PayerTransaction[]
   codingSuggestions CodingSuggestion[]
+  fieldCandidates   FieldCandidate[]
 
   @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
@@ -390,6 +392,7 @@ model Document {
   status        DocumentStatus @default(PENDING)
 
   codingSuggestions CodingSuggestion[]
+  fieldCandidates   FieldCandidate[]
 
   @@unique([claimId, fileHash])
 }
@@ -421,6 +424,64 @@ model CodingSuggestion {
   @@index([documentId, status])
 }
 
+
+model FieldCandidate {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  claimId String
+  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  fieldName       String
+  normalizedKey   String
+  rawValue        String?
+  normalizedValue Json
+  evidenceText    String?
+  pageNumber      Int?
+  boundingBox     Json?
+
+  documentType       String
+  sourceProvider     String?
+  sourceConfidence   Int?
+  semanticConfidence Int?
+  validationStatus   String @default("UNKNOWN")
+  validationMessage  String?
+  consensusCount     Int @default(1)
+  conflictingCount   Int @default(0)
+  decision           String @default("PENDING")
+  decisionReason     String?
+  criticality        String @default("STANDARD")
+  engineVersion      String @default("v2")
+
+  reviewedAt      DateTime?
+  reviewedById    String?
+  reviewedBy      User? @relation("FieldCandidateReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([documentId, fieldName, normalizedKey, engineVersion])
+  @@index([claimId, fieldName, decision])
+  @@index([documentId, decision])
+}
+
+model ExtractionCache {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  fileHash      String
+  engineVersion String
+  result        Json
+  sourceProvider String?
+
+  @@unique([organizationId, fileHash, engineVersion])
+  @@index([organizationId, updatedAt])
+}
 
 model PayerTransaction {
   id        String   @id @default(cuid())
@@ -503,6 +564,7 @@ model User {
   createdClaims Claim[] @relation("ClaimCreatedBy")
   auditEvents AuditEvent[] @relation("AuditActor")
   reviewedCodingSuggestions CodingSuggestion[] @relation("CodingSuggestionReviewer")
+  reviewedFieldCandidates FieldCandidate[] @relation("FieldCandidateReviewer")
 
   @@index([organizationId])
 }
