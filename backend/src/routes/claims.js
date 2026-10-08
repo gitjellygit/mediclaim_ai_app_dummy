@@ -481,6 +481,7 @@ router.post("/", async (req, res) => {
       groupNumber: z.string().trim().max(100).nullish(),
       subscriberId: z.string().trim().max(100).nullish(),
       subscriberName: z.string().trim().max(250).nullish(),
+      subscriberDob: z.string().nullish(),
       subscriberRelationship: z.enum(["SELF", "SPOUSE", "CHILD", "OTHER"]).nullish(),
       coordinationOfBenefits: z.enum(["PRIMARY", "SECONDARY", "TERTIARY"]).nullish(),
       payerEdiId: z.string().trim().max(100).nullish(),
