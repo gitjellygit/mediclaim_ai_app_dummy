@@ -25,7 +25,13 @@ function required(value, name) {
 }
 
 function patientNameParts(claim) {
-  const source = String(claim.subscriberName || claim.patientName || "").trim();
+  const subscriberIsPatient =
+    !claim.subscriberRelationship || claim.subscriberRelationship === "SELF";
+  const source = String(
+    subscriberIsPatient
+      ? claim.subscriberName || claim.patientName || ""
+      : claim.subscriberName || ""
+  ).trim();
   const parts = source.split(/\s+/).filter(Boolean);
   if (parts.length < 2) {
     return { firstName: parts[0] || null, lastName: null };
@@ -107,7 +113,11 @@ export function buildStediClaimStatusRequest(claim, context = {}) {
   const names = patientNameParts(claim);
   const payerId = context.payerId || claim.payerEdiId;
   const memberId = claim.subscriberId || claim.memberId;
-  const dateOfBirth = compactDate(claim.patientDob);
+  const subscriberIsPatient =
+    !claim.subscriberRelationship || claim.subscriberRelationship === "SELF";
+  const dateOfBirth = compactDate(
+    subscriberIsPatient ? claim.patientDob : claim.subscriberDob
+  );
   const providerNpi =
     context.providerNpi || claim.billingProviderNpi || claim.renderingProviderNpi;
   const beginningDateOfService = compactDate(
@@ -119,7 +129,10 @@ export function buildStediClaimStatusRequest(claim, context = {}) {
 
   required(payerId, "payerEdiId");
   required(memberId, "memberId/subscriberId");
-  required(dateOfBirth, "patientDob");
+  required(
+    dateOfBirth,
+    subscriberIsPatient ? "patientDob" : "subscriberDob"
+  );
   required(names.firstName, "subscriber first name");
   required(names.lastName, "subscriber last name");
   required(providerNpi, "provider NPI");
@@ -582,7 +595,6 @@ export function normalizeStediClaimSubmissionResponse(body, {
       description: item?.description || item?.message || null
     })),
     has277CA: Boolean(body?.x12),
-    x12: body?.x12 || null,
     latencyMs,
     idempotencyKey,
     testMode: true,
@@ -728,6 +740,12 @@ export function createStediTestConnector({
     env.STEDI_ERA_API_BASE_URL || DEFAULT_CLAIMS_BASE_URL
   ).replace(/\/$/, "");
 
+  if (env.NODE_ENV === "production") {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_TEST",
+      "Stedi test connector is disabled in production"
+    );
+  }
   if (!apiKey) {
     throw new PayerConnectorUnavailableError(
       "STEDI_TEST",
@@ -863,6 +881,12 @@ export function createStediProductionConnector({
     throw new PayerConnectorUnavailableError(
       "STEDI_PRODUCTION",
       "STEDI_PRODUCTION_API_KEY is not configured"
+    );
+  }
+  if (env.STEDI_PRODUCTION_PHI_CONFIRMED !== "true") {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_PRODUCTION",
+      "Production PHI transmission is not explicitly enabled"
     );
   }
   if (typeof fetchImpl !== "function") {
