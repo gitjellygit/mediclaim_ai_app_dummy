@@ -273,8 +273,11 @@ model Claim {
   claimFrequencyCode     ClaimFrequencyCode @default(ORIGINAL)
   timelyFilingDeadline   DateTime? @db.Date
 
-  payerReferenceNo    String?
-  insurerClaimNo      String?
+  // Provider-assigned claim control number (837 CLM01 / CMS-1500 Box 26).
+  // This is the primary correlation key for 277CA and 835 responses.
+  patientControlNumber String?
+  payerReferenceNo     String?
+  insurerClaimNo       String?
   authorizationNo     String?
   claimSubmissionDate DateTime?
 
