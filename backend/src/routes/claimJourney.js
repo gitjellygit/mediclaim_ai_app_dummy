@@ -144,7 +144,24 @@ router.get("/:id/journey", async (req, res) => {
       include: {
         documents: { orderBy: { createdAt: "desc" } },
         checks: { orderBy: { createdAt: "desc" }, take: 1 },
-        payerTransactions: { orderBy: { createdAt: "desc" }, take: 25 }
+        payerTransactions: { orderBy: { createdAt: "desc" }, take: 25 },
+        denialCases: {
+          where: {
+            status: {
+              in: [
+                "OPEN",
+                "ANALYZED",
+                "CORRECTION_REQUIRED",
+                "APPEAL_PREPARED",
+                "APPEAL_SUBMITTED",
+                "RESUBMITTED"
+              ]
+            }
+          },
+          orderBy: { updatedAt: "desc" },
+          take: 1
+        },
+        underpaymentCase: true
       }
     });
 
@@ -734,7 +751,17 @@ router.post("/:id/journey/claim-status/refresh", async (req, res) => {
               status: "OPEN",
               denialCategory: null,
               denialDate: now,
-              revenueAtRisk
+              revenueAtRisk,
+              sourceTransactionId: transaction.transactionId,
+              payerEvidence: {
+                claimStatus277: {
+                  transactionId: transaction.transactionId,
+                  payerClaimNo: result.payerClaimNo || null,
+                  statusCategoryCode: result.statusCategoryCode || null,
+                  statusCode: result.statusCode || null,
+                  status: normalizedStatus
+                }
+              }
             }
           });
 
@@ -1150,6 +1177,17 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
 
       let denialCase = null;
       if (isDeniedEra) {
+        const eraEvidence = {
+          transactionType: "835",
+          transactionId: result.transactionId,
+          claimStatusCode: result.claimStatusCode || null,
+          billedAmount: result.billedAmount ?? null,
+          allowedAmount: result.allowedAmount ?? null,
+          paidAmount: result.paidAmount ?? null,
+          patientResponsibility: result.patientResponsibility ?? null,
+          adjustments: Array.isArray(result.adjustments) ? result.adjustments : []
+        };
+
         denialCase = await findActiveDenialCase(tx, claim.id);
         if (!denialCase) {
           denialCase = await tx.denialCase.create({
@@ -1169,15 +1207,60 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
                 Number(result.billedAmount ?? claim.amount ?? 0) -
                   Number(result.paidAmount || 0)
               ),
+              sourceTransactionId: result.transactionId,
+              payerEvidence: { era835: eraEvidence },
               recommendedAction:
                 "Review the 835 adjustment codes and supporting claim data."
+            }
+          });
+        } else {
+          denialCase = await tx.denialCase.update({
+            where: { id: denialCase.id },
+            data: {
+              groupCode: denialCase.groupCode || firstAdjustment?.groupCode || null,
+              carcCode: denialCase.carcCode || firstAdjustment?.reasonCode || null,
+              reasonText:
+                denialCase.reasonText ||
+                firstAdjustment?.reason ||
+                "835 ERA indicates the claim was denied",
+              payerEvidence: {
+                ...(denialCase.payerEvidence && typeof denialCase.payerEvidence === "object"
+                  ? denialCase.payerEvidence
+                  : {}),
+                era835: eraEvidence
+              }
             }
           });
         }
       }
 
       let underpaymentCase = null;
+      const existingUnderpaymentCase = await tx.underpaymentCase.findUnique({
+        where: { claimId: claim.id }
+      });
+
       if (
+        !isDeniedEra &&
+        result.expectedPayerPayment != null &&
+        result.paidAmount != null &&
+        underpaymentAmount <= 0.009 &&
+        existingUnderpaymentCase &&
+        !["RECOVERED", "WRITTEN_OFF", "CLOSED"].includes(existingUnderpaymentCase.status)
+      ) {
+        underpaymentCase = await tx.underpaymentCase.update({
+          where: { claimId: claim.id },
+          data: {
+            status: "RECOVERED",
+            actualPaidAmount: result.paidAmount,
+            recoveredAmount: existingUnderpaymentCase.varianceAmount,
+            sourceTransactionId: result.transactionId,
+            resolvedAt: now,
+            notes: existingUnderpaymentCase.notes
+              ? `${existingUnderpaymentCase.notes}\nAuto-resolved after later 835 payment satisfied expected payer amount.`
+              : "Auto-resolved after later 835 payment satisfied expected payer amount."
+          }
+        });
+      } else if (
         !isDeniedEra &&
         result.expectedPayerPayment != null &&
         result.paidAmount != null &&
