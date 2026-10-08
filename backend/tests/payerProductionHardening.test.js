@@ -224,3 +224,28 @@ test("hardening - payer transaction responses are sanitized before returning to 
     /result:\s*stripSensitivePayerPayload\(result\)/
   );
 });
+
+
+test("hardening - concurrent 835 refreshes recover as idempotent duplicates", () => {
+  const journey = read("backend/src/routes/claimJourney.js");
+
+  assert.match(journey, /error\?\.code === "P2002"/);
+  assert.match(journey, /duplicateTransaction = await prisma\.payerTransaction\.findFirst/);
+  assert.match(
+    journey,
+    /message: "This 835 ERA has already been posted to the claim"/
+  );
+});
+
+test("hardening - non-posted ERA responses are sanitized before browser return", () => {
+  const journey = read("backend/src/routes/claimJourney.js");
+
+  assert.match(
+    journey,
+    /available: false,[\s\S]*result: stripSensitivePayerPayload\(result\)/
+  );
+  assert.match(
+    journey,
+    /needsReview: true,[\s\S]*result: stripSensitivePayerPayload\(result\)/
+  );
+});
