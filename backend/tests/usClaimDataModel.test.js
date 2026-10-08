@@ -26,6 +26,7 @@ test("U3 - Prisma schema includes US provider coverage facility and service-line
     "groupNumber",
     "subscriberId",
     "subscriberName",
+    "subscriberDob",
     "subscriberRelationship",
     "coordinationOfBenefits",
     "payerEdiId",
