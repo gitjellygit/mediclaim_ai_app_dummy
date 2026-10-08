@@ -161,7 +161,7 @@ test("Approval Intelligence sends unevaluated editable claims directly to AI rea
 
   await expect(page).toHaveURL(new RegExp(`/claims/${scenario.id}\\?section=readiness`));
   await expect(
-    page.getByRole("heading", { name: "Claim Readiness for Submission" })
+    page.getByRole("heading", { name: "Submission Readiness" })
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Check Readiness", exact: true })
@@ -228,7 +228,7 @@ test("Claim readiness Fix actions highlight the exact provider and service-line 
 
     await page.goto(`/claims/${claim.id}`);
     await expect(
-      page.getByRole("heading", { name: "Claim Readiness for Submission" })
+      page.getByRole("heading", { name: "Submission Readiness" })
     ).toBeVisible();
 
     const billingIssue = page.getByTestId("readiness-issue-US_NPI_VALID");
@@ -370,7 +370,7 @@ test("blocked payer submission offers direct Fix in Claim Details workflow", asy
       new RegExp(`/claims/${claim.id}\\?section=readiness`)
     );
     await expect(
-      page.getByRole("heading", { name: "Claim Readiness for Submission" })
+      page.getByRole("heading", { name: "Submission Readiness" })
     ).toBeVisible();
   } finally {
     await apiContext.delete(`/api/claims/${claim.id}`, { headers });
@@ -548,16 +548,14 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     if (expectedKey === "BLUE") {
       await page.goto(`/claims/${scenario.id}`);
 
-      const paidButton = page.getByRole("button", { name: "Paid", exact: true });
-      await expect(paidButton).toBeVisible();
-      await expect(paidButton).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Paid", exact: true })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Submit Claim", exact: true })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Delete Claim", exact: true })).toHaveCount(0);
-
-      const completeness = page.getByTestId("claim-completeness-card");
-      await expect(completeness).toBeVisible();
-      await completeness.getByRole("button", { name: "Expand", exact: true }).click();
-      await expect(completeness.getByRole("button", { name: /Fix|Review codes|Edit service line/ })).toHaveCount(0);
+      await expect(page.getByTestId("claim-completeness-card")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "View Claim Status", exact: true })).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "Pre-submission Validation Snapshot" })
+      ).toBeVisible();
     }
 
     console.log(`✓ ${expectedKey} full payer lifecycle passed`);
