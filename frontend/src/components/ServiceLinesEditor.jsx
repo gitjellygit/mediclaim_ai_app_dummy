@@ -155,6 +155,25 @@ export default function ServiceLinesEditor({
       : "";
   };
 
+  const appendDiagnosisPointer = (index, line, code) => {
+    const current = String(line?.diagnosisPointers || "")
+      .split(",")
+      .map((value) => normalizeIcd10Cm(value))
+      .filter(Boolean);
+    const normalized = normalizeIcd10Cm(code);
+    if (!normalized) return;
+    const next = [...new Set([...current, normalized])];
+    updateLine(index, "diagnosisPointers", next.join(", "));
+  };
+
+  const applyClaimDiagnoses = (index) => {
+    updateLine(
+      index,
+      "diagnosisPointers",
+      [...normalizedDiagnosisSet].join(", ")
+    );
+  };
+
   return (
     <Stack
       spacing={2}
@@ -240,21 +259,73 @@ export default function ServiceLinesEditor({
               value={line.charge}
               onChange={(event) => updateLine(index, "charge", event.target.value)}
             />
-            <TextField
-              data-fix-field={index === 0 ? "diagnosisPointers" : undefined}
-              label="Linked Diagnosis Codes"
-              color={isHighlighted("diagnosisPointers") ? "warning" : "primary"}
-              focused={index === 0 && isHighlighted("diagnosisPointers")}
-              value={line.diagnosisPointers}
-              onChange={(event) => updateLine(index, "diagnosisPointers", event.target.value.toUpperCase())}
-              error={Boolean(diagnosisPointerError(line))}
-              helperText={
-                diagnosisPointerError(line) ||
-                (diagnosisCodes.length
-                  ? `Use claim diagnoses only: ${diagnosisCodes.join(", ")}`
-                  : "Add ICD-10-CM diagnoses to the claim first; then link them here.")
-              }
-            />
+            <Box>
+              <TextField
+                data-fix-field={index === 0 ? "diagnosisPointers" : undefined}
+                label="Linked Diagnosis Codes"
+                color={isHighlighted("diagnosisPointers") ? "warning" : "primary"}
+                focused={index === 0 && isHighlighted("diagnosisPointers")}
+                value={line.diagnosisPointers}
+                onChange={(event) => updateLine(index, "diagnosisPointers", event.target.value.toUpperCase())}
+                error={Boolean(diagnosisPointerError(line))}
+                helperText={
+                  diagnosisPointerError(line) ||
+                  (diagnosisCodes.length
+                    ? "Choose from the claim diagnoses below, or enter another valid ICD-10-CM code."
+                    : "Add ICD-10-CM diagnoses to the claim first; then link them here.")
+                }
+                fullWidth
+              />
+              {diagnosisCodes.length > 0 && (
+                <Box
+                  sx={{ mt: 0.75 }}
+                  data-testid={`service-line-${index}-diagnosis-suggestions`}
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    Suggested from claim
+                  </Typography>
+                  <Stack
+                    direction="row"
+                    spacing={0.75}
+                    useFlexGap
+                    flexWrap="wrap"
+                    alignItems="center"
+                    sx={{ mt: 0.5 }}
+                  >
+                    {diagnosisCodes.map((code) => {
+                      const normalized = normalizeIcd10Cm(code);
+                      const selected = String(line.diagnosisPointers || "")
+                        .split(",")
+                        .map((value) => normalizeIcd10Cm(value))
+                        .filter(Boolean)
+                        .includes(normalized);
+                      return (
+                        <Chip
+                          key={normalized}
+                          size="small"
+                          label={selected ? `${normalized} · Added` : `Use ${normalized}`}
+                          variant={selected ? "filled" : "outlined"}
+                          color={selected ? "success" : "default"}
+                          onClick={() => appendDiagnosisPointer(index, line, normalized)}
+                          disabled={selected}
+                          data-testid={`service-line-${index}-diagnosis-suggestion-${normalized}`}
+                        />
+                      );
+                    })}
+                    {diagnosisCodes.length > 1 && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => applyClaimDiagnoses(index)}
+                        data-testid={`service-line-${index}-use-all-diagnoses`}
+                      >
+                        Use all
+                      </Button>
+                    )}
+                  </Stack>
+                </Box>
+              )}
+            </Box>
             {claimForm === "PROFESSIONAL" && (
               <TextField
                 data-fix-field={index === 0 ? "placeOfService" : undefined}
