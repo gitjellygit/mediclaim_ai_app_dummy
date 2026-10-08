@@ -2486,40 +2486,45 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
             alignItems={{ xs: "stretch", sm: "center" }}
             gap={2}
           >
-            <Typography variant="h6">Claim Readiness for Submission</Typography>
+            <Box>
+              <Typography variant="h6">
+                {claimFinalized
+                  ? "Pre-submission Validation Snapshot"
+                  : "Submission Readiness"}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {claimFinalized
+                  ? "Historical validation captured before the claim was submitted."
+                  : "Validates known claim-format, coding, identity and workflow rules. It does not guarantee payer acceptance."}
+              </Typography>
+            </Box>
 
-            <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap>
-              <Button
-                variant="contained"
-                onClick={runAICheck}
-                disabled={aiRunning || !canRunAI || aiCheckLocked || !eligibilityClear}
-              >
-                {aiRunning
-                  ? "Checking..."
-                  : check?.isStale
-                  ? "Recheck Readiness"
-                  : check
-                  ? "Check Readiness Again"
-                  : "Check Readiness"}
-              </Button>
+            {!claimFinalized && (
+              <Stack direction="row" spacing={1.25} flexWrap="wrap" useFlexGap>
+                <Button
+                  variant="contained"
+                  onClick={runAICheck}
+                  disabled={aiRunning || !canRunAI || aiCheckLocked || !eligibilityClear}
+                >
+                  {aiRunning
+                    ? "Checking..."
+                    : check?.isStale
+                    ? "Recheck Readiness"
+                    : check
+                    ? "Check Readiness Again"
+                    : "Check Readiness"}
+                </Button>
 
-              <Button
-                variant="contained"
-                color="success"
-                onClick={submitClaim}
-                disabled={!canSubmit || submittingClaim || claimFinalized}
-              >
-                {claim.status === "PAID"
-                  ? "Paid"
-                  : claim.status === "DENIED"
-                  ? "Denied"
-                  : claim.status === "SUBMITTED" || claim.claimSubmissionDate
-                  ? "Submitted"
-                  : submittingClaim
-                  ? "Submitting..."
-                  : "Submit Claim"}
-              </Button>
-            </Stack>
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={submitClaim}
+                  disabled={!canSubmit || submittingClaim}
+                >
+                  {submittingClaim ? "Submitting..." : "Submit Claim"}
+                </Button>
+              </Stack>
+            )}
           </Stack>
 
           {!eligibilityClear && claim.status !== "SUBMITTED" && (
@@ -2568,26 +2573,52 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           {check && (
             <>
               <Stack
-                direction={{ xs: "column", sm: "row" }}
+                direction={{ xs: "column", md: "row" }}
                 justifyContent="space-between"
-                alignItems={{ xs: "flex-start", sm: "flex-end" }}
-                spacing={1}
+                alignItems={{ xs: "flex-start", md: "center" }}
+                spacing={1.5}
                 sx={{ mt: 2 }}
               >
-                <Typography
-                  variant="h3"
-                  fontWeight={850}
-                  lineHeight={1}
-                  sx={{ color: readinessTextColor(check.score) }}
-                  data-testid="readiness-score"
-                >
-                  {check.score}%
-                </Typography>
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+                  <Chip
+                    color={!check.isStale && !hasBlock && check.score >= 80 ? "success" : "error"}
+                    label={!check.isStale && !hasBlock && check.score >= 80 ? "Ready to submit" : "Not ready"}
+                    data-testid="readiness-status"
+                  />
+                  <Chip
+                    variant="outlined"
+                    label={`Validation score ${check.score}/100`}
+                    data-testid="readiness-score"
+                  />
+                  {completeness?.score != null && (
+                    <Chip
+                      variant="outlined"
+                      color={completeness.score >= 90 ? "success" : completeness.score >= 70 ? "warning" : "error"}
+                      label={`Claim completeness ${completeness.score}%`}
+                      data-testid="readiness-completeness"
+                    />
+                  )}
+                  <Chip
+                    variant="outlined"
+                    color={
+                      check.riskLevel === "HIGH"
+                        ? "error"
+                        : check.riskLevel === "MED"
+                        ? "warning"
+                        : "success"
+                    }
+                    label={`Residual risk ${String(check.riskLevel || "LOW").toLowerCase()}`}
+                    data-testid="readiness-risk"
+                  />
+                </Stack>
 
                 <Typography variant="caption" color="text.secondary">
                   Checked {new Date(check.createdAt).toLocaleString()}
                 </Typography>
               </Stack>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                A 100/100 validation score means all currently configured validation rules passed. It is not a prediction of zero payer rejection or denial risk.
+              </Typography>
 
               <Box sx={{ mt: 1.5, mb: 2.25 }}>
                 <Box
@@ -2640,13 +2671,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Stack>
               </Box>
 
-              {check.isStale ? (
+              {claimFinalized ? (
+                <Alert severity="info" sx={{ mb: 1.5 }}>
+                  The claim is already submitted. Missing/review tasks are no longer shown as active work. This validation snapshot is retained for audit history.
+                </Alert>
+              ) : check.isStale ? (
                 <Alert severity="warning" sx={{ mb: 1.5 }} data-testid="readiness-stale">
                   Claim information changed. Recheck readiness to recalculate the score and current blockers.
                 </Alert>
               ) : issues.length === 0 ? (
                 <Alert severity="success" sx={{ mb: 1.5 }}>
-                  No readiness issues found. This claim can be submitted.
+                  All configured submission checks passed. Payer acceptance is still subject to payer-specific edits, coverage and payment policy.
                 </Alert>
               ) : (
                 <Stack spacing={1} sx={{ mt: 0.5 }}>
