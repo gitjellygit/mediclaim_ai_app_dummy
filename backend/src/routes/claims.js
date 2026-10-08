@@ -584,7 +584,7 @@ router.post("/", async (req, res) => {
       }
       createPayload[key] = canonical;
     }
-    for (const field of ["patientDob", "dateOfService", "admissionDate", "dischargeDate", "procedureDate", "timelyFilingDeadline"]) {
+    for (const field of ["patientDob", "subscriberDob", "dateOfService", "admissionDate", "dischargeDate", "procedureDate", "timelyFilingDeadline"]) {
       if (!createPayload[field]) continue;
       const parsedDate = parseClaimDate(createPayload[field]);
       if (!parsedDate) {
@@ -683,6 +683,13 @@ router.patch("/:id", async (req, res) => {
       !payload.patientDob
     ) {
       return res.status(400).json({ error: "Patient date of birth is invalid" });
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(input, "subscriberDob") &&
+      input.subscriberDob &&
+      !payload.subscriberDob
+    ) {
+      return res.status(400).json({ error: "Subscriber date of birth is invalid" });
     }
 
     for (const [label, field] of [
@@ -802,10 +809,12 @@ router.patch("/:id", async (req, res) => {
       "payerName",
       "payerEdiId",
       "memberId",
+      "patientDob",
       "policyNo",
       "groupNumber",
       "subscriberId",
       "subscriberName",
+      "subscriberDob",
       "subscriberRelationship",
       "coordinationOfBenefits"
     ]);
@@ -1067,11 +1076,11 @@ router.post("/:id/check", async (req, res) => {
     });
     const issues = [];
 
-    if (!claim.policyNo) {
+    if (!claim.policyNo && !claim.memberId && !claim.subscriberId) {
       issues.push(configuredReadinessIssue(rules, {
         code: "REQ_POLICY_NO",
         severity: "BLOCK",
-        message: "Policy number missing",
+        message: "Policy or member identifier missing",
         mandatory: true
       }));
     }
@@ -1193,10 +1202,10 @@ router.post("/:id/check", async (req, res) => {
     let riskScore = 0;
     const riskFactors = [];
 
-    if (!claim.policyNo) {
+    if (!claim.policyNo && !claim.memberId && !claim.subscriberId) {
       riskScore += 0.25;
       riskFactors.push(
-        "Claims without policy number historically show elevated rejection trends"
+        "Claims without a policy or member identifier show elevated rejection risk"
       );
     }
 
