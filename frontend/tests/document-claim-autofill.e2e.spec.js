@@ -344,7 +344,8 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
           "Patient Name: Coding Review Patient",
           "Member ID: CF-CODE-101",
           "Diagnosis: Lumbar radiculopathy",
-          "ICD-10: M54.16"
+          "ICD-10: M54.16",
+          ...(name === "coding-note-one.pdf" ? ["CPT: 99213"] : [])
         ])
       );
       expect(upload.ok).toBe(true);
@@ -359,23 +360,46 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
     await review.getByTestId("open-icd-review").click();
 
     const codingDialog = page.getByRole("dialog", {
-      name: "Review AI-generated ICD-10-CM codes"
+      name: "Review AI coding suggestions"
     });
     await expect(codingDialog).toBeVisible();
-    await expect(codingDialog.getByTestId("pending-icd-M54.16")).toHaveCount(1);
-    await expect(codingDialog.getByText(/Source:/)).toBeVisible();
-    await codingDialog
-      .getByTestId("pending-icd-M54.16")
+    const icdSuggestion = codingDialog.getByTestId(
+      "pending-coding-ICD10_CM-M54.16"
+    );
+    const cptSuggestion = codingDialog.getByTestId(
+      "pending-coding-CPT-99213"
+    );
+    await expect(icdSuggestion).toHaveCount(1);
+    await expect(cptSuggestion).toHaveCount(1);
+    await expect(icdSuggestion.getByText(/Source:/)).toBeVisible();
+
+    await icdSuggestion
+      .getByRole("button", { name: "Accept", exact: true })
+      .click();
+
+    // CPT remains pending, so the unified modal stays open.
+    await expect(codingDialog).toBeVisible();
+    await expect(icdSuggestion).toHaveCount(0);
+    await expect(cptSuggestion).toBeVisible();
+
+    await cptSuggestion
       .getByRole("button", { name: "Accept", exact: true })
       .click();
 
     await expect(codingDialog).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/claims/${claimId}$`));
     await expect(review.getByTestId("accepted-icd-M54.16")).toBeVisible();
 
     let detail = await browserApi(page, `/api/claims/${claimId}`);
     expect(detail.ok).toBe(true);
-    expect(detail.data.icd10Codes).toContain("M54.16");
-    expect(detail.data.codingSuggestions.filter((item) => item.status === "PENDING")).toHaveLength(0);
+    expect(
+      detail.data.serviceLines.some(
+        (line) => line.cptHcpcsCode === "99213" && line.verified === true
+      )
+    ).toBe(true);
+    expect(
+      detail.data.codingSuggestions.filter((item) => item.status === "PENDING")
+    ).toHaveLength(0);
 
     // Both source documents immediately reflect that there is nothing left to review.
     await page.goto(`/documents?claimId=${claimId}`);
