@@ -43,28 +43,6 @@ import {
 } from "../services/codingSuggestions.js";
 
 
-function extractedServiceLines(extracted = {}, sourceDocumentId = null) {
-  const codes = Array.isArray(extracted.cptCodes)
-    ? [...new Set(extracted.cptCodes.map((code) => String(code).trim().toUpperCase()).filter(Boolean))]
-    : [];
-
-  const serviceDate = extracted.dateOfService
-    ? parseClaimDate(extracted.dateOfService)
-    : null;
-
-  return codes.map((cptHcpcsCode) => ({
-    cptHcpcsCode,
-    units: 1,
-    diagnosisPointers: Array.isArray(extracted.icd10Codes)
-      ? extracted.icd10Codes.filter(Boolean)
-      : [],
-    serviceDateFrom: serviceDate || undefined,
-    verified: false,
-    source: "DOCUMENT_OCR",
-    sourceDocumentId
-  }));
-}
-
 function assignParsedDate(target, field, value) {
   if (!value) return;
   const parsed = parseClaimDate(value);
@@ -180,29 +158,6 @@ function buildMissingClaimAutofill(claim = {}, extracted = {}, documentType = "O
   }
 
   return patch;
-}
-
-async function persistExtractedServiceLines(
-  prismaClient,
-  claimId,
-  extracted = {},
-  sourceDocumentId = null
-) {
-  const candidates = extractedServiceLines(extracted, sourceDocumentId);
-  if (candidates.length === 0) return;
-
-  const existing = await prismaClient.serviceLine.findMany({
-    where: { claimId },
-    select: { cptHcpcsCode: true }
-  });
-  const existingCodes = new Set(existing.map((line) => line.cptHcpcsCode));
-
-  const missing = candidates.filter((line) => !existingCodes.has(line.cptHcpcsCode));
-  if (missing.length === 0) return;
-
-  await prismaClient.serviceLine.createMany({
-    data: missing.map((line) => ({ ...line, claimId }))
-  });
 }
 
 function calculateMatchScore(extracted, existingClaim) {
