@@ -1004,6 +1004,12 @@ export async function listStediPayers({
   fetchImpl = globalThis.fetch,
   pageSize = 100
 } = {}) {
+  if (env.NODE_ENV === "production") {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_TEST",
+      "Stedi test payer directory is disabled in production"
+    );
+  }
   const apiKey = String(env.STEDI_TEST_API_KEY || "").trim();
   const baseUrl = String(env.STEDI_PAYER_API_BASE_URL || "https://healthcare.us.stedi.com/2024-04-01").replace(/\/$/, "");
   if (!apiKey) {
@@ -1030,6 +1036,12 @@ export async function searchStediPayers({
   pageSize = 20,
   eligibilityOnly = true
 } = {}) {
+  if (env.NODE_ENV === "production") {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_TEST",
+      "Stedi test payer directory is disabled in production"
+    );
+  }
   const apiKey = String(env.STEDI_TEST_API_KEY || "").trim();
   const baseUrl = String(
     env.STEDI_PAYER_API_BASE_URL || "https://healthcare.us.stedi.com/2024-04-01"
