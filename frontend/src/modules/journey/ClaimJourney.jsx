@@ -750,6 +750,12 @@ export default function ClaimJourney() {
     externalPayerConnected &&
     connectedConnector?.capabilities?.includes("getStatus");
   const payerTransactions = claim?.payerTransactions || [];
+  const activeDenialCase = claim?.denialCases?.[0] || null;
+  const underpaymentCase =
+    claim?.underpaymentCase &&
+    !["RECOVERED", "WRITTEN_OFF", "CLOSED"].includes(claim.underpaymentCase.status)
+      ? claim.underpaymentCase
+      : null;
   const latestEligibilityTransaction = payerTransactions.find(
     (tx) => tx.transactionType === "ELIGIBILITY"
   );
@@ -2280,6 +2286,75 @@ export default function ClaimJourney() {
               </Stack>
             </StageCard>
           </Box>
+
+          {(activeDenialCase || underpaymentCase) && (
+            <Card
+              variant="outlined"
+              sx={{
+                mt: 3,
+                borderColor: activeDenialCase ? "error.light" : "warning.light"
+              }}
+              data-testid="journey-recovery-work"
+            >
+              <CardContent>
+                <Stack spacing={1.5}>
+                  <Box>
+                    <Typography variant="h6" fontWeight={800}>
+                      Recovery Work
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Payer adjudication created an actionable recovery case. Continue recovery without losing the source 277/835 evidence.
+                    </Typography>
+                  </Box>
+
+                  {activeDenialCase && (
+                    <Alert
+                      severity="error"
+                      action={
+                        <Button
+                          color="inherit"
+                          size="small"
+                          onClick={() =>
+                            navigate(`/denials?caseId=${activeDenialCase.id}`)
+                          }
+                        >
+                          Open Denial Case
+                        </Button>
+                      }
+                    >
+                      <b>Denial case {humanStatus(activeDenialCase.status)}.</b>{" "}
+                      {activeDenialCase.carcCode
+                        ? `CARC ${activeDenialCase.carcCode}. `
+                        : ""}
+                      Revenue at risk: {money(activeDenialCase.revenueAtRisk)}.
+                    </Alert>
+                  )}
+
+                  {underpaymentCase && (
+                    <Alert
+                      severity="warning"
+                      action={
+                        <Button
+                          color="inherit"
+                          size="small"
+                          onClick={() =>
+                            navigate(`/payments?caseId=${underpaymentCase.id}`)
+                          }
+                        >
+                          Open Recovery Case
+                        </Button>
+                      }
+                    >
+                      <b>Payer underpayment detected.</b>{" "}
+                      Expected {money(underpaymentCase.expectedPayerPayment)}; paid{" "}
+                      {money(underpaymentCase.actualPaidAmount)}; variance{" "}
+                      {money(underpaymentCase.varianceAmount)}.
+                    </Alert>
+                  )}
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
 
           <Divider sx={{ my: 3 }} />
 
