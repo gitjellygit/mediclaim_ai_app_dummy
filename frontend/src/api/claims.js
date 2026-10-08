@@ -220,6 +220,13 @@ export const ClaimsApi = {
     });
   },
 
+  refreshRemittance(id, data = {}) {
+    return api(`${BASE}/${id}/journey/remittance/refresh`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+  },
+
   updateRemittance(id, data) {
     return api(`${BASE}/${id}/journey/remittance`, {
       method: "PATCH",
