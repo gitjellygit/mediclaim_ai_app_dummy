@@ -4,7 +4,10 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "test": "node --test --test-reporter=spec tests/*.test.js"
+    "test": "node --test --test-reporter=spec tests/*.test.js",
+    "lint": "npx --yes eslint@9 .",
+    "format:check": "npx --yes prettier@3 --check .",
+    "format": "npx --yes prettier@3 --write ."
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1038.0",
