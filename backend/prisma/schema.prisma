@@ -253,6 +253,7 @@ model Claim {
   groupNumber              String?
   subscriberId             String?
   subscriberName           String?
+  subscriberDob            DateTime? @db.Date
   subscriberRelationship   SubscriberRelationship?
   coordinationOfBenefits   CoordinationOfBenefits?
   payerEdiId               String?
@@ -429,7 +430,7 @@ model PayerTransaction {
   claimId String
   claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
-  transactionId String @unique
+  transactionId String
   mode          String @default("SIMULATED")
   payerCode     String
   transactionType String
@@ -438,6 +439,7 @@ model PayerTransaction {
   requestPayload Json?
   responsePayload Json?
 
+  @@unique([transactionId, claimId])
   @@index([claimId, createdAt])
   @@index([payerCode])
   @@index([transactionType])
