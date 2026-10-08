@@ -393,7 +393,15 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
               transaction: "270/271",
               connectorId: connector.connectorId,
               testMode: ["SANDBOX", "TEST"].includes(connector.connectorEnvironment),
-              inputFingerprint: eligibilityFingerprint
+              inputFingerprint: eligibilityFingerprint,
+              payerCode:
+                claim.payerEdiId ||
+                claim.simulatedPayerCode ||
+                claim.payerConnectorId ||
+                null,
+              payerName: claim.payerName || null,
+              memberId: claim.memberId || null,
+              policyNo: claim.policyNo || null
             },
             responsePayload: eligibility
           }
