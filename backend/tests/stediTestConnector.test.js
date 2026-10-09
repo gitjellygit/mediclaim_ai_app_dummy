@@ -898,6 +898,8 @@ test("R2C - Stedi builds institutional 837I with interim frequency and admission
         charge: "5000.00",
         units: "1",
         placeOfService: "21",
+        serviceDateFrom: new Date("2026-10-01T00:00:00.000Z"),
+        serviceDateTo: new Date("2026-10-03T00:00:00.000Z"),
         diagnosisPointers: ["J18.9"]
       }]
     },
