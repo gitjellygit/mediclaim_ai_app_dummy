@@ -459,13 +459,15 @@ export default function ClaimsList() {
         <Table sx={{ minWidth: 760 }}>
           <TableHead>
             <TableRow>
-              <TableCell padding="checkbox">
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={someSelected}
-                  onChange={handleSelectAll}
-                />
-              </TableCell>
+              {canDeleteClaims && (
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    checked={allSelected}
+                    indeterminate={someSelected}
+                    onChange={handleSelectAll}
+                  />
+                </TableCell>
+              )}
 
               <TableCell><strong>Patient Name</strong></TableCell>
               <TableCell><strong>Insurance Company</strong></TableCell>
@@ -479,12 +481,14 @@ export default function ClaimsList() {
           <TableBody>
             {filteredClaims.map((claim) => (
               <TableRow key={claim.id}>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    checked={selected.includes(claim.id)}
-                    onChange={() => handleSelectOne(claim.id)}
-                  />
-                </TableCell>
+                {canDeleteClaims && (
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      checked={selected.includes(claim.id)}
+                      onChange={() => handleSelectOne(claim.id)}
+                    />
+                  </TableCell>
+                )}
 
                 <TableCell>
                   {claim.patientName || "Unknown Patient"}
@@ -533,7 +537,7 @@ export default function ClaimsList() {
 
             {filteredClaims.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={(canDeleteClaims ? 1 : 0) + 5 + (canViewFinancial ? 1 : 0)} align="center">
                   No claims found
                 </TableCell>
               </TableRow>
