@@ -356,3 +356,20 @@ test("document API serialization strips storage paths raw OCR and file hashes", 
   assert.match(documents, /publicClaimDocuments/);
   assert.match(claims, /publicClaimDocuments\(claim\)/);
 });
+
+
+test("claim completion filters stay visible and Fix targets exact fields", () => {
+  const card = read("frontend/src/modules/ai-claims/claim-detail/ClaimCompletenessCard.jsx");
+  const detail = read("frontend/src/modules/ai-claims/ClaimDetail.jsx");
+
+  assert.match(card, /Needs attention/);
+  assert.match(card, /variant=\{filter === "attention" \? "contained" : "text"\}/);
+  assert.match(card, /variant=\{filter === "review" \? "contained" : "text"\}/);
+  assert.match(card, /variant=\{filter === "automated" \? "contained" : "text"\}/);
+  assert.doesNotMatch(card, /filter !== "attention"/);
+
+  assert.match(detail, /data-fix-field="providerTaxonomyCode"/);
+  assert.match(detail, /isFixField\("providerTaxonomyCode"\)/);
+  assert.match(detail, /document\.querySelector\([\s\S]*data-fix-field/);
+  assert.match(detail, /scrollIntoView\([\s\S]*block: "center"/);
+});
