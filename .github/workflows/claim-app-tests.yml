@@ -67,9 +67,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        # Frontend package-lock currently predates the Playwright dependency.
-        # npm ci is enabled for backend; frontend needs a separately reviewed lockfile refresh.
-        run: npm install
+        run: npm ci
 
       - name: Lint frontend
         working-directory: frontend
