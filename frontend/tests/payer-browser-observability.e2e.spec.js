@@ -193,7 +193,7 @@ test("browser smoke - STEDI_TEST payer discovery, connection and eligibility are
     const claimStage = page.getByTestId("journey-stage-claim");
     await expect(
       claimStage.getByRole("button", { name: "Submit to Payer" })
-    ).toHaveCount(0);
+    ).toBeVisible();
 
     const journey = await browserApi(page, `/api/claims/${claim.id}/journey`);
     expect(journey.ok).toBe(true);
