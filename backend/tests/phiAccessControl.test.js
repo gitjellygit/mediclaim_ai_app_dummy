@@ -259,9 +259,20 @@ test("PHI frontend contract - routes and navigation hide restricted healthcare d
   assert.match(nav, /hasPermission\(user, PERMISSIONS\.AUDIT_VIEW\)/);
 
   assert.match(detail, /canEditClinical = hasPermission\(user, PERMISSIONS\.CLINICAL_EDIT\)/);
-  assert.match(detail, /delete payload\.diagnosisText/);
-  assert.match(detail, /delete payload\.totalBilledAmount/);
+  assert.match(detail, /"diagnosisText"/);
+  assert.match(detail, /"totalBilledAmount"/);
+  assert.match(detail, /delete payload\[field\]/);
 
   assert.match(list, /canCreateFullClaim = hasPermission\(user, PERMISSIONS\.CLINICAL_EDIT\)/);
   assert.match(list, /canViewFinancial = hasPermission\(user, PERMISSIONS\.FINANCIAL_VIEW\)/);
+});
+
+
+test("PHI auth contract - authorization resolves the current database role for active sessions", () => {
+  const authMiddleware = read("src/middleware/auth.js");
+
+  assert.match(authMiddleware, /activeSessionUser/);
+  assert.match(authMiddleware, /select:[\s\S]*role: true[\s\S]*organizationId: true/);
+  assert.match(authMiddleware, /req\.user = tokenUser\(payload, currentUser\)/);
+  assert.doesNotMatch(authMiddleware, /req\.user = tokenUser\(payload\);/);
 });
