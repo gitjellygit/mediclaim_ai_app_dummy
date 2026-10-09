@@ -75,7 +75,9 @@ const CLINICAL_FIELDS = [
   "codingSuggestions",
   "checks",
   "aiSummary",
-  "riskFactors"
+  "riskFactors",
+  "automationSummary",
+  "completenessSummary"
 ];
 
 const FINANCIAL_FIELDS = [
