@@ -776,6 +776,34 @@ export default function ClaimJourney() {
     stages?.eligibility,
     latestEligibilityTransaction
   );
+  const connectedPayerName =
+    journey?.payerConnection?.simulatedPayer?.name ||
+    claim?.connectedPayerName ||
+    "";
+  const checkedPayerName = String(
+    eligibilityRequestSnapshot.payerName || connectedPayerName || ""
+  ).trim();
+  const checkedPayerCode = String(
+    eligibilityRequestSnapshot.payerCode || claim?.connectedPayerCode || ""
+  ).trim();
+  const sourcePayerName = String(claim?.payerName || "").trim();
+  const sourcePayerCode = String(claim?.payerEdiId || "").trim();
+  const payerNameMatches =
+    checkedPayerName &&
+    sourcePayerName &&
+    normalizePayerName(checkedPayerName) === normalizePayerName(sourcePayerName);
+  const payerCodeMatches =
+    checkedPayerCode &&
+    sourcePayerCode &&
+    checkedPayerCode.toUpperCase() === sourcePayerCode.toUpperCase();
+  const insurancePayerMismatch =
+    eligibilityOutcome === "Verified Active" &&
+    Boolean(checkedPayerName || checkedPayerCode) &&
+    !payerNameMatches &&
+    !payerCodeMatches;
+  const insuranceOnFileState = insurancePayerMismatch
+    ? { label: "Not Verified Against File", color: "warning", severity: "warning" }
+    : insuranceState;
   const claimReference =
     claim?.insurerClaimNo ||
     claim?.patientControlNumber ||
@@ -1181,8 +1209,8 @@ export default function ClaimJourney() {
                     <Chip
                       size="small"
                       variant="outlined"
-                      color={insuranceState.color}
-                      label={insuranceState.label}
+                      color={insuranceOnFileState.color}
+                      label={insuranceOnFileState.label}
                       data-testid="insurance-verification-state"
                     />
                   </Stack>
@@ -1197,6 +1225,17 @@ export default function ClaimJourney() {
                     <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
                       Source: {payerNameProvenance.label}
                     </Typography>
+                  )}
+                  {insurancePayerMismatch && (
+                    <Alert
+                      severity="warning"
+                      sx={{ mt: 1.5 }}
+                      data-testid="insurance-payer-mismatch"
+                    >
+                      Verified coverage is with <b>{checkedPayerName || checkedPayerCode}</b>,
+                      while insurance on file is <b>{claim.payerName || "not recorded"}</b>.
+                      Connecting a payer does not update the source insurance record.
+                    </Alert>
                   )}
                 </Box>
                 {!workflowAdvanced && (
@@ -1298,8 +1337,7 @@ export default function ClaimJourney() {
                                 () =>
                                   ClaimsApi.connectExternalPayer(claim.id, {
                                     connectorId: selectedExternalConnector,
-                                    payerCode: externalPayerCode.trim(),
-                                    payerName: claim.payerName || undefined
+                                    payerCode: externalPayerCode.trim()
                                   }),
                                 "External payer connected"
                               )
@@ -1366,8 +1404,8 @@ export default function ClaimJourney() {
                         variant="outlined"
                         color={payerConnected ? "success" : "default"}
                         label={
-                          journey?.payerConnection?.simulatedPayer?.name ||
-                          claim.payerName ||
+                          connectedPayerName ||
+                          claim.connectedPayerCode ||
                           "Connection record unavailable"
                         }
                       />
@@ -1386,7 +1424,12 @@ export default function ClaimJourney() {
                       <Chip
                         variant="outlined"
                         color="success"
-                        label={claim.payerName || connectedConnector?.provider || "External payer"}
+                        label={
+                          claim.connectedPayerName ||
+                          claim.connectedPayerCode ||
+                          connectedConnector?.provider ||
+                          "External payer"
+                        }
                       />
                     </Stack>
                   ) : simulatedPayerConnected && !payerEditing ? (
@@ -1400,7 +1443,7 @@ export default function ClaimJourney() {
                       <TextField
                         size="small"
                         label="Payer"
-                        value={journey?.payerConnection?.simulatedPayer?.name || claim.payerName || ""}
+                        value={connectedPayerName || claim.connectedPayerCode || ""}
                         InputProps={{ readOnly: true }}
                         data-testid="connected-payer"
                         fullWidth
