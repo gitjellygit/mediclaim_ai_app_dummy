@@ -33,8 +33,12 @@ export const TYPE_OF_BILL_BASE_OPTIONS = [
 
 export const CLAIM_FREQUENCY_DIGIT = {
   ORIGINAL: "1",
+  INTERIM_FIRST: "2",
+  INTERIM_CONTINUING: "3",
+  INTERIM_LAST: "4",
   CORRECTED: "7",
-  VOID: "8"
+  VOID: "8",
+  FINAL_HOME_HEALTH: "9"
 };
 
 export const POA_OPTIONS = [
