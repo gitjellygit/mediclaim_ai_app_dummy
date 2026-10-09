@@ -858,3 +858,69 @@ test("R3 - production Stedi submitClaim sends production 837 and never returns r
   assert.equal(result.livePayerSubmission, true);
   assert.equal("x12" in result, false);
 });
+
+
+test("R2C - Stedi builds institutional 837I with interim frequency and admission codes", () => {
+  const result = buildStediClaimSubmissionRequest(
+    {
+      id: "claim-inst-build",
+      claimForm: "INSTITUTIONAL",
+      connectedPayerCode: "60054",
+      connectedPayerName: "Aetna",
+      patientControlNumber: "INST1234567890123",
+      claimFilingCode: "CI",
+      claimFrequencyCode: "INTERIM_FIRST",
+      amount: "5000.00",
+      patientName: "Alex Morgan",
+      patientDob: new Date("1980-01-15T00:00:00.000Z"),
+      patientGender: "MALE",
+      patientAddress1: "101 Main St",
+      patientCity: "Denver",
+      patientState: "CO",
+      patientPostalCode: "80202",
+      memberId: "MEM-INST-1",
+      subscriberRelationship: "SELF",
+      billingProviderNpi: "1999999984",
+      providerTin: "123456789",
+      providerTaxonomyCode: "282N00000X",
+      hospitalName: "Example Hospital",
+      icd10Codes: ["J18.9"],
+      admissionDate: new Date("2026-10-01T00:00:00.000Z"),
+      dischargeDate: new Date("2026-10-03T00:00:00.000Z"),
+      admissionTypeCode: "1",
+      admissionSourceCode: "1",
+      patientStatusCode: "01",
+      serviceLines: [{
+        id: "line-inst-1",
+        verified: true,
+        cptHcpcsCode: "99223",
+        revenueCode: "0120",
+        charge: "5000.00",
+        units: "1",
+        placeOfService: "21",
+        diagnosisPointers: ["J18.9"]
+      }]
+    },
+    {
+      usageIndicator: "P",
+      env: {
+        STEDI_SUBMITTER_NAME: "Example Hospital",
+        STEDI_SUBMITTER_PHONE: "3035550100",
+        STEDI_BILLING_ADDRESS1: "500 Provider Ave",
+        STEDI_BILLING_CITY: "Denver",
+        STEDI_BILLING_STATE: "CO",
+        STEDI_BILLING_POSTAL_CODE: "80203"
+      }
+    }
+  );
+
+  assert.equal(result.claimType, "INSTITUTIONAL");
+  assert.equal(result.payload.usageIndicator, "P");
+  assert.equal(result.payload.claimInformation.claimFrequencyCode, "2");
+  assert.equal(result.payload.claimInformation.claimCodeInformation.admissionTypeCode, "1");
+  assert.equal(result.payload.claimInformation.claimCodeInformation.patientStatusCode, "01");
+  assert.equal(
+    result.payload.claimInformation.serviceLines[0].institutionalService.serviceLineRevenueCode,
+    "0120"
+  );
+});
