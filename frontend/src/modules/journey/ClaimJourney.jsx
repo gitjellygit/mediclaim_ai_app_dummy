@@ -723,9 +723,11 @@ export default function ClaimJourney() {
   const simulatedPayerConnected =
     journey?.payerConnection?.mode === "SIMULATED" &&
     Boolean(journey?.payerConnection?.simulatedPayerCode);
-  const externalPayerConnected =
+  const externalPayerSelected =
     journey?.payerConnection?.mode === "LIVE" &&
-    Boolean(claim?.payerConnectorId) &&
+    Boolean(claim?.payerConnectorId);
+  const externalPayerConnected =
+    externalPayerSelected &&
     Boolean(connectedConnector?.configured);
   const payerConnected = simulatedPayerConnected || externalPayerConnected;
   const availableExternalConnectors = externalConnectors.filter(
@@ -2019,8 +2021,10 @@ export default function ClaimJourney() {
                     action !== "" ||
                     (simulatedPayerConnected
                       ? finalPayerStatus || !acknowledged
-                      : externalPayerConnected
-                      ? finalPayerStatus || !externalStatusSupported
+                      : externalPayerSelected
+                      ? finalPayerStatus ||
+                        !externalPayerConnected ||
+                        !externalStatusSupported
                       : payerStatusUnchanged)
                   }
                   onClick={() =>
@@ -2029,10 +2033,10 @@ export default function ClaimJourney() {
                       () =>
                         simulatedPayerConnected
                           ? ClaimsApi.simulatePayerStatus(claim.id)
-                          : externalPayerConnected
+                          : externalPayerSelected
                           ? ClaimsApi.refreshPayerStatus(claim.id)
                           : ClaimsApi.updatePayerStatus(claim.id, payerStatus),
-                      externalPayerConnected
+                      externalPayerSelected
                         ? "276/277 claim status refreshed"
                         : "Payer status updated"
                     )
@@ -2042,9 +2046,10 @@ export default function ClaimJourney() {
                     ? "Checking..."
                     : finalPayerStatus
                     ? "Final Status"
-                    : externalPayerConnected && !externalStatusSupported
+                    : externalPayerSelected &&
+                      (!externalPayerConnected || !externalStatusSupported)
                     ? "276/277 Not Configured"
-                    : externalPayerConnected
+                    : externalPayerSelected
                     ? "Refresh 276/277 Status"
                     : "Check Status"}
                 </Button>
