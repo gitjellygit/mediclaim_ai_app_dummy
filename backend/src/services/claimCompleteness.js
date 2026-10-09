@@ -20,7 +20,7 @@ const LABELS = {
   billingProviderNpi: "Billing Provider NPI",
   renderingProviderNpi: "Rendering Provider NPI",
   providerTin: "Provider TIN",
-  providerTaxonomy: "Provider Taxonomy",
+  providerTaxonomyCode: "Provider Taxonomy",
   placeOfService: "Place of Service",
   typeOfBill: "Type of Bill",
   revenueCode: "Revenue Code",
@@ -230,7 +230,7 @@ export function buildClaimCompleteness(claim) {
     reason: "Recommended billing-provider identifier; payer requirements vary"
   });
   push({
-    field: "providerTaxonomy",
+    field: "providerTaxonomyCode",
     required: false,
     reason: "Recommended when required by payer/provider enrollment rules"
   });
