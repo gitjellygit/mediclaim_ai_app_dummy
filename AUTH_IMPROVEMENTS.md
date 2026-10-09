@@ -1,240 +1,87 @@
-# Authentication & Authorization Improvements
+# Authentication & Authorization — Current Engineering Baseline
 
-This document outlines the industry-standard authentication and authorization improvements made to the Claim AI MVP.
+This document describes the authentication behavior implemented in CLAIM APP. It is an engineering reference, not a security certification.
 
-## 🎯 Overview
+## Current session model
 
-The authentication system has been upgraded from a basic POC to an industry-standard implementation with proper security practices, token management, and role-based access control.
+- Access tokens are JWTs and default to a 15-minute lifetime.
+- Production access JWTs must contain a valid session ID (`sid`) and `type=access`.
+- Refresh credentials are random opaque tokens.
+- Only SHA-256 hashes of refresh credentials are stored in the database.
+- In production the refresh credential is carried in an HttpOnly cookie and is not accepted from a JSON request body.
+- The refresh cookie is scoped to `/api/auth`, is Secure in production, and uses configurable SameSite behavior.
+- Successful refresh rotates the refresh credential while preserving the logical session.
+- Reuse of a revoked refresh credential revokes the entire session.
+- Logout revokes the current session.
+- Logout-all revokes all active sessions for the user.
+- Users can list active sessions and revoke an individual session.
+- Protected API requests validate that the JWT's backing session is still active.
 
-## 🔐 Backend Improvements
+Local/test compatibility may return or accept a refresh token in JSON. Production intentionally does not.
 
-### 1. **Refresh Token Mechanism**
-- **Access Tokens**: Short-lived (15 minutes) for API requests
-- **Refresh Tokens**: Long-lived (7 days) stored securely in database
-- Automatic token rotation on refresh
-- Token revocation support
+## Frontend behavior
 
-### 2. **Security Enhancements**
-- **Account Lockout**: After 5 failed login attempts, account is locked for 30 minutes
-- **Rate Limiting**: Prevents brute force attacks (5 attempts per 15 minutes per email)
-- **Password Security**: Industry-standard bcrypt hashing (12 rounds)
-- **Token Expiration**: Proper JWT expiration handling with clear error messages
+The API client:
 
-### 3. **Error Handling**
-- Consistent error response format
-- Security-conscious error messages (don't reveal if user exists)
-- Proper HTTP status codes (401, 403, 423, 429)
-- Detailed error logging for debugging
+- stores the short-lived access token in browser localStorage;
+- never stores the production refresh credential in JavaScript-accessible storage;
+- proactively calls the refresh endpoint when an access token is missing/near expiry;
+- retries a protected request once after an application 401 by attempting session refresh;
+- sends requests with `credentials: "include"` so the HttpOnly refresh cookie can be used;
+- clears local access state and redirects to login when refresh/retry cannot recover the session.
 
-### 4. **Database Schema Updates**
-- `RefreshToken` model for secure token storage
-- User security fields: `failedLoginAttempts`, `lockedUntil`, `lastLoginAt`
-- Proper indexes for performance
-- Cascade deletion for security
+Authentication endpoints themselves are excluded from automatic protected-request refresh behavior so, for example, an invalid login is not confused with an expired application session.
 
-### 5. **API Endpoints**
-- `POST /api/auth/login` - Enhanced login with refresh tokens
-- `POST /api/auth/refresh` - Refresh access token
-- `POST /api/auth/logout` - Revoke refresh token
-- `POST /api/auth/logout-all` - Revoke all user sessions
-- `GET /api/auth/me` - Get current authenticated user
+## Account protections
 
-### 6. **Middleware Improvements**
-- `requireAuth` - Enhanced JWT validation with proper error handling
-- `requireRoles` - Role-based authorization middleware
-- `optionalAuth` - Optional authentication for public endpoints
-- Better token validation and error messages
+- bcrypt password verification;
+- failed-login tracking;
+- account lockout after five failed attempts;
+- login rate limiting;
+- short-lived access JWTs;
+- refresh-token rotation and reuse detection;
+- session revocation;
+- role-based route authorization with `requireRoles`;
+- organization/tenant claims embedded in the authenticated identity and enforced by resource routes;
+- auth/session audit events.
 
-## 🎨 Frontend Improvements
+The current in-process login rate limiter is application-instance local. A horizontally scaled production deployment should use a shared rate-limit store or equivalent edge control.
 
-### 1. **Automatic Token Refresh**
-- Automatic token refresh before expiration (1-minute buffer)
-- Seamless user experience - no interruptions
-- Handles token expiration gracefully
+## Roles
 
-### 2. **Enhanced Auth Context**
-- Proper state management with React Context
-- Automatic user verification on app load
-- Token validation with backend
-- Proper cleanup on logout
+Current application roles include ADMIN, CASHIER, and RECEPTIONIST.
 
-### 3. **Role-Based Route Protection**
-- `ProtectedRoute` - Requires authentication
-- `RoleProtectedRoute` - Requires specific roles
-- Automatic redirects for unauthorized access
-- Loading states during auth checks
+Sensitive operations must use explicit route-level authorization. In particular, production payer-connector assignment is ADMIN-only. Resource access must also remain organization-scoped; a role check is not a substitute for tenant isolation.
 
-### 4. **API Client Improvements**
-- Automatic token injection in requests
-- Token refresh on 401 errors
-- Better error handling and messages
-- Proper token expiration detection
+## Key endpoints
 
-### 5. **User Experience**
-- Smooth login/logout flow
-- No page reloads needed
-- Proper error messages
-- Session persistence
+- `POST /api/auth/login`
+- `POST /api/auth/refresh`
+- `POST /api/auth/logout`
+- `POST /api/auth/logout-all`
+- `GET /api/auth/me`
+- `GET /api/auth/sessions`
+- `DELETE /api/auth/sessions/:sessionId`
 
-## 🔒 Security Features
+The development lockout-reset route is unavailable in production.
 
-### Industry-Standard Practices Implemented:
+## Required production configuration
 
-1. **Token Management**
-   - Short-lived access tokens (15 min)
-   - Long-lived refresh tokens (7 days)
-   - Secure token storage
-   - Token revocation
-
-2. **Account Security**
-   - Account lockout after failed attempts
-   - Rate limiting on login
-   - Password strength validation (ready for use)
-   - Last login tracking
-
-3. **Authorization**
-   - Role-based access control (RBAC)
-   - Route-level protection
-   - API-level protection
-   - Proper 403 Forbidden responses
-
-4. **Error Handling**
-   - No user enumeration (same error for invalid email/password)
-   - Proper HTTP status codes
-   - Security-conscious error messages
-   - Detailed logging for debugging
-
-## 📋 Database Migration
-
-Run the migration to add the new tables and fields:
-
-```bash
-cd backend
-npx prisma migrate dev
-```
-
-This will create:
-- `RefreshToken` table
-- Security fields on `User` table (`failedLoginAttempts`, `lockedUntil`, `lastLoginAt`, `updatedAt`)
-
-## 🚀 Environment Variables
-
-Add these to your `.env` file:
+At minimum:
 
 ```env
-JWT_SECRET=your-secret-key-here-min-32-chars
+JWT_SECRET=<strong secret managed outside source control>
 JWT_EXPIRES_IN=15m
 REFRESH_TOKEN_EXPIRES_IN=7d
+CORS_ORIGIN=https://your-approved-ui-origin.example
+REFRESH_COOKIE_SECURE=true
+REFRESH_COOKIE_SAME_SITE=lax
 ```
 
-## 📝 Usage Examples
+Production secrets should be supplied by the deployment secret manager rather than committed .env files.
 
-### Backend - Protecting Routes
+## Known security work outside this auth module
 
-```javascript
-// Require authentication
-app.use("/api/claims", requireAuth, claimsRouter);
+Authentication alone does not make the product production/HIPAA compliant. Production release review must also cover infrastructure, MFA/SSO strategy, secrets/key rotation, monitoring, malware scanning, backup/restore, incident response, access reviews, vendor agreements/BAAs, and the technical controls documented in `docs/HIPAA_READINESS.md`.
 
-// Require specific roles
-app.use("/api/rules", requireAuth, requireRoles(["ADMIN"]), rulesRouter);
-```
-
-### Frontend - Protecting Routes
-
-```jsx
-// Require authentication
-<ProtectedRoute>
-  <YourComponent />
-</ProtectedRoute>
-
-// Require specific roles
-<RoleProtectedRoute allowedRoles={["ADMIN", "CASHIER"]}>
-  <YourComponent />
-</RoleProtectedRoute>
-```
-
-### Frontend - Using Auth Context
-
-```jsx
-import { useAuth } from "../context/AuthContext.jsx";
-
-function MyComponent() {
-  const { user, logout, refreshUser } = useAuth();
-  
-  // user: { id, email, role }
-  // logout: async function
-  // refreshUser: async function
-}
-```
-
-## 🔄 Token Flow
-
-1. **Login**: User logs in → receives `accessToken` + `refreshToken`
-2. **API Requests**: Access token sent in `Authorization: Bearer <token>` header
-3. **Token Expiry**: Access token expires after 15 minutes
-4. **Auto Refresh**: Frontend automatically refreshes token before expiry
-5. **Refresh Flow**: Uses refresh token to get new access token
-6. **Logout**: Refresh token revoked, access token invalidated
-
-## 🛡️ Security Considerations
-
-### Current Implementation
-- ✅ JWT tokens with expiration
-- ✅ Refresh token mechanism
-- ✅ Account lockout
-- ✅ Rate limiting
-- ✅ Role-based access control
-- ✅ Token revocation
-- ✅ Secure password hashing
-
-### Future Enhancements (Optional)
-- [ ] HTTP-only cookies for refresh tokens (more secure than localStorage)
-- [ ] CSRF protection
-- [ ] Two-factor authentication (2FA)
-- [ ] Password reset flow
-- [ ] Email verification
-- [ ] Session management UI
-- [ ] Audit logging
-- [ ] Redis for rate limiting (instead of in-memory)
-
-## 📚 Files Changed
-
-### Backend
-- `src/routes/auth.js` - Complete rewrite with refresh tokens
-- `src/middleware/auth.js` - Enhanced with better error handling
-- `src/utils/security.js` - New security utilities
-- `src/index.js` - Updated auth routes
-- `prisma/schema.prisma` - Added RefreshToken model and security fields
-
-### Frontend
-- `src/api/auth.js` - Updated for refresh tokens
-- `src/api/client.js` - Automatic token refresh
-- `src/context/AuthContext.jsx` - Enhanced state management
-- `src/components/ProtectedRoute.jsx` - New role-based protection
-- `src/App.jsx` - Updated route protection
-- `src/components/TopNav.jsx` - Updated logout flow
-- `src/pages/Login.jsx` - Already updated for new auth flow
-
-## ✅ Testing Checklist
-
-- [x] Login with valid credentials
-- [x] Login with invalid credentials (account lockout)
-- [x] Token refresh on expiry
-- [x] Logout revokes tokens
-- [x] Protected routes require auth
-- [x] Role-based routes enforce roles
-- [x] Rate limiting works
-- [x] Account lockout works
-- [x] Token expiration handled gracefully
-
-## 🎉 Summary
-
-The authentication system is now production-ready with:
-- ✅ Industry-standard security practices
-- ✅ Proper token management
-- ✅ Role-based access control
-- ✅ Account security features
-- ✅ Better error handling
-- ✅ Seamless user experience
-
-All changes are backward compatible with existing code, and the system gracefully handles edge cases and errors.
+Do not describe this application as "production-ready" or "HIPAA certified" solely because these authentication controls are present.

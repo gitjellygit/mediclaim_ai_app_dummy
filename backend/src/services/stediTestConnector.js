@@ -1,7 +1,19 @@
 import { PayerConnectorUnavailableError } from "./payerConnectorRegistry.js";
+import { moneyCents, moneyFromCents, validMoney } from "../utils/money.js";
 
 const DEFAULT_BASE_URL = "https://healthcare.us.stedi.com/2026-06-01";
 const DEFAULT_CLAIMS_BASE_URL = "https://healthcare.us.stedi.com/2024-04-01";
+
+const CONNECTOR_TIMEOUT_MS = 15000;
+
+function connectorSignal(signal) {
+  const timeout = AbortSignal.timeout(CONNECTOR_TIMEOUT_MS);
+  if (!signal) return timeout;
+  return typeof AbortSignal.any === "function"
+    ? AbortSignal.any([signal, timeout])
+    : signal;
+}
+
 
 function required(value, name) {
   if (value == null || value === "") {
@@ -13,7 +25,13 @@ function required(value, name) {
 }
 
 function patientNameParts(claim) {
-  const source = String(claim.subscriberName || claim.patientName || "").trim();
+  const subscriberIsPatient =
+    !claim.subscriberRelationship || claim.subscriberRelationship === "SELF";
+  const source = String(
+    subscriberIsPatient
+      ? claim.subscriberName || claim.patientName || ""
+      : claim.subscriberName || ""
+  ).trim();
   const parts = source.split(/\s+/).filter(Boolean);
   if (parts.length < 2) {
     return { firstName: parts[0] || null, lastName: null };
@@ -37,12 +55,19 @@ export function buildStediEligibilityRequest(claim, context = {}) {
   const names = patientNameParts(claim);
   const payerId = context.payerId || claim.payerEdiId;
   const memberId = claim.subscriberId || claim.memberId;
-  const dateOfBirth = dateOnly(claim.patientDob);
+  const subscriberIsPatient =
+    !claim.subscriberRelationship || claim.subscriberRelationship === "SELF";
+  const dateOfBirth = dateOnly(
+    subscriberIsPatient ? claim.patientDob : claim.subscriberDob
+  );
   const npi = context.providerNpi || claim.billingProviderNpi || claim.renderingProviderNpi;
 
   required(payerId, "payerEdiId");
   required(memberId, "memberId/subscriberId");
-  required(dateOfBirth, "patientDob");
+  required(
+    dateOfBirth,
+    subscriberIsPatient ? "patientDob" : "subscriberDob"
+  );
   required(names.firstName, "subscriber first name");
   required(names.lastName, "subscriber last name");
   required(npi, "provider NPI");
@@ -88,7 +113,11 @@ export function buildStediClaimStatusRequest(claim, context = {}) {
   const names = patientNameParts(claim);
   const payerId = context.payerId || claim.payerEdiId;
   const memberId = claim.subscriberId || claim.memberId;
-  const dateOfBirth = compactDate(claim.patientDob);
+  const subscriberIsPatient =
+    !claim.subscriberRelationship || claim.subscriberRelationship === "SELF";
+  const dateOfBirth = compactDate(
+    subscriberIsPatient ? claim.patientDob : claim.subscriberDob
+  );
   const providerNpi =
     context.providerNpi || claim.billingProviderNpi || claim.renderingProviderNpi;
   const beginningDateOfService = compactDate(
@@ -100,7 +129,10 @@ export function buildStediClaimStatusRequest(claim, context = {}) {
 
   required(payerId, "payerEdiId");
   required(memberId, "memberId/subscriberId");
-  required(dateOfBirth, "patientDob");
+  required(
+    dateOfBirth,
+    subscriberIsPatient ? "patientDob" : "subscriberDob"
+  );
   required(names.firstName, "subscriber first name");
   required(names.lastName, "subscriber last name");
   required(providerNpi, "provider NPI");
@@ -165,7 +197,6 @@ function normalizedPayerStatus(status = {}) {
 
   if (
     category === "F1" ||
-    Number(status.amountPaid || 0) > 0 ||
     /\bPAID\b/.test(description)
   ) {
     return "PAID";
@@ -200,7 +231,6 @@ export function normalizeStediClaimStatusResponse(body, {
       transactionType: "276/277",
       livePayerVerification: true,
       testMode: false,
-      raw: body
     };
   }
 
@@ -237,15 +267,40 @@ export function normalizeStediClaimStatusResponse(body, {
     transactionType: "276/277",
     livePayerVerification: true,
     testMode: false,
-    raw: body
   };
 }
 
 
 function moneyOrNull(value) {
   if (value == null || value === "") return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
+  const normalized = validMoney(value, { allowNegative: true });
+  return normalized == null ? null : Number(normalized);
+}
+
+function sumMoney(values = []) {
+  let total = 0n;
+  let seen = false;
+  for (const value of values) {
+    if (value == null || value === "") continue;
+    try {
+      total += moneyCents(value, { allowNegative: true });
+      seen = true;
+    } catch {
+      return null;
+    }
+  }
+  return seen ? Number(moneyFromCents(total)) : null;
+}
+
+function subtractMoneyFloorZero(a, b) {
+  if (a == null || b == null) return null;
+  try {
+    const result = moneyCents(a, { allowNegative: true }) -
+      moneyCents(b, { allowNegative: true });
+    return Number(moneyFromCents(result > 0n ? result : 0n));
+  } catch {
+    return null;
+  }
 }
 
 function normalizeAdjustmentRows(rows = [], scope = "CLAIM") {
@@ -290,7 +345,7 @@ function serviceAllowedAmount(payment = {}) {
   const values = (payment.serviceLines || [])
     .map((line) => moneyOrNull(line?.serviceSupplementalAmounts?.allowedActual))
     .filter((value) => value != null);
-  return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+  return values.length ? sumMoney(values) : null;
 }
 
 export function normalizeStedi835Report(
@@ -318,7 +373,6 @@ export function normalizeStedi835Report(
       transactionType: "835",
       latencyMs,
       testMode: String(body?.meta?.applicationMode || "").toLowerCase() === "test",
-      raw: body
     };
   }
 
@@ -331,7 +385,6 @@ export function normalizeStedi835Report(
       transactionType: "835",
       latencyMs,
       testMode: String(body?.meta?.applicationMode || "").toLowerCase() === "test",
-      raw: body
     };
   }
 
@@ -356,11 +409,11 @@ export function normalizeStedi835Report(
   );
   const expectedPayerPayment =
     allowedAmount != null
-      ? Math.max(0, allowedAmount - Number(patientResponsibility || 0))
+      ? subtractMoneyFloorZero(allowedAmount, patientResponsibility || 0)
       : null;
   const potentialUnderpayment =
     expectedPayerPayment != null && paidAmount != null
-      ? Math.max(0, expectedPayerPayment - paidAmount)
+      ? subtractMoneyFloorZero(expectedPayerPayment, paidAmount)
       : null;
 
   return {
@@ -390,7 +443,6 @@ export function normalizeStedi835Report(
     transactionType: "835",
     latencyMs,
     testMode: String(body?.meta?.applicationMode || "").toLowerCase() === "test",
-    raw: body
   };
 }
 
@@ -416,7 +468,7 @@ async function fetchStedi835Report({
     )}/835`,
     {
       headers: { Authorization: apiKey },
-      signal
+      signal: connectorSignal(signal)
     }
   );
   const body = await parseResponse(response);
@@ -449,7 +501,7 @@ async function discoverStedi835({
 
   const pollResponse = await fetchImpl(url, {
     headers: { Authorization: apiKey },
-    signal
+    signal: connectorSignal(signal)
   });
   const pollBody = await parseResponse(pollResponse);
   const candidates = (pollBody?.items || [])
@@ -470,7 +522,7 @@ async function discoverStedi835({
       apiKey,
       eraBaseUrl,
       fetchImpl,
-      signal
+      signal: connectorSignal(signal)
     });
     const normalized = normalizeStedi835Report(body, {
       expectedPatientControlNumber,
@@ -543,7 +595,6 @@ export function normalizeStediClaimSubmissionResponse(body, {
       description: item?.description || item?.message || null
     })),
     has277CA: Boolean(body?.x12),
-    x12: body?.x12 || null,
     latencyMs,
     idempotencyKey,
     testMode: true,
@@ -615,8 +666,6 @@ export function normalizeStediEligibilityResponse(
       ? "INACTIVE"
       : ["FAILED", "INVESTIGATE"].includes(result)
       ? result
-      : benefits.length > 0
-      ? "ACTIVE"
       : "NEEDS_REVIEW";
 
   const deductibleAmount =
@@ -691,6 +740,12 @@ export function createStediTestConnector({
     env.STEDI_ERA_API_BASE_URL || DEFAULT_CLAIMS_BASE_URL
   ).replace(/\/$/, "");
 
+  if (env.NODE_ENV === "production") {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_TEST",
+      "Stedi test connector is disabled in production"
+    );
+  }
   if (!apiKey) {
     throw new PayerConnectorUnavailableError(
       "STEDI_TEST",
@@ -721,7 +776,7 @@ export function createStediTestConnector({
           "Content-Type": "application/json"
         },
         body: JSON.stringify(payload),
-        signal: context.signal
+        signal: connectorSignal(context.signal)
       });
       const body = await parseResponse(response);
       return normalizeStediEligibilityResponse(body, {
@@ -741,7 +796,8 @@ export function createStediTestConnector({
           ? "/change/medicalnetwork/institutionalclaims/v1/submission"
           : "/change/medicalnetwork/professionalclaims/v3/submission";
       const idempotencyKey = String(
-        context.idempotencyKey || `claim-app-${claim?.id || "claim"}-${normalizedType}`
+        context.idempotencyKey ||
+          `claim-app-${claim?.id || "claim"}-${normalizedType}-${claim?.claimFrequencyCode || "ORIGINAL"}`
       ).slice(0, 255);
 
       const startedAt = Date.now();
@@ -753,7 +809,7 @@ export function createStediTestConnector({
           "Idempotency-Key": idempotencyKey
         },
         body: JSON.stringify(payload),
-        signal: context.signal
+        signal: connectorSignal(context.signal)
       });
       const body = await parseResponse(response);
       return normalizeStediClaimSubmissionResponse(body, {
@@ -780,7 +836,7 @@ export function createStediTestConnector({
           apiKey,
           eraBaseUrl,
           fetchImpl,
-          signal: context.signal
+          signal: connectorSignal(context.signal)
         });
         return normalizeStedi835Report(body, {
           expectedPatientControlNumber,
@@ -799,7 +855,7 @@ export function createStediTestConnector({
         coreBaseUrl,
         eraBaseUrl,
         fetchImpl,
-        signal: context.signal
+        signal: connectorSignal(context.signal)
       });
     }
   });
@@ -827,6 +883,12 @@ export function createStediProductionConnector({
       "STEDI_PRODUCTION_API_KEY is not configured"
     );
   }
+  if (env.STEDI_PRODUCTION_PHI_CONFIRMED !== "true") {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_PRODUCTION",
+      "Production PHI transmission is not explicitly enabled"
+    );
+  }
   if (typeof fetchImpl !== "function") {
     throw new Error("Fetch implementation is required for Stedi connector");
   }
@@ -851,7 +913,7 @@ export function createStediProductionConnector({
           "Content-Type": "application/json"
         },
         body: JSON.stringify(payload),
-        signal: context.signal
+        signal: connectorSignal(context.signal)
       });
       const body = await parseResponse(response);
       return normalizeStediEligibilityResponse(body, {
@@ -886,7 +948,7 @@ export function createStediProductionConnector({
           "Content-Type": "application/json"
         },
         body: JSON.stringify(payload),
-        signal: context.signal
+        signal: connectorSignal(context.signal)
       });
       const body = await parseResponse(response);
       return normalizeStediClaimStatusResponse(body, {
@@ -908,7 +970,7 @@ export function createStediProductionConnector({
           apiKey,
           eraBaseUrl,
           fetchImpl,
-          signal: context.signal
+          signal: connectorSignal(context.signal)
         });
         return normalizeStedi835Report(body, {
           expectedPatientControlNumber,
@@ -927,7 +989,7 @@ export function createStediProductionConnector({
         coreBaseUrl,
         eraBaseUrl,
         fetchImpl,
-        signal: context.signal
+        signal: connectorSignal(context.signal)
       });
       return {
         ...result,
@@ -942,6 +1004,12 @@ export async function listStediPayers({
   fetchImpl = globalThis.fetch,
   pageSize = 100
 } = {}) {
+  if (env.NODE_ENV === "production") {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_TEST",
+      "Stedi test payer directory is disabled in production"
+    );
+  }
   const apiKey = String(env.STEDI_TEST_API_KEY || "").trim();
   const baseUrl = String(env.STEDI_PAYER_API_BASE_URL || "https://healthcare.us.stedi.com/2024-04-01").replace(/\/$/, "");
   if (!apiKey) {
@@ -954,7 +1022,8 @@ export async function listStediPayers({
   const url = new URL(`${baseUrl}/payers`);
   url.searchParams.set("pageSize", String(Math.max(10, Math.min(500, pageSize))));
   const response = await fetchImpl(url, {
-    headers: { Authorization: apiKey }
+    headers: { Authorization: apiKey },
+    signal: connectorSignal()
   });
   return parseResponse(response);
 }
@@ -967,6 +1036,12 @@ export async function searchStediPayers({
   pageSize = 20,
   eligibilityOnly = true
 } = {}) {
+  if (env.NODE_ENV === "production") {
+    throw new PayerConnectorUnavailableError(
+      "STEDI_TEST",
+      "Stedi test payer directory is disabled in production"
+    );
+  }
   const apiKey = String(env.STEDI_TEST_API_KEY || "").trim();
   const baseUrl = String(
     env.STEDI_PAYER_API_BASE_URL || "https://healthcare.us.stedi.com/2024-04-01"
@@ -991,7 +1066,8 @@ export async function searchStediPayers({
   }
 
   const response = await fetchImpl(url, {
-    headers: { Authorization: apiKey }
+    headers: { Authorization: apiKey },
+    signal: connectorSignal()
   });
   return parseResponse(response);
 }

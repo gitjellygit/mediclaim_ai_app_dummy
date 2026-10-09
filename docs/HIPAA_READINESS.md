@@ -1,21 +1,48 @@
 # HIPAA-Ready Engineering Baseline for CLAIM APP
 
-This document is an engineering checklist, not a certification or legal opinion.
+This document is an engineering checklist, not a certification, legal opinion, or evidence that a BAA exists.
 
-## Controls already implemented in the current MVP
+## Current application safeguards
 
-- JWT-protected claims, journey, documents, denial and rules routes.
-- Role-based controls for sensitive operations.
-- Submitted claims locked against normal edits/deletes.
-- Denial/appeal mutations limited to ADMIN/CASHIER.
-- Public document route removed.
-- Debug endpoint restricted to authenticated ADMIN and returns counts only.
-- Denial workflow writes AuditEvent records for create/update/AI actions.
-- Denial/AI logs avoid patient name, member ID, policy number, authorization number and payer free-text reason.
-- External denial LLM calls disabled unless HIPAA_BAA_CONFIRMED=true and model/key are configured.
-- External LLM prompt excludes direct identifiers by design.
-- AI output is labeled with provider/model and whether LLM was actually used.
-- Rule-engine fallback keeps the application functional if the LLM fails.
+The current codebase includes:
+
+- authenticated and organization-scoped claim, document, Journey, denial, underpayment, rule, and audit workflows;
+- role-based controls for sensitive mutations;
+- submitted/finalized claim locking;
+- authenticated, tenant-scoped document preview/download paths;
+- request/session audit context with PHI-safe metadata allowlisting;
+- HttpOnly production refresh credentials, hashed refresh-token storage, token rotation/reuse detection, session revocation, and active-session validation;
+- private document-storage support with production S3 enforcement and server-side encryption controls;
+- BAA-gated external denial-LLM use with minimum-necessary, identifier-reduced prompts;
+- production payer-connector hardening:
+  - Stedi production is unavailable unless both `STEDI_PRODUCTION_API_KEY` and `STEDI_PRODUCTION_PHI_CONFIRMED=true` are configured;
+  - the confirmation flag is a deployment safety interlock only and does not prove a BAA or HIPAA compliance;
+  - Stedi test connector and its test payer directory are refused when `NODE_ENV=production`;
+  - production payer-connector assignment is ADMIN-only;
+  - external payer calls have a 15-second timeout;
+  - upstream payer authentication/rate-limit/error messages are translated before reaching the browser;
+  - 277/835 normalized payloads do not retain full raw payer bodies or raw X12 in normal application persistence/response paths;
+  - 835 discovery is correlated from the claim's stored Patient Control Number rather than a browser-supplied external transaction ID;
+  - payer transaction uniqueness is scoped to upstream transaction + application claim, allowing one 835 transaction to adjudicate multiple claims.
+
+### Eligibility identity safeguards
+
+Eligibility uses subscriber identity when the patient is a dependent:
+
+- subscriber/member ID;
+- subscriber name;
+- subscriber DOB for SPOUSE/CHILD/OTHER relationships;
+- patient DOB only when the patient is the subscriber.
+
+Changes to payer/member/subscriber identity or DOB stale prior eligibility/prior-auth state and require re-verification.
+
+### Audit export safety
+
+CSV cells are neutralized when values begin with spreadsheet formula prefixes (`=`, `+`, `-`, `@`) before export.
+
+### Test/development routes
+
+Synthetic E2E fixture behavior must remain gated by `E2E_TEST_MODE=true` and ADMIN authorization. Stedi test connectivity must never be enabled in production.
 
 ## H8B-1 — RBAC & Tenant Isolation
 
@@ -148,8 +175,7 @@ Migration `20261005100000_add_rule_organization_scoping`:
 
 #### Remaining Gaps
 
-- GitHub CI and the final regression suite must be green before H8B-1 is marked VERIFIED.
-- H8B-1 is an application authorization/tenant-isolation control only; later H8B phases still cover sessions, audit breadth, storage/encryption, API/upload hardening, secrets/configuration, and retention/recovery.
+- H8B-1 covers application authorization and tenant isolation. Release approval must still consider sessions, audit breadth, storage/encryption, API/upload hardening, secrets/configuration, retention/recovery, infrastructure, vendor agreements, and operating procedures.
 
 ## H8B-2 — Session & Authentication Security
 

@@ -280,6 +280,7 @@ test("R3 - STEDI_PRODUCTION is separate from test mode and exposes 276/277 when 
   const withProduction = new Map(
     listPayerConnectors({
       STEDI_PRODUCTION_API_KEY: "production-key",
+      STEDI_PRODUCTION_PHI_CONFIRMED: "true",
       STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
     }).map((item) => [item.id, item])
   );
@@ -298,6 +299,7 @@ test("R3 - STEDI_PRODUCTION is separate from test mode and exposes 276/277 when 
     },
     {
       STEDI_PRODUCTION_API_KEY: "production-key",
+      STEDI_PRODUCTION_PHI_CONFIRMED: "true",
       STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
     }
   );

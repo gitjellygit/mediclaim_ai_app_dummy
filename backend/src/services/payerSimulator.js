@@ -100,9 +100,17 @@ function makeId(prefix, payerCode, claimId, sequence = 1) {
 export function payerInputFingerprint(type, payer, claim) {
   const fieldsByType = {
     ELIGIBILITY: [
-      claim.memberId,
+      claim.subscriberId || claim.memberId,
       claim.policyNo,
-      claim.patientDob ? new Date(claim.patientDob).toISOString().slice(0, 10) : null,
+      claim.subscriberRelationship,
+      claim.subscriberName,
+      claim.subscriberRelationship && claim.subscriberRelationship !== "SELF"
+        ? claim.subscriberDob
+          ? new Date(claim.subscriberDob).toISOString().slice(0, 10)
+          : null
+        : claim.patientDob
+        ? new Date(claim.patientDob).toISOString().slice(0, 10)
+        : null,
       payer?.code
     ],
     PRIOR_AUTH: [
@@ -148,8 +156,7 @@ export function calculateAdjudication(payer, claim) {
 
 export function simulateEligibility(payer, claim, sequence = 1) {
   const missing = [];
-  if (!claim.memberId) missing.push("memberId");
-  if (!claim.policyNo) missing.push("policyNo");
+  if (!claim.memberId && !claim.subscriberId) missing.push("memberId");
 
   if (missing.length) {
     return {

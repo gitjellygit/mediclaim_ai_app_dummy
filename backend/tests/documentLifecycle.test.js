@@ -1201,8 +1201,8 @@ test("31 - claim journey renders human-readable status labels and actionable eli
   );
 
   assert.match(source, /replaceAll\("_", " "\)/);
-  assert.match(source, /Review \/ Fix/);
-  assert.match(source, /focus:\s*"eligibility"/);
+  assert.match(source, /Review Insurance Details/);
+  assert.match(source, /Insurance on File/);
   assert.match(source, /clickable=\{Boolean\(onStatusClick\)\}/);
 });
 
@@ -1430,14 +1430,14 @@ test("40 - claim detail merges automation provenance into one completion card", 
   assert.match(source, /SourceBadge/);
 });
 
-test("41 - claim journey shows compact automation snapshot", { concurrency: false }, () => {
+test("41 - claim journey prioritizes next actions over automation percentages", { concurrency: false }, () => {
   const source = fs.readFileSync(
     path.join(frontendRoot, "src/modules/journey/ClaimJourney.jsx"),
     "utf8"
   );
 
-  assert.match(source, /Automation Snapshot/);
-  assert.match(source, /auto-populated/);
+  assert.match(source, /Next Actions/);
+  assert.match(source, /View Claim Preparation/);
   assert.match(source, /automationSummary\.missingFields/);
 });
 

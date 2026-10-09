@@ -172,6 +172,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       groupNumber: claim.groupNumber || "",
       subscriberId: claim.subscriberId || "",
       subscriberName: claim.subscriberName || "",
+      subscriberDob: toDateInputValue(claim.subscriberDob),
       subscriberRelationship: claim.subscriberRelationship || "",
       coordinationOfBenefits: claim.coordinationOfBenefits || "",
       payerEdiId: claim.payerEdiId || "",
@@ -227,6 +228,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       groupNumber: claim.groupNumber || "",
       subscriberId: claim.subscriberId || "",
       subscriberName: claim.subscriberName || "",
+      subscriberDob: toDateInputValue(claim.subscriberDob),
       subscriberRelationship: claim.subscriberRelationship || "",
       coordinationOfBenefits: claim.coordinationOfBenefits || "",
       payerEdiId: claim.payerEdiId || "",
@@ -314,6 +316,21 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   async function removeIcdCode(code) {
+    const linkedLines = (claim?.serviceLines || []).filter((line) =>
+      (line?.diagnosisPointers || []).includes(code)
+    );
+
+    if (linkedLines.length > 0) {
+      showDialog(
+        `${code} is linked to ${linkedLines.length} service line${linkedLines.length === 1 ? "" : "s"}. Update the service-line diagnosis linkage before removing this verified diagnosis.`,
+        {
+          title: "Diagnosis is in use",
+          severity: "warning"
+        }
+      );
+      return;
+    }
+
     await saveIcdCodes(
       (claim?.icd10Codes || []).filter((item) => item !== code),
       `${code} removed`
@@ -418,6 +435,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       groupNumber: editForm.groupNumber || null,
       subscriberId: editForm.subscriberId || null,
       subscriberName: editForm.subscriberName || null,
+      subscriberDob: editForm.subscriberDob || null,
       subscriberRelationship: editForm.subscriberRelationship || null,
       coordinationOfBenefits: editForm.coordinationOfBenefits || null,
       payerEdiId: editForm.payerEdiId || null,
@@ -1471,10 +1489,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                       {(claim.icd10Codes || []).map((code) => (
                         <Chip
                           key={code}
-                          label={code}
+                          label={editMode ? code : `${code} ✓ Verified`}
                           color="success"
                           variant="outlined"
-                          onDelete={!aiCheckLocked ? () => removeIcdCode(code) : undefined}
+                          onDelete={
+                            editMode && !aiCheckLocked
+                              ? () => removeIcdCode(code)
+                              : undefined
+                          }
                           disabled={codingActionId === "claim-icd"}
                           data-testid={`accepted-icd-${code}`}
                         />
@@ -1522,6 +1544,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   <Typography><b>Group Number:</b> {claim.groupNumber || "—"}</Typography>
                   <Typography><b>Subscriber ID:</b> {claim.subscriberId || "—"}</Typography>
                   <Typography><b>Subscriber:</b> {claim.subscriberName || "—"}</Typography>
+                  <Typography><b>Subscriber DOB:</b> {formatUSDateOnly(claim.subscriberDob)}</Typography>
                   <Typography><b>Relationship:</b> {claim.subscriberRelationship || "—"}</Typography>
                   <Typography><b>COB:</b> {claim.coordinationOfBenefits || "—"}</Typography>
                   <Typography><b>Payer EDI ID:</b> {claim.payerEdiId || "—"}</Typography>
@@ -1798,6 +1821,20 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 InputLabelProps={{ shrink: true }}
                 value={editForm.patientDob}
                 onChange={(e) => updateEditField("patientDob", e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Subscriber Date of Birth"
+                type="date"
+                InputLabelProps={{ shrink: true }}
+                value={editForm.subscriberDob || ""}
+                onChange={(e) => updateEditField("subscriberDob", e.target.value)}
+                helperText={
+                  editForm.subscriberRelationship &&
+                  editForm.subscriberRelationship !== "SELF"
+                    ? "Required for dependent eligibility checks"
+                    : "Not required when the patient is the subscriber"
+                }
                 fullWidth
               />
               <Divider sx={{ gridColumn: "1 / -1" }} />

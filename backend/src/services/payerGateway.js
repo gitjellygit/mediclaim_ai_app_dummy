@@ -148,8 +148,17 @@ export function registerDefaultPayerConnectors() {
     provider: "STEDI",
     environment: PAYER_CONNECTOR_ENVIRONMENTS.TEST,
     capabilities: ["checkEligibility", "listPayers", "getRemittance"],
-    configured: (env) => Boolean(env.STEDI_TEST_API_KEY),
-    factory: (_context, env) => createStediTestConnector({ env })
+    configured: (env) =>
+      env.NODE_ENV !== "production" && Boolean(env.STEDI_TEST_API_KEY),
+    factory: (_context, env) => {
+      if (env.NODE_ENV === "production") {
+        throw new PayerConnectorUnavailableError(
+          PAYER_CONNECTOR_IDS.STEDI_TEST,
+          "Stedi test connector is disabled in production"
+        );
+      }
+      return createStediTestConnector({ env });
+    }
   });
 
   registerPayerConnector({
@@ -162,8 +171,18 @@ export function registerDefaultPayerConnectors() {
       ...(env.STEDI_CLAIM_STATUS_URL ? ["getStatus"] : []),
       "getRemittance"
     ],
-    configured: (env) => Boolean(env.STEDI_PRODUCTION_API_KEY),
-    factory: (_context, env) => createStediProductionConnector({ env })
+    configured: (env) =>
+      Boolean(env.STEDI_PRODUCTION_API_KEY) &&
+      env.STEDI_PRODUCTION_PHI_CONFIRMED === "true",
+    factory: (_context, env) => {
+      if (env.STEDI_PRODUCTION_PHI_CONFIRMED !== "true") {
+        throw new PayerConnectorUnavailableError(
+          PAYER_CONNECTOR_IDS.STEDI_PRODUCTION,
+          "Production PHI transmission is not explicitly enabled"
+        );
+      }
+      return createStediProductionConnector({ env });
+    }
   });
 
   defaultsRegistered = true;

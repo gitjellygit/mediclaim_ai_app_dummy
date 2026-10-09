@@ -96,7 +96,7 @@ test.describe("U5 timezone boundary rendering", () => {
   test("U5-1 - claim date-only fields do not shift to previous day", async ({ page }) => {
     await page.goto(`/claims/${claimId}`);
 
-    await expect(page.getByText(/DOB:/).locator("..")).toContainText("03/04/1980");
+    await expect(page.getByText(/^DOB:/).locator("..")).toContainText("03/04/1980");
     await expect(page.getByText(/Date of Service:/).locator("..")).toContainText("10/01/2026");
     await expect(page.getByText(/Admission:/).locator("..")).toContainText("09/30/2026");
     await expect(page.getByText(/Discharge:/).locator("..")).toContainText("10/02/2026");

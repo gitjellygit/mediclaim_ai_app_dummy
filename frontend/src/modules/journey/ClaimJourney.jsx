@@ -68,6 +68,46 @@ function humanStatus(status) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function eligibilityOutcomeLabel(stage, transaction = null) {
+  const stageStatus = String(stage?.status || "").toUpperCase();
+  if (!stageStatus || ["NOT_CHECKED", "NOT_AVAILABLE"].includes(stageStatus)) {
+    return humanStatus(stageStatus || "NOT_CHECKED");
+  }
+
+  const response = transaction?.responsePayload || {};
+  const raw = String(
+    response.status || transaction?.status || stageStatus
+  ).toUpperCase();
+  const coverage = String(
+    response.coverageStatus || stage?.coverageStatus || ""
+  ).toUpperCase();
+
+  if (raw === "ACTIVE" || stage?.status === "VERIFIED") return "Verified Active";
+  if (raw === "MEMBER_NOT_FOUND" || coverage === "MEMBER_NOT_FOUND") {
+    return "Member Not Found";
+  }
+  if (raw === "NEEDS_REVIEW" || stage?.status === "NEEDS_REVIEW") {
+    return "Needs Review";
+  }
+  if (raw === "INACTIVE" || coverage === "INACTIVE") return "Inactive Coverage";
+  if (raw === "FAILED" || stage?.status === "FAILED") return "Unable to Verify";
+  return humanStatus(stage?.status || raw || "NOT_CHECKED");
+}
+
+function insuranceVerificationState(stage, transaction = null) {
+  const label = eligibilityOutcomeLabel(stage, transaction);
+  if (label === "Verified Active") {
+    return { label, color: "success", severity: "success" };
+  }
+  if (["Inactive Coverage", "Member Not Found", "Unable to Verify"].includes(label)) {
+    return { label, color: "error", severity: "error" };
+  }
+  if (label === "Needs Review") {
+    return { label, color: "warning", severity: "warning" };
+  }
+  return { label: "Not Yet Verified", color: "default", severity: "info" };
+}
+
 function normalizePayerName(value) {
   return String(value || "")
     .toLowerCase()
@@ -261,6 +301,7 @@ function JourneyProgress({ stages, onStepClick, payerConnectionRequired }) {
 function StageCard({
   title,
   status,
+  statusLabel,
   actionable,
   blockedReason,
   onStatusClick,
@@ -312,7 +353,7 @@ function StageCard({
                   ? "outlined"
                   : "filled"
               }
-              label={humanStatus(status)}
+              label={statusLabel || humanStatus(status)}
               onClick={onStatusClick}
               clickable={Boolean(onStatusClick)}
               sx={
@@ -682,9 +723,11 @@ export default function ClaimJourney() {
   const simulatedPayerConnected =
     journey?.payerConnection?.mode === "SIMULATED" &&
     Boolean(journey?.payerConnection?.simulatedPayerCode);
-  const externalPayerConnected =
+  const externalPayerSelected =
     journey?.payerConnection?.mode === "LIVE" &&
-    Boolean(claim?.payerConnectorId) &&
+    Boolean(claim?.payerConnectorId);
+  const externalPayerConnected =
+    externalPayerSelected &&
     Boolean(connectedConnector?.configured);
   const payerConnected = simulatedPayerConnected || externalPayerConnected;
   const availableExternalConnectors = externalConnectors.filter(
@@ -714,6 +757,30 @@ export default function ClaimJourney() {
     externalPayerConnected &&
     connectedConnector?.capabilities?.includes("getStatus");
   const payerTransactions = claim?.payerTransactions || [];
+  const activeDenialCase = claim?.denialCases?.[0] || null;
+  const underpaymentCase =
+    claim?.underpaymentCase &&
+    !["RECOVERED", "WRITTEN_OFF", "CLOSED"].includes(claim.underpaymentCase.status)
+      ? claim.underpaymentCase
+      : null;
+  const latestEligibilityTransaction = payerTransactions.find(
+    (tx) => tx.transactionType === "ELIGIBILITY"
+  );
+  const eligibilityRequestSnapshot =
+    latestEligibilityTransaction?.requestPayload || {};
+  const eligibilityOutcome = eligibilityOutcomeLabel(
+    stages?.eligibility,
+    latestEligibilityTransaction
+  );
+  const insuranceState = insuranceVerificationState(
+    stages?.eligibility,
+    latestEligibilityTransaction
+  );
+  const claimReference =
+    claim?.insurerClaimNo ||
+    claim?.patientControlNumber ||
+    (claim?.id ? claim.id.slice(-8).toUpperCase() : "—");
+  const journeyNextActions = [];
   const workflowAdvanced =
     Boolean(claim?.claimSubmissionDate) ||
     ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status || "") ||
@@ -721,6 +788,17 @@ export default function ClaimJourney() {
     ["RECEIVED", "POSTED"].includes(claim?.remittanceStatus || "");
   const payerConnectionRequired = !payerConnected && !workflowAdvanced;
   const historicalConnectionUnavailable = workflowAdvanced && !payerConnected;
+  if (!workflowAdvanced) {
+    if (!payerConnected) journeyNextActions.push("Connect the payer");
+    if (!eligibilityComplete) journeyNextActions.push("Resolve eligibility");
+    else if (
+      !["APPROVED", "NOT_REQUIRED"].includes(stages?.priorAuth?.status)
+    ) {
+      journeyNextActions.push("Resolve prior authorization");
+    } else if (!claim?.claimSubmissionDate) {
+      journeyNextActions.push("Complete claim submission");
+    }
+  }
   const submissionTransaction = payerTransactions.find(
     (tx) => tx.transactionType === "CLAIM_SUBMISSION"
   );
@@ -934,16 +1012,19 @@ export default function ClaimJourney() {
           loading={loadingClaims}
           filterOptions={(options) => options}
           isOptionEqualToValue={(option, value) => option.id === value.id}
-          getOptionLabel={(option) =>
-            [
+          getOptionLabel={(option) => {
+            const optionRef =
+              option.insurerClaimNo ||
+              option.patientControlNumber ||
+              (option.id ? option.id.slice(-8).toUpperCase() : null);
+            return [
               option.patientName || "Unknown Patient",
-              option.memberId ? `Member ${option.memberId}` : null,
-              option.payerName || null,
-              option.policyNo ? `Policy ${option.policyNo}` : null
+              optionRef ? `Claim ${optionRef}` : null,
+              option.dateOfService ? `DOS ${date(option.dateOfService)}` : null
             ]
               .filter(Boolean)
-              .join(" — ")
-          }
+              .join(" — ");
+          }}
           onInputChange={(_event, value, reason) => {
             if (reason === "input" || reason === "clear") {
               setSearchText(value);
@@ -971,12 +1052,23 @@ export default function ClaimJourney() {
                 <Typography variant="body2" fontWeight={600}>
                   {option.patientName || "Unknown Patient"}
                 </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {[
+                    option.insurerClaimNo
+                      ? `Claim ${option.insurerClaimNo}`
+                      : option.patientControlNumber
+                      ? `Claim ${option.patientControlNumber}`
+                      : null,
+                    option.dateOfService ? `DOS ${date(option.dateOfService)}` : null,
+                    option.status || null
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
+                </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {[
                     option.memberId ? `Member ${option.memberId}` : null,
-                    option.policyNo ? `Policy ${option.policyNo}` : null,
-                    option.payerName || null,
-                    option.status || null
+                    option.payerName || null
                   ]
                     .filter(Boolean)
                     .join(" • ")}
@@ -988,8 +1080,8 @@ export default function ClaimJourney() {
             <TextField
               {...params}
               size="small"
-              label="Choose a Claim"
-              placeholder="Search patient, member ID, policy, payer, claim or authorization no."
+              label="Search or Select Claim"
+              placeholder="Search patient, claim no., member ID, policy or payer."
               helperText={
                 searchText.trim()
                   ? "Showing the best matching claims"
@@ -1051,7 +1143,8 @@ export default function ClaimJourney() {
                 <Box>
                   <Typography variant="h5" fontWeight={700}>{claim.patientName}</Typography>
                   <Typography color="text.secondary">
-                    {claim.payerName} • Policy {claim.policyNo || "—"} • Member {claim.memberId || "—"}
+                    Claim {claimReference}
+                    {claim.dateOfService ? ` • DOS ${date(claim.dateOfService)}` : ""}
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1}>
@@ -1068,6 +1161,58 @@ export default function ClaimJourney() {
                     View Claim Details
                   </Button>
                 </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Card sx={{ mb: 3 }} data-testid="insurance-on-file-card">
+            <CardContent>
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                justifyContent="space-between"
+                alignItems={{ xs: "stretch", md: "center" }}
+                spacing={2}
+              >
+                <Box>
+                  <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                    <Typography variant="h6" fontWeight={800}>
+                      Insurance on File
+                    </Typography>
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      color={insuranceState.color}
+                      label={insuranceState.label}
+                      data-testid="insurance-verification-state"
+                    />
+                  </Stack>
+                  <Typography variant="body1" fontWeight={700} sx={{ mt: 1 }}>
+                    {claim.payerName || "Payer not recorded"}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Member {claim.memberId || "—"} • Policy {claim.policyNo || "—"}
+                    {claim.payerEdiId ? ` • Payer ID ${claim.payerEdiId}` : ""}
+                  </Typography>
+                  {payerNameProvenance?.label && (
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                      Source: {payerNameProvenance.label}
+                    </Typography>
+                  )}
+                </Box>
+                {!workflowAdvanced && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() =>
+                      navigate(
+                        `/claims/${claim.id}?edit=1&focus=payerName,memberId,policyNo,payerEdiId`,
+                        { state: claimReturnState() }
+                      )
+                    }
+                  >
+                    Review Insurance Details
+                  </Button>
+                )}
               </Stack>
             </CardContent>
           </Card>
@@ -1460,8 +1605,8 @@ export default function ClaimJourney() {
             </CardContent>
           </Card>
 
-          {claim.automationSummary && (
-            <Card sx={{ mb: 3 }}>
+          {claim.automationSummary && !workflowAdvanced && (
+            <Card sx={{ mb: 3 }} variant="outlined">
               <CardContent>
                 <Stack
                   direction={{ xs: "column", md: "row" }}
@@ -1471,36 +1616,32 @@ export default function ClaimJourney() {
                 >
                   <Box>
                     <Typography variant="subtitle1" fontWeight={700}>
-                      Automation Snapshot
+                      Next Actions
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {claim.automationSummary.automatedFields} fields auto-populated •{" "}
-                      {claim.automationSummary.reviewFields} need review •{" "}
-                      {claim.automationSummary.missingFields} missing
+                      {journeyNextActions.length > 0
+                        ? journeyNextActions.join(" • ")
+                        : "No payer-workflow blockers remain before submission."}
                     </Typography>
+                    {(claim.automationSummary.reviewFields > 0 ||
+                      claim.automationSummary.missingFields > 0) && (
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                        Claim preparation details: {claim.automationSummary.reviewFields} review •{" "}
+                        {claim.automationSummary.missingFields} missing
+                      </Typography>
+                    )}
                   </Box>
-
-                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                    <Chip
-                      size="small"
-                      color="success"
-                      label={`${claim.automationSummary.automationRate}% automated`}
-                    />
-                    {claim.automationSummary.reviewFields > 0 && (
-                      <Chip
-                        size="small"
-                        color="warning"
-                        label={`${claim.automationSummary.reviewFields} review`}
-                      />
-                    )}
-                    {claim.automationSummary.missingFields > 0 && (
-                      <Chip
-                        size="small"
-                        color="error"
-                        label={`${claim.automationSummary.missingFields} missing`}
-                      />
-                    )}
-                  </Stack>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() =>
+                      navigate(`/claims/${claim.id}`, {
+                        state: claimReturnState()
+                      })
+                    }
+                  >
+                    View Claim Preparation
+                  </Button>
                 </Stack>
               </CardContent>
             </Card>
@@ -1543,6 +1684,7 @@ export default function ClaimJourney() {
               stageId="journey-stage-eligibility"
               highlighted={focusedStage === "eligibility"}
               status={stages.eligibility.status}
+              statusLabel={eligibilityOutcome}
               actionable={payerConnected && stages.eligibility.actionable}
               blockedReason={
                 payerConnectionRequired
@@ -1569,11 +1711,42 @@ export default function ClaimJourney() {
               }
             >
               <Stack spacing={1.2}>
+                {latestEligibilityTransaction && (
+                  <Paper variant="outlined" sx={{ p: 1 }}>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Checked against
+                    </Typography>
+                    <Typography variant="body2" fontWeight={700}>
+                      {eligibilityRequestSnapshot.payerName || claim.payerName || "Payer"}
+                      {eligibilityRequestSnapshot.payerCode
+                        ? ` • Payer ID ${eligibilityRequestSnapshot.payerCode}`
+                        : ""}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Member {eligibilityRequestSnapshot.memberId || claim.memberId || "—"} • Policy{" "}
+                      {eligibilityRequestSnapshot.policyNo || claim.policyNo || "—"}
+                    </Typography>
+                  </Paper>
+                )}
+                {["Inactive Coverage", "Member Not Found", "Unable to Verify", "Needs Review"].includes(
+                  eligibilityOutcome
+                ) && (
+                  <Alert severity={insuranceState.severity}>
+                    <b>{eligibilityOutcome}.</b>{" "}
+                    {eligibilityOutcome === "Inactive Coverage"
+                      ? "The payer returned inactive coverage for the submitted member/policy information."
+                      : eligibilityOutcome === "Member Not Found"
+                      ? "The payer could not match the submitted member information."
+                      : eligibilityOutcome === "Needs Review"
+                      ? "The payer response needs member, policy, payer, or coverage review."
+                      : "Eligibility could not be verified with the current payer/member information."}
+                  </Alert>
+                )}
                 <Typography variant="body2">
                   <b>Coverage:</b>{" "}
                   {stages.eligibility.coverageStatus === "UNKNOWN"
                     ? "Not payer-verified"
-                    : stages.eligibility.coverageStatus || "—"}
+                    : humanStatus(stages.eligibility.coverageStatus || "UNKNOWN")}
                 </Typography>
                 <Typography variant="body2"><b>Network:</b> {stages.eligibility.networkStatus || "—"}</Typography>
                 <Typography variant="body2"><b>Deductible Remaining:</b> {money(stages.eligibility.deductibleRemaining)}</Typography>
@@ -1588,15 +1761,13 @@ export default function ClaimJourney() {
                     size="small"
                     startIcon={<Visibility />}
                     onClick={() =>
-                      navigate(`/claims/${claim.id}`, {
-                        state: {
-                          ...claimReturnState(),
-                          focus: "eligibility"
-                        }
-                      })
+                      navigate(
+                        `/claims/${claim.id}?edit=1&focus=payerName,memberId,policyNo,payerEdiId`,
+                        { state: claimReturnState() }
+                      )
                     }
                   >
-                    Review / Fix
+                    Review Insurance Details
                   </Button>
                 )}
                 <Button
@@ -1850,8 +2021,10 @@ export default function ClaimJourney() {
                     action !== "" ||
                     (simulatedPayerConnected
                       ? finalPayerStatus || !acknowledged
-                      : externalPayerConnected
-                      ? finalPayerStatus || !externalStatusSupported
+                      : externalPayerSelected
+                      ? finalPayerStatus ||
+                        !externalPayerConnected ||
+                        !externalStatusSupported
                       : payerStatusUnchanged)
                   }
                   onClick={() =>
@@ -1860,10 +2033,10 @@ export default function ClaimJourney() {
                       () =>
                         simulatedPayerConnected
                           ? ClaimsApi.simulatePayerStatus(claim.id)
-                          : externalPayerConnected
+                          : externalPayerSelected
                           ? ClaimsApi.refreshPayerStatus(claim.id)
                           : ClaimsApi.updatePayerStatus(claim.id, payerStatus),
-                      externalPayerConnected
+                      externalPayerSelected
                         ? "276/277 claim status refreshed"
                         : "Payer status updated"
                     )
@@ -1873,9 +2046,10 @@ export default function ClaimJourney() {
                     ? "Checking..."
                     : finalPayerStatus
                     ? "Final Status"
-                    : externalPayerConnected && !externalStatusSupported
+                    : externalPayerSelected &&
+                      (!externalPayerConnected || !externalStatusSupported)
                     ? "276/277 Not Configured"
-                    : externalPayerConnected
+                    : externalPayerSelected
                     ? "Refresh 276/277 Status"
                     : "Check Status"}
                 </Button>
@@ -2122,6 +2296,75 @@ export default function ClaimJourney() {
               </Stack>
             </StageCard>
           </Box>
+
+          {(activeDenialCase || underpaymentCase) && (
+            <Card
+              variant="outlined"
+              sx={{
+                mt: 3,
+                borderColor: activeDenialCase ? "error.light" : "warning.light"
+              }}
+              data-testid="journey-recovery-work"
+            >
+              <CardContent>
+                <Stack spacing={1.5}>
+                  <Box>
+                    <Typography variant="h6" fontWeight={800}>
+                      Recovery Work
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Payer adjudication created an actionable recovery case. Continue recovery without losing the source 277/835 evidence.
+                    </Typography>
+                  </Box>
+
+                  {activeDenialCase && (
+                    <Alert
+                      severity="error"
+                      action={
+                        <Button
+                          color="inherit"
+                          size="small"
+                          onClick={() =>
+                            navigate(`/denials?caseId=${activeDenialCase.id}`)
+                          }
+                        >
+                          Open Denial Case
+                        </Button>
+                      }
+                    >
+                      <b>Denial case {humanStatus(activeDenialCase.status)}.</b>{" "}
+                      {activeDenialCase.carcCode
+                        ? `CARC ${activeDenialCase.carcCode}. `
+                        : ""}
+                      Revenue at risk: {money(activeDenialCase.revenueAtRisk)}.
+                    </Alert>
+                  )}
+
+                  {underpaymentCase && (
+                    <Alert
+                      severity="warning"
+                      action={
+                        <Button
+                          color="inherit"
+                          size="small"
+                          onClick={() =>
+                            navigate(`/payments?caseId=${underpaymentCase.id}`)
+                          }
+                        >
+                          Open Recovery Case
+                        </Button>
+                      }
+                    >
+                      <b>Payer underpayment detected.</b>{" "}
+                      Expected {money(underpaymentCase.expectedPayerPayment)}; paid{" "}
+                      {money(underpaymentCase.actualPaidAmount)}; variance{" "}
+                      {money(underpaymentCase.varianceAmount)}.
+                    </Alert>
+                  )}
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
 
           <Divider sx={{ my: 3 }} />
 

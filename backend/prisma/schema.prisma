@@ -253,6 +253,7 @@ model Claim {
   groupNumber              String?
   subscriberId             String?
   subscriberName           String?
+  subscriberDob            DateTime? @db.Date
   subscriberRelationship   SubscriberRelationship?
   coordinationOfBenefits   CoordinationOfBenefits?
   payerEdiId               String?
@@ -429,7 +430,7 @@ model PayerTransaction {
   claimId String
   claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
-  transactionId String @unique
+  transactionId String
   mode          String @default("SIMULATED")
   payerCode     String
   transactionType String
@@ -438,6 +439,7 @@ model PayerTransaction {
   requestPayload Json?
   responsePayload Json?
 
+  @@unique([transactionId, claimId])
   @@index([claimId, createdAt])
   @@index([payerCode])
   @@index([transactionType])
@@ -544,6 +546,8 @@ model DenialCase {
   rarcCode        String?
   reasonText      String?
   denialDate      DateTime?
+  sourceTransactionId String?
+  payerEvidence       Json?
 
   correctable     Boolean?
   appealEligible  Boolean?
@@ -563,6 +567,7 @@ model DenialCase {
   aiInputVersion String? @default("denial-v1")
 
   @@index([claimId])
+  @@index([sourceTransactionId])
   @@index([status])
   @@index([denialCategory])
 }

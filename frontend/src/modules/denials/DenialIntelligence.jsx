@@ -157,6 +157,13 @@ export default function DenialIntelligence() {
     return () => clearTimeout(timer);
   }, [search, statusFilter]);
 
+  React.useEffect(() => {
+    const caseId = new URLSearchParams(location.search).get("caseId");
+    if (caseId && caseId !== selectedId) {
+      openDetail(caseId);
+    }
+  }, [location.search]);
+
   async function openDetail(id) {
     setSelectedId(id);
     setDetailLoading(true);
@@ -924,6 +931,35 @@ export default function DenialIntelligence() {
               <Alert severity="info">
                 Run AI Analysis to classify likely denial drivers and recommend the next recovery action.
               </Alert>
+            )}
+
+            {(detail.sourceTransactionId || detail.payerEvidence) && (
+              <Paper variant="outlined" sx={{ p: 2 }}>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                  Payer Evidence
+                </Typography>
+                {detail.sourceTransactionId && (
+                  <Typography variant="body2">
+                    <b>Source Transaction:</b> {detail.sourceTransactionId}
+                  </Typography>
+                )}
+                {detail.payerEvidence?.era835?.adjustments?.length > 0 && (
+                  <Stack spacing={0.75} sx={{ mt: 1 }}>
+                    {detail.payerEvidence.era835.adjustments.map((item, index) => (
+                      <Typography key={`${item.reasonCode || "adj"}-${index}`} variant="body2">
+                        {[
+                          item.groupCode,
+                          item.reasonCode ? `CARC ${item.reasonCode}` : null,
+                          item.reason,
+                          item.amount != null ? money(item.amount) : null
+                        ]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </Typography>
+                    ))}
+                  </Stack>
+                )}
+              </Paper>
             )}
 
             <Button

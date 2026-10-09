@@ -513,6 +513,7 @@ test("R3 - connector sends configured production 276 request and receives synchr
   const connector = createStediProductionConnector({
     env: {
       STEDI_PRODUCTION_API_KEY: "production-status-key",
+      STEDI_PRODUCTION_PHI_CONFIRMED: "true",
       STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
     },
     fetchImpl

@@ -161,7 +161,8 @@ function serialize(item) {
 }
 
 function csvCell(value) {
-  const text = value == null ? "" : String(value);
+  let text = value == null ? "" : String(value);
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
   return `"${text.replaceAll('"', '""')}"`;
 }
 

@@ -47,6 +47,7 @@ export const claimUpdateSchema = z.object({
   groupNumber: z.string().trim().max(100).nullish(),
   subscriberId: z.string().trim().max(100).nullish(),
   subscriberName: z.string().trim().max(250).nullish(),
+  subscriberDob: optionalDateString,
   subscriberRelationship: z.enum(["SELF", "SPOUSE", "CHILD", "OTHER"]).nullish(),
   coordinationOfBenefits: z.enum(["PRIMARY", "SECONDARY", "TERTIARY"]).nullish(),
   payerEdiId: z.string().trim().max(100).nullish(),

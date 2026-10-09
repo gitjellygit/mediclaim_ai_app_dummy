@@ -141,21 +141,20 @@ router.get("/", async (req, res) => {
         organizationId: orgId(req),
         deletedAt: null
       },
-      include: {
-        documents: {
-          orderBy: { createdAt: "desc" }
-        },
-        serviceLines: {
-          orderBy: { createdAt: "asc" }
-        },
-        codingSuggestions: {
-          select: {
-            documentId: true,
-            system: true,
-            suggestedCode: true,
-            status: true
-          }
-        }
+      select: {
+        id: true,
+        patientName: true,
+        payerName: true,
+        policyNo: true,
+        memberId: true,
+        medicalRecordNumber: true,
+        payerReferenceNo: true,
+        groupNumber: true,
+        subscriberId: true,
+        payerEdiId: true,
+        status: true,
+        amount: true,
+        createdAt: true
       },
       orderBy: { createdAt: "desc" }
     });
@@ -482,6 +481,7 @@ router.post("/", async (req, res) => {
       groupNumber: z.string().trim().max(100).nullish(),
       subscriberId: z.string().trim().max(100).nullish(),
       subscriberName: z.string().trim().max(250).nullish(),
+      subscriberDob: z.string().nullish(),
       subscriberRelationship: z.enum(["SELF", "SPOUSE", "CHILD", "OTHER"]).nullish(),
       coordinationOfBenefits: z.enum(["PRIMARY", "SECONDARY", "TERTIARY"]).nullish(),
       payerEdiId: z.string().trim().max(100).nullish(),
@@ -584,7 +584,7 @@ router.post("/", async (req, res) => {
       }
       createPayload[key] = canonical;
     }
-    for (const field of ["patientDob", "dateOfService", "admissionDate", "dischargeDate", "procedureDate", "timelyFilingDeadline"]) {
+    for (const field of ["patientDob", "subscriberDob", "dateOfService", "admissionDate", "dischargeDate", "procedureDate", "timelyFilingDeadline"]) {
       if (!createPayload[field]) continue;
       const parsedDate = parseClaimDate(createPayload[field]);
       if (!parsedDate) {
@@ -683,6 +683,13 @@ router.patch("/:id", async (req, res) => {
       !payload.patientDob
     ) {
       return res.status(400).json({ error: "Patient date of birth is invalid" });
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(input, "subscriberDob") &&
+      input.subscriberDob &&
+      !payload.subscriberDob
+    ) {
+      return res.status(400).json({ error: "Subscriber date of birth is invalid" });
     }
 
     for (const [label, field] of [
@@ -798,6 +805,23 @@ router.patch("/:id", async (req, res) => {
     const anyClaimDataChanged =
       patchChangedFields.length > 0 || serviceLinesChanged;
 
+    const payerIdentityFields = new Set([
+      "payerName",
+      "payerEdiId",
+      "memberId",
+      "patientDob",
+      "policyNo",
+      "groupNumber",
+      "subscriberId",
+      "subscriberName",
+      "subscriberDob",
+      "subscriberRelationship",
+      "coordinationOfBenefits"
+    ]);
+    const payerIdentityChanged = patchChangedFields.some((field) =>
+      payerIdentityFields.has(field)
+    );
+
     const manuallyChangedFields = changedFields(existing, payload);
     const documentDerivedFields = removeManuallyEditedFields(
       existing.documentDerivedFields,
@@ -821,6 +845,21 @@ router.patch("/:id", async (req, res) => {
             where: { id: req.params.id },
             data: {
               ...payload,
+              ...(payerIdentityChanged
+                ? {
+                    eligibilityStatus: "NOT_CHECKED",
+                    eligibilityCheckedAt: null,
+                    coverageStatus: null,
+                    networkStatus: null,
+                    deductibleRemaining: null,
+                    coinsurancePct: null,
+                    priorAuthRequired: null,
+                    priorAuthStatus: "NOT_CHECKED",
+                    priorAuthCheckedAt: null,
+                    authorizationNo: null,
+                    priorAuthExpiry: null
+                  }
+                : {}),
               documentDerivedFields,
               fieldProvenance,
               status: nextStatus
@@ -849,7 +888,9 @@ router.patch("/:id", async (req, res) => {
       await markReadinessChecksStale(
         prisma,
         req.params.id,
-        serviceLinesChanged && patchChangedFields.length === 0
+        payerIdentityChanged
+          ? "Payer/member information changed; eligibility and prior authorization must be rechecked"
+          : serviceLinesChanged && patchChangedFields.length === 0
           ? "Claim service lines changed"
           : "Claim details changed"
       );
@@ -1035,11 +1076,11 @@ router.post("/:id/check", async (req, res) => {
     });
     const issues = [];
 
-    if (!claim.policyNo) {
+    if (!claim.policyNo && !claim.memberId && !claim.subscriberId) {
       issues.push(configuredReadinessIssue(rules, {
         code: "REQ_POLICY_NO",
         severity: "BLOCK",
-        message: "Policy number missing",
+        message: "Policy or member identifier missing",
         mandatory: true
       }));
     }
@@ -1161,10 +1202,10 @@ router.post("/:id/check", async (req, res) => {
     let riskScore = 0;
     const riskFactors = [];
 
-    if (!claim.policyNo) {
+    if (!claim.policyNo && !claim.memberId && !claim.subscriberId) {
       riskScore += 0.25;
       riskFactors.push(
-        "Claims without policy number historically show elevated rejection trends"
+        "Claims without a policy or member identifier show elevated rejection risk"
       );
     }
 

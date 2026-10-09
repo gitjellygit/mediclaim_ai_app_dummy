@@ -299,6 +299,36 @@ test("H8B-1 - underpayment cases are scoped through claim organization", async (
   assert.equal(foundByATryingB, null);
 });
 
+test("Hardening - one upstream 835 transaction can be associated with multiple claims", async () => {
+  const claimA = await createTestClaim(ORG_A_ID, "ERA Patient A");
+  const claimB = await createTestClaim(ORG_A_ID, "ERA Patient B");
+
+  const first = await prisma.payerTransaction.create({
+    data: {
+      claimId: claimA.id,
+      transactionId: "SHARED-835-001",
+      mode: "TEST",
+      payerCode: "60054",
+      transactionType: "REMITTANCE",
+      status: "POSTED"
+    }
+  });
+  const second = await prisma.payerTransaction.create({
+    data: {
+      claimId: claimB.id,
+      transactionId: "SHARED-835-001",
+      mode: "TEST",
+      payerCode: "60054",
+      transactionType: "REMITTANCE",
+      status: "POSTED"
+    }
+  });
+
+  createdTransactionIds.push(first.id, second.id);
+  assert.notEqual(first.claimId, second.claimId);
+  assert.equal(first.transactionId, second.transactionId);
+});
+
 test("H8B-1 - payer transactions are scoped through claim organization", async () => {
   const claimA = await createTestClaim(ORG_A_ID, "Patient A");
   const claimB = await createTestClaim(ORG_B_ID, "Patient B");

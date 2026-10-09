@@ -31,7 +31,7 @@ import {
   Search as SearchIcon,
   Visibility
 } from "@mui/icons-material";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { UnderpaymentsApi } from "../../api/underpayments.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import { formatUSD } from "../../utils/currency.js";
@@ -56,6 +56,7 @@ function statusColor(status) {
 
 export default function UnderpaymentIntelligence() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { showToast, showDialog } = useToast();
   const [rows, setRows] = React.useState([]);
   const [metrics, setMetrics] = React.useState({
@@ -123,6 +124,13 @@ export default function UnderpaymentIntelligence() {
       setDetailLoading(false);
     }
   }
+
+  React.useEffect(() => {
+    const caseId = new URLSearchParams(location.search).get("caseId");
+    if (caseId && caseId !== detail?.id) {
+      openCase(caseId);
+    }
+  }, [location.search]);
 
   async function saveCase() {
     if (!detail) return;

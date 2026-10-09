@@ -3,6 +3,7 @@ import { requireRoles } from "../middleware/auth.js";
 import { verifyUploadSignature } from "../middleware/uploadSafety.js";
 import { createDocumentUpload } from "../services/documentUpload.js";
 import fs from "fs";
+import { randomUUID } from "crypto";
 import {
   getDerivedFieldsFromDocument,
   mergeDerivedFields,
@@ -42,28 +43,6 @@ import {
   validateCodingCode
 } from "../services/codingSuggestions.js";
 
-
-function extractedServiceLines(extracted = {}, sourceDocumentId = null) {
-  const codes = Array.isArray(extracted.cptCodes)
-    ? [...new Set(extracted.cptCodes.map((code) => String(code).trim().toUpperCase()).filter(Boolean))]
-    : [];
-
-  const serviceDate = extracted.dateOfService
-    ? parseClaimDate(extracted.dateOfService)
-    : null;
-
-  return codes.map((cptHcpcsCode) => ({
-    cptHcpcsCode,
-    units: 1,
-    diagnosisPointers: Array.isArray(extracted.icd10Codes)
-      ? extracted.icd10Codes.filter(Boolean)
-      : [],
-    serviceDateFrom: serviceDate || undefined,
-    verified: false,
-    source: "DOCUMENT_OCR",
-    sourceDocumentId
-  }));
-}
 
 function assignParsedDate(target, field, value) {
   if (!value) return;
@@ -180,29 +159,6 @@ function buildMissingClaimAutofill(claim = {}, extracted = {}, documentType = "O
   }
 
   return patch;
-}
-
-async function persistExtractedServiceLines(
-  prismaClient,
-  claimId,
-  extracted = {},
-  sourceDocumentId = null
-) {
-  const candidates = extractedServiceLines(extracted, sourceDocumentId);
-  if (candidates.length === 0) return;
-
-  const existing = await prismaClient.serviceLine.findMany({
-    where: { claimId },
-    select: { cptHcpcsCode: true }
-  });
-  const existingCodes = new Set(existing.map((line) => line.cptHcpcsCode));
-
-  const missing = candidates.filter((line) => !existingCodes.has(line.cptHcpcsCode));
-  if (missing.length === 0) return;
-
-  await prismaClient.serviceLine.createMany({
-    data: missing.map((line) => ({ ...line, claimId }))
-  });
 }
 
 function calculateMatchScore(extracted, existingClaim) {
@@ -332,6 +288,8 @@ export function documentsRouter(prisma, uploadDir) {
       const payerName = extracted.payerName || "Insurance";
 
       let claim = null;
+      let pendingNewClaimData = null;
+      let pendingNewClaimId = null;
       let matchStatus = "NEW";
       let matchScore = 0;
       let candidateClaim = null;
@@ -399,9 +357,12 @@ export function documentsRouter(prisma, uploadDir) {
         };
 
 
-        claim = await prisma.claim.create({
-          data: claimData
-        });
+        pendingNewClaimId = randomUUID();
+        pendingNewClaimData = claimData;
+        claim = {
+          id: pendingNewClaimId,
+          ...claimData
+        };
       } else {
         const updatePayload = buildMissingClaimAutofill(
           claim,
@@ -441,6 +402,15 @@ export function documentsRouter(prisma, uploadDir) {
       req.file.storagePath = storedDocumentPath;
 
       const doc = await prisma.$transaction(async (tx) => {
+        if (pendingNewClaimData) {
+          claim = await tx.claim.create({
+            data: {
+              id: pendingNewClaimId,
+              ...pendingNewClaimData
+            }
+          });
+        }
+
         const created = await tx.document.create({
           data: documentCreateData({
             claimId: claim.id,
@@ -820,6 +790,54 @@ export function documentsRouter(prisma, uploadDir) {
   router.post("/upload", upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
   // Compatibility for callers using POST /api/claims/documents.
   router.post("/", upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
+
+  // List documents for the current organization without bloating the claims list.
+  router.get("/", async (req, res) => {
+    const claimId = String(req.query?.claimId || "").trim();
+    const docs = await prisma.document.findMany({
+      where: {
+        claim: {
+          organizationId: req.user.organizationId,
+          deletedAt: null,
+          ...(claimId ? { id: claimId } : {})
+        }
+      },
+      include: {
+        claim: {
+          select: {
+            id: true,
+            patientName: true
+          }
+        },
+        codingSuggestions: {
+          select: {
+            status: true
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const items = docs.map(({ claim, codingSuggestions, ...doc }) => ({
+      ...doc,
+      claimId: claim.id,
+      patientName: claim.patientName || "Unknown Patient",
+      codingSummary: {
+        total: codingSuggestions.length,
+        pending: codingSuggestions.filter((item) => item.status === "PENDING").length
+      }
+    }));
+
+    await writeRequestAudit(prisma, req, {
+      claimId: claimId || null,
+      action: "DOCUMENT_LIST_VIEWED",
+      entityType: claimId ? "Claim" : "Document",
+      entityId: claimId || null,
+      metadata: { count: items.length, scoped: Boolean(claimId) }
+    });
+
+    res.json(items);
+  });
 
   // List docs for a claim
   router.get("/claim/:claimId", async (req, res) => {

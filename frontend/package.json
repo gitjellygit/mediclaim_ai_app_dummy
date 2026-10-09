@@ -32,7 +32,10 @@
     "test:payments": "playwright test tests/payment-variance.e2e.spec.js --headed",
     "test:payments:fast": "playwright test tests/payment-variance.e2e.spec.js",
     "test:payer:browser": "playwright test tests/payer-browser-observability.e2e.spec.js --headed",
-    "test:payer:browser:fast": "playwright test tests/payer-browser-observability.e2e.spec.js"
+    "test:payer:browser:fast": "playwright test tests/payer-browser-observability.e2e.spec.js",
+    "lint": "npx --yes eslint@9 .",
+    "format:check": "npx --yes prettier@3 --check .",
+    "format": "npx --yes prettier@3 --write ."
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

@@ -15,7 +15,7 @@ import {
 const router = express.Router();
 
 const MANAGER_ROLES = new Set(["ADMIN", "CASHIER"]);
-const DENIAL_SOURCES = new Set(["MANUAL", "PAYER_STATUS", "SIMULATED_PAYER_STATUS"]);
+const DENIAL_SOURCES = new Set(["MANUAL", "PAYER_STATUS", "SIMULATED_PAYER_STATUS", "ERA"]);
 const ACTIVE_STATUSES = [
   "OPEN",
   "ANALYZED",

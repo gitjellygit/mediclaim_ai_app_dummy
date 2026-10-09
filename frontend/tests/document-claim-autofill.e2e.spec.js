@@ -406,20 +406,26 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
     await expect(page.getByText("Reviewed", { exact: true })).toHaveCount(2);
     await expect(page.getByRole("button", { name: /Review \d+/ })).toHaveCount(0);
 
-    // Claim Details supports direct removal and Enter-to-add.
+    // Human-verified ICDs are non-destructive in view mode.
     await page.goto(`/claims/${claimId}`);
     const acceptedChip = page.getByTestId("accepted-icd-M54.16");
-    await acceptedChip.locator("svg").click();
-    await expect(page.getByTestId("accepted-icd-M54.16")).toHaveCount(0);
+    await expect(acceptedChip).toContainText("Verified");
+    await expect(acceptedChip.locator("svg")).toHaveCount(0);
 
-    const addInput = page.getByRole("textbox", { name: "Add ICD-10 code" });
-    await addInput.fill("Z00.00");
-    await addInput.press("Enter");
+    // Verified ICDs stay non-destructive in view mode; edits happen through
+    // the explicit claim edit form so linked service-line diagnoses are preserved.
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    const icdInput = page.getByLabel("ICD-10 Codes (comma separated)");
+    await expect(icdInput).toHaveValue("M54.16");
+    await icdInput.fill("M54.16, Z00.00");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+
+    await expect(page.getByTestId("accepted-icd-M54.16")).toBeVisible();
     await expect(page.getByTestId("accepted-icd-Z00.00")).toBeVisible();
 
     detail = await browserApi(page, `/api/claims/${claimId}`);
     expect(detail.ok).toBe(true);
-    expect(detail.data.icd10Codes).toEqual(["Z00.00"]);
+    expect(detail.data.icd10Codes).toEqual(["M54.16", "Z00.00"]);
 
     await browser.assertClean();
   } finally {
