@@ -110,8 +110,8 @@ export function registerDefaultPayerConnectors() {
     mode: "LIVE",
     provider: "UNCONFIGURED",
     environment: PAYER_CONNECTOR_ENVIRONMENTS.PRODUCTION,
-    capabilities: allCapabilities,
-    configured: true,
+    capabilities: [],
+    configured: false,
     factory: () => createLivePayerConnector()
   });
 
@@ -136,9 +136,8 @@ export function registerDefaultPayerConnectors() {
     mode: "LIVE",
     provider: "OPTUM",
     environment: PAYER_CONNECTOR_ENVIRONMENTS.SANDBOX,
-    capabilities: ["checkEligibility"],
-    configured: (env) =>
-      Boolean(env.OPTUM_CLIENT_ID && env.OPTUM_CLIENT_SECRET && env.OPTUM_API_BASE_URL),
+    capabilities: [],
+    configured: false,
     factory: () => createUnavailableSandboxConnector(PAYER_CONNECTOR_IDS.OPTUM_SANDBOX)
   });
 
@@ -147,7 +146,7 @@ export function registerDefaultPayerConnectors() {
     mode: "LIVE",
     provider: "STEDI",
     environment: PAYER_CONNECTOR_ENVIRONMENTS.TEST,
-    capabilities: ["checkEligibility", "listPayers", "getRemittance"],
+    capabilities: ["checkEligibility", "listPayers", "submitClaim", "getRemittance"],
     configured: (env) =>
       env.NODE_ENV !== "production" && Boolean(env.STEDI_TEST_API_KEY),
     factory: (_context, env) => {
@@ -166,9 +165,10 @@ export function registerDefaultPayerConnectors() {
     mode: "LIVE",
     provider: "STEDI",
     environment: PAYER_CONNECTOR_ENVIRONMENTS.PRODUCTION,
-    capabilities: (env) => [
+    capabilities: [
       "checkEligibility",
-      ...(env.STEDI_CLAIM_STATUS_URL ? ["getStatus"] : []),
+      "submitClaim",
+      "getStatus",
       "getRemittance"
     ],
     configured: (env) =>
