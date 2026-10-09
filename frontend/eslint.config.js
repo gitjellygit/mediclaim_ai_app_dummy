@@ -16,7 +16,11 @@ const browserGlobals = {
   KeyboardEvent: "readonly",
   Headers: "readonly",
   Response: "readonly",
-  btoa: "readonly"
+  btoa: "readonly",
+  atob: "readonly",
+  setInterval: "readonly",
+  clearInterval: "readonly",
+  confirm: "readonly"
 };
 
 export default [
