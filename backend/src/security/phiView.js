@@ -122,8 +122,10 @@ export function minimumNecessaryClaim(claim, user) {
   if (!claim || typeof claim !== "object") return claim;
 
   const safe = { ...claim };
-  delete safe.fieldProvenance;
   delete safe.documentDerivedFields;
+  if (!hasPermission(user, PERMISSIONS.CLINICAL_VIEW)) {
+    delete safe.fieldProvenance;
+  }
 
   if (!hasPermission(user, PERMISSIONS.PATIENT_IDENTITY_VIEW)) {
     removeFields(safe, PATIENT_IDENTITY_FIELDS);
