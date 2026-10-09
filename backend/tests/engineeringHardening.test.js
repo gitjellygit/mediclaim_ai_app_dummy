@@ -95,9 +95,10 @@ test("Payer adapter preserves the five-operation contract across all five profil
     assert.equal(typeof local[method], "function");
   }
 
-  const live = createPayerConnector("LIVE", "BLUE_HORIZON");
   assert.throws(
-    () => live.checkEligibility({ id: "live-not-configured" }),
-    (error) => error?.code === "LIVE_PAYER_CONNECTOR_NOT_CONFIGURED"
+    () => createPayerConnector("LIVE", "BLUE_HORIZON"),
+    (error) =>
+      error?.code === "PAYER_CONNECTOR_UNAVAILABLE" &&
+      error?.connectorId === "LIVE"
   );
 });
