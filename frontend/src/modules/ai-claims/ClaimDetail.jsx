@@ -194,6 +194,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       patientState: claim.patientState || "",
       patientPostalCode: claim.patientPostalCode || "",
       hospitalName: claim.hospitalName || "",
+      doctorName: claim.doctorName || "",
       billingProviderNpi: claim.billingProviderNpi || "",
       renderingProviderNpi: claim.renderingProviderNpi || "",
       referringProviderNpi: claim.referringProviderNpi || "",
@@ -266,6 +267,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       patientState: claim.patientState || "",
       patientPostalCode: claim.patientPostalCode || "",
       hospitalName: claim.hospitalName || "",
+      doctorName: claim.doctorName || "",
       billingProviderNpi: claim.billingProviderNpi || "",
       renderingProviderNpi: claim.renderingProviderNpi || "",
       referringProviderNpi: claim.referringProviderNpi || "",
@@ -492,6 +494,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       patientState: editForm.patientState?.toUpperCase() || null,
       patientPostalCode: editForm.patientPostalCode || null,
       hospitalName: editForm.hospitalName || null,
+      doctorName: editForm.doctorName || null,
       billingProviderNpi: editForm.billingProviderNpi ? normalizeNpi(editForm.billingProviderNpi) : null,
       renderingProviderNpi: editForm.renderingProviderNpi ? normalizeNpi(editForm.renderingProviderNpi) : null,
       referringProviderNpi: editForm.referringProviderNpi ? normalizeNpi(editForm.referringProviderNpi) : null,
@@ -623,7 +626,30 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     setFixFocus(focus);
     setFixFields(Array.isArray(fields) ? fields.filter(Boolean) : [focus]);
     setEditMode(true);
-    scrollToRef(patientPolicyRef);
+
+    window.setTimeout(() => {
+      const target = document.querySelector(
+        `[data-fix-field="${focus}"]`
+      );
+      if (!target) {
+        patientPolicyRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start"
+        });
+        return;
+      }
+
+      target.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
+
+      const focusable =
+        target.matches?.("input, textarea, [role='combobox']")
+          ? target
+          : target.querySelector?.("input, textarea, [role='combobox']");
+      focusable?.focus?.({ preventScroll: true });
+    }, 140);
   }
 
   function fixIssue(issue) {
@@ -1691,10 +1717,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Alert>
               )}
               <TextField
+                data-fix-field="claimForm"
                 select
                 label="Claim Form"
                 value={editForm.claimForm}
                 onChange={(e) => updateEditField("claimForm", e.target.value)}
+                color={isFixField("claimForm") ? "warning" : "primary"}
+                focused={isFixField("claimForm")}
                 helperText="837P = Professional | 837I = Institutional"
                 fullWidth
               >
@@ -1703,15 +1732,30 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 <MenuItem value="INSTITUTIONAL">Institutional (837I)</MenuItem>
               </TextField>
               <TextField
+                data-fix-field="patientName"
                 label="Patient Name"
                 value={editForm.patientName}
                 onChange={(e) => updateEditField("patientName", e.target.value)}
+                color={isFixField("patientName") ? "warning" : "primary"}
+                focused={isFixField("patientName")}
                 fullWidth
               />
               <TextField
+                data-fix-field="hospitalName"
                 label="Hospital Name"
                 value={editForm.hospitalName}
                 onChange={(e) => updateEditField("hospitalName", e.target.value)}
+                color={isFixField("hospitalName") ? "warning" : "primary"}
+                focused={isFixField("hospitalName")}
+                fullWidth
+              />
+              <TextField
+                data-fix-field="doctorName"
+                label="Doctor Name"
+                value={editForm.doctorName}
+                onChange={(e) => updateEditField("doctorName", e.target.value)}
+                color={isFixField("doctorName") ? "warning" : "primary"}
+                focused={isFixField("doctorName")}
                 fullWidth
               />
               <TextField
@@ -1746,8 +1790,25 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   />
                 </>
               )}
-              <TextField label="Provider TIN" value={editForm.providerTin} onChange={(e) => updateEditField("providerTin", e.target.value.replace(/[^0-9-]/g, "").slice(0, 10))} fullWidth />
-              <TextField label="Provider Taxonomy Code" value={editForm.providerTaxonomyCode} onChange={(e) => updateEditField("providerTaxonomyCode", normalizeTaxonomy(e.target.value))} fullWidth />
+              <TextField
+                data-fix-field="providerTin"
+                label="Provider TIN"
+                value={editForm.providerTin}
+                onChange={(e) => updateEditField("providerTin", e.target.value.replace(/[^0-9-]/g, "").slice(0, 10))}
+                color={isFixField("providerTin") ? "warning" : "primary"}
+                focused={isFixField("providerTin")}
+                fullWidth
+              />
+              <TextField
+                data-fix-field="providerTaxonomyCode"
+                label="Provider Taxonomy Code"
+                value={editForm.providerTaxonomyCode}
+                onChange={(e) => updateEditField("providerTaxonomyCode", normalizeTaxonomy(e.target.value))}
+                color={isFixField("providerTaxonomyCode") ? "warning" : "primary"}
+                focused={isFixField("providerTaxonomyCode")}
+                helperText={taxonomyError(editForm.providerTaxonomyCode) || (isFixField("providerTaxonomyCode") ? "Enter the 10-character provider taxonomy code." : "")}
+                fullWidth
+              />
               <TextField
                 data-fix-field="diagnosisText"
                 label="Diagnosis"
@@ -1767,9 +1828,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="payerName"
                 label="Insurance Company"
                 value={editForm.payerName}
                 onChange={(e) => updateEditField("payerName", e.target.value)}
+                color={isFixField("payerName") ? "warning" : "primary"}
+                focused={isFixField("payerName")}
                 fullWidth
               />
               <TextField
@@ -1783,13 +1847,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 focused={fixFocus === "policyNo"}
               />
               <TextField
+                data-fix-field="memberId"
                 label="Member ID"
                 value={editForm.memberId}
                 onChange={(e) => updateEditField("memberId", e.target.value)}
                 fullWidth
                 autoFocus={fixFocus === "eligibility"}
-                color={fixFocus === "eligibility" ? "warning" : "primary"}
-                focused={fixFocus === "eligibility"}
+                color={isFixField("memberId") || fixFocus === "eligibility" ? "warning" : "primary"}
+                focused={isFixField("memberId") || fixFocus === "eligibility"}
                 helperText={
                   fixFocus === "eligibility"
                     ? "Eligibility pre-check requires Member ID, Policy Number, and Insurance Company."
@@ -1809,7 +1874,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="groupNumber"
                 label="Group Number"
+                color={isFixField("groupNumber") ? "warning" : "primary"}
+                focused={isFixField("groupNumber")}
                 value={editForm.groupNumber}
                 onChange={(e) => updateEditField("groupNumber", e.target.value)}
                 fullWidth
@@ -1821,7 +1889,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="subscriberName"
                 label="Subscriber Name"
+                color={isFixField("subscriberName") ? "warning" : "primary"}
+                focused={isFixField("subscriberName")}
                 value={editForm.subscriberName}
                 onChange={(e) => updateEditField("subscriberName", e.target.value)}
                 fullWidth
@@ -1999,8 +2070,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="totalBilledAmount"
                 label="Total Billed Amount ($)"
                 type="number"
+                color={isFixField("totalBilledAmount") ? "warning" : "primary"}
+                focused={isFixField("totalBilledAmount")}
                 value={editForm.totalBilledAmount}
                 onChange={(e) => updateEditField("totalBilledAmount", e.target.value)}
                 fullWidth
