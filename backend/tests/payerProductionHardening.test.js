@@ -285,3 +285,60 @@ test("payer connection - dev startup prepares Prisma and stale schema is actiona
     /Apply Prisma migrations and regenerate the Prisma client/
   );
 });
+
+
+test("production payer capabilities are truthful and do not advertise prior auth", () => {
+  const connectors = new Map(
+    listPayerConnectors({
+      STEDI_PRODUCTION_API_KEY: "prod",
+      STEDI_PRODUCTION_PHI_CONFIRMED: "true",
+      STEDI_TEST_API_KEY: "test"
+    }).map((item) => [item.id, item])
+  );
+
+  assert.equal(connectors.get("LIVE")?.configured, false);
+  assert.deepEqual(connectors.get("LIVE")?.capabilities, []);
+  assert.equal(connectors.get("OPTUM_SANDBOX")?.configured, false);
+  assert.deepEqual(connectors.get("OPTUM_SANDBOX")?.capabilities, []);
+
+  assert.equal(connectors.get("STEDI_TEST")?.capabilities.includes("submitClaim"), true);
+  assert.equal(connectors.get("STEDI_TEST")?.capabilities.includes("getStatus"), false);
+  assert.equal(connectors.get("STEDI_TEST")?.capabilities.includes("requestPriorAuth"), false);
+
+  const production = connectors.get("STEDI_PRODUCTION");
+  assert.equal(production?.configured, true);
+  assert.equal(production?.capabilities.includes("submitClaim"), true);
+  assert.equal(production?.capabilities.includes("getStatus"), true);
+  assert.equal(production?.capabilities.includes("getRemittance"), true);
+  assert.equal(production?.capabilities.includes("requestPriorAuth"), false);
+});
+
+test("claim submission transmits LIVE claims before local submitted state is committed", () => {
+  const claims = read("backend/src/routes/claims.js");
+  const submitStart = claims.indexOf('router.post("/:id/submit"');
+  const submitSource = claims.slice(submitStart);
+
+  const connectorCall = submitSource.indexOf("connector.submitClaim");
+  const transactionWrite = submitSource.indexOf("payerTransaction.upsert");
+  const claimSubmittedWrite = submitSource.indexOf('status: submittedStatus');
+
+  assert.ok(connectorCall >= 0);
+  assert.ok(transactionWrite > connectorCall);
+  assert.ok(claimSubmittedWrite > transactionWrite);
+  assert.match(submitSource, /PAYER_SUBMISSION_NOT_SUPPORTED/);
+  assert.match(submitSource, /PAYER_SUBMISSION_PREFLIGHT_FAILED/);
+  assert.match(submitSource, /PAYER_SUBMISSION_REJECTED/);
+  assert.match(submitSource, /Persist the correlation key before any external transmission/);
+  assert.doesNotMatch(
+    submitSource,
+    /responsePayload:\s*body|requestPayload:\s*payload/
+  );
+});
+
+test("Journey uses real external submit and simulator only for simulated payer", () => {
+  const journey = read("frontend/src/modules/journey/ClaimJourney.jsx");
+  assert.match(
+    journey,
+    /if \(externalPayerConnected\)[\s\S]*return;[\s\S]*if \(simulatedPayerConnected\)[\s\S]*simulatePayerSubmission/
+  );
+});
