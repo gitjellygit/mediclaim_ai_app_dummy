@@ -1,0 +1,16 @@
+ALTER TABLE "Claim"
+ADD COLUMN "patientAddress1" TEXT,
+ADD COLUMN "patientAddress2" TEXT,
+ADD COLUMN "patientCity" TEXT,
+ADD COLUMN "patientState" TEXT,
+ADD COLUMN "patientPostalCode" TEXT,
+ADD COLUMN "subscriberGender" "Gender",
+ADD COLUMN "subscriberAddress1" TEXT,
+ADD COLUMN "subscriberAddress2" TEXT,
+ADD COLUMN "subscriberCity" TEXT,
+ADD COLUMN "subscriberState" TEXT,
+ADD COLUMN "subscriberPostalCode" TEXT,
+ADD COLUMN "claimFilingCode" TEXT,
+ADD COLUMN "admissionTypeCode" TEXT,
+ADD COLUMN "admissionSourceCode" TEXT,
+ADD COLUMN "patientStatusCode" TEXT;
