@@ -164,6 +164,36 @@ export function requirePermission(permission) {
     }
 
     if (!hasPermission(req.user, permission)) {
+      void prisma.auditEvent
+        .create({
+          data: {
+            organizationId: req.user.organizationId,
+            actorUserId: req.user.id || null,
+            action: "PHI_ACCESS_DENIED",
+            entityType: "Permission",
+            entityId: permission,
+            outcome: "DENIED",
+            metadata: {
+              permission,
+              method: req.method || null,
+              path: req.originalUrl || req.path || null
+            },
+            ipAddress: req.ip || req.socket?.remoteAddress || null,
+            userAgent: req.get?.("user-agent") || null,
+            httpMethod: req.method || null,
+            httpPath: req.originalUrl || req.path || null,
+            requestId: req.auditRequestId || req.get?.("x-request-id") || null,
+            statusCode: 403
+          }
+        })
+        .catch((error) => {
+          console.error("[auth] permission denial audit failed", {
+            permission,
+            name: error?.name || "Error",
+            code: error?.code || null
+          });
+        });
+
       return res.status(403).json({
         error: "Forbidden",
         message: "You do not have permission to access this resource.",
