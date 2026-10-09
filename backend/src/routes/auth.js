@@ -322,7 +322,8 @@ export function authRouter(prisma) {
           id: user.id,
           email: user.email,
           role: user.role,
-          organizationId: user.organizationId
+          organizationId: user.organizationId,
+          permissions: permissionList(user)
         },
         expiresIn: accessLifetimeSeconds()
       });
