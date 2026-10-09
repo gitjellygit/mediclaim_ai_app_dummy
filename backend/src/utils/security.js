@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { randomInt } from "node:crypto";
 
 /**
  * Password validation rules
@@ -53,12 +54,10 @@ export async function comparePassword(password, hash) {
 export function generateSecureToken(length = 32) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   let token = "";
-  const crypto = globalThis.crypto || require("crypto");
-  
+
   for (let i = 0; i < length; i++) {
-    const randomIndex = crypto.getRandomValues(new Uint32Array(1))[0] % chars.length;
-    token += chars[randomIndex];
+    token += chars[randomInt(chars.length)];
   }
-  
+
   return token;
 }
