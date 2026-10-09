@@ -2126,9 +2126,21 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 }}
                 fullWidth
               >
-                <MenuItem value="ORIGINAL">Original</MenuItem>
-                <MenuItem value="CORRECTED">Corrected</MenuItem>
-                <MenuItem value="VOID">Void</MenuItem>
+                <MenuItem value="ORIGINAL">Original / Admit through Discharge</MenuItem>
+                {editForm.claimForm === "INSTITUTIONAL" && (
+                  <MenuItem value="INTERIM_FIRST">Interim - First Claim</MenuItem>
+                )}
+                {editForm.claimForm === "INSTITUTIONAL" && (
+                  <MenuItem value="INTERIM_CONTINUING">Interim - Continuing Claim</MenuItem>
+                )}
+                {editForm.claimForm === "INSTITUTIONAL" && (
+                  <MenuItem value="INTERIM_LAST">Interim - Last Claim</MenuItem>
+                )}
+                <MenuItem value="CORRECTED">Corrected / Replacement</MenuItem>
+                <MenuItem value="VOID">Void / Cancel</MenuItem>
+                {editForm.claimForm === "INSTITUTIONAL" && (
+                  <MenuItem value="FINAL_HOME_HEALTH">Final Home Health PPS Episode</MenuItem>
+                )}
               </TextField>
               <TextField
                 label="Timely Filing Deadline"
