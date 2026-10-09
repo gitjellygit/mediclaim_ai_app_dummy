@@ -41,6 +41,7 @@ export function buildClaimPatch(input = {}) {
     "patientState",
     "patientPostalCode",
     "hospitalName",
+    "doctorName",
     "billingProviderNpi",
     "renderingProviderNpi",
     "referringProviderNpi",
