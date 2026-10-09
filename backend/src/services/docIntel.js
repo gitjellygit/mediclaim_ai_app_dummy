@@ -241,10 +241,10 @@ export function extractFields(text) {
   const t = text || "";
 
   const patientName = firstMatch(t, [
-    /Patient\s*Name\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
-    /Name\s*of\s*Patient\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
-    /Patient\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
-    /Name\s*[:\-]?\s*([A-Za-z .]{3,80})/i
+    /\bPatient\s*Name\b\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
+    /\bName\s*of\s*Patient\b\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
+    /\bPatient\b\s*[:\-]?\s*([A-Za-z .]{3,80})/i,
+    /\bName\b\s*[:\-]?\s*([A-Za-z .]{3,80})/i
   ]);
 
   const hospitalName = firstMatch(t, [
