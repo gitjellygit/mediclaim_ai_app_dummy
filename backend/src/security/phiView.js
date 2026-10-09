@@ -128,10 +128,15 @@ export function minimumNecessaryClaim(claim, user) {
   }
   if (!hasPermission(user, PERMISSIONS.INSURANCE_VIEW)) {
     removeFields(safe, INSURANCE_FIELDS);
+  }
+  if (!hasPermission(user, PERMISSIONS.PAYER_ACTION)) {
     delete safe.payerTransactions;
   }
   if (!hasPermission(user, PERMISSIONS.CLINICAL_VIEW)) {
     removeFields(safe, CLINICAL_FIELDS);
+  }
+  if (!hasPermission(user, PERMISSIONS.DENIAL_VIEW)) {
+    delete safe.denialCases;
   }
   if (!hasPermission(user, PERMISSIONS.FINANCIAL_VIEW)) {
     removeFields(safe, FINANCIAL_FIELDS);
