@@ -49,8 +49,12 @@ enum CoordinationOfBenefits {
 
 enum ClaimFrequencyCode {
   ORIGINAL
+  INTERIM_FIRST
+  INTERIM_CONTINUING
+  INTERIM_LAST
   CORRECTED
   VOID
+  FINAL_HOME_HEALTH
 }
 
 enum RoomCategory {
