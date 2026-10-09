@@ -93,19 +93,13 @@ test("U6 - SIMULATED connector implements the same contract", () => {
   assert.equal(remittance.status, "POSTED");
 });
 
-test("U6 - LIVE connector satisfies the contract but fails closed on use", () => {
-  const connector = createPayerConnector("LIVE");
-  verifyContract(connector);
-  assert.equal(connector.mode, "LIVE");
-
-  for (const method of PAYER_CONNECTOR_METHODS) {
-    assert.throws(
-      () => connector[method](baseClaim),
-      (error) =>
-        error?.code === "LIVE_PAYER_CONNECTOR_NOT_CONFIGURED" &&
-        error?.operation === method
-    );
-  }
+test("U6 - generic LIVE placeholder fails closed before use", () => {
+  assert.throws(
+    () => createPayerConnector("LIVE"),
+    (error) =>
+      error?.code === "PAYER_CONNECTOR_UNAVAILABLE" &&
+      error?.connectorId === "LIVE"
+  );
 });
 
 test("U6 - connector resolution prefers claim mode and supports config fallback", () => {
