@@ -28,8 +28,18 @@ export function buildClaimPatch(input = {}) {
     "groupNumber",
     "subscriberId",
     "subscriberName",
+    "subscriberAddress1",
+    "subscriberAddress2",
+    "subscriberCity",
+    "subscriberState",
+    "subscriberPostalCode",
     "payerEdiId",
     "payerReferenceNo",
+    "patientAddress1",
+    "patientAddress2",
+    "patientCity",
+    "patientState",
+    "patientPostalCode",
     "hospitalName",
     "billingProviderNpi",
     "renderingProviderNpi",
@@ -41,7 +51,11 @@ export function buildClaimPatch(input = {}) {
     "roomCategory",
     "procedureText",
     "typeOfBill",
-    "drgCode"
+    "drgCode",
+    "claimFilingCode",
+    "admissionTypeCode",
+    "admissionSourceCode",
+    "patientStatusCode"
   ]) {
     setIfPresent(patch, input, key, nullableText);
   }
@@ -49,7 +63,9 @@ export function buildClaimPatch(input = {}) {
   for (const key of [
     "subscriberRelationship",
     "coordinationOfBenefits",
-    "claimForm"
+    "claimForm",
+    "patientGender",
+    "subscriberGender"
   ]) {
     setIfPresent(patch, input, key, (value) => value ?? null);
   }
@@ -60,6 +76,7 @@ export function buildClaimPatch(input = {}) {
 
   for (const key of [
     "patientDob",
+    "subscriberDob",
     "dateOfService",
     "admissionDate",
     "dischargeDate",
