@@ -412,22 +412,20 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
     await expect(acceptedChip).toContainText("Verified");
     await expect(acceptedChip.locator("svg")).toHaveCount(0);
 
-    // Removal is available only after explicitly entering Edit mode.
+    // Verified ICDs stay non-destructive in view mode; edits happen through
+    // the explicit claim edit form so linked service-line diagnoses are preserved.
     await page.getByRole("button", { name: "Edit", exact: true }).click();
-    const editableAcceptedChip = page.getByTestId("accepted-icd-M54.16");
-    const deleteIcon = editableAcceptedChip.locator(".MuiChip-deleteIcon");
-    await expect(deleteIcon).toHaveCount(1);
-    await deleteIcon.click();
-    await expect(page.getByTestId("accepted-icd-M54.16")).toHaveCount(0);
+    const icdInput = page.getByLabel("ICD-10 Codes (comma separated)");
+    await expect(icdInput).toHaveValue("M54.16");
+    await icdInput.fill("M54.16, Z00.00");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
 
-    const addInput = page.getByRole("textbox", { name: "Add ICD-10 code" });
-    await addInput.fill("Z00.00");
-    await addInput.press("Enter");
+    await expect(page.getByTestId("accepted-icd-M54.16")).toBeVisible();
     await expect(page.getByTestId("accepted-icd-Z00.00")).toBeVisible();
 
     detail = await browserApi(page, `/api/claims/${claimId}`);
     expect(detail.ok).toBe(true);
-    expect(detail.data.icd10Codes).toEqual(["Z00.00"]);
+    expect(detail.data.icd10Codes).toEqual(["M54.16", "Z00.00"]);
 
     await browser.assertClean();
   } finally {
