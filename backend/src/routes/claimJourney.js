@@ -315,8 +315,8 @@ router.post(
         data: {
           payerConnectionMode: "LIVE",
           payerConnectorId: connector.id,
-          payerEdiId: payerCode,
-          payerName: payerName || claim.payerName,
+          connectedPayerCode: payerCode,
+          connectedPayerName: payerName || null,
           simulatedPayerCode: null,
           eligibilityStatus: "NOT_CHECKED",
           eligibilityCheckedAt: null,
@@ -373,7 +373,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
 
     const eligibilityFingerprint = payerInputFingerprint(
       "ELIGIBILITY",
-      { code: claim.payerEdiId || claim.payerConnectorId || claim.payerName || "PAYER" },
+      { code: claim.connectedPayerCode || claim.payerEdiId || claim.payerConnectorId || claim.payerName || "PAYER" },
       claim
     );
     const latestEligibilityTransaction = await prisma.payerTransaction.findFirst({
@@ -405,7 +405,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
 
     const connector = createPayerConnectorForClaim(
       claim,
-      claim.payerEdiId || claim.simulatedPayerCode
+      claim.connectedPayerCode || claim.payerEdiId || claim.simulatedPayerCode
     );
     const eligibility = await connector.checkEligibility(claim);
     const now = new Date();
@@ -479,7 +479,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
               eligibility.transactionId ||
               `${connector.connectorId}-ELIG-${claim.id}-${Date.now()}`,
             mode: connector.connectorEnvironment,
-            payerCode: claim.payerEdiId || claim.payerName,
+            payerCode: claim.connectedPayerCode || claim.payerEdiId || claim.payerName,
             transactionType: "ELIGIBILITY",
             status: eligibility.status,
             latencyMs: eligibility.latencyMs || null,
@@ -489,11 +489,12 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
               testMode: ["SANDBOX", "TEST"].includes(connector.connectorEnvironment),
               inputFingerprint: eligibilityFingerprint,
               payerCode:
+                claim.connectedPayerCode ||
                 claim.payerEdiId ||
                 claim.simulatedPayerCode ||
                 claim.payerConnectorId ||
                 null,
-              payerName: claim.payerName || null,
+              payerName: claim.connectedPayerName || claim.payerName || null,
               memberId: claim.memberId || null,
               policyNo: claim.policyNo || null
             },
@@ -736,7 +737,11 @@ router.post("/:id/journey/claim-status/refresh", async (req, res) => {
           result.transactionId ||
           `${connector.connectorId}-STATUS-${claim.id}-${Date.now()}`,
         mode: transactionMode,
-        payerCode: claim.payerEdiId || claim.payerName || connector.connectorProvider,
+        payerCode:
+          claim.connectedPayerCode ||
+          claim.payerEdiId ||
+          claim.payerName ||
+          connector.connectorProvider,
         transactionType: "CLAIM_STATUS",
         status: result.status || "NEEDS_REVIEW",
         latencyMs: result.latencyMs || null,

@@ -109,7 +109,9 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
 
     if (
       claim.payerConnectionMode === "SIMULATED" &&
-      claim.simulatedPayerCode === payer.code
+      claim.simulatedPayerCode === payer.code &&
+      claim.connectedPayerCode === payer.code &&
+      claim.connectedPayerName === payer.name
     ) {
       return res.json({ unchanged: true, payer, claim });
     }
@@ -119,7 +121,8 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
       data: {
         payerConnectionMode: "SIMULATED",
         simulatedPayerCode: payer.code,
-        payerName: payer.name,
+        connectedPayerCode: payer.code,
+        connectedPayerName: payer.name,
         // Changing payer invalidates earlier coverage and authorization responses.
         // A previous payer's approval must not carry over to a new insurer.
         eligibilityStatus: "NOT_CHECKED",
@@ -133,25 +136,17 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
         priorAuthCheckedAt: null,
         authorizationNo: null,
         priorAuthExpiry: null,
-        fieldProvenance: mergeProvenance(
-          removeProvenanceFields(claim.fieldProvenance, [
-            "eligibilityStatus",
-            "coverageStatus",
-            "networkStatus",
-            "deductibleRemaining",
-            "coinsurancePct",
-            "priorAuthRequired",
-            "priorAuthStatus",
-            "authorizationNo",
-            "priorAuthExpiry"
-          ]),
-          systemProvenance(["payerName"], {
-            source: "SIMULATED_PAYER",
-            label: "Demo Payer Profile",
-            sourceDetail: payer.name,
-            verified: false
-          })
-        )
+        fieldProvenance: removeProvenanceFields(claim.fieldProvenance, [
+          "eligibilityStatus",
+          "coverageStatus",
+          "networkStatus",
+          "deductibleRemaining",
+          "coinsurancePct",
+          "priorAuthRequired",
+          "priorAuthStatus",
+          "authorizationNo",
+          "priorAuthExpiry"
+        ])
       }
     });
 
@@ -243,6 +238,10 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
         result,
         {
           transaction: "270",
+          payerCode: payer.code,
+          payerName: payer.name,
+          memberId: claim.memberId || null,
+          policyNo: claim.policyNo || null,
           memberIdPresent: Boolean(claim.memberId),
           policyNoPresent: Boolean(claim.policyNo),
           inputFingerprint

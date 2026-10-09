@@ -70,6 +70,70 @@ const scenarios = [
 let apiContext;
 let auth;
 
+function escapePdfText(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function buildTextPdf(lines) {
+  const content = [
+    "BT",
+    "/F1 11 Tf",
+    "50 760 Td",
+    ...lines.flatMap((line, index) => [
+      index === 0 ? "" : "0 -18 Td",
+      `(${escapePdfText(line)}) Tj`
+    ]).filter(Boolean),
+    "ET"
+  ].join("\n");
+
+  const objects = [
+    null,
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(content, "utf8")} >>\nstream\n${content}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+  ];
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [];
+  for (let i = 1; i <= 5; i += 1) {
+    offsets[i] = Buffer.byteLength(pdf, "utf8");
+    pdf += `${i} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(pdf, "utf8");
+  pdf += "xref\n0 6\n0000000000 65535 f \n";
+  for (let i = 1; i <= 5; i += 1) {
+    pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(pdf, "utf8");
+}
+
+async function browserUploadPdf(page, claimId, fileName, buffer) {
+  const base64 = buffer.toString("base64");
+  return page.evaluate(async ({ backendURL, claimId, fileName, base64 }) => {
+    const token = localStorage.getItem("accessToken");
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const form = new FormData();
+    form.append("claimId", claimId);
+    form.append("file", new File([bytes], fileName, { type: "application/pdf" }));
+
+    const response = await fetch(`${backendURL}/api/documents/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+      body: form
+    });
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      data: text ? JSON.parse(text) : null
+    };
+  }, { backendURL, claimId, fileName, base64 });
+}
+
 test.beforeAll(async () => {
   apiContext = await request.newContext({
     baseURL: backendURL
@@ -236,8 +300,53 @@ test("12 medical consistency scenarios run end-to-end in the browser", async ({
     await expect(page).toHaveURL(/focus=documents/);
     await expect(page.getByRole("button", { name: "Upload Document" })).toBeVisible();
 
-    console.log("✓ Medical Consistency document fix deep-link opens Documents");
+    const claimId = new URL(page.url()).pathname.split("/").pop();
+    expect(claimId).toBeTruthy();
+
+    const uploaded = await browserUploadPdf(
+      page,
+      claimId,
+      "casey-patel-discharge-summary-e2e.pdf",
+      buildTextPdf([
+        "Discharge Summary",
+        "Admission Date: 09/20/2026",
+        "Discharge Date: 09/22/2026",
+        "Date of Service: 09/21/2026",
+        "Diagnosis: Routine inpatient test diagnosis"
+      ])
+    );
+    expect(
+      uploaded.ok,
+      `discharge upload failed (${uploaded.status}): ${JSON.stringify(uploaded.data)}`
+    ).toBe(true);
+    expect(uploaded.data.type).toBe("DISCHARGE_SUMMARY");
+
+    await page.goto("/medical-ai");
+    const refreshedSearch = page.getByPlaceholder(
+      "Search patient, payer, policy, member ID, or claim ID"
+    );
+    await refreshedSearch.fill("E2E-MC-08-MISSING-DISCHARGE");
+
+    const refreshedRow = page.getByTestId("medical-claim-row").filter({
+      hasText: "E2E-MC-08-MISSING-DISCHARGE"
+    });
+    await expect(refreshedRow).toBeVisible();
+    await expect(refreshedRow).toContainText("CONSISTENT");
+
+    await refreshedRow.click();
+    const refreshedDrawer = page.getByTestId("medical-consistency-drawer");
+    await expect(refreshedDrawer).toBeVisible();
+    await expect(
+      refreshedDrawer.getByText("Discharge summary not found", { exact: true })
+    ).toHaveCount(0);
+    await expect(
+      refreshedDrawer.getByText(
+        "No internal consistency issues were detected by the current rule set."
+      )
+    ).toBeVisible();
+
+    console.log("✓ Missing discharge summary clears after a real PDF upload and browser re-evaluation");
   });
 
-  console.log("✓ Medical Consistency browser automation: 12/12 scenarios + fix deep-links passed");
+  console.log("✓ Medical Consistency browser automation: 12/12 scenarios + fix deep-links + discharge upload recovery passed");
 });

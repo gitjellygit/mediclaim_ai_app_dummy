@@ -222,3 +222,16 @@ test("Avery regression - explicit progress note wins over generic procedure word
 
   assert.equal(result.suggestedType, "PROGRESS_NOTE");
 });
+
+
+test("patient-name extraction does not match patient substring inside inpatient text", () => {
+  const extracted = extractFields(`
+Discharge Summary
+Admission Date: 09/20/2026
+Discharge Date: 09/22/2026
+Diagnosis: Routine inpatient test diagnosis
+`);
+
+  assert.equal(extracted.patientName, null);
+  assert.equal(extracted.diagnosisText, "Routine inpatient test diagnosis");
+});
