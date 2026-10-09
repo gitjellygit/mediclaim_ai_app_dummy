@@ -48,6 +48,7 @@ import {
   payerConnectorStatusForClaim
 } from "../services/payerGateway.js";
 import { randomBytes } from "node:crypto";
+import { publicClaimDocuments } from "../services/documentPublicView.js";
 
 const router = express.Router();
 
@@ -362,7 +363,7 @@ router.get("/:id/medical-consistency", async (req, res) => {
     }
 
     res.json({
-      claim,
+      claim: publicClaimDocuments(claim),
       analysis: analyzeMedicalConsistency(claim)
     });
   } catch (error) {
@@ -449,7 +450,7 @@ router.get("/:id", async (req, res) => {
   }));
 
   res.json({
-    ...claim,
+    ...publicClaimDocuments(claim),
     checks,
     automationSummary: buildAutomationSummary(claim),
     completenessSummary: buildClaimCompleteness(claim)
