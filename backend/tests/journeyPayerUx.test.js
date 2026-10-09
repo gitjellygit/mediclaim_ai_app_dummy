@@ -37,3 +37,29 @@ test("Journey does not force terminal claims back to pending eligibility or prio
   assert.match(source, /workflowAdvanced \? \(/);
   assert.match(source, /Connection record unavailable/);
 });
+
+
+test("payer connection identity stays separate from insurance on file", () => {
+  const journeySource = fs.readFileSync(journeyPath, "utf8");
+  const simulationPath = path.resolve(
+    __dirname,
+    "../src/routes/claimPayerSimulation.js"
+  );
+  const simulationSource = fs.readFileSync(simulationPath, "utf8");
+  const schemaPath = path.resolve(__dirname, "../prisma/schema.prisma");
+  const schemaSource = fs.readFileSync(schemaPath, "utf8");
+
+  assert.match(schemaSource, /connectedPayerCode\s+String\?/);
+  assert.match(schemaSource, /connectedPayerName\s+String\?/);
+
+  assert.match(simulationSource, /connectedPayerCode: payer\.code/);
+  assert.match(simulationSource, /connectedPayerName: payer\.name/);
+  assert.doesNotMatch(
+    simulationSource,
+    /simulatedPayerCode: payer\.code,\s*\n\s*payerName: payer\.name/
+  );
+
+  assert.match(journeySource, /insurance-payer-mismatch/);
+  assert.match(journeySource, /Not Verified Against File/);
+  assert.match(journeySource, /Connecting a payer does not update the source insurance record/);
+});
