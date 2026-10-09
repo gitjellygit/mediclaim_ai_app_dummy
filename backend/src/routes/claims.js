@@ -43,6 +43,11 @@ import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../serv
 import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
 import { writeRequestAudit } from "../services/auditLog.js";
+import {
+  createPayerConnectorForClaim,
+  payerConnectorStatusForClaim
+} from "../services/payerGateway.js";
+import { randomBytes } from "node:crypto";
 
 const router = express.Router();
 
@@ -1358,7 +1363,8 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
-        checks: { orderBy: { createdAt: "desc" }, take: 1 }
+        checks: { orderBy: { createdAt: "desc" }, take: 1 },
+        serviceLines: { orderBy: { createdAt: "asc" } }
       }
     });
 
@@ -1400,9 +1406,7 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       ? latestCheck.issues
       : [];
 
-    const hasBlock = issues.some((i) => i.severity === "BLOCK");
-
-    if (hasBlock) {
+    if (issues.some((i) => i.severity === "BLOCK")) {
       return res.status(400).json({
         error: "Claim has blocking issues. Fix them before submission"
       });
@@ -1421,36 +1425,186 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       );
     }
 
+    const patientControlNumber =
+      claim.patientControlNumber ||
+      randomBytes(9).toString("hex").slice(0, 17).toUpperCase();
+
+    let payerSubmission = null;
+    let connectorDescriptor = null;
+
+    if (claim.payerConnectionMode === "LIVE") {
+      connectorDescriptor = payerConnectorStatusForClaim(claim);
+      if (!connectorDescriptor.configured) {
+        return res.status(503).json({
+          error: "Payer claim submission is not configured",
+          message: "The selected payer connector is not configured for this environment.",
+          code: "PAYER_SUBMISSION_NOT_CONFIGURED"
+        });
+      }
+      if (!connectorDescriptor.capabilities?.includes("submitClaim")) {
+        return res.status(409).json({
+          error: "Payer claim submission is not supported",
+          message: `${connectorDescriptor.provider} does not support claim submission through the configured connector.`,
+          code: "PAYER_SUBMISSION_NOT_SUPPORTED"
+        });
+      }
+
+      const connector = createPayerConnectorForClaim(
+        { ...claim, patientControlNumber },
+        claim.connectedPayerCode || claim.payerEdiId
+      );
+      payerSubmission = await connector.submitClaim(
+        { ...claim, patientControlNumber },
+        {
+          idempotencyKey: `claim-app-${claim.id}-${claim.claimForm || "PROFESSIONAL"}-${claim.claimFrequencyCode || "ORIGINAL"}`
+        }
+      );
+
+      const safeResult = {
+        ...payerSubmission,
+        raw: undefined,
+        x12: undefined
+      };
+      delete safeResult.raw;
+      delete safeResult.x12;
+
+      const transactionId =
+        payerSubmission.transactionId ||
+        `837-${patientControlNumber}-${claim.claimFrequencyCode || "ORIGINAL"}`;
+
+      await prisma.payerTransaction.upsert({
+        where: {
+          transactionId_claimId: {
+            transactionId,
+            claimId: claim.id
+          }
+        },
+        create: {
+          claimId: claim.id,
+          transactionId,
+          mode: connectorDescriptor.environment,
+          payerCode: claim.connectedPayerCode || claim.payerEdiId || connectorDescriptor.provider,
+          transactionType: "CLAIM_SUBMISSION",
+          status: payerSubmission.status,
+          latencyMs: payerSubmission.latencyMs || null,
+          requestPayload: {
+            transaction: claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
+            patientControlNumber,
+            payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
+            claimForm: claim.claimForm || null,
+            claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
+            idempotencyKey: payerSubmission.idempotencyKey || null
+          },
+          responsePayload: safeResult
+        },
+        update: {
+          status: payerSubmission.status,
+          latencyMs: payerSubmission.latencyMs || null,
+          responsePayload: safeResult
+        }
+      });
+
+      if (payerSubmission.status === "REJECTED") {
+        await auditClaim(req, {
+          claimId: claim.id,
+          action: "CLAIM_SUBMISSION_REJECTED",
+          outcome: "DENIED",
+          metadata: {
+            connectorId: connectorDescriptor.id,
+            payerCode: claim.connectedPayerCode || claim.payerEdiId || null
+          }
+        });
+        return res.status(422).json({
+          success: false,
+          error: "Payer rejected the claim submission",
+          message:
+            payerSubmission.errors?.[0]?.description ||
+            "Stedi claim edits rejected the 837. Correct the claim and resubmit.",
+          code: "PAYER_SUBMISSION_REJECTED",
+          submission: safeResult
+        });
+      }
+    }
+
     const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED");
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
         status: submittedStatus,
         claimSubmissionDate: new Date(),
-        patientControlNumber: claim.patientControlNumber || claim.id,
-        payerClaimStatus: "SUBMITTED",
-        claimStatusCheckedAt: new Date(),
+        patientControlNumber,
+        payerClaimStatus:
+          payerSubmission?.status === "ACKNOWLEDGED" ? "ACKNOWLEDGED" : "SUBMITTED",
+        payerReferenceNo:
+          payerSubmission?.payerClaimNo || claim.payerReferenceNo || null,
+        claimStatusCheckedAt: payerSubmission ? new Date() : null,
         remittanceStatus: "AWAITING"
       },
       include: {
         documents: true,
-        checks: { orderBy: { createdAt: "desc" } }
+        checks: { orderBy: { createdAt: "desc" } },
+        payerTransactions: { orderBy: { createdAt: "desc" } }
       }
     });
 
     await auditClaim(req, {
       claimId: claim.id,
       action: "CLAIM_SUBMITTED",
-      metadata: { payerClaimStatus: updated.payerClaimStatus }
+      metadata: {
+        payerClaimStatus: updated.payerClaimStatus,
+        connectorId: connectorDescriptor?.id || null,
+        transmittedToPayer: Boolean(payerSubmission)
+      }
     });
 
     res.json({
       success: true,
-      message: "Claim submitted successfully",
+      message: payerSubmission
+        ? "Claim submitted and transmitted to payer"
+        : "Claim submitted successfully",
+      submission: payerSubmission
+        ? {
+            ...payerSubmission,
+            raw: undefined,
+            x12: undefined
+          }
+        : null,
       claim: updated
     });
   } catch (e) {
-    if (e?.status) throw e;
+    if (e?.status && e?.code !== "STEDI_API_ERROR") throw e;
+
+    if (e?.code === "STEDI_REQUEST_INVALID" || e?.code === "STEDI_CLAIM_REQUEST_INVALID") {
+      return res.status(400).json({
+        error: "Claim is missing information required for payer submission",
+        message: e.message,
+        code: "PAYER_SUBMISSION_PREFLIGHT_FAILED"
+      });
+    }
+
+    if (e?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
+      return res.status(503).json({
+        error: "Payer connector is unavailable",
+        message: "The selected payer service is not available for claim submission.",
+        code: "PAYER_CONNECTOR_UNAVAILABLE"
+      });
+    }
+
+    if (e?.code === "STEDI_API_ERROR") {
+      console.error("[claim-submit] Stedi request failed", {
+        claimId: req.params.id,
+        status: e.status || null
+      });
+      return res.status(502).json({
+        error: "Payer service could not complete claim submission",
+        message:
+          e.status === 429
+            ? "The payer service is temporarily rate limited. Retry later."
+            : "The payer service rejected or could not process the request.",
+        code: "PAYER_SERVICE_ERROR"
+      });
+    }
+
     console.error("[claim-submit] failed", { name: e?.name, code: e?.code || null });
     res.status(500).json({ error: "Unable to submit claim", code: "CLAIM_SUBMISSION_FAILED" });
   }
