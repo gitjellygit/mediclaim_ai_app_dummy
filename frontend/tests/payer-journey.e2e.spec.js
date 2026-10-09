@@ -624,8 +624,8 @@ test("payer switch invalidates old coverage and authorization without reusing ol
   await expect(eligibility).toContainText("Member Not Found");
   await expect(eligibility).toContainText("Coverage: Inactive");
   await expect(eligibility).toContainText("Checked against");
-  await expect(eligibility).toContainText(scenario.memberId);
-  await expect(eligibility).toContainText(scenario.policyNo);
+  await expect(eligibility).toContainText(state.memberId);
+  await expect(eligibility).toContainText(state.policyNo);
   await expect(
     eligibility.getByRole("button", { name: "Review Insurance Details" })
   ).toBeVisible();
