@@ -92,7 +92,15 @@ export const claimUpdateSchema = z.object({
   admissionTypeCode: z.string().trim().min(1).max(1).nullish(),
   admissionSourceCode: z.string().trim().min(1).max(2).nullish(),
   patientStatusCode: z.string().trim().min(1).max(2).nullish(),
-  claimFrequencyCode: z.enum(["ORIGINAL", "CORRECTED", "VOID"]).optional(),
+  claimFrequencyCode: z.enum([
+    "ORIGINAL",
+    "INTERIM_FIRST",
+    "INTERIM_CONTINUING",
+    "INTERIM_LAST",
+    "CORRECTED",
+    "VOID",
+    "FINAL_HOME_HEALTH"
+  ]).optional(),
   timelyFilingDeadline: optionalDateString,
   amount: optionalMoneyInput,
   totalBilledAmount: optionalMoneyInput,
