@@ -4,11 +4,13 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import {
   comparePassword,
-  checkRateLimit,
-  recordFailedAttempt,
-  generateSecureToken,
-  clearRateLimit
+  generateSecureToken
 } from "../utils/security.js";
+import {
+  checkAuthRateLimit,
+  recordAuthFailure,
+  clearAuthRateLimit
+} from "../services/authRateLimit.js";
 import { durationToMs } from "../utils/duration.js";
 import { writeAuditEvent } from "../services/auditLog.js";
 
@@ -16,6 +18,8 @@ const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "15m";
 const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN || "7d";
 const ACCOUNT_LOCKOUT_DURATION = 30 * 60 * 1000;
 const MAX_FAILED_ATTEMPTS = 5;
+const MAX_IP_FAILED_ATTEMPTS = 25;
+const LOGIN_RATE_WINDOW_MS = 15 * 60 * 1000;
 const REFRESH_COOKIE_NAME = "claim_refresh_token";
 
 function refreshLifetimeMs() {
@@ -40,6 +44,22 @@ function hashRefreshToken(token) {
 
 function requestIp(req) {
   return req.ip || req.socket?.remoteAddress || null;
+}
+
+function loginRateKeys(email, req) {
+  const emailHash = crypto
+    .createHash("sha256")
+    .update(String(email || "").toLowerCase().trim())
+    .digest("hex");
+  const ipHash = crypto
+    .createHash("sha256")
+    .update(String(requestIp(req) || "unknown"))
+    .digest("hex");
+
+  return {
+    emailKey: `login-email:${emailHash}`,
+    ipKey: `login-ip:${ipHash}`
+  };
 }
 
 function authAuditContext(req, statusCode = null) {
@@ -163,13 +183,34 @@ export function authRouter(prisma) {
       }
 
       const emailKey = String(email).toLowerCase().trim();
-      const rateKey = `login:${emailKey}`;
-      const rateLimit = checkRateLimit(rateKey, MAX_FAILED_ATTEMPTS);
-      if (!rateLimit.allowed) {
+      const rateKeys = loginRateKeys(emailKey, req);
+      const [emailRateLimit, ipRateLimit] = await Promise.all([
+        checkAuthRateLimit(
+          prisma,
+          rateKeys.emailKey,
+          MAX_FAILED_ATTEMPTS,
+          LOGIN_RATE_WINDOW_MS
+        ),
+        checkAuthRateLimit(
+          prisma,
+          rateKeys.ipKey,
+          MAX_IP_FAILED_ATTEMPTS,
+          LOGIN_RATE_WINDOW_MS
+        )
+      ]);
+      const blockedRateLimit = !emailRateLimit.allowed
+        ? emailRateLimit
+        : !ipRateLimit.allowed
+        ? ipRateLimit
+        : null;
+      if (blockedRateLimit) {
         return res.status(429).json({
           error: "Too many attempts",
           message: "Too many login attempts. Please try again later.",
-          retryAfter: Math.ceil((rateLimit.resetAt - Date.now()) / 1000)
+          retryAfter: Math.max(
+            1,
+            Math.ceil((blockedRateLimit.resetAt.getTime() - Date.now()) / 1000)
+          )
         });
       }
 
@@ -178,7 +219,10 @@ export function authRouter(prisma) {
       });
 
       if (!user) {
-        recordFailedAttempt(rateKey);
+        await Promise.all([
+          recordAuthFailure(prisma, rateKeys.emailKey, LOGIN_RATE_WINDOW_MS),
+          recordAuthFailure(prisma, rateKeys.ipKey, LOGIN_RATE_WINDOW_MS)
+        ]);
         return res.status(401).json({
           error: "Invalid credentials",
           message: "Invalid email or password"
@@ -198,7 +242,10 @@ export function authRouter(prisma) {
       const passwordValid = await comparePassword(password, user.passwordHash);
 
       if (!passwordValid) {
-        recordFailedAttempt(rateKey);
+        await Promise.all([
+          recordAuthFailure(prisma, rateKeys.emailKey, LOGIN_RATE_WINDOW_MS),
+          recordAuthFailure(prisma, rateKeys.ipKey, LOGIN_RATE_WINDOW_MS)
+        ]);
         const failedAttempts = user.failedLoginAttempts + 1;
         const shouldLock = failedAttempts >= MAX_FAILED_ATTEMPTS;
 
@@ -229,7 +276,7 @@ export function authRouter(prisma) {
         });
       }
 
-      clearRateLimit(rateKey);
+      await clearAuthRateLimit(prisma, rateKeys.emailKey);
       await prisma.user.update({
         where: { id: user.id },
         data: {
@@ -616,7 +663,8 @@ export function authRouter(prisma) {
         }
 
         const emailKey = email.toLowerCase().trim();
-        clearRateLimit(`login:${emailKey}`);
+        const { emailKey: emailRateKey } = loginRateKeys(emailKey, req);
+        await clearAuthRateLimit(prisma, emailRateKey);
 
         const user = await prisma.user.findFirst({
           where: {
