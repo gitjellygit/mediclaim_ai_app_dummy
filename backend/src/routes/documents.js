@@ -802,7 +802,11 @@ export function documentsRouter(prisma, uploadDir) {
           ...(claimId ? { id: claimId } : {})
         }
       },
-      include: {
+      select: {
+        id: true,
+        fileName: true,
+        type: true,
+        confidence: true,
         claim: {
           select: {
             id: true,
