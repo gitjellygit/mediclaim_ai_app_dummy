@@ -1425,9 +1425,22 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       );
     }
 
-    const patientControlNumber =
-      claim.patientControlNumber ||
-      randomBytes(9).toString("hex").slice(0, 17).toUpperCase();
+    let patientControlNumber = claim.patientControlNumber;
+    if (!patientControlNumber) {
+      patientControlNumber = randomBytes(9)
+        .toString("hex")
+        .slice(0, 17)
+        .toUpperCase();
+
+      // Persist the correlation key before any external transmission. If the
+      // payer accepts the request but a later local write fails, a retry must
+      // reuse the same Patient Control Number together with the same
+      // idempotency key.
+      await prisma.claim.update({
+        where: { id: claim.id },
+        data: { patientControlNumber }
+      });
+    }
 
     let payerSubmission = null;
     let connectorDescriptor = null;
