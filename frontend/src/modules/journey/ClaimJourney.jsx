@@ -944,13 +944,24 @@ export default function ClaimJourney() {
           return;
         }
 
-        await ClaimsApi.submit(claim.id);
+        const submitted = await ClaimsApi.submit(claim.id);
+        if (externalPayerConnected) {
+          setSubmissionBlock(null);
+          await loadJourney(claim.id);
+          showToast(
+            submitted?.message || "Claim transmitted to payer",
+            "success"
+          );
+          return;
+        }
       }
 
-      const result = await ClaimsApi.simulatePayerSubmission(claim.id);
-      setSubmissionBlock(null);
-      await loadJourney(claim.id);
-      if (!result?.unchanged) showToast("Claim sent to payer", "success");
+      if (simulatedPayerConnected) {
+        const result = await ClaimsApi.simulatePayerSubmission(claim.id);
+        setSubmissionBlock(null);
+        await loadJourney(claim.id);
+        if (!result?.unchanged) showToast("Claim sent to payer", "success");
+      }
     } catch (error) {
       const message = error.message || "Unable to submit claim";
       const submissionPrerequisiteError =
