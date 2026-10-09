@@ -50,7 +50,6 @@ import {
   payerConnectorStatusForClaim
 } from "../services/payerGateway.js";
 import { randomBytes } from "node:crypto";
-import { publicClaimDocuments } from "../services/documentPublicView.js";
 
 const router = express.Router();
 
@@ -1075,12 +1074,12 @@ router.delete("/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), async (req, r
 });
 
 // Legacy URLs delegate to the same implementation as /api/documents.
-router.get("/:id/preview", (req, res) => serveStoredDocument(prisma, req, res));
-router.get("/:id/download", (req, res) => serveStoredDocument(prisma, req, res, { download: true }));
+router.get("/:id/preview", requirePermission(PERMISSIONS.DOCUMENT_VIEW), (req, res) => serveStoredDocument(prisma, req, res));
+router.get("/:id/download", requirePermission(PERMISSIONS.DOCUMENT_DOWNLOAD), (req, res) => serveStoredDocument(prisma, req, res, { download: true }));
 
 
 
-router.delete("/documents/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =>
+router.delete("/documents/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), (req, res) =>
   deleteStoredDocument(prisma, req, res, { legacy: true })
 );
 
