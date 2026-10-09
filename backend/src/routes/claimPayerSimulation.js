@@ -49,6 +49,18 @@ function orgId(req) {
   return req.user.organizationId;
 }
 
+function isPayerConnectionSchemaOutOfDate(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return (
+    code === "P2022" ||
+    (
+      error?.name === "PrismaClientValidationError" &&
+      /connectedPayer(Code|Name)/i.test(message)
+    )
+  );
+}
+
 router.get("/payers/mock", (_req, res) => {
   res.json({
     mode: "SIMULATED",
@@ -162,9 +174,25 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
     });
   } catch (error) {
     if (error?.status) throw error;
+
+    if (isPayerConnectionSchemaOutOfDate(error)) {
+      console.error("[payer-simulation] connect blocked by stale Prisma schema", {
+        claimId: req.params.id,
+        name: error?.name || "Error",
+        code: error?.code || null
+      });
+      return res.status(503).json({
+        error: "Payer connection is temporarily unavailable",
+        message:
+          "The backend database/client schema is not up to date. Apply Prisma migrations and regenerate the Prisma client, then restart the backend.",
+        code: "PAYER_SCHEMA_OUT_OF_DATE"
+      });
+    }
+
     console.error("[payer-simulation] connect failed", {
       claimId: req.params.id,
-      name: error?.name || "Error"
+      name: error?.name || "Error",
+      code: error?.code || null
     });
     res.status(500).json({ error: "Unable to connect mock payer" });
   }

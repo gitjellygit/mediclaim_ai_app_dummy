@@ -101,6 +101,21 @@ retention/backup controls, and complete the deployment/compliance review before
 real PHI is used. Engineering controls support HIPAA readiness but do not by
 themselves constitute HIPAA certification.
 
+## Database/client preparation
+
+After pulling schema changes, prepare the backend before starting it:
+
+```bash
+cd backend
+npm run db:prepare
+```
+
+`npm run dev` now runs this preparation automatically. This regenerates the
+Prisma client and applies committed migrations before the development server
+starts. Production deployments should run `npm run db:prepare` as a release
+step (or use `npm run start:prepared` for single-instance deployments) before
+serving traffic.
+
 ## Production payer safety
 
 Real payer connectivity is fail-closed.
