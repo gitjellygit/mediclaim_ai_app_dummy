@@ -118,28 +118,60 @@ serving traffic.
 
 ## Production payer safety
 
-Real payer connectivity is fail-closed.
-
-For Stedi production, both of these must be configured:
+Real payer connectivity is fail-closed. Production Stedi is unavailable unless
+both of these are configured:
 
 ```env
 STEDI_PRODUCTION_API_KEY=<secret>
 STEDI_PRODUCTION_PHI_CONFIRMED=true
 ```
 
-`STEDI_PRODUCTION_PHI_CONFIRMED` is an application safety interlock confirming that the deployment has explicitly approved PHI transmission to the configured Stedi account. It is **not** proof of a BAA, HIPAA compliance, or legal approval.
+`STEDI_PRODUCTION_PHI_CONFIRMED` is a deployment safety interlock confirming
+that the deployment has explicitly approved PHI transmission to the configured
+Stedi account. It is **not** proof of a BAA, HIPAA compliance, payer enrollment,
+or legal approval.
+
+Implemented Stedi application capabilities:
+
+- 270/271 eligibility: test and production.
+- 837P professional claim submission: test and production.
+- 837I institutional claim submission: test and production.
+- 276/277 real-time claim status: production only. Stedi test mode does not support real-time claim status; test 837s instead receive 277CA acknowledgments.
+- 835 ERA/remittance discovery and posting: test and production.
+- Prior authorization requirement: surfaced from eligibility/readiness, but
+  authorization submission/status remains payer-specific. This integration does
+  not advertise a generic Stedi prior-authorization transaction that it cannot
+  actually perform.
+
+Production 837 submission is generated server-side from trusted claim fields.
+The browser cannot submit arbitrary 837 JSON. Before transmission, readiness
+requires the applicable patient/subscriber identity, structured address,
+provider NPI/TIN/taxonomy, claim filing code, diagnosis/service-line data, and
+institutional admission/status codes. The Patient Control Number is persisted
+before transmission and reused with the deterministic idempotency key on retry.
 
 Additional safeguards:
 
-- Stedi test connectivity and the test payer directory are refused when `NODE_ENV=production`.
+- A LIVE claim is not marked submitted until the configured connector actually
+  accepts the transmission request. Unsupported/unconfigured connectors fail
+  closed instead of creating a false local submission.
+- Stedi test connectivity and the test payer directory are refused when
+  `NODE_ENV=production`.
 - Only ADMIN users can attach/change an external payer connector on a claim.
 - External payer calls time out after 15 seconds.
-- 270/271, 276/277, and 835 application records store normalized minimum-necessary results rather than full raw payer responses/X12.
-- Browser-triggered ERA refresh uses the claim's persisted Patient Control Number; callers cannot request an arbitrary external Stedi transaction.
-- One upstream 835 can be associated with multiple application claims; idempotency is enforced per transaction + claim.
-- Dependent eligibility requires subscriber identity, including subscriber DOB rather than reusing the patient's DOB.
+- 270/271, 837 acknowledgment, 276/277 and 835 application records persist
+  normalized minimum-necessary data rather than raw payer bodies/X12.
+- Browser-triggered ERA refresh uses the claim's persisted Patient Control
+  Number; callers cannot request an arbitrary external Stedi transaction.
+- One upstream 835 can be associated with multiple application claims;
+  idempotency is enforced per transaction + claim.
+- Dependent eligibility and 837 submission use subscriber identity rather than
+  substituting the patient's identity.
 
-Do not enable production payer connectivity until vendor agreements/BAAs, deployment security review, access controls, logging, retention, incident response, and other applicable compliance requirements are approved.
+Do not enable production payer connectivity until vendor agreements/BAAs,
+Stedi account/payer enrollment, deployment security review, access controls,
+logging, retention, incident response, and other applicable compliance
+requirements are approved.
 
 ## Code quality commands
 

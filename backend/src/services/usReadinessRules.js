@@ -34,6 +34,12 @@ export const US_READINESS_RULE_DEFAULTS = Object.freeze([
     name: "Required prior authorization resolved",
     severity: "BLOCK",
     enabled: true
+  },
+  {
+    code: "US_837_SUBMISSION_FIELDS",
+    name: "External 837 submission fields are complete",
+    severity: "BLOCK",
+    enabled: true
   }
 ]);
 
@@ -175,6 +181,57 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
       "Member ID is required",
       { field: "memberId", fixTarget: "claim" }
     );
+  }
+
+  const externalStedi =
+    claim.payerConnectionMode === "LIVE" &&
+    ["STEDI_TEST", "STEDI_PRODUCTION"].includes(
+      String(claim.payerConnectorId || "").toUpperCase()
+    );
+
+  if (externalStedi) {
+    const missing = [];
+    if (!claim.claimForm) missing.push("claim form (837P/837I)");
+    if (!claim.claimFilingCode) missing.push("claim filing code");
+    if (!claim.patientDob) missing.push("patient DOB");
+    if (!claim.patientGender) missing.push("patient gender");
+    if (!claim.patientAddress1) missing.push("patient address");
+    if (!claim.patientCity) missing.push("patient city");
+    if (!claim.patientState) missing.push("patient state");
+    if (!claim.patientPostalCode) missing.push("patient postal code");
+    if (!claim.providerTin) missing.push("provider TIN");
+    if (!claim.providerTaxonomyCode) missing.push("provider taxonomy");
+
+    const dependent =
+      claim.subscriberRelationship &&
+      claim.subscriberRelationship !== "SELF";
+    if (dependent) {
+      if (!claim.subscriberId) missing.push("subscriber ID");
+      if (!claim.subscriberName) missing.push("subscriber name");
+      if (!claim.subscriberDob) missing.push("subscriber DOB");
+      if (!claim.subscriberGender) missing.push("subscriber gender");
+      if (!claim.subscriberAddress1) missing.push("subscriber address");
+      if (!claim.subscriberCity) missing.push("subscriber city");
+      if (!claim.subscriberState) missing.push("subscriber state");
+      if (!claim.subscriberPostalCode) missing.push("subscriber postal code");
+    }
+
+    if (claim.claimForm === "INSTITUTIONAL") {
+      if (!claim.admissionTypeCode) missing.push("admission type code");
+      if (!claim.admissionSourceCode) missing.push("admission source code");
+      if (!claim.patientStatusCode) missing.push("patient status code");
+    }
+
+    if (missing.length) {
+      addIssue(
+        issues,
+        configured,
+        defaults,
+        "US_837_SUBMISSION_FIELDS",
+        `External 837 submission requires: ${missing.join(", ")}`,
+        { field: "claimFilingCode", fixTarget: "claim" }
+      );
+    }
   }
 
   if (

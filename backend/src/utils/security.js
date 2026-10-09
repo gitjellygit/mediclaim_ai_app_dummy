@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { randomInt } from "node:crypto";
 
 /**
  * Password validation rules
@@ -53,69 +54,10 @@ export async function comparePassword(password, hash) {
 export function generateSecureToken(length = 32) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   let token = "";
-  const crypto = globalThis.crypto || require("crypto");
-  
+
   for (let i = 0; i < length; i++) {
-    const randomIndex = crypto.getRandomValues(new Uint32Array(1))[0] % chars.length;
-    token += chars[randomIndex];
+    token += chars[randomInt(chars.length)];
   }
-  
+
   return token;
-}
-
-/**
- * Rate limiting helper (simple in-memory store)
- * In production, use Redis or similar
- */
-const rateLimitStore = new Map();
-
-// Read-only check; a successful login must never consume a failed-attempt slot.
-export function checkRateLimit(identifier, maxAttempts = 5, windowMs = 15 * 60 * 1000) {
-  const record = rateLimitStore.get(identifier);
-  if (!record || Date.now() > record.resetAt) {
-    if (record) rateLimitStore.delete(identifier);
-    return { allowed: true, remaining: maxAttempts };
-  }
-  return {
-    allowed: record.count < maxAttempts,
-    remaining: Math.max(0, maxAttempts - record.count),
-    resetAt: record.resetAt
-  };
-}
-
-export function recordFailedAttempt(identifier, windowMs = 15 * 60 * 1000) {
-  const now = Date.now();
-  const record = rateLimitStore.get(identifier);
-  const next = !record || now > record.resetAt
-    ? { count: 1, resetAt: now + windowMs }
-    : { count: record.count + 1, resetAt: record.resetAt };
-  rateLimitStore.set(identifier, next);
-  return next;
-}
-
-/**
- * Clean up expired rate limit records
- */
-const rateLimitCleanupTimer = setInterval(() => {
-  const now = Date.now();
-  for (const [key, record] of rateLimitStore.entries()) {
-    if (now > record.resetAt) {
-      rateLimitStore.delete(key);
-    }
-  }
-}, 60 * 1000); // Clean every minute
-rateLimitCleanupTimer.unref?.(); // Cleanup must not keep short-lived test/CLI processes alive.
-
-/**
- * Clear rate limit for a specific identifier (useful for development/testing)
- */
-export function clearRateLimit(identifier) {
-  rateLimitStore.delete(identifier);
-}
-
-/**
- * Clear all rate limits (useful for development/testing)
- */
-export function clearAllRateLimits() {
-  rateLimitStore.clear();
 }

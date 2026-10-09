@@ -12,6 +12,8 @@ export default [
         process: "readonly",
         Buffer: "readonly",
         URL: "readonly",
+        URLSearchParams: "readonly",
+        AbortController: "readonly",
         AbortSignal: "readonly",
         fetch: "readonly",
         setTimeout: "readonly",

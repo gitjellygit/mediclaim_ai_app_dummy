@@ -21,9 +21,21 @@ The current codebase includes:
   - production payer-connector assignment is ADMIN-only;
   - external payer calls have a 15-second timeout;
   - upstream payer authentication/rate-limit/error messages are translated before reaching the browser;
-  - 277/835 normalized payloads do not retain full raw payer bodies or raw X12 in normal application persistence/response paths;
+  - 837 claim submission is generated from server-side claim data and LIVE claims are not marked submitted until the external connector accepts the transmission;
+  - the Patient Control Number is persisted before external transmission so retries reuse the same correlation key and deterministic idempotency key;
+  - 277/835 and 837 acknowledgment payloads do not retain full raw payer bodies or raw X12 in normal application persistence/response paths;
   - 835 discovery is correlated from the claim's stored Patient Control Number rather than a browser-supplied external transaction ID;
   - payer transaction uniqueness is scoped to upstream transaction + application claim, allowing one 835 transaction to adjudicate multiple claims.
+
+### External payer scope
+
+The current Stedi integration supports eligibility, 837P/837I claim
+submission, production 276/277 claim status, and 835 remittance. A generic
+prior-authorization submission/status transaction is intentionally not
+advertised by the Stedi connector because the selected Stedi API surface does
+not provide that workflow. Prior authorization requirement is captured from
+eligibility/readiness; authorization itself remains payer-specific and must be
+integrated with an approved payer/vendor API before it can be automated.
 
 ### Eligibility identity safeguards
 

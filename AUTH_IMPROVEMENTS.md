@@ -45,7 +45,7 @@ Authentication endpoints themselves are excluded from automatic protected-reques
 - organization/tenant claims embedded in the authenticated identity and enforced by resource routes;
 - auth/session audit events.
 
-The current in-process login rate limiter is application-instance local. A horizontally scaled production deployment should use a shared rate-limit store or equivalent edge control.
+Failed-login throttling is stored in PostgreSQL, so email- and IP-based limits are shared across backend instances. Rate-limit keys are SHA-256 hashes; the limiter table does not store raw email addresses or client IP addresses. Known users also retain the independent database-backed account lockout after five failed password attempts.
 
 ## Roles
 

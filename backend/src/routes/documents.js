@@ -2,6 +2,7 @@ import express from "express";
 import { requireRoles } from "../middleware/auth.js";
 import { verifyUploadSignature } from "../middleware/uploadSafety.js";
 import { createDocumentUpload } from "../services/documentUpload.js";
+import { publicClaimDocuments, publicDocument } from "../services/documentPublicView.js";
 import fs from "fs";
 import { randomUUID } from "crypto";
 import {
@@ -507,8 +508,8 @@ export function documentsRouter(prisma, uploadDir) {
         matchStatus,
         matchScore,
         candidateClaim,
-        claim: updatedClaim,
-        document: doc
+        claim: publicClaimDocuments(updatedClaim),
+        document: publicDocument(doc)
       });
     } catch (error) {
       if (storedDocumentPath) {
@@ -735,8 +736,8 @@ export function documentsRouter(prisma, uploadDir) {
     });
 
     res.status(req.baseUrl === "/api/claims/documents" ? 200 : 201).json({
-      ...doc,
-      claim: updatedClaim,
+      ...publicDocument(doc),
+      claim: publicClaimDocuments(updatedClaim),
       identityValidation,
       message:
         identityValidation.status === "REVIEW"
@@ -802,7 +803,11 @@ export function documentsRouter(prisma, uploadDir) {
           ...(claimId ? { id: claimId } : {})
         }
       },
-      include: {
+      select: {
+        id: true,
+        fileName: true,
+        type: true,
+        confidence: true,
         claim: {
           select: {
             id: true,
@@ -852,7 +857,7 @@ export function documentsRouter(prisma, uploadDir) {
       entityId: req.params.claimId,
       metadata: { count: docs.length }
     });
-    res.json(docs);
+    res.json(docs.map(publicDocument));
   });
 
   // Current document URLs and legacy claim URLs share safe file serving.
@@ -978,7 +983,7 @@ export function documentsRouter(prisma, uploadDir) {
         }
       });
 
-      res.json(updated);
+      res.json(publicDocument(updated));
     } catch (error) {
       return res.status(500).json({
         error: "Failed to process document"

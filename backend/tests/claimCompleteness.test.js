@@ -64,3 +64,13 @@ test("Completeness - no code and no suggestion remains genuinely missing", () =>
   assert.equal(byField(summary, "icd10Codes")?.state, "missing");
   assert.equal(byField(summary, "serviceLines")?.state, "missing");
 });
+
+
+test("Completeness - saved provider taxonomy code clears review state", () => {
+  const summary = buildClaimCompleteness(baseClaim({
+    providerTaxonomyCode: "207Q00000X"
+  }));
+
+  assert.equal(byField(summary, "providerTaxonomyCode")?.state, "complete");
+  assert.equal(byField(summary, "providerTaxonomy") == null, true);
+});

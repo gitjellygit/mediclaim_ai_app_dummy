@@ -173,6 +173,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       subscriberId: claim.subscriberId || "",
       subscriberName: claim.subscriberName || "",
       subscriberDob: toDateInputValue(claim.subscriberDob),
+      subscriberGender: claim.subscriberGender || "",
+      subscriberAddress1: claim.subscriberAddress1 || "",
+      subscriberAddress2: claim.subscriberAddress2 || "",
+      subscriberCity: claim.subscriberCity || "",
+      subscriberState: claim.subscriberState || "",
+      subscriberPostalCode: claim.subscriberPostalCode || "",
       subscriberRelationship: claim.subscriberRelationship || "",
       coordinationOfBenefits: claim.coordinationOfBenefits || "",
       payerEdiId: claim.payerEdiId || "",
@@ -181,7 +187,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         claim.remainingCoverageLimit != null ? String(claim.remainingCoverageLimit) : "",
       payerReferenceNo: claim.payerReferenceNo || "",
       patientDob: toDateInputValue(claim.patientDob),
+      patientGender: claim.patientGender || "",
+      patientAddress1: claim.patientAddress1 || "",
+      patientAddress2: claim.patientAddress2 || "",
+      patientCity: claim.patientCity || "",
+      patientState: claim.patientState || "",
+      patientPostalCode: claim.patientPostalCode || "",
       hospitalName: claim.hospitalName || "",
+      doctorName: claim.doctorName || "",
       billingProviderNpi: claim.billingProviderNpi || "",
       renderingProviderNpi: claim.renderingProviderNpi || "",
       referringProviderNpi: claim.referringProviderNpi || "",
@@ -204,6 +217,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       procedureDate: toDateInputValue(claim.procedureDate),
       typeOfBill: claim.typeOfBill || "",
       drgCode: claim.drgCode || "",
+      claimFilingCode: claim.claimFilingCode || "",
+      admissionTypeCode: claim.admissionTypeCode || "",
+      admissionSourceCode: claim.admissionSourceCode || "",
+      patientStatusCode: claim.patientStatusCode || "",
       claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
       timelyFilingDeadline: toDateInputValue(claim.timelyFilingDeadline),
       serviceLines: (claim.serviceLines || []).map(serviceLineToForm),
@@ -229,6 +246,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       subscriberId: claim.subscriberId || "",
       subscriberName: claim.subscriberName || "",
       subscriberDob: toDateInputValue(claim.subscriberDob),
+      subscriberGender: claim.subscriberGender || "",
+      subscriberAddress1: claim.subscriberAddress1 || "",
+      subscriberAddress2: claim.subscriberAddress2 || "",
+      subscriberCity: claim.subscriberCity || "",
+      subscriberState: claim.subscriberState || "",
+      subscriberPostalCode: claim.subscriberPostalCode || "",
       subscriberRelationship: claim.subscriberRelationship || "",
       coordinationOfBenefits: claim.coordinationOfBenefits || "",
       payerEdiId: claim.payerEdiId || "",
@@ -237,7 +260,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         claim.remainingCoverageLimit != null ? String(claim.remainingCoverageLimit) : "",
       payerReferenceNo: claim.payerReferenceNo || "",
       patientDob: toDateInputValue(claim.patientDob),
+      patientGender: claim.patientGender || "",
+      patientAddress1: claim.patientAddress1 || "",
+      patientAddress2: claim.patientAddress2 || "",
+      patientCity: claim.patientCity || "",
+      patientState: claim.patientState || "",
+      patientPostalCode: claim.patientPostalCode || "",
       hospitalName: claim.hospitalName || "",
+      doctorName: claim.doctorName || "",
       billingProviderNpi: claim.billingProviderNpi || "",
       renderingProviderNpi: claim.renderingProviderNpi || "",
       referringProviderNpi: claim.referringProviderNpi || "",
@@ -260,6 +290,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       procedureDate: toDateInputValue(claim.procedureDate),
       typeOfBill: claim.typeOfBill || "",
       drgCode: claim.drgCode || "",
+      claimFilingCode: claim.claimFilingCode || "",
+      admissionTypeCode: claim.admissionTypeCode || "",
+      admissionSourceCode: claim.admissionSourceCode || "",
+      patientStatusCode: claim.patientStatusCode || "",
       claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
       timelyFilingDeadline: toDateInputValue(claim.timelyFilingDeadline),
       serviceLines: (claim.serviceLines || []).map(serviceLineToForm),
@@ -436,6 +470,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       subscriberId: editForm.subscriberId || null,
       subscriberName: editForm.subscriberName || null,
       subscriberDob: editForm.subscriberDob || null,
+      subscriberGender: editForm.subscriberGender || null,
+      subscriberAddress1: editForm.subscriberAddress1 || null,
+      subscriberAddress2: editForm.subscriberAddress2 || null,
+      subscriberCity: editForm.subscriberCity || null,
+      subscriberState: editForm.subscriberState?.toUpperCase() || null,
+      subscriberPostalCode: editForm.subscriberPostalCode || null,
       subscriberRelationship: editForm.subscriberRelationship || null,
       coordinationOfBenefits: editForm.coordinationOfBenefits || null,
       payerEdiId: editForm.payerEdiId || null,
@@ -447,7 +487,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           : null,
       payerReferenceNo: editForm.payerReferenceNo || null,
       patientDob: editForm.patientDob || null,
+      patientGender: editForm.patientGender || null,
+      patientAddress1: editForm.patientAddress1 || null,
+      patientAddress2: editForm.patientAddress2 || null,
+      patientCity: editForm.patientCity || null,
+      patientState: editForm.patientState?.toUpperCase() || null,
+      patientPostalCode: editForm.patientPostalCode || null,
       hospitalName: editForm.hospitalName || null,
+      doctorName: editForm.doctorName || null,
       billingProviderNpi: editForm.billingProviderNpi ? normalizeNpi(editForm.billingProviderNpi) : null,
       renderingProviderNpi: editForm.renderingProviderNpi ? normalizeNpi(editForm.renderingProviderNpi) : null,
       referringProviderNpi: editForm.referringProviderNpi ? normalizeNpi(editForm.referringProviderNpi) : null,
@@ -474,6 +521,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         : [],
       typeOfBill: editForm.typeOfBill || null,
       drgCode: editForm.drgCode || null,
+      claimFilingCode: editForm.claimFilingCode?.toUpperCase() || null,
+      admissionTypeCode: editForm.admissionTypeCode || null,
+      admissionSourceCode: editForm.admissionSourceCode || null,
+      patientStatusCode: editForm.patientStatusCode || null,
       claimFrequencyCode: editForm.claimFrequencyCode || "ORIGINAL",
       timelyFilingDeadline: editForm.timelyFilingDeadline || null,
       serviceLines: (editForm.serviceLines || [])
@@ -575,7 +626,30 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     setFixFocus(focus);
     setFixFields(Array.isArray(fields) ? fields.filter(Boolean) : [focus]);
     setEditMode(true);
-    scrollToRef(patientPolicyRef);
+
+    window.setTimeout(() => {
+      const target = document.querySelector(
+        `[data-fix-field="${focus}"]`
+      );
+      if (!target) {
+        patientPolicyRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start"
+        });
+        return;
+      }
+
+      target.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
+
+      const focusable =
+        target.matches?.("input, textarea, [role='combobox']")
+          ? target
+          : target.querySelector?.("input, textarea, [role='combobox']");
+      focusable?.focus?.({ preventScroll: true });
+    }, 140);
   }
 
   function fixIssue(issue) {
@@ -1643,10 +1717,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Alert>
               )}
               <TextField
+                data-fix-field="claimForm"
                 select
                 label="Claim Form"
                 value={editForm.claimForm}
                 onChange={(e) => updateEditField("claimForm", e.target.value)}
+                color={isFixField("claimForm") ? "warning" : "primary"}
+                focused={isFixField("claimForm")}
                 helperText="837P = Professional | 837I = Institutional"
                 fullWidth
               >
@@ -1655,15 +1732,30 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 <MenuItem value="INSTITUTIONAL">Institutional (837I)</MenuItem>
               </TextField>
               <TextField
+                data-fix-field="patientName"
                 label="Patient Name"
                 value={editForm.patientName}
                 onChange={(e) => updateEditField("patientName", e.target.value)}
+                color={isFixField("patientName") ? "warning" : "primary"}
+                focused={isFixField("patientName")}
                 fullWidth
               />
               <TextField
+                data-fix-field="hospitalName"
                 label="Hospital Name"
                 value={editForm.hospitalName}
                 onChange={(e) => updateEditField("hospitalName", e.target.value)}
+                color={isFixField("hospitalName") ? "warning" : "primary"}
+                focused={isFixField("hospitalName")}
+                fullWidth
+              />
+              <TextField
+                data-fix-field="doctorName"
+                label="Doctor Name"
+                value={editForm.doctorName}
+                onChange={(e) => updateEditField("doctorName", e.target.value)}
+                color={isFixField("doctorName") ? "warning" : "primary"}
+                focused={isFixField("doctorName")}
                 fullWidth
               />
               <TextField
@@ -1698,8 +1790,25 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   />
                 </>
               )}
-              <TextField label="Provider TIN" value={editForm.providerTin} onChange={(e) => updateEditField("providerTin", e.target.value.replace(/[^0-9-]/g, "").slice(0, 10))} fullWidth />
-              <TextField label="Provider Taxonomy Code" value={editForm.providerTaxonomyCode} onChange={(e) => updateEditField("providerTaxonomyCode", normalizeTaxonomy(e.target.value))} fullWidth />
+              <TextField
+                data-fix-field="providerTin"
+                label="Provider TIN"
+                value={editForm.providerTin}
+                onChange={(e) => updateEditField("providerTin", e.target.value.replace(/[^0-9-]/g, "").slice(0, 10))}
+                color={isFixField("providerTin") ? "warning" : "primary"}
+                focused={isFixField("providerTin")}
+                fullWidth
+              />
+              <TextField
+                data-fix-field="providerTaxonomyCode"
+                label="Provider Taxonomy Code"
+                value={editForm.providerTaxonomyCode}
+                onChange={(e) => updateEditField("providerTaxonomyCode", normalizeTaxonomy(e.target.value))}
+                color={isFixField("providerTaxonomyCode") ? "warning" : "primary"}
+                focused={isFixField("providerTaxonomyCode")}
+                helperText={taxonomyError(editForm.providerTaxonomyCode) || (isFixField("providerTaxonomyCode") ? "Enter the 10-character provider taxonomy code." : "")}
+                fullWidth
+              />
               <TextField
                 data-fix-field="diagnosisText"
                 label="Diagnosis"
@@ -1719,9 +1828,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="payerName"
                 label="Insurance Company"
                 value={editForm.payerName}
                 onChange={(e) => updateEditField("payerName", e.target.value)}
+                color={isFixField("payerName") ? "warning" : "primary"}
+                focused={isFixField("payerName")}
                 fullWidth
               />
               <TextField
@@ -1735,13 +1847,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 focused={fixFocus === "policyNo"}
               />
               <TextField
+                data-fix-field="memberId"
                 label="Member ID"
                 value={editForm.memberId}
                 onChange={(e) => updateEditField("memberId", e.target.value)}
                 fullWidth
                 autoFocus={fixFocus === "eligibility"}
-                color={fixFocus === "eligibility" ? "warning" : "primary"}
-                focused={fixFocus === "eligibility"}
+                color={isFixField("memberId") || fixFocus === "eligibility" ? "warning" : "primary"}
+                focused={isFixField("memberId") || fixFocus === "eligibility"}
                 helperText={
                   fixFocus === "eligibility"
                     ? "Eligibility pre-check requires Member ID, Policy Number, and Insurance Company."
@@ -1761,7 +1874,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="groupNumber"
                 label="Group Number"
+                color={isFixField("groupNumber") ? "warning" : "primary"}
+                focused={isFixField("groupNumber")}
                 value={editForm.groupNumber}
                 onChange={(e) => updateEditField("groupNumber", e.target.value)}
                 fullWidth
@@ -1773,7 +1889,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="subscriberName"
                 label="Subscriber Name"
+                color={isFixField("subscriberName") ? "warning" : "primary"}
+                focused={isFixField("subscriberName")}
                 value={editForm.subscriberName}
                 onChange={(e) => updateEditField("subscriberName", e.target.value)}
                 fullWidth
@@ -1816,11 +1935,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="patientDob"
                 label="Patient Date of Birth"
                 type="date"
                 InputLabelProps={{ shrink: true }}
                 value={editForm.patientDob}
                 onChange={(e) => updateEditField("patientDob", e.target.value)}
+                color={isFixField("patientDob") ? "warning" : "primary"}
+                focused={isFixField("patientDob")}
                 fullWidth
               />
               <TextField
@@ -1951,8 +2073,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="totalBilledAmount"
                 label="Total Billed Amount ($)"
                 type="number"
+                color={isFixField("totalBilledAmount") ? "warning" : "primary"}
+                focused={isFixField("totalBilledAmount")}
                 value={editForm.totalBilledAmount}
                 onChange={(e) => updateEditField("totalBilledAmount", e.target.value)}
                 fullWidth
@@ -1991,6 +2116,81 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                label="Claim Filing Code"
+                value={editForm.claimFilingCode}
+                onChange={(e) => updateEditField("claimFilingCode", e.target.value.toUpperCase())}
+                helperText="Examples: CI commercial, MC Medicaid, MA Medicare"
+                inputProps={{ maxLength: 2 }}
+                fullWidth
+              />
+              {editForm.claimForm === "INSTITUTIONAL" && (
+                <>
+                  <TextField
+                    label="Admission Type Code"
+                    value={editForm.admissionTypeCode}
+                    onChange={(e) => updateEditField("admissionTypeCode", e.target.value)}
+                    inputProps={{ maxLength: 1 }}
+                    fullWidth
+                  />
+                  <TextField
+                    label="Admission Source Code"
+                    value={editForm.admissionSourceCode}
+                    onChange={(e) => updateEditField("admissionSourceCode", e.target.value)}
+                    inputProps={{ maxLength: 2 }}
+                    fullWidth
+                  />
+                  <TextField
+                    label="Patient Status Code"
+                    value={editForm.patientStatusCode}
+                    onChange={(e) => updateEditField("patientStatusCode", e.target.value)}
+                    inputProps={{ maxLength: 2 }}
+                    fullWidth
+                  />
+                </>
+              )}
+              <Divider sx={{ gridColumn: "1 / -1" }} />
+              <Typography variant="subtitle2" fontWeight={800} sx={{ gridColumn: "1 / -1" }}>
+                837 Patient / Subscriber Address
+              </Typography>
+              <TextField
+                select
+                label="Patient Gender"
+                value={editForm.patientGender}
+                onChange={(e) => updateEditField("patientGender", e.target.value)}
+                fullWidth
+              >
+                <MenuItem value="">Not set</MenuItem>
+                <MenuItem value="MALE">Male</MenuItem>
+                <MenuItem value="FEMALE">Female</MenuItem>
+                <MenuItem value="OTHER">Other / Unknown</MenuItem>
+              </TextField>
+              <TextField label="Patient Address 1" value={editForm.patientAddress1} onChange={(e) => updateEditField("patientAddress1", e.target.value)} fullWidth />
+              <TextField label="Patient Address 2" value={editForm.patientAddress2} onChange={(e) => updateEditField("patientAddress2", e.target.value)} fullWidth />
+              <TextField label="Patient City" value={editForm.patientCity} onChange={(e) => updateEditField("patientCity", e.target.value)} fullWidth />
+              <TextField label="Patient State" value={editForm.patientState} onChange={(e) => updateEditField("patientState", e.target.value.toUpperCase())} inputProps={{ maxLength: 2 }} fullWidth />
+              <TextField label="Patient Postal Code" value={editForm.patientPostalCode} onChange={(e) => updateEditField("patientPostalCode", e.target.value)} fullWidth />
+              {editForm.subscriberRelationship && editForm.subscriberRelationship !== "SELF" && (
+                <>
+                  <TextField
+                    select
+                    label="Subscriber Gender"
+                    value={editForm.subscriberGender}
+                    onChange={(e) => updateEditField("subscriberGender", e.target.value)}
+                    fullWidth
+                  >
+                    <MenuItem value="">Not set</MenuItem>
+                    <MenuItem value="MALE">Male</MenuItem>
+                    <MenuItem value="FEMALE">Female</MenuItem>
+                    <MenuItem value="OTHER">Other / Unknown</MenuItem>
+                  </TextField>
+                  <TextField label="Subscriber Address 1" value={editForm.subscriberAddress1} onChange={(e) => updateEditField("subscriberAddress1", e.target.value)} fullWidth />
+                  <TextField label="Subscriber Address 2" value={editForm.subscriberAddress2} onChange={(e) => updateEditField("subscriberAddress2", e.target.value)} fullWidth />
+                  <TextField label="Subscriber City" value={editForm.subscriberCity} onChange={(e) => updateEditField("subscriberCity", e.target.value)} fullWidth />
+                  <TextField label="Subscriber State" value={editForm.subscriberState} onChange={(e) => updateEditField("subscriberState", e.target.value.toUpperCase())} inputProps={{ maxLength: 2 }} fullWidth />
+                  <TextField label="Subscriber Postal Code" value={editForm.subscriberPostalCode} onChange={(e) => updateEditField("subscriberPostalCode", e.target.value)} fullWidth />
+                </>
+              )}
+              <TextField
                 select
                 label="Claim Frequency"
                 value={editForm.claimFrequencyCode}
@@ -2003,9 +2203,21 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 }}
                 fullWidth
               >
-                <MenuItem value="ORIGINAL">Original</MenuItem>
-                <MenuItem value="CORRECTED">Corrected</MenuItem>
-                <MenuItem value="VOID">Void</MenuItem>
+                <MenuItem value="ORIGINAL">Original / Admit through Discharge</MenuItem>
+                {editForm.claimForm === "INSTITUTIONAL" && (
+                  <MenuItem value="INTERIM_FIRST">Interim - First Claim</MenuItem>
+                )}
+                {editForm.claimForm === "INSTITUTIONAL" && (
+                  <MenuItem value="INTERIM_CONTINUING">Interim - Continuing Claim</MenuItem>
+                )}
+                {editForm.claimForm === "INSTITUTIONAL" && (
+                  <MenuItem value="INTERIM_LAST">Interim - Last Claim</MenuItem>
+                )}
+                <MenuItem value="CORRECTED">Corrected / Replacement</MenuItem>
+                <MenuItem value="VOID">Void / Cancel</MenuItem>
+                {editForm.claimForm === "INSTITUTIONAL" && (
+                  <MenuItem value="FINAL_HOME_HEALTH">Final Home Health PPS Episode</MenuItem>
+                )}
               </TextField>
               <TextField
                 label="Timely Filing Deadline"

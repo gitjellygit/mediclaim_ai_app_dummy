@@ -178,26 +178,37 @@ export default function ClaimCompletenessCard({
             </Typography>
 
             <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-              {filter !== "attention" && (
-                <Button size="small" onClick={() => setFilter("attention")}>
-                  Needs attention
-                </Button>
-              )}
-              {completeness.missingFields > 0 && (
-                <Button size="small" onClick={() => setFilter("missing")}>
-                  Missing
-                </Button>
-              )}
-              {completeness.reviewFields > 0 && (
-                <Button size="small" onClick={() => setFilter("review")}>
-                  Review
-                </Button>
-              )}
-              {autoFilledFields.length > 0 && (
-                <Button size="small" onClick={() => setFilter("automated")}>
-                  Auto-filled
-                </Button>
-              )}
+              <Button
+                size="small"
+                variant={filter === "attention" ? "contained" : "text"}
+                onClick={() => setFilter("attention")}
+              >
+                Needs attention
+              </Button>
+              <Button
+                size="small"
+                variant={filter === "missing" ? "contained" : "text"}
+                disabled={completeness.missingFields === 0}
+                onClick={() => setFilter("missing")}
+              >
+                Missing
+              </Button>
+              <Button
+                size="small"
+                variant={filter === "review" ? "contained" : "text"}
+                disabled={completeness.reviewFields === 0}
+                onClick={() => setFilter("review")}
+              >
+                Review
+              </Button>
+              <Button
+                size="small"
+                variant={filter === "automated" ? "contained" : "text"}
+                disabled={autoFilledFields.length === 0}
+                onClick={() => setFilter("automated")}
+              >
+                Auto-filled
+              </Button>
             </Stack>
           </Stack>
 

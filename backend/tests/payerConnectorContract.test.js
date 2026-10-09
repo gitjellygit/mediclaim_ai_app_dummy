@@ -93,19 +93,13 @@ test("U6 - SIMULATED connector implements the same contract", () => {
   assert.equal(remittance.status, "POSTED");
 });
 
-test("U6 - LIVE connector satisfies the contract but fails closed on use", () => {
-  const connector = createPayerConnector("LIVE");
-  verifyContract(connector);
-  assert.equal(connector.mode, "LIVE");
-
-  for (const method of PAYER_CONNECTOR_METHODS) {
-    assert.throws(
-      () => connector[method](baseClaim),
-      (error) =>
-        error?.code === "LIVE_PAYER_CONNECTOR_NOT_CONFIGURED" &&
-        error?.operation === method
-    );
-  }
+test("U6 - generic LIVE placeholder fails closed before use", () => {
+  assert.throws(
+    () => createPayerConnector("LIVE"),
+    (error) =>
+      error?.code === "PAYER_CONNECTOR_UNAVAILABLE" &&
+      error?.connectorId === "LIVE"
+  );
 });
 
 test("U6 - connector resolution prefers claim mode and supports config fallback", () => {
@@ -240,6 +234,7 @@ test("R2A - STEDI_TEST appears in registry and is configured only with a test ke
   assert.deepEqual(withoutKey.get("STEDI_TEST")?.capabilities, [
     "checkEligibility",
     "listPayers",
+    "submitClaim",
     "getRemittance"
   ]);
 
@@ -305,6 +300,7 @@ test("R3 - STEDI_PRODUCTION is separate from test mode and exposes 276/277 when 
   );
   assert.equal(claimStatus.id, "STEDI_PRODUCTION");
   assert.equal(claimStatus.environment, "PRODUCTION");
+  assert.equal(claimStatus.capabilities.includes("submitClaim"), true);
   assert.equal(claimStatus.capabilities.includes("getStatus"), true);
   assert.equal(claimStatus.capabilities.includes("getRemittance"), true);
 });

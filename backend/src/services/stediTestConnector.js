@@ -551,45 +551,381 @@ async function discoverStedi835({
   };
 }
 
+function stediGender(value) {
+  const normalized = String(value || "").toUpperCase();
+  if (normalized === "MALE") return "M";
+  if (normalized === "FEMALE") return "F";
+  return "U";
+}
+
+function nameParts(value) {
+  const parts = String(value || "").trim().split(/\s+/).filter(Boolean);
+  return {
+    firstName: parts[0] || null,
+    lastName: parts.length > 1 ? parts.slice(1).join(" ") : null
+  };
+}
+
+function stediAddress(source, prefix) {
+  const address = {
+    address1: source?.[`${prefix}Address1`] || null,
+    address2: source?.[`${prefix}Address2`] || null,
+    city: source?.[`${prefix}City`] || null,
+    state: source?.[`${prefix}State`] || null,
+    postalCode: source?.[`${prefix}PostalCode`] || null
+  };
+  required(address.address1, `${prefix}Address1`);
+  required(address.city, `${prefix}City`);
+  required(address.state, `${prefix}State`);
+  required(address.postalCode, `${prefix}PostalCode`);
+  return Object.fromEntries(Object.entries(address).filter(([, value]) => value));
+}
+
+function stediProviderAddress(env = {}) {
+  const address = {
+    address1: String(env.STEDI_BILLING_ADDRESS1 || "").trim() || null,
+    address2: String(env.STEDI_BILLING_ADDRESS2 || "").trim() || null,
+    city: String(env.STEDI_BILLING_CITY || "").trim() || null,
+    state: String(env.STEDI_BILLING_STATE || "").trim() || null,
+    postalCode: String(env.STEDI_BILLING_POSTAL_CODE || "").trim() || null
+  };
+  required(address.address1, "STEDI_BILLING_ADDRESS1");
+  required(address.city, "STEDI_BILLING_CITY");
+  required(address.state, "STEDI_BILLING_STATE");
+  required(address.postalCode, "STEDI_BILLING_POSTAL_CODE");
+  return Object.fromEntries(Object.entries(address).filter(([, value]) => value));
+}
+
+function claimFrequencyCode(value) {
+  return {
+    ORIGINAL: "1",
+    INTERIM_FIRST: "2",
+    INTERIM_CONTINUING: "3",
+    INTERIM_LAST: "4",
+    CORRECTED: "7",
+    VOID: "8",
+    FINAL_HOME_HEALTH: "9"
+  }[String(value || "ORIGINAL").toUpperCase()] || "1";
+}
+
+function paymentResponsibility(value) {
+  return { PRIMARY: "P", SECONDARY: "S", TERTIARY: "T" }[
+    String(value || "PRIMARY").toUpperCase()
+  ] || "P";
+}
+
+function diagnosisCode(value) {
+  return String(value || "").replaceAll(".", "").trim().toUpperCase();
+}
+
+function stediSubmitter(claim, env = {}) {
+  const organizationName =
+    String(env.STEDI_SUBMITTER_NAME || "").trim() ||
+    String(claim.hospitalName || "").trim();
+  const phoneNumber = String(env.STEDI_SUBMITTER_PHONE || "").replace(/\D/g, "");
+  required(organizationName, "STEDI_SUBMITTER_NAME/hospitalName");
+  required(phoneNumber, "STEDI_SUBMITTER_PHONE");
+  return {
+    organizationName,
+    ...(env.STEDI_SUBMITTER_ID
+      ? { submitterIdentification: String(env.STEDI_SUBMITTER_ID).trim() }
+      : {}),
+    contactInformation: {
+      name: organizationName,
+      phoneNumber
+    },
+    ...(claim.claimForm === "INSTITUTIONAL" && claim.providerTin
+      ? { taxId: String(claim.providerTin).replace(/\D/g, "") }
+      : {})
+  };
+}
+
+function stediSubscriber(claim) {
+  const subscriberIsPatient =
+    !claim.subscriberRelationship || claim.subscriberRelationship === "SELF";
+  const names = nameParts(
+    subscriberIsPatient
+      ? claim.patientName
+      : claim.subscriberName
+  );
+  const memberId = claim.subscriberId || claim.memberId;
+  const dob = compactDate(subscriberIsPatient ? claim.patientDob : claim.subscriberDob);
+  const gender = stediGender(
+    subscriberIsPatient ? claim.patientGender : claim.subscriberGender
+  );
+  required(names.firstName, "subscriber first name");
+  required(names.lastName, "subscriber last name");
+  required(memberId, "memberId/subscriberId");
+  required(dob, subscriberIsPatient ? "patientDob" : "subscriberDob");
+
+  const subscriber = {
+    memberId,
+    paymentResponsibilityLevelCode: paymentResponsibility(
+      claim.coordinationOfBenefits
+    ),
+    firstName: names.firstName,
+    lastName: names.lastName,
+    gender,
+    dateOfBirth: dob,
+    address: stediAddress(
+      claim,
+      subscriberIsPatient ? "patient" : "subscriber"
+    )
+  };
+  if (claim.groupNumber) subscriber.groupNumber = claim.groupNumber;
+  else if (claim.policyNo) subscriber.policyNumber = claim.policyNo;
+  return subscriber;
+}
+
+function stediDependent(claim) {
+  if (!claim.subscriberRelationship || claim.subscriberRelationship === "SELF") {
+    return null;
+  }
+  const names = nameParts(claim.patientName);
+  required(names.firstName, "patient first name");
+  required(names.lastName, "patient last name");
+  required(compactDate(claim.patientDob), "patientDob");
+  return {
+    firstName: names.firstName,
+    lastName: names.lastName,
+    dateOfBirth: compactDate(claim.patientDob),
+    gender: stediGender(claim.patientGender),
+    relationshipToSubscriberCode:
+      { SPOUSE: "01", CHILD: "19", OTHER: "G8" }[claim.subscriberRelationship] || "G8",
+    address: stediAddress(claim, "patient")
+  };
+}
+
+function verifiedServiceLines(claim) {
+  const lines = (claim.serviceLines || []).filter((line) => line.verified !== false);
+  if (!lines.length) {
+    const error = new Error("At least one verified service line is required for Stedi claim submission");
+    error.code = "STEDI_CLAIM_REQUEST_INVALID";
+    throw error;
+  }
+  return lines;
+}
+
+function stediBillingProvider(claim, env = {}) {
+  required(claim.billingProviderNpi, "billingProviderNpi");
+  required(claim.providerTin, "providerTin");
+  required(claim.providerTaxonomyCode, "providerTaxonomyCode");
+  const organizationName =
+    String(env.STEDI_BILLING_PROVIDER_NAME || "").trim() ||
+    String(claim.hospitalName || "").trim();
+  required(organizationName, "STEDI_BILLING_PROVIDER_NAME/hospitalName");
+  const contactName =
+    String(env.STEDI_SUBMITTER_NAME || "").trim() || organizationName;
+  const phoneNumber = String(env.STEDI_SUBMITTER_PHONE || "").replace(/\D/g, "");
+  required(phoneNumber, "STEDI_SUBMITTER_PHONE");
+  return {
+    providerType: "BillingProvider",
+    npi: claim.billingProviderNpi,
+    employerId: String(claim.providerTin).replace(/\D/g, ""),
+    taxonomyCode: claim.providerTaxonomyCode,
+    organizationName,
+    address: stediProviderAddress(env),
+    contactInformation: { name: contactName, phoneNumber }
+  };
+}
+
 export function buildStediClaimSubmissionRequest(claim, context = {}) {
+  const claimType = String(
+    context.claimType || claim?.claimForm || "PROFESSIONAL"
+  ).toUpperCase();
+  const usageIndicator = context.usageIndicator === "P" ? "P" : "T";
+
   if (context.requestPayload) {
     return {
-      payload: {
-        ...context.requestPayload,
-        usageIndicator: "T"
-      },
-      claimType: String(context.claimType || claim?.claimForm || "PROFESSIONAL").toUpperCase()
+      payload: { ...context.requestPayload, usageIndicator },
+      claimType
     };
   }
 
-  const error = new Error(
-    "Stedi claim submission requires an explicit validated 837P/837I request payload"
-  );
-  error.code = "STEDI_CLAIM_REQUEST_INVALID";
-  throw error;
+  const env = context.env || {};
+  const payerId = context.payerId || claim.connectedPayerCode || claim.payerEdiId;
+  const payerName =
+    context.payerName || claim.connectedPayerName || claim.payerName;
+  required(payerId, "connected payer ID");
+  required(payerName, "connected payer name");
+  required(claim.patientControlNumber, "patientControlNumber");
+  required(claim.claimFilingCode, "claimFilingCode");
+
+  const totalCharge = validMoney(claim.totalBilledAmount ?? claim.amount);
+  required(totalCharge, "totalBilledAmount/amount");
+
+  const base = {
+    usageIndicator,
+    tradingPartnerServiceId: String(payerId),
+    tradingPartnerName: String(payerName),
+    submitter: stediSubmitter(claim, env),
+    receiver: { organizationName: String(payerName) },
+    subscriber: stediSubscriber(claim)
+  };
+  const dependent = stediDependent(claim);
+  if (dependent) base.dependent = dependent;
+
+  const diagnoses = (claim.icd10Codes || []).map(diagnosisCode).filter(Boolean);
+  if (!diagnoses.length) {
+    const error = new Error("At least one ICD-10-CM diagnosis is required for Stedi claim submission");
+    error.code = "STEDI_CLAIM_REQUEST_INVALID";
+    throw error;
+  }
+
+  const lines = verifiedServiceLines(claim);
+  if (claimType === "INSTITUTIONAL") {
+    required(claim.admissionTypeCode, "admissionTypeCode");
+    required(claim.admissionSourceCode, "admissionSourceCode");
+    required(claim.patientStatusCode, "patientStatusCode");
+
+    const serviceLines = lines.map((line, index) => {
+      required(line.revenueCode, `serviceLines[${index}].revenueCode`);
+      required(line.cptHcpcsCode, `serviceLines[${index}].cptHcpcsCode`);
+      const charge = validMoney(line.charge);
+      required(charge, `serviceLines[${index}].charge`);
+      const serviceDate = compactDate(line.serviceDateFrom || claim.dateOfService);
+      required(serviceDate, `serviceLines[${index}].serviceDateFrom/dateOfService`);
+      return {
+        assignedNumber: String(index + 1),
+        serviceDate,
+        serviceDateEnd: compactDate(line.serviceDateTo || line.serviceDateFrom || claim.dateOfService),
+        lineItemControlNumber: String(line.id || `${claim.patientControlNumber}-${index + 1}`).slice(0, 30),
+        institutionalService: {
+          serviceLineRevenueCode: String(line.revenueCode),
+          lineItemChargeAmount: charge,
+          measurementUnit: "UN",
+          serviceUnitCount: String(line.units || 1),
+          procedureIdentifier: "HC",
+          procedureCode: String(line.cptHcpcsCode)
+        }
+      };
+    });
+
+    const startDate = compactDate(claim.admissionDate || claim.dateOfService);
+    const endDate = compactDate(claim.dischargeDate || claim.dateOfService || claim.admissionDate);
+    required(startDate, "admissionDate/dateOfService");
+    required(endDate, "dischargeDate/dateOfService");
+
+    return {
+      claimType,
+      payload: {
+        ...base,
+        claimInformation: {
+          claimFilingCode: claim.claimFilingCode,
+          patientControlNumber: String(claim.patientControlNumber).slice(0, 17),
+          claimChargeAmount: totalCharge,
+          placeOfServiceCode: String(lines[0]?.placeOfService || "21"),
+          claimFrequencyCode: claimFrequencyCode(claim.claimFrequencyCode),
+          planParticipationCode: "C",
+          benefitsAssignmentCertificationIndicator: "Y",
+          releaseInformationCode: "Y",
+          principalDiagnosis: {
+            qualifierCode: "ABK",
+            principalDiagnosisCode: diagnoses[0]
+          },
+          serviceLines,
+          claimCodeInformation: {
+            admissionTypeCode: claim.admissionTypeCode,
+            admissionSourceCode: claim.admissionSourceCode,
+            patientStatusCode: claim.patientStatusCode
+          },
+          claimDateInformation: {
+            admissionDateAndHour: `${startDate}0000`,
+            statementBeginDate: startDate,
+            statementEndDate: endDate
+          }
+        },
+        providers: [stediBillingProvider(claim, env)]
+      }
+    };
+  }
+
+  const billing = stediBillingProvider(claim, env);
+  const diagnosisIndex = new Map(diagnoses.map((code, index) => [code, String(index + 1)]));
+  const serviceLines = lines.map((line, index) => {
+    required(line.cptHcpcsCode, `serviceLines[${index}].cptHcpcsCode`);
+    const charge = validMoney(line.charge);
+    required(charge, `serviceLines[${index}].charge`);
+    const serviceDate = compactDate(line.serviceDateFrom || claim.dateOfService);
+    required(serviceDate, `serviceLines[${index}].serviceDateFrom/dateOfService`);
+    const pointers = (line.diagnosisPointers || [])
+      .map(diagnosisCode)
+      .map((code) => diagnosisIndex.get(code))
+      .filter(Boolean);
+    if (!pointers.length) {
+      const error = new Error(`serviceLines[${index}] must link to a claim diagnosis`);
+      error.code = "STEDI_CLAIM_REQUEST_INVALID";
+      throw error;
+    }
+    return {
+      serviceDate,
+      professionalService: {
+        procedureIdentifier: "HC",
+        procedureCode: String(line.cptHcpcsCode),
+        ...(line.modifiers?.length
+          ? { procedureModifiers: line.modifiers.slice(0, 4) }
+          : {}),
+        lineItemChargeAmount: charge,
+        measurementUnit: "UN",
+        serviceUnitCount: String(line.units || 1),
+        compositeDiagnosisCodePointers: { diagnosisCodePointers: pointers }
+      },
+      providerControlNumber: String(line.id || `${claim.patientControlNumber}-${index + 1}`).slice(0, 30)
+    };
+  });
+
+  return {
+    claimType: "PROFESSIONAL",
+    payload: {
+      ...base,
+      billing,
+      claimInformation: {
+        claimFilingCode: claim.claimFilingCode,
+        patientControlNumber: String(claim.patientControlNumber).slice(0, 17),
+        claimChargeAmount: totalCharge,
+        placeOfServiceCode: String(lines[0]?.placeOfService || "11"),
+        claimFrequencyCode: claimFrequencyCode(claim.claimFrequencyCode),
+        signatureIndicator: "Y",
+        planParticipationCode: "A",
+        benefitsAssignmentCertificationIndicator: "Y",
+        releaseInformationCode: "Y",
+        healthCareCodeInformation: diagnoses.map((code, index) => ({
+          diagnosisTypeCode: index === 0 ? "ABK" : "ABF",
+          diagnosisCode: code
+        })),
+        serviceLines
+      }
+    }
+  };
 }
 
 export function normalizeStediClaimSubmissionResponse(body, {
   claimType,
   latencyMs = null,
-  idempotencyKey = null
+  idempotencyKey = null,
+  testMode = true
 } = {}) {
   const errors = Array.isArray(body?.errors) ? body.errors : [];
   const claimReference = body?.claimReference || {};
   const transactionId =
     claimReference.correlationId ||
+    claimReference.rhClaimNumber ||
     claimReference.customerClaimNumber ||
     body?.submissionId ||
     body?.claimId ||
+    body?.controlNumber ||
     null;
 
   return {
     transactionId,
-    status: errors.length > 0 ? "REJECTED" : "ACKNOWLEDGED",
+    status: errors.length > 0 || String(body?.status || "").toUpperCase() === "FAILED"
+      ? "REJECTED"
+      : "ACKNOWLEDGED",
     acknowledgmentType: "277CA",
     claimType: String(claimType || claimReference.claimType || "").toUpperCase() || null,
     patientControlNumber: claimReference.patientControlNumber || null,
-    payerId: claimReference.payerId || null,
+    payerId: claimReference.payerId || body?.tradingPartnerServiceId || null,
+    payerClaimNo: claimReference.rhClaimNumber || null,
     errors: errors.map((item) => ({
       code: item?.code || null,
       description: item?.description || item?.message || null
@@ -597,8 +933,8 @@ export function normalizeStediClaimSubmissionResponse(body, {
     has277CA: Boolean(body?.x12),
     latencyMs,
     idempotencyKey,
-    testMode: true,
-    livePayerSubmission: false
+    testMode: Boolean(testMode),
+    livePayerSubmission: !testMode
   };
 }
 
@@ -789,7 +1125,11 @@ export function createStediTestConnector({
     },
 
     async submitClaim(claim, context = {}) {
-      const { payload, claimType } = buildStediClaimSubmissionRequest(claim, context);
+      const { payload, claimType } = buildStediClaimSubmissionRequest(claim, {
+        ...context,
+        env,
+        usageIndicator: "T"
+      });
       const normalizedType = claimType === "INSTITUTIONAL" ? "INSTITUTIONAL" : "PROFESSIONAL";
       const path =
         normalizedType === "INSTITUTIONAL"
@@ -815,7 +1155,8 @@ export function createStediTestConnector({
       return normalizeStediClaimSubmissionResponse(body, {
         claimType: normalizedType,
         latencyMs: Date.now() - startedAt,
-        idempotencyKey
+        idempotencyKey,
+        testMode: true
       });
     },
 
@@ -869,7 +1210,15 @@ export function createStediProductionConnector({
   const baseUrl = String(
     env.STEDI_PRODUCTION_API_BASE_URL || DEFAULT_BASE_URL
   ).replace(/\/$/, "");
-  const claimStatusUrl = String(env.STEDI_CLAIM_STATUS_URL || "").trim();
+  const claimsBaseUrl = String(
+    env.STEDI_PRODUCTION_CLAIMS_API_BASE_URL ||
+      env.STEDI_CLAIMS_API_BASE_URL ||
+      DEFAULT_CLAIMS_BASE_URL
+  ).replace(/\/$/, "");
+  const claimStatusUrl = String(
+    env.STEDI_CLAIM_STATUS_URL ||
+      `${DEFAULT_CLAIMS_BASE_URL}/change/medicalnetwork/claimstatus/v2`
+  ).trim();
   const coreBaseUrl = String(
     env.STEDI_CORE_API_BASE_URL || "https://core.us.stedi.com/2023-08-01"
   ).replace(/\/$/, "");
@@ -927,8 +1276,41 @@ export function createStediProductionConnector({
       return unavailable("requestPriorAuth");
     },
 
-    submitClaim() {
-      return unavailable("submitClaim");
+    async submitClaim(claim, context = {}) {
+      const { payload, claimType } = buildStediClaimSubmissionRequest(claim, {
+        ...context,
+        env,
+        usageIndicator: "P"
+      });
+      const normalizedType =
+        claimType === "INSTITUTIONAL" ? "INSTITUTIONAL" : "PROFESSIONAL";
+      const path =
+        normalizedType === "INSTITUTIONAL"
+          ? "/change/medicalnetwork/institutionalclaims/v1/submission"
+          : "/change/medicalnetwork/professionalclaims/v3/submission";
+      const idempotencyKey = String(
+        context.idempotencyKey ||
+          `claim-app-${claim?.id || "claim"}-${normalizedType}-${claim?.claimFrequencyCode || "ORIGINAL"}`
+      ).slice(0, 255);
+
+      const startedAt = Date.now();
+      const response = await fetchImpl(`${claimsBaseUrl}${path}`, {
+        method: "POST",
+        headers: {
+          Authorization: apiKey,
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload),
+        signal: connectorSignal(context.signal)
+      });
+      const body = await parseResponse(response);
+      return normalizeStediClaimSubmissionResponse(body, {
+        claimType: normalizedType,
+        latencyMs: Date.now() - startedAt,
+        idempotencyKey,
+        testMode: false
+      });
     },
 
     async getStatus(claim, context = {}) {

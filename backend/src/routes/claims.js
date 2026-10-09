@@ -43,6 +43,12 @@ import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../serv
 import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
 import { writeRequestAudit } from "../services/auditLog.js";
+import {
+  createPayerConnectorForClaim,
+  payerConnectorStatusForClaim
+} from "../services/payerGateway.js";
+import { randomBytes } from "node:crypto";
+import { publicClaimDocuments } from "../services/documentPublicView.js";
 
 const router = express.Router();
 
@@ -357,7 +363,7 @@ router.get("/:id/medical-consistency", async (req, res) => {
     }
 
     res.json({
-      claim,
+      claim: publicClaimDocuments(claim),
       analysis: analyzeMedicalConsistency(claim)
     });
   } catch (error) {
@@ -444,7 +450,7 @@ router.get("/:id", async (req, res) => {
   }));
 
   res.json({
-    ...claim,
+    ...publicClaimDocuments(claim),
     checks,
     automationSummary: buildAutomationSummary(claim),
     completenessSummary: buildClaimCompleteness(claim)
@@ -482,6 +488,12 @@ router.post("/", async (req, res) => {
       subscriberId: z.string().trim().max(100).nullish(),
       subscriberName: z.string().trim().max(250).nullish(),
       subscriberDob: z.string().nullish(),
+      subscriberGender: z.enum(["MALE", "FEMALE", "OTHER"]).nullish(),
+      subscriberAddress1: z.string().trim().max(100).nullish(),
+      subscriberAddress2: z.string().trim().max(100).nullish(),
+      subscriberCity: z.string().trim().max(100).nullish(),
+      subscriberState: z.string().trim().max(2).nullish(),
+      subscriberPostalCode: z.string().trim().max(12).nullish(),
       subscriberRelationship: z.enum(["SELF", "SPOUSE", "CHILD", "OTHER"]).nullish(),
       coordinationOfBenefits: z.enum(["PRIMARY", "SECONDARY", "TERTIARY"]).nullish(),
       payerEdiId: z.string().trim().max(100).nullish(),
@@ -489,6 +501,12 @@ router.post("/", async (req, res) => {
       remainingCoverageLimit: z.coerce.number().nonnegative().finite().nullish(),
       payerReferenceNo: z.string().trim().max(100).nullish(),
       patientDob: z.string().nullish(),
+      patientGender: z.enum(["MALE", "FEMALE", "OTHER"]).nullish(),
+      patientAddress1: z.string().trim().max(100).nullish(),
+      patientAddress2: z.string().trim().max(100).nullish(),
+      patientCity: z.string().trim().max(100).nullish(),
+      patientState: z.string().trim().max(2).nullish(),
+      patientPostalCode: z.string().trim().max(12).nullish(),
       hospitalName: z.string().trim().max(250).nullish(),
       doctorName: z.string().trim().max(250).nullish(),
       billingProviderNpi: optional(npiSchema),
@@ -509,7 +527,19 @@ router.post("/", async (req, res) => {
       icuDays: z.coerce.number().int().nonnegative().nullish(),
       typeOfBill: optional(typeOfBillSchema),
       drgCode: optional(drgSchema),
-      claimFrequencyCode: z.enum(["ORIGINAL", "CORRECTED", "VOID"]).optional(),
+      claimFilingCode: z.string().trim().min(1).max(2).nullish(),
+      admissionTypeCode: z.string().trim().min(1).max(1).nullish(),
+      admissionSourceCode: z.string().trim().min(1).max(2).nullish(),
+      patientStatusCode: z.string().trim().min(1).max(2).nullish(),
+      claimFrequencyCode: z.enum([
+    "ORIGINAL",
+    "INTERIM_FIRST",
+    "INTERIM_CONTINUING",
+    "INTERIM_LAST",
+    "CORRECTED",
+    "VOID",
+    "FINAL_HOME_HEALTH"
+  ]).optional(),
       timelyFilingDeadline: z.string().nullish(),
       serviceLines: z.array(serviceLineInputSchema).max(500).optional(),
       claimType: z.enum(["PROVIDER_BILLED", "MEMBER_REIMBURSEMENT"]).optional(),
@@ -1342,7 +1372,8 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
-        checks: { orderBy: { createdAt: "desc" }, take: 1 }
+        checks: { orderBy: { createdAt: "desc" }, take: 1 },
+        serviceLines: { orderBy: { createdAt: "asc" } }
       }
     });
 
@@ -1384,9 +1415,7 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       ? latestCheck.issues
       : [];
 
-    const hasBlock = issues.some((i) => i.severity === "BLOCK");
-
-    if (hasBlock) {
+    if (issues.some((i) => i.severity === "BLOCK")) {
       return res.status(400).json({
         error: "Claim has blocking issues. Fix them before submission"
       });
@@ -1405,36 +1434,199 @@ router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) 
       );
     }
 
+    let patientControlNumber = claim.patientControlNumber;
+    if (!patientControlNumber) {
+      patientControlNumber = randomBytes(9)
+        .toString("hex")
+        .slice(0, 17)
+        .toUpperCase();
+
+      // Persist the correlation key before any external transmission. If the
+      // payer accepts the request but a later local write fails, a retry must
+      // reuse the same Patient Control Number together with the same
+      // idempotency key.
+      await prisma.claim.update({
+        where: { id: claim.id },
+        data: { patientControlNumber }
+      });
+    }
+
+    let payerSubmission = null;
+    let connectorDescriptor = null;
+
+    if (claim.payerConnectionMode === "LIVE") {
+      connectorDescriptor = payerConnectorStatusForClaim(claim);
+      if (!connectorDescriptor.configured) {
+        return res.status(503).json({
+          error: "Payer claim submission is not configured",
+          message: "The selected payer connector is not configured for this environment.",
+          code: "PAYER_SUBMISSION_NOT_CONFIGURED"
+        });
+      }
+      if (!connectorDescriptor.capabilities?.includes("submitClaim")) {
+        return res.status(409).json({
+          error: "Payer claim submission is not supported",
+          message: `${connectorDescriptor.provider} does not support claim submission through the configured connector.`,
+          code: "PAYER_SUBMISSION_NOT_SUPPORTED"
+        });
+      }
+
+      const connector = createPayerConnectorForClaim(
+        { ...claim, patientControlNumber },
+        claim.connectedPayerCode || claim.payerEdiId
+      );
+      payerSubmission = await connector.submitClaim(
+        { ...claim, patientControlNumber },
+        {
+          idempotencyKey: `claim-app-${claim.id}-${claim.claimForm || "PROFESSIONAL"}-${claim.claimFrequencyCode || "ORIGINAL"}`
+        }
+      );
+
+      const safeResult = {
+        ...payerSubmission,
+        raw: undefined,
+        x12: undefined
+      };
+      delete safeResult.raw;
+      delete safeResult.x12;
+
+      const transactionId =
+        payerSubmission.transactionId ||
+        `837-${patientControlNumber}-${claim.claimFrequencyCode || "ORIGINAL"}`;
+
+      await prisma.payerTransaction.upsert({
+        where: {
+          transactionId_claimId: {
+            transactionId,
+            claimId: claim.id
+          }
+        },
+        create: {
+          claimId: claim.id,
+          transactionId,
+          mode: connectorDescriptor.environment,
+          payerCode: claim.connectedPayerCode || claim.payerEdiId || connectorDescriptor.provider,
+          transactionType: "CLAIM_SUBMISSION",
+          status: payerSubmission.status,
+          latencyMs: payerSubmission.latencyMs || null,
+          requestPayload: {
+            transaction: claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
+            patientControlNumber,
+            payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
+            claimForm: claim.claimForm || null,
+            claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
+            idempotencyKey: payerSubmission.idempotencyKey || null
+          },
+          responsePayload: safeResult
+        },
+        update: {
+          status: payerSubmission.status,
+          latencyMs: payerSubmission.latencyMs || null,
+          responsePayload: safeResult
+        }
+      });
+
+      if (payerSubmission.status === "REJECTED") {
+        await auditClaim(req, {
+          claimId: claim.id,
+          action: "CLAIM_SUBMISSION_REJECTED",
+          outcome: "DENIED",
+          metadata: {
+            connectorId: connectorDescriptor.id,
+            payerCode: claim.connectedPayerCode || claim.payerEdiId || null
+          }
+        });
+        return res.status(422).json({
+          success: false,
+          error: "Payer rejected the claim submission",
+          message:
+            payerSubmission.errors?.[0]?.description ||
+            "Stedi claim edits rejected the 837. Correct the claim and resubmit.",
+          code: "PAYER_SUBMISSION_REJECTED",
+          submission: safeResult
+        });
+      }
+    }
+
     const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED");
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
         status: submittedStatus,
         claimSubmissionDate: new Date(),
-        patientControlNumber: claim.patientControlNumber || claim.id,
-        payerClaimStatus: "SUBMITTED",
-        claimStatusCheckedAt: new Date(),
+        patientControlNumber,
+        payerClaimStatus:
+          payerSubmission?.status === "ACKNOWLEDGED" ? "ACKNOWLEDGED" : "SUBMITTED",
+        payerReferenceNo:
+          payerSubmission?.payerClaimNo || claim.payerReferenceNo || null,
+        claimStatusCheckedAt: payerSubmission ? new Date() : null,
         remittanceStatus: "AWAITING"
       },
       include: {
         documents: true,
-        checks: { orderBy: { createdAt: "desc" } }
+        checks: { orderBy: { createdAt: "desc" } },
+        payerTransactions: { orderBy: { createdAt: "desc" } }
       }
     });
 
     await auditClaim(req, {
       claimId: claim.id,
       action: "CLAIM_SUBMITTED",
-      metadata: { payerClaimStatus: updated.payerClaimStatus }
+      metadata: {
+        payerClaimStatus: updated.payerClaimStatus,
+        connectorId: connectorDescriptor?.id || null,
+        transmittedToPayer: Boolean(payerSubmission)
+      }
     });
 
     res.json({
       success: true,
-      message: "Claim submitted successfully",
+      message: payerSubmission
+        ? "Claim submitted and transmitted to payer"
+        : "Claim submitted successfully",
+      submission: payerSubmission
+        ? {
+            ...payerSubmission,
+            raw: undefined,
+            x12: undefined
+          }
+        : null,
       claim: updated
     });
   } catch (e) {
-    if (e?.status) throw e;
+    if (e?.status && e?.code !== "STEDI_API_ERROR") throw e;
+
+    if (e?.code === "STEDI_REQUEST_INVALID" || e?.code === "STEDI_CLAIM_REQUEST_INVALID") {
+      return res.status(400).json({
+        error: "Claim is missing information required for payer submission",
+        message: e.message,
+        code: "PAYER_SUBMISSION_PREFLIGHT_FAILED"
+      });
+    }
+
+    if (e?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
+      return res.status(503).json({
+        error: "Payer connector is unavailable",
+        message: "The selected payer service is not available for claim submission.",
+        code: "PAYER_CONNECTOR_UNAVAILABLE"
+      });
+    }
+
+    if (e?.code === "STEDI_API_ERROR") {
+      console.error("[claim-submit] Stedi request failed", {
+        claimId: req.params.id,
+        status: e.status || null
+      });
+      return res.status(502).json({
+        error: "Payer service could not complete claim submission",
+        message:
+          e.status === 429
+            ? "The payer service is temporarily rate limited. Retry later."
+            : "The payer service rejected or could not process the request.",
+        code: "PAYER_SERVICE_ERROR"
+      });
+    }
+
     console.error("[claim-submit] failed", { name: e?.name, code: e?.code || null });
     res.status(500).json({ error: "Unable to submit claim", code: "CLAIM_SUBMISSION_FAILED" });
   }

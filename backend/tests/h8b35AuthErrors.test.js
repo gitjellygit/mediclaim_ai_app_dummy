@@ -55,3 +55,20 @@ test("H8B-3.5A - refresh token reuse revokes the entire session", () => {
   assert.match(rotationBlock, /revokeSession/);
   assert.match(rotationBlock, /REFRESH_REUSE_DETECTED/);
 });
+
+
+test("auth throttling is shared through Postgres and does not persist raw identifiers", () => {
+  const schema = read("backend/prisma/schema.prisma");
+  const auth = read("backend/src/routes/auth.js");
+  const limiter = read("backend/src/services/authRateLimit.js");
+
+  assert.match(schema, /model AuthRateLimit/);
+  assert.match(auth, /checkAuthRateLimit/);
+  assert.match(auth, /recordAuthFailure/);
+  assert.match(auth, /login-email:/);
+  assert.match(auth, /login-ip:/);
+  assert.match(auth, /createHash\("sha256"\)/);
+  assert.doesNotMatch(auth, /checkRateLimit\(/);
+  assert.match(limiter, /prisma\.authRateLimit\.findUnique/);
+  assert.match(limiter, /authRateLimit\.upsert/);
+});
