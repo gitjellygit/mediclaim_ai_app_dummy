@@ -229,11 +229,63 @@ test("R2A - Claim Journey source uses the per-claim external connector for eligi
 });
 
 
-test("R2B - Stedi claim submission requires explicit validated request payload", () => {
-  assert.throws(
-    () => buildStediClaimSubmissionRequest({ claimForm: "PROFESSIONAL" }),
-    (error) => error?.code === "STEDI_CLAIM_REQUEST_INVALID"
+test("R2B - Stedi builds trusted professional 837P payload from claim fields", () => {
+  const result = buildStediClaimSubmissionRequest(
+    {
+      id: "claim-prof-build",
+      claimForm: "PROFESSIONAL",
+      connectedPayerCode: "60054",
+      connectedPayerName: "Aetna",
+      patientControlNumber: "ABC12345678901234",
+      claimFilingCode: "CI",
+      amount: "100.00",
+      patientName: "Jane Doe",
+      patientDob: new Date("1975-05-05T00:00:00.000Z"),
+      patientGender: "FEMALE",
+      patientAddress1: "123 Main St",
+      patientCity: "Denver",
+      patientState: "CO",
+      patientPostalCode: "80202",
+      memberId: "MEMBER123",
+      subscriberRelationship: "SELF",
+      coordinationOfBenefits: "PRIMARY",
+      billingProviderNpi: "1999999984",
+      providerTin: "123456789",
+      providerTaxonomyCode: "207Q00000X",
+      hospitalName: "Example Clinic",
+      icd10Codes: ["M54.16"],
+      dateOfService: new Date("2026-10-01T00:00:00.000Z"),
+      serviceLines: [{
+        id: "line-1",
+        verified: true,
+        cptHcpcsCode: "99213",
+        charge: "100.00",
+        units: "1",
+        placeOfService: "11",
+        diagnosisPointers: ["M54.16"],
+        modifiers: []
+      }]
+    },
+    {
+      usageIndicator: "P",
+      env: {
+        STEDI_SUBMITTER_NAME: "Example Clinic",
+        STEDI_SUBMITTER_PHONE: "3035550100",
+        STEDI_BILLING_ADDRESS1: "500 Provider Ave",
+        STEDI_BILLING_CITY: "Denver",
+        STEDI_BILLING_STATE: "CO",
+        STEDI_BILLING_POSTAL_CODE: "80203"
+      }
+    }
   );
+
+  assert.equal(result.claimType, "PROFESSIONAL");
+  assert.equal(result.payload.usageIndicator, "P");
+  assert.equal(result.payload.tradingPartnerServiceId, "60054");
+  assert.equal(result.payload.subscriber.memberId, "MEMBER123");
+  assert.equal(result.payload.claimInformation.patientControlNumber.length, 17);
+  assert.equal(result.payload.claimInformation.healthCareCodeInformation[0].diagnosisCode, "M5416");
+  assert.equal(result.payload.claimInformation.serviceLines[0].professionalService.procedureCode, "99213");
 });
 
 test("R2B - Stedi claim payload override is forced into test mode", () => {
@@ -722,4 +774,87 @@ test("R4 - Stedi test connector retrieves a specific 835 report", async () => {
   assert.equal(result.status, "POSTED");
   assert.equal(result.paymentReference, "CHECK-100");
   assert.equal(result.paidAmount, 400);
+});
+
+
+test("R3 - production Stedi submitClaim sends production 837 and never returns raw X12", async () => {
+  let captured = null;
+  const fetchImpl = async (url, options) => {
+    captured = { url: String(url), options };
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      async text() {
+        return JSON.stringify({
+          status: "SUCCESS",
+          controlNumber: "1",
+          tradingPartnerServiceId: "60054",
+          claimReference: {
+            correlationId: "corr-production-1",
+            patientControlNumber: "ABC12345678901234",
+            payerId: "60054"
+          },
+          x12: "PHI-X12-MUST-NOT-BE-NORMALIZED"
+        });
+      }
+    };
+  };
+
+  const connector = createStediProductionConnector({
+    env: {
+      STEDI_PRODUCTION_API_KEY: "prod-key",
+      STEDI_PRODUCTION_PHI_CONFIRMED: "true",
+      STEDI_PRODUCTION_CLAIMS_API_BASE_URL: "https://claims.example.test/2024-04-01",
+      STEDI_SUBMITTER_NAME: "Example Clinic",
+      STEDI_SUBMITTER_PHONE: "3035550100",
+      STEDI_BILLING_ADDRESS1: "500 Provider Ave",
+      STEDI_BILLING_CITY: "Denver",
+      STEDI_BILLING_STATE: "CO",
+      STEDI_BILLING_POSTAL_CODE: "80203"
+    },
+    fetchImpl
+  });
+
+  const result = await connector.submitClaim({
+    id: "claim-prod",
+    claimForm: "PROFESSIONAL",
+    connectedPayerCode: "60054",
+    connectedPayerName: "Aetna",
+    patientControlNumber: "ABC12345678901234",
+    claimFilingCode: "CI",
+    amount: "100.00",
+    patientName: "Jane Doe",
+    patientDob: new Date("1975-05-05T00:00:00.000Z"),
+    patientGender: "FEMALE",
+    patientAddress1: "123 Main St",
+    patientCity: "Denver",
+    patientState: "CO",
+    patientPostalCode: "80202",
+    memberId: "MEMBER123",
+    subscriberRelationship: "SELF",
+    billingProviderNpi: "1999999984",
+    providerTin: "123456789",
+    providerTaxonomyCode: "207Q00000X",
+    hospitalName: "Example Clinic",
+    icd10Codes: ["M54.16"],
+    dateOfService: new Date("2026-10-01T00:00:00.000Z"),
+    serviceLines: [{
+      id: "line-1",
+      verified: true,
+      cptHcpcsCode: "99213",
+      charge: "100.00",
+      units: "1",
+      placeOfService: "11",
+      diagnosisPointers: ["M54.16"],
+      modifiers: []
+    }]
+  });
+
+  assert.match(captured.url, /professionalclaims\/v3\/submission$/);
+  assert.equal(JSON.parse(captured.options.body).usageIndicator, "P");
+  assert.equal(result.status, "ACKNOWLEDGED");
+  assert.equal(result.testMode, false);
+  assert.equal(result.livePayerSubmission, true);
+  assert.equal("x12" in result, false);
 });
