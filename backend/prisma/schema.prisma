@@ -533,6 +533,16 @@ model User {
   @@index([organizationId])
 }
 
+model AuthRateLimit {
+  key             String   @id
+  count           Int      @default(0)
+  windowStartedAt DateTime
+  resetAt         DateTime
+  updatedAt       DateTime @updatedAt
+
+  @@index([resetAt])
+}
+
 model RefreshToken {
   id         String    @id @default(cuid())
   tokenHash  String    @unique
