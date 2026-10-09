@@ -61,3 +61,31 @@ export function RoleProtectedRoute({ children, allowedRoles }) {
 
   return children;
 }
+
+
+export function PermissionProtectedRoute({ children, permission }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        minHeight: "100vh"
+      }}>
+        Loading...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!Array.isArray(user.permissions) || !user.permissions.includes(permission)) {
+    return <Navigate to="/claims" replace />;
+  }
+
+  return children;
+}
