@@ -53,7 +53,7 @@ export function buildStediEligibilityRequest(claim, context = {}) {
   if (context.requestPayload) return context.requestPayload;
 
   const names = patientNameParts(claim);
-  const payerId = context.payerId || claim.payerEdiId;
+  const payerId = context.payerId || claim.connectedPayerCode || claim.payerEdiId;
   const memberId = claim.subscriberId || claim.memberId;
   const subscriberIsPatient =
     !claim.subscriberRelationship || claim.subscriberRelationship === "SELF";
@@ -111,7 +111,7 @@ export function buildStediClaimStatusRequest(claim, context = {}) {
   if (context.requestPayload) return context.requestPayload;
 
   const names = patientNameParts(claim);
-  const payerId = context.payerId || claim.payerEdiId;
+  const payerId = context.payerId || claim.connectedPayerCode || claim.payerEdiId;
   const memberId = claim.subscriberId || claim.memberId;
   const subscriberIsPatient =
     !claim.subscriberRelationship || claim.subscriberRelationship === "SELF";
