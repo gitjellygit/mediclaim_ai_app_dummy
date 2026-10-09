@@ -1,0 +1,43 @@
+name: Refresh branch lockfiles
+
+on:
+  push:
+    branches:
+      - feature/production-readiness-completion
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-lockfiles:
+    if: ${{ !contains(github.event.head_commit.message, '[lock-refresh]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/production-readiness-completion
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Refresh backend lockfile
+        working-directory: backend
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Refresh frontend lockfile
+        working-directory: frontend
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Commit lockfile updates
+        run: |
+          if git diff --quiet -- backend/package-lock.json frontend/package-lock.json; then
+            echo "Lockfiles already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/package-lock.json frontend/package-lock.json
+          git commit -m "chore: refresh npm lockfiles [lock-refresh]"
+          git push origin HEAD:feature/production-readiness-completion
