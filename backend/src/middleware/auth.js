@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { prisma } from "../db.js";
+import { hasPermission } from "../security/permissions.js";
 
 function legacySessionAllowed() {
   return process.env.NODE_ENV !== "production";
@@ -146,4 +147,31 @@ export async function optionalAuth(req, _res, next) {
   }
 
   next();
+}
+
+
+export function requirePermission(permission) {
+  if (!permission) {
+    throw new Error("requirePermission: permission is required");
+  }
+
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        error: "Unauthorized",
+        message: "Authentication required"
+      });
+    }
+
+    if (!hasPermission(req.user, permission)) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "You do not have permission to access this resource.",
+        code: "PHI_PERMISSION_DENIED",
+        permission
+      });
+    }
+
+    next();
+  };
 }
