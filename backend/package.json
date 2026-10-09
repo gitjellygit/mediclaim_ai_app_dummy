@@ -2,12 +2,15 @@
   "name": "claim-ai-backend",
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/index.js",
+    "dev": "npm run db:prepare && node --watch src/index.js",
     "start": "node src/index.js",
     "test": "node --test --test-reporter=spec tests/*.test.js",
     "lint": "npx --yes eslint@9 .",
     "format:check": "npx --yes prettier@3 --check .",
-    "format": "npx --yes prettier@3 --write ."
+    "format": "npx --yes prettier@3 --write .",
+    "db:prepare": "prisma generate && prisma migrate deploy",
+    "start:prepared": "npm run db:prepare && node src/index.js",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1038.0",
