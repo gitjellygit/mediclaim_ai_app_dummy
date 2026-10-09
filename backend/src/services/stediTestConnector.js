@@ -1119,7 +1119,11 @@ export function createStediTestConnector({
     },
 
     async submitClaim(claim, context = {}) {
-      const { payload, claimType } = buildStediClaimSubmissionRequest(claim, context);
+      const { payload, claimType } = buildStediClaimSubmissionRequest(claim, {
+        ...context,
+        env,
+        usageIndicator: "T"
+      });
       const normalizedType = claimType === "INSTITUTIONAL" ? "INSTITUTIONAL" : "PROFESSIONAL";
       const path =
         normalizedType === "INSTITUTIONAL"
@@ -1145,7 +1149,8 @@ export function createStediTestConnector({
       return normalizeStediClaimSubmissionResponse(body, {
         claimType: normalizedType,
         latencyMs: Date.now() - startedAt,
-        idempotencyKey
+        idempotencyKey,
+        testMode: true
       });
     },
 
@@ -1199,7 +1204,15 @@ export function createStediProductionConnector({
   const baseUrl = String(
     env.STEDI_PRODUCTION_API_BASE_URL || DEFAULT_BASE_URL
   ).replace(/\/$/, "");
-  const claimStatusUrl = String(env.STEDI_CLAIM_STATUS_URL || "").trim();
+  const claimsBaseUrl = String(
+    env.STEDI_PRODUCTION_CLAIMS_API_BASE_URL ||
+      env.STEDI_CLAIMS_API_BASE_URL ||
+      DEFAULT_CLAIMS_BASE_URL
+  ).replace(/\/$/, "");
+  const claimStatusUrl = String(
+    env.STEDI_CLAIM_STATUS_URL ||
+      `${DEFAULT_CLAIMS_BASE_URL}/change/medicalnetwork/claimstatus/v2`
+  ).trim();
   const coreBaseUrl = String(
     env.STEDI_CORE_API_BASE_URL || "https://core.us.stedi.com/2023-08-01"
   ).replace(/\/$/, "");
@@ -1257,8 +1270,41 @@ export function createStediProductionConnector({
       return unavailable("requestPriorAuth");
     },
 
-    submitClaim() {
-      return unavailable("submitClaim");
+    async submitClaim(claim, context = {}) {
+      const { payload, claimType } = buildStediClaimSubmissionRequest(claim, {
+        ...context,
+        env,
+        usageIndicator: "P"
+      });
+      const normalizedType =
+        claimType === "INSTITUTIONAL" ? "INSTITUTIONAL" : "PROFESSIONAL";
+      const path =
+        normalizedType === "INSTITUTIONAL"
+          ? "/change/medicalnetwork/institutionalclaims/v1/submission"
+          : "/change/medicalnetwork/professionalclaims/v3/submission";
+      const idempotencyKey = String(
+        context.idempotencyKey ||
+          `claim-app-${claim?.id || "claim"}-${normalizedType}-${claim?.claimFrequencyCode || "ORIGINAL"}`
+      ).slice(0, 255);
+
+      const startedAt = Date.now();
+      const response = await fetchImpl(`${claimsBaseUrl}${path}`, {
+        method: "POST",
+        headers: {
+          Authorization: apiKey,
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(payload),
+        signal: connectorSignal(context.signal)
+      });
+      const body = await parseResponse(response);
+      return normalizeStediClaimSubmissionResponse(body, {
+        claimType: normalizedType,
+        latencyMs: Date.now() - startedAt,
+        idempotencyKey,
+        testMode: false
+      });
     },
 
     async getStatus(claim, context = {}) {
