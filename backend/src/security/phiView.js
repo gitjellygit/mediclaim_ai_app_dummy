@@ -80,6 +80,15 @@ const CLINICAL_FIELDS = [
   "completenessSummary"
 ];
 
+const PAYER_WORKFLOW_FIELDS = [
+  "patientControlNumber",
+  "payerReferenceNo",
+  "insurerClaimNo",
+  "claimSubmissionDate",
+  "payerClaimStatus",
+  "claimStatusCheckedAt"
+];
+
 const FINANCIAL_FIELDS = [
   "amount",
   "totalBilledAmount",
@@ -134,6 +143,7 @@ export function minimumNecessaryClaim(claim, user) {
     removeFields(safe, INSURANCE_FIELDS);
   }
   if (!hasPermission(user, PERMISSIONS.PAYER_ACTION)) {
+    removeFields(safe, PAYER_WORKFLOW_FIELDS);
     delete safe.payerTransactions;
   }
   if (!hasPermission(user, PERMISSIONS.CLINICAL_VIEW)) {
