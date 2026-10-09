@@ -312,6 +312,11 @@ model Claim {
   payerConnectorId    String?
   simulatedPayerCode  String?
 
+  // The connected payer is workflow state. It must not overwrite the
+  // insurance identity captured from documents/registration.
+  connectedPayerCode  String?
+  connectedPayerName  String?
+
   // Fields currently supported by uploaded documents. This lets document
   // deletion recompute/clear only document-derived data without wiping
   // values a user entered manually.
