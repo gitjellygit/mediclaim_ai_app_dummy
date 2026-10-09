@@ -342,3 +342,17 @@ test("Journey uses real external submit and simulator only for simulated payer",
     /if \(externalPayerConnected\)[\s\S]*return;[\s\S]*if \(simulatedPayerConnected\)[\s\S]*simulatePayerSubmission/
   );
 });
+
+
+test("document API serialization strips storage paths raw OCR and file hashes", () => {
+  const helper = read("backend/src/services/documentPublicView.js");
+  const documents = read("backend/src/routes/documents.js");
+  const claims = read("backend/src/routes/claims.js");
+
+  assert.match(helper, /delete safe\.path/);
+  assert.match(helper, /delete safe\.rawText/);
+  assert.match(helper, /delete safe\.fileHash/);
+  assert.match(documents, /publicDocument/);
+  assert.match(documents, /publicClaimDocuments/);
+  assert.match(claims, /publicClaimDocuments\(claim\)/);
+});
