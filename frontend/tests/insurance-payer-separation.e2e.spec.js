@@ -14,42 +14,6 @@ async function apiJson(response, label) {
   return response.json();
 }
 
-async function selectPayer(page, payerName) {
-  const connectedInput = page.getByTestId("connected-payer").locator("input");
-  if (await connectedInput.count()) {
-    const current = await connectedInput.inputValue();
-    if (current === payerName) {
-      await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
-      return;
-    }
-  }
-
-  const suggested = page.getByTestId("suggested-payer-confirmation");
-  if (await suggested.count()) {
-    const suggestedInput = suggested.getByLabel("Suggested payer");
-    if ((await suggestedInput.inputValue()) === payerName) {
-      await suggested.getByRole("button", { name: "Confirm payer", exact: true }).click();
-    } else {
-      await suggested.getByRole("button", { name: "Choose different", exact: true }).click();
-    }
-  }
-
-  if ((await page.getByTestId("payer-select").count()) === 0) {
-    const change = page.getByRole("button", { name: "Change payer", exact: true });
-    if (await change.count()) await change.click();
-  }
-
-  if (await page.getByTestId("payer-select").count()) {
-    await page.getByTestId("payer-select").click();
-    await page.getByRole("option", { name: payerName }).click();
-    await page.getByRole("button", { name: "Connect", exact: true }).click();
-  }
-
-  await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
-  await expect(page.getByTestId("connected-payer").locator("input")).toHaveValue(payerName);
-  await expect(page.getByTestId("payer-select")).toHaveCount(0);
-}
-
 test.beforeAll(async () => {
   apiContext = await request.newContext({ baseURL: backendURL });
   const login = await apiContext.post("/api/auth/login", {
@@ -88,22 +52,49 @@ test("insurance on file remains source truth when a different payer verifies act
   const claim = await apiJson(create, "create claim");
 
   try {
+    const cedarConnect = await apiContext.post(
+      `/api/claims/${claim.id}/payer-simulation/connect`,
+      { headers, data: { payerCode: "CAREFIRST_DEMO" } }
+    );
+    expect(cedarConnect.ok()).toBe(true);
+
+    const cedarEligibility = await apiContext.post(
+      `/api/claims/${claim.id}/payer-simulation/eligibility`,
+      { headers, data: {} }
+    );
+    expect(cedarEligibility.ok()).toBe(true);
+    expect((await cedarEligibility.json()).result.status).toBe("MEMBER_NOT_FOUND");
+
     await page.goto(`/journey?claimId=${claim.id}`);
 
     const insurance = page.getByTestId("insurance-on-file-card");
     const eligibility = page.getByTestId("journey-stage-eligibility");
 
     await expect(insurance).toContainText("Cedar Health Plan");
-
-    await selectPayer(page, "Cedar Health Plan");
-    await eligibility.getByRole("button", { name: "Check Eligibility", exact: true }).click();
     await expect(eligibility).toContainText("Member Not Found");
-    await expect(insurance).toContainText("Cedar Health Plan");
 
-    await selectPayer(page, "MetroCare Health");
-    await expect(eligibility).toContainText("Not Checked");
-    await eligibility.getByRole("button", { name: "Check Eligibility", exact: true }).click();
+    const metroConnect = await apiContext.post(
+      `/api/claims/${claim.id}/payer-simulation/connect`,
+      { headers, data: { payerCode: "METROPLUS_DEMO" } }
+    );
+    expect(metroConnect.ok()).toBe(true);
 
+    const afterSwitch = await apiJson(
+      await apiContext.get(`/api/claims/${claim.id}/journey`, { headers }),
+      "journey after payer switch"
+    );
+    expect(afterSwitch.claim.payerName).toBe("Cedar Health Plan");
+    expect(afterSwitch.claim.connectedPayerName).toBe("MetroCare Health");
+    expect(afterSwitch.claim.eligibilityStatus).toBe("NOT_CHECKED");
+
+    const metroEligibility = await apiContext.post(
+      `/api/claims/${claim.id}/payer-simulation/eligibility`,
+      { headers, data: {} }
+    );
+    expect(metroEligibility.ok()).toBe(true);
+    expect((await metroEligibility.json()).result.status).toBe("ACTIVE");
+
+    await page.goto(`/journey?claimId=${claim.id}`);
     await expect(eligibility).toContainText("Verified Active");
     await expect(eligibility).toContainText("Checked against");
     await expect(eligibility).toContainText("MetroCare Health");
