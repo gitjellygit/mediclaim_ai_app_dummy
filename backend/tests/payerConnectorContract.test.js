@@ -240,6 +240,7 @@ test("R2A - STEDI_TEST appears in registry and is configured only with a test ke
   assert.deepEqual(withoutKey.get("STEDI_TEST")?.capabilities, [
     "checkEligibility",
     "listPayers",
+    "submitClaim",
     "getRemittance"
   ]);
 
@@ -305,6 +306,7 @@ test("R3 - STEDI_PRODUCTION is separate from test mode and exposes 276/277 when 
   );
   assert.equal(claimStatus.id, "STEDI_PRODUCTION");
   assert.equal(claimStatus.environment, "PRODUCTION");
+  assert.equal(claimStatus.capabilities.includes("submitClaim"), true);
   assert.equal(claimStatus.capabilities.includes("getStatus"), true);
   assert.equal(claimStatus.capabilities.includes("getRemittance"), true);
 });
