@@ -888,7 +888,7 @@ export function documentsRouter(prisma, uploadDir) {
   router.get("/:id/preview", requirePermission(PERMISSIONS.DOCUMENT_VIEW), (req, res) => serveAuditedDocument(req, res, false));
 
   // DELETE doc
-  router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =>
+  router.delete("/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), (req, res) =>
     deleteStoredDocument(prisma, req, res, { uploadDir })
   );
 
