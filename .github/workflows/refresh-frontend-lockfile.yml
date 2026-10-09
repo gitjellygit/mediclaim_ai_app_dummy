@@ -1,4 +1,5 @@
 name: Refresh frontend lockfile once
+# One-time branch utility; remove after lock refresh.
 
 on:
   push:
