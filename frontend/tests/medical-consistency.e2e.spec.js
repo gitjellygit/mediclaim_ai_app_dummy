@@ -309,14 +309,16 @@ test("12 medical consistency scenarios run end-to-end in the browser", async ({
       "casey-patel-discharge-summary-e2e.pdf",
       buildTextPdf([
         "Discharge Summary",
-        "Patient Name: E2E-MC-08-MISSING-DISCHARGE",
         "Admission Date: 09/20/2026",
         "Discharge Date: 09/22/2026",
         "Date of Service: 09/21/2026",
         "Diagnosis: Routine inpatient test diagnosis"
       ])
     );
-    expect(uploaded.ok).toBe(true);
+    expect(
+      uploaded.ok,
+      `discharge upload failed (${uploaded.status}): ${JSON.stringify(uploaded.data)}`
+    ).toBe(true);
     expect(uploaded.data.type).toBe("DISCHARGE_SUMMARY");
 
     await page.goto("/medical-ai");
