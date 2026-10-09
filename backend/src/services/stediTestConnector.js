@@ -597,9 +597,15 @@ function stediProviderAddress(env = {}) {
 }
 
 function claimFrequencyCode(value) {
-  return { ORIGINAL: "1", CORRECTED: "7", VOID: "8" }[
-    String(value || "ORIGINAL").toUpperCase()
-  ] || "1";
+  return {
+    ORIGINAL: "1",
+    INTERIM_FIRST: "2",
+    INTERIM_CONTINUING: "3",
+    INTERIM_LAST: "4",
+    CORRECTED: "7",
+    VOID: "8",
+    FINAL_HOME_HEALTH: "9"
+  }[String(value || "ORIGINAL").toUpperCase()] || "1";
 }
 
 function paymentResponsibility(value) {
