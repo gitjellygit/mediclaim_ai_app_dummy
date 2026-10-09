@@ -68,6 +68,7 @@ export const claimUpdateSchema = z.object({
   patientState: z.string().trim().max(2).nullish(),
   patientPostalCode: z.string().trim().max(12).nullish(),
   hospitalName: z.string().trim().max(250).nullish(),
+  doctorName: z.string().trim().max(250).nullish(),
   billingProviderNpi: optional(npiSchema),
   renderingProviderNpi: optional(npiSchema),
   referringProviderNpi: optional(npiSchema),
