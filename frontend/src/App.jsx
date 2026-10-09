@@ -41,7 +41,7 @@ const AuditTrail = lazy(() => import("./modules/audit/AuditTrail.jsx"));
 
 const protectedRoutes = [
   { path: "/claims", Component: ClaimsList, permission: PERMISSIONS.CLAIM_VIEW },
-  { path: "/claims/new", Component: NewClaim, permission: PERMISSIONS.CLAIM_EDIT },
+  { path: "/claims/new", Component: NewClaim, permission: PERMISSIONS.CLINICAL_EDIT },
   { path: "/claims/:id", Component: ClaimDetail, permission: PERMISSIONS.CLAIM_VIEW },
   { path: "/journey", Component: ClaimJourney, permission: PERMISSIONS.INSURANCE_VIEW },
   { path: "/denials", Component: DenialIntelligence, permission: PERMISSIONS.DENIAL_VIEW },
