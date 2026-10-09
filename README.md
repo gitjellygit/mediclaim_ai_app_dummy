@@ -136,7 +136,7 @@ Implemented Stedi application capabilities:
 - 270/271 eligibility: test and production.
 - 837P professional claim submission: test and production.
 - 837I institutional claim submission: test and production.
-- 276/277 real-time claim status: production.
+- 276/277 real-time claim status: production only. Stedi test mode does not support real-time claim status; test 837s instead receive 277CA acknowledgments.
 - 835 ERA/remittance discovery and posting: test and production.
 - Prior authorization requirement: surfaced from eligibility/readiness, but
   authorization submission/status remains payer-specific. This integration does
