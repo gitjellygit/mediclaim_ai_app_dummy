@@ -1,5 +1,6 @@
 import express from "express";
-import { requireRoles } from "../middleware/auth.js";
+import { requirePermission, requireRoles } from "../middleware/auth.js";
+import { PERMISSIONS } from "../security/permissions.js";
 import { verifyUploadSignature } from "../middleware/uploadSafety.js";
 import { createDocumentUpload } from "../services/documentUpload.js";
 import { publicClaimDocuments, publicDocument } from "../services/documentPublicView.js";
@@ -263,7 +264,7 @@ export function documentsRouter(prisma, uploadDir) {
 
   const upload = createDocumentUpload(uploadDir);
 
-  router.post("/smart-upload", upload.single("file"), verifyUploadSignature, async (req, res) => {
+  router.post("/smart-upload", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), upload.single("file"), verifyUploadSignature, async (req, res) => {
     let uploadedFilePath = null;
     let storedDocumentPath = null;
     
@@ -788,12 +789,12 @@ export function documentsRouter(prisma, uploadDir) {
   }
   }
 
-  router.post("/upload", upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
+  router.post("/upload", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
   // Compatibility for callers using POST /api/claims/documents.
-  router.post("/", upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
+  router.post("/", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
 
   // List documents for the current organization without bloating the claims list.
-  router.get("/", async (req, res) => {
+  router.get("/", requirePermission(PERMISSIONS.DOCUMENT_VIEW), async (req, res) => {
     const claimId = String(req.query?.claimId || "").trim();
     const docs = await prisma.document.findMany({
       where: {
@@ -845,7 +846,7 @@ export function documentsRouter(prisma, uploadDir) {
   });
 
   // List docs for a claim
-  router.get("/claim/:claimId", async (req, res) => {
+  router.get("/claim/:claimId", requirePermission(PERMISSIONS.DOCUMENT_VIEW), async (req, res) => {
     const docs = await prisma.document.findMany({
       where: { claimId: req.params.claimId, claim: { organizationId: req.user.organizationId, deletedAt: null } },
       orderBy: { createdAt: "desc" }
@@ -883,8 +884,8 @@ export function documentsRouter(prisma, uploadDir) {
     return serveStoredDocument(prisma, req, res, { download, uploadDir });
   }
 
-  router.get("/:id/download", (req, res) => serveAuditedDocument(req, res, true));
-  router.get("/:id/preview", (req, res) => serveAuditedDocument(req, res, false));
+  router.get("/:id/download", requirePermission(PERMISSIONS.DOCUMENT_DOWNLOAD), (req, res) => serveAuditedDocument(req, res, true));
+  router.get("/:id/preview", requirePermission(PERMISSIONS.DOCUMENT_VIEW), (req, res) => serveAuditedDocument(req, res, false));
 
   // DELETE doc
   router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =>
@@ -892,7 +893,7 @@ export function documentsRouter(prisma, uploadDir) {
   );
 
   // Process document with AI
-  router.post("/:id/process", async (req, res) => {
+  router.post("/:id/process", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => {
     try {
       const doc = await prisma.document.findFirst({
         where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },
@@ -991,7 +992,7 @@ export function documentsRouter(prisma, uploadDir) {
     }
   });
 
-  router.get("/:id/coding-suggestions", async (req, res) => {
+  router.get("/:id/coding-suggestions", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (req, res) => {
     const doc = await prisma.document.findFirst({
       where: {
         id: req.params.id,
@@ -1026,7 +1027,7 @@ export function documentsRouter(prisma, uploadDir) {
     res.json({ items: suggestions });
   });
 
-  router.patch("/coding-suggestions/:suggestionId", async (req, res) => {
+  router.patch("/coding-suggestions/:suggestionId", requirePermission(PERMISSIONS.CLINICAL_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => {
     const action = String(req.body?.action || "").trim().toUpperCase();
     if (!["ACCEPT", "CHANGE", "REJECT"].includes(action)) {
       return res.status(400).json({
