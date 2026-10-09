@@ -215,6 +215,11 @@ model Claim {
   patientAge    Int?
   patientGender Gender?
   patientDob    DateTime? @db.Date
+  patientAddress1 String?
+  patientAddress2 String?
+  patientCity String?
+  patientState String?
+  patientPostalCode String?
   medicalRecordNumber String?
   patientMobile String?
   memberId      String?
@@ -254,6 +259,12 @@ model Claim {
   subscriberId             String?
   subscriberName           String?
   subscriberDob            DateTime? @db.Date
+  subscriberGender         Gender?
+  subscriberAddress1       String?
+  subscriberAddress2       String?
+  subscriberCity           String?
+  subscriberState          String?
+  subscriberPostalCode     String?
   subscriberRelationship   SubscriberRelationship?
   coordinationOfBenefits   CoordinationOfBenefits?
   payerEdiId               String?
@@ -271,6 +282,10 @@ model Claim {
   // Institutional / claim-level U.S. billing metadata.
   typeOfBill             String?
   drgCode                String?
+  claimFilingCode        String?
+  admissionTypeCode      String?
+  admissionSourceCode    String?
+  patientStatusCode      String?
   claimFrequencyCode     ClaimFrequencyCode @default(ORIGINAL)
   timelyFilingDeadline   DateTime? @db.Date
 
