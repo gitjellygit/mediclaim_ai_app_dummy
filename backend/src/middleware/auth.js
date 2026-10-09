@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import { prisma } from "../db.js";
 import { hasPermission } from "../security/permissions.js";
+import { writeRequestAudit } from "../services/auditLog.js";
 
 function legacySessionAllowed() {
   return process.env.NODE_ENV !== "production";
@@ -164,35 +165,17 @@ export function requirePermission(permission) {
     }
 
     if (!hasPermission(req.user, permission)) {
-      void prisma.auditEvent
-        .create({
-          data: {
-            organizationId: req.user.organizationId,
-            actorUserId: req.user.id || null,
-            action: "PHI_ACCESS_DENIED",
-            entityType: "Permission",
-            entityId: permission,
-            outcome: "DENIED",
-            metadata: {
-              permission,
-              method: req.method || null,
-              path: req.originalUrl || req.path || null
-            },
-            ipAddress: req.ip || req.socket?.remoteAddress || null,
-            userAgent: req.get?.("user-agent") || null,
-            httpMethod: req.method || null,
-            httpPath: req.originalUrl || req.path || null,
-            requestId: req.auditRequestId || req.get?.("x-request-id") || null,
-            statusCode: 403
-          }
-        })
-        .catch((error) => {
-          console.error("[auth] permission denial audit failed", {
-            permission,
-            name: error?.name || "Error",
-            code: error?.code || null
-          });
-        });
+      void writeRequestAudit(prisma, req, {
+        action: "PHI_ACCESS_DENIED",
+        entityType: "Permission",
+        entityId: permission,
+        outcome: "DENIED",
+        statusCode: 403,
+        metadata: {
+          operation: "permission_denied",
+          reason: permission
+        }
+      });
 
       return res.status(403).json({
         error: "Forbidden",
