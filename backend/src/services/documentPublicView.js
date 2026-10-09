@@ -1,13 +1,10 @@
 export function publicDocument(document) {
   if (!document || typeof document !== "object") return document;
 
-  const {
-    path: _path,
-    rawText: _rawText,
-    fileHash: _fileHash,
-    ...safe
-  } = document;
-
+  const safe = { ...document };
+  delete safe.path;
+  delete safe.rawText;
+  delete safe.fileHash;
   return safe;
 }
 
