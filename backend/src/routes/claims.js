@@ -673,7 +673,7 @@ router.post("/", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => 
       include: { serviceLines: { orderBy: { createdAt: "asc" } } }
     });
 
-    res.json(createdClaim);
+    res.json(minimumNecessaryClaim(createdClaim, req.user));
   } catch (e) {
     console.error("[claim-create] failed", { name: e.name, code: e.code || null });
     res.status(500).json({ error: "Unable to create claim", code: "CLAIM_CREATE_FAILED" });
