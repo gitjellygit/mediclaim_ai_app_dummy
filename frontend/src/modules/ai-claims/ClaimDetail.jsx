@@ -1935,11 +1935,14 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 fullWidth
               />
               <TextField
+                data-fix-field="patientDob"
                 label="Patient Date of Birth"
                 type="date"
                 InputLabelProps={{ shrink: true }}
                 value={editForm.patientDob}
                 onChange={(e) => updateEditField("patientDob", e.target.value)}
+                color={isFixField("patientDob") ? "warning" : "primary"}
+                focused={isFixField("patientDob")}
                 fullWidth
               />
               <TextField
