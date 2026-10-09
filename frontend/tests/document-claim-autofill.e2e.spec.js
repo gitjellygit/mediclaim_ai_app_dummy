@@ -415,8 +415,9 @@ test("claim-centric ICD review resolves duplicate document suggestions and suppo
     // Removal is available only after explicitly entering Edit mode.
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     const editableAcceptedChip = page.getByTestId("accepted-icd-M54.16");
-    await expect(editableAcceptedChip.locator("svg")).toHaveCount(1);
-    await editableAcceptedChip.locator("svg").click();
+    const deleteIcon = editableAcceptedChip.locator(".MuiChip-deleteIcon");
+    await expect(deleteIcon).toHaveCount(1);
+    await deleteIcon.click();
     await expect(page.getByTestId("accepted-icd-M54.16")).toHaveCount(0);
 
     const addInput = page.getByRole("textbox", { name: "Add ICD-10 code" });
