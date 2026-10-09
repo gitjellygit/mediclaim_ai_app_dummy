@@ -20,6 +20,7 @@ import express from "express";
 import { requirePermission, requireRoles } from "../middleware/auth.js";
 import { PERMISSIONS } from "../security/permissions.js";
 import { minimumNecessaryClaim } from "../security/phiView.js";
+import { forbiddenClaimMutationFields } from "../security/claimMutationAccess.js";
 import { prisma } from "../db.js";
 import claimPayerSimulationRouter from "./claimPayerSimulation.js";
 import claimJourneyRouter from "./claimJourney.js";
@@ -465,6 +466,15 @@ router.get("/:id", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) =
 
 router.post("/", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => {
   try {
+    const forbiddenFields = forbiddenClaimMutationFields(req.user, req.body);
+    if (forbiddenFields.length > 0) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "You do not have permission to set one or more clinical or financial claim fields.",
+        code: "PHI_FIELD_EDIT_DENIED",
+        fields: forbiddenFields
+      });
+    }
     if (!req.body.patientName || !req.body.payerName) {
       return res.status(400).json({
         error: "patientName and payerName are required"
@@ -672,6 +682,15 @@ router.post("/", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => 
 
 router.patch("/:id", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => {
   try {
+    const forbiddenFields = forbiddenClaimMutationFields(req.user, req.body);
+    if (forbiddenFields.length > 0) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "You do not have permission to change one or more clinical or financial claim fields.",
+        code: "PHI_FIELD_EDIT_DENIED",
+        fields: forbiddenFields
+      });
+    }
     const parsedInput = parseMutation(claimUpdateSchema, req.body);
     if (!parsedInput.ok) {
       return res.status(400).json(parsedInput.response);
