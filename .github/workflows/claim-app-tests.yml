@@ -11,6 +11,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 # PR updates run this workflow against the current branch head.
 jobs:
   claim-app-tests:
@@ -40,6 +43,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -69,6 +75,24 @@ jobs:
       - name: Run backend automated tests
         working-directory: backend
         run: npm test
+
+      - name: Refresh frontend lockfile
+        if: github.event_name == 'pull_request'
+        working-directory: frontend
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Commit refreshed frontend lockfile
+        if: github.event_name == 'pull_request'
+        run: |
+          if git diff --quiet -- frontend/package-lock.json; then
+            echo "Frontend lockfile already current"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add frontend/package-lock.json
+            git commit -m "chore: refresh frontend lockfile [skip ci]"
+            git push origin HEAD:${{ github.head_ref }}
+          fi
 
       - name: Install frontend dependencies
         working-directory: frontend
