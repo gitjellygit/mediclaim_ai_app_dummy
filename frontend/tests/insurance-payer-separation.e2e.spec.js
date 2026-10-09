@@ -15,6 +15,15 @@ async function apiJson(response, label) {
 }
 
 async function selectPayer(page, payerName) {
+  const connectedInput = page.getByTestId("connected-payer").locator("input");
+  if (await connectedInput.count()) {
+    const current = await connectedInput.inputValue();
+    if (current === payerName) {
+      await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
+      return;
+    }
+  }
+
   const suggested = page.getByTestId("suggested-payer-confirmation");
   if (await suggested.count()) {
     const suggestedInput = suggested.getByLabel("Suggested payer");
