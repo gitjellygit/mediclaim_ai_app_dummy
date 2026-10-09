@@ -13,6 +13,7 @@ import {
   minimumNecessaryDocument
 } from "../src/security/phiView.js";
 import { requirePermission } from "../src/middleware/auth.js";
+import { forbiddenClaimMutationFields } from "../src/security/claimMutationAccess.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
@@ -22,7 +23,9 @@ test("PHI permissions - role matrix follows minimum necessary", () => {
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.PATIENT_IDENTITY_VIEW), true);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.INSURANCE_VIEW), true);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.CLINICAL_VIEW), false);
+  assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.CLINICAL_EDIT), false);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.FINANCIAL_VIEW), false);
+  assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.FINANCIAL_EDIT), false);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.DOCUMENT_VIEW), false);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.DOCUMENT_DOWNLOAD), false);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.PAYER_ACTION), false);
@@ -31,7 +34,9 @@ test("PHI permissions - role matrix follows minimum necessary", () => {
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.AUDIT_VIEW), false);
 
   assert.equal(hasPermission("CASHIER", PERMISSIONS.CLINICAL_VIEW), true);
+  assert.equal(hasPermission("CASHIER", PERMISSIONS.CLINICAL_EDIT), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.FINANCIAL_VIEW), true);
+  assert.equal(hasPermission("CASHIER", PERMISSIONS.FINANCIAL_EDIT), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.DOCUMENT_VIEW), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.CLAIM_SUBMIT), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.RECOVERY_EDIT), true);
@@ -141,6 +146,37 @@ test("PHI view - cashier receives billing/clinical data but raw document storage
   assert.equal(claim.underpaymentCase.id, "under-1");
 });
 
+test("PHI mutation access - receptionist cannot change clinical or financial claim fields", () => {
+  const receptionist = { role: "RECEPTIONIST" };
+  const cashier = { role: "CASHIER" };
+
+  assert.deepEqual(
+    forbiddenClaimMutationFields(receptionist, {
+      patientName: "Updated Name",
+      memberId: "MEM-2"
+    }),
+    []
+  );
+
+  assert.deepEqual(
+    forbiddenClaimMutationFields(receptionist, {
+      diagnosisText: "New diagnosis",
+      serviceLines: [{ cptHcpcsCode: "99213" }],
+      totalBilledAmount: 200
+    }),
+    ["diagnosisText", "serviceLines", "totalBilledAmount"]
+  );
+
+  assert.deepEqual(
+    forbiddenClaimMutationFields(cashier, {
+      diagnosisText: "New diagnosis",
+      serviceLines: [{ cptHcpcsCode: "99213" }],
+      totalBilledAmount: 200
+    }),
+    []
+  );
+});
+
 test("PHI permission middleware returns a safe 403 and allows authorized billing roles", () => {
   const guard = requirePermission(PERMISSIONS.CLINICAL_VIEW);
 
@@ -203,4 +239,29 @@ test("PHI route contract - sensitive surfaces require named permissions", () => 
   assert.match(underpayments, /router\.use\(requirePermission\(PERMISSIONS\.FINANCIAL_VIEW\)\)/);
   assert.match(index, /permissions: permissionList\(user\)/);
   assert.match(auth, /permissions: permissionList\(user\)/);
+});
+
+
+test("PHI frontend contract - routes and navigation hide restricted healthcare data", () => {
+  const app = read("../frontend/src/App.jsx");
+  const nav = read("../frontend/src/layout/LeftNav.jsx");
+  const detail = read("../frontend/src/modules/ai-claims/ClaimDetail.jsx");
+  const list = read("../frontend/src/modules/ai-claims/ClaimsList.jsx");
+
+  assert.match(app, /\/claims\/new"[\s\S]*PERMISSIONS\.CLINICAL_EDIT/);
+  assert.match(app, /\/denials"[\s\S]*PERMISSIONS\.DENIAL_VIEW/);
+  assert.match(app, /\/payments"[\s\S]*PERMISSIONS\.FINANCIAL_VIEW/);
+  assert.match(app, /\/documents"[\s\S]*PERMISSIONS\.DOCUMENT_VIEW/);
+  assert.match(app, /\/audit"[\s\S]*PERMISSIONS\.AUDIT_VIEW/);
+
+  assert.match(nav, /hasPermission\(user, PERMISSIONS\.DENIAL_VIEW\)/);
+  assert.match(nav, /hasPermission\(user, PERMISSIONS\.FINANCIAL_VIEW\)/);
+  assert.match(nav, /hasPermission\(user, PERMISSIONS\.AUDIT_VIEW\)/);
+
+  assert.match(detail, /canEditClinical = hasPermission\(user, PERMISSIONS\.CLINICAL_EDIT\)/);
+  assert.match(detail, /delete payload\.diagnosisText/);
+  assert.match(detail, /delete payload\.totalBilledAmount/);
+
+  assert.match(list, /canCreateFullClaim = hasPermission\(user, PERMISSIONS\.CLINICAL_EDIT\)/);
+  assert.match(list, /canViewFinancial = hasPermission\(user, PERMISSIONS\.FINANCIAL_VIEW\)/);
 });
