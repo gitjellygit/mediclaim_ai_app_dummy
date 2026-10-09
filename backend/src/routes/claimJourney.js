@@ -316,7 +316,7 @@ router.post(
           payerConnectionMode: "LIVE",
           payerConnectorId: connector.id,
           connectedPayerCode: payerCode,
-          connectedPayerName: payerName || claim.connectedPayerName || claim.payerName,
+          connectedPayerName: payerName || null,
           simulatedPayerCode: null,
           eligibilityStatus: "NOT_CHECKED",
           eligibilityCheckedAt: null,
