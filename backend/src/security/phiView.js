@@ -51,10 +51,16 @@ const INSURANCE_FIELDS = [
 ];
 
 const CLINICAL_FIELDS = [
+  "hospitalName",
+  "hospitalAddress",
+  "hospitalRegNo",
   "doctorName",
   "doctorRegNo",
+  "billingProviderNpi",
   "renderingProviderNpi",
   "referringProviderNpi",
+  "providerTin",
+  "providerTaxonomyCode",
   "admissionDate",
   "dischargeDate",
   "admissionType",
