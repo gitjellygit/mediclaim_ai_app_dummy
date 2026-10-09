@@ -109,7 +109,9 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
 
     if (
       claim.payerConnectionMode === "SIMULATED" &&
-      claim.simulatedPayerCode === payer.code
+      claim.simulatedPayerCode === payer.code &&
+      claim.connectedPayerCode === payer.code &&
+      claim.connectedPayerName === payer.name
     ) {
       return res.json({ unchanged: true, payer, claim });
     }
