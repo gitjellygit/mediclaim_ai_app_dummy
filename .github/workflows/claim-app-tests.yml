@@ -57,6 +57,10 @@ jobs:
         working-directory: backend
         run: npx prisma migrate deploy
 
+      - name: Audit backend production dependencies
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Lint backend
         working-directory: backend
         run: npm run lint
@@ -68,6 +72,10 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Audit frontend production dependencies
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Lint frontend
         working-directory: frontend
