@@ -99,8 +99,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const isAdmin = user?.role === "ADMIN";
   const canRunAI = hasPermission(user, PERMISSIONS.CLINICAL_VIEW);
   const canDeleteDoc = hasPermission(user, PERMISSIONS.CLAIM_DELETE);
-  const canEditClaim = hasPermission(user, PERMISSIONS.CLAIM_EDIT);
   const canEditClinical = hasPermission(user, PERMISSIONS.CLINICAL_EDIT);
+  const canEditClaim =
+    hasPermission(user, PERMISSIONS.CLAIM_EDIT) && canEditClinical;
   const canEditFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_EDIT);
   const canViewAudit = hasPermission(user, PERMISSIONS.AUDIT_VIEW);
   const canViewDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_VIEW);
