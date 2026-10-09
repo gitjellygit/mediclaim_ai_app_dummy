@@ -36,7 +36,9 @@ async function selectPayer(page, payerName) {
     await page.getByRole("button", { name: "Connect", exact: true }).click();
   }
 
-  await expect(page.getByTestId("connected-payer")).toHaveValue(payerName);
+  await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId("connected-payer").locator("input")).toHaveValue(payerName);
+  await expect(page.getByTestId("payer-select")).toHaveCount(0);
 }
 
 test.beforeAll(async () => {
