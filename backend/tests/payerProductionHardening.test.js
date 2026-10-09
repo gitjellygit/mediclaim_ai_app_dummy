@@ -264,3 +264,24 @@ test("hardening - ERA responses never return unsanitized claim payer history", (
     /claim:\s*sanitizeClaimPayerTransactions\(currentClaim \|\| claim\)/
   );
 });
+
+
+test("payer connection - dev startup prepares Prisma and stale schema is actionable", () => {
+  const pkg = JSON.parse(read("backend/package.json"));
+  const simulation = read("backend/src/routes/claimPayerSimulation.js");
+
+  assert.equal(
+    pkg.scripts["db:prepare"],
+    "prisma generate && prisma migrate deploy"
+  );
+  assert.match(pkg.scripts.dev, /npm run db:prepare/);
+  assert.equal(pkg.scripts.postinstall, "prisma generate");
+
+  assert.match(simulation, /PAYER_SCHEMA_OUT_OF_DATE/);
+  assert.match(simulation, /code === "P2022"/);
+  assert.match(simulation, /PrismaClientValidationError/);
+  assert.match(
+    simulation,
+    /Apply Prisma migrations and regenerate the Prisma client/
+  );
+});
