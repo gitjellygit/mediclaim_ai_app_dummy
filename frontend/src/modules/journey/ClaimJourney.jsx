@@ -818,6 +818,7 @@ export default function ClaimJourney() {
   const historicalConnectionUnavailable = workflowAdvanced && !payerConnected;
   if (!workflowAdvanced) {
     if (!payerConnected) journeyNextActions.push("Connect the payer");
+    if (insurancePayerMismatch) journeyNextActions.push("Review insurance mismatch");
     if (!eligibilityComplete) journeyNextActions.push("Resolve eligibility");
     else if (
       !["APPROVED", "NOT_REQUIRED"].includes(stages?.priorAuth?.status)
