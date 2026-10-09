@@ -11,7 +11,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# PR updates run this workflow against the current branch head.
+# PR updates validate the current branch head with deterministic installs.
 jobs:
   claim-app-tests:
     runs-on: ubuntu-latest
