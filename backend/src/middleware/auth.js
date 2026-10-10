@@ -1,12 +1,23 @@
 import jwt from "jsonwebtoken";
 import { prisma } from "../db.js";
+import { hasPermission } from "../security/permissions.js";
+import { writeRequestAudit } from "../services/auditLog.js";
 
 function legacySessionAllowed() {
   return process.env.NODE_ENV !== "production";
 }
 
-async function activeSession(payload) {
-  if (!payload.sid) return legacySessionAllowed();
+async function activeSessionUser(payload) {
+  if (!payload.sid) {
+    return legacySessionAllowed()
+      ? {
+          id: payload.sub,
+          email: payload.email,
+          role: payload.role,
+          organizationId: payload.organizationId
+        }
+      : null;
+  }
 
   const session = await prisma.refreshToken.findFirst({
     where: {
@@ -15,18 +26,27 @@ async function activeSession(payload) {
       revoked: false,
       expiresAt: { gt: new Date() }
     },
-    select: { id: true }
+    select: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          organizationId: true
+        }
+      }
+    }
   });
 
-  return Boolean(session);
+  return session?.user || null;
 }
 
-function tokenUser(payload) {
+function tokenUser(payload, currentUser) {
   return {
-    id: payload.sub,
-    email: payload.email,
-    role: payload.role,
-    organizationId: payload.organizationId,
+    id: currentUser?.id || payload.sub,
+    email: currentUser?.email || payload.email,
+    role: currentUser?.role || payload.role,
+    organizationId: currentUser?.organizationId || payload.organizationId,
     sessionId: payload.sid || null,
     iat: payload.iat,
     exp: payload.exp
@@ -67,7 +87,8 @@ export async function requireAuth(req, res, next) {
       });
     }
 
-    if (!(await activeSession(payload))) {
+    const currentUser = await activeSessionUser(payload);
+    if (!currentUser) {
       return res.status(401).json({
         error: "Session revoked",
         message: "This session is no longer active. Please login again.",
@@ -75,7 +96,7 @@ export async function requireAuth(req, res, next) {
       });
     }
 
-    req.user = tokenUser(payload);
+    req.user = tokenUser(payload, currentUser);
     next();
   } catch (error) {
     if (error.name === "TokenExpiredError") {
@@ -137,8 +158,9 @@ export async function optionalAuth(req, _res, next) {
   if (token) {
     try {
       const payload = jwt.verify(token, process.env.JWT_SECRET);
-      if (validatePayload(payload) && (await activeSession(payload))) {
-        req.user = tokenUser(payload);
+      if (validatePayload(payload)) {
+        const currentUser = await activeSessionUser(payload);
+        if (currentUser) req.user = tokenUser(payload, currentUser);
       }
     } catch {
       // Optional authentication intentionally ignores invalid credentials.
@@ -146,4 +168,43 @@ export async function optionalAuth(req, _res, next) {
   }
 
   next();
+}
+
+
+export function requirePermission(permission) {
+  if (!permission) {
+    throw new Error("requirePermission: permission is required");
+  }
+
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        error: "Unauthorized",
+        message: "Authentication required"
+      });
+    }
+
+    if (!hasPermission(req.user, permission)) {
+      void writeRequestAudit(prisma, req, {
+        action: "PHI_ACCESS_DENIED",
+        entityType: "Permission",
+        entityId: permission,
+        outcome: "DENIED",
+        statusCode: 403,
+        metadata: {
+          operation: "permission_denied",
+          reason: permission
+        }
+      });
+
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "You do not have permission to access this resource.",
+        code: "PHI_PERMISSION_DENIED",
+        permission
+      });
+    }
+
+    next();
+  };
 }

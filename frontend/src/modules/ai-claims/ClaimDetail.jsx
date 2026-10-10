@@ -14,6 +14,7 @@ import { useLocation, useParams, useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 import { AuthApi } from "../../api/auth.js";
 import { useToast } from "../../context/ToastContext.jsx";
+import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
 import AICheckProgress from "../../components/AICheckProgress.jsx";
 import { api } from "../../api/client.js";
 import ClaimSummaryCard from "./claim-detail/ClaimSummaryCard.jsx";
@@ -96,12 +97,18 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const { showToast, showDialog, confirmDialog } = useToast();
   const user = AuthApi.getUser();
   const isAdmin = user?.role === "ADMIN";
-  const canRunAI = user?.role === "ADMIN" || user?.role === "CASHIER";
-  const canDeleteDoc = user?.role === "ADMIN" || user?.role === "CASHIER";
+  const canRunAI = hasPermission(user, PERMISSIONS.CLINICAL_VIEW);
+  const canDeleteDoc = hasPermission(user, PERMISSIONS.CLAIM_DELETE);
+  const canEditClinical = hasPermission(user, PERMISSIONS.CLINICAL_EDIT);
+  const canEditClaim =
+    hasPermission(user, PERMISSIONS.CLAIM_EDIT) && canEditClinical;
+  const canEditFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_EDIT);
+  const canViewAudit = hasPermission(user, PERMISSIONS.AUDIT_VIEW);
+  const canViewDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_VIEW);
+  const canDownloadDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_DOWNLOAD);
   const aiCheckLocked =
     ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status) ||
     Boolean(claim?.claimSubmissionDate);
-  const canEditClaim = !!user;
 
   const [docType, setDocType] = React.useState("AUTO");
   const [aiRunning, setAiRunning] = React.useState(false);
@@ -532,6 +539,45 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         .map(serviceLineToPayload)
     };
 
+    if (!canEditClinical) {
+      for (const field of [
+        "claimForm",
+        "doctorName",
+        "billingProviderNpi",
+        "renderingProviderNpi",
+        "referringProviderNpi",
+        "providerTin",
+        "providerTaxonomyCode",
+        "diagnosisText",
+        "dateOfService",
+        "admissionDate",
+        "dischargeDate",
+        "admissionType",
+        "roomCategory",
+        "icuDays",
+        "procedureText",
+        "procedureDate",
+        "icd10Codes",
+        "inpatientProcedureCodes",
+        "typeOfBill",
+        "drgCode",
+        "claimFilingCode",
+        "admissionTypeCode",
+        "admissionSourceCode",
+        "patientStatusCode",
+        "claimFrequencyCode",
+        "serviceLines"
+      ]) {
+        delete payload[field];
+      }
+    }
+
+    if (!canEditFinancial) {
+      delete payload.amount;
+      delete payload.totalBilledAmount;
+      delete payload.timelyFilingDeadline;
+    }
+
     if (!payload.patientName || payload.patientName.length === 0) {
       return showDialog(
         "Patient name is required",
@@ -544,7 +590,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         { title: "Missing insurance company", severity: "warning" }
       );
     }
-    if (!Number.isFinite(payload.amount) || payload.amount <= 0) {
+    if (
+      Object.prototype.hasOwnProperty.call(payload, "amount") &&
+      (!Number.isFinite(payload.amount) || payload.amount <= 0)
+    ) {
       return showDialog(
         "Claimed amount must be a valid number greater than 0",
         { title: "Invalid claimed amount", severity: "warning" }
@@ -1178,6 +1227,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   async function handlePreview(doc) {
+    if (!canViewDocuments) {
+      return showDialog(
+        "Your role does not allow document preview.",
+        { title: "Permission required", severity: "warning" }
+      );
+    }
     try {
       console.log("Previewing document:", doc.id, doc.fileName);
       
@@ -1244,6 +1299,12 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   async function handleDownload(doc) {
+    if (!canDownloadDocuments) {
+      return showDialog(
+        "Your role does not allow document download.",
+        { title: "Permission required", severity: "warning" }
+      );
+    }
     try {
       console.log("Downloading document:", doc.id, doc.fileName);
       
@@ -1416,7 +1477,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               View Claim Status
             </Button>
           )}
-          {isAdmin && (
+          {canViewAudit && (
             <Button variant="outlined" onClick={() => navigate(`/audit?claimId=${claim.id}`)}>
               View Audit Trail
             </Button>

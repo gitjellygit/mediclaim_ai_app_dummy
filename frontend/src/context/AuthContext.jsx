@@ -24,13 +24,9 @@ export function AuthProvider({ children }) {
             const currentUser = await AuthApi.getCurrentUser();
             if (currentUser) {
               setUser(currentUser);
-              // Update stored user if it exists
-              if (storedUser) {
-                const parsed = JSON.parse(storedUser);
-                if (parsed.id !== currentUser.id) {
-                  localStorage.setItem("user", JSON.stringify(currentUser));
-                }
-              }
+              // Always refresh the cached user so newly introduced permissions
+              // take effect for existing authenticated sessions.
+              localStorage.setItem("user", JSON.stringify(currentUser));
             } else {
               // Token invalid, clear everything
               setUser(null);
