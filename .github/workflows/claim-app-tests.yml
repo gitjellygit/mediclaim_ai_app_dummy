@@ -16,21 +16,6 @@ jobs:
   claim-app-tests:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: app
-          POSTGRES_PASSWORD: app
-          POSTGRES_DB: claim_ai_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U app -d claim_ai_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       DATABASE_URL: postgresql://app:app@localhost:5432/claim_ai_test?schema=public
       JWT_SECRET: claim-app-ci-only-signing-secret-32-characters
@@ -40,6 +25,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Start PostgreSQL test database
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl start postgresql
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app') THEN
+              CREATE ROLE app LOGIN PASSWORD 'app';
+            ELSE
+              ALTER ROLE app WITH LOGIN PASSWORD 'app';
+            END IF;
+          END
+          $;
+          SELECT 'CREATE DATABASE claim_ai_test OWNER app'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM pg_database WHERE datname = 'claim_ai_test'
+          )\gexec
+          SQL
+          PGPASSWORD=app pg_isready -h localhost -p 5432 -U app -d claim_ai_test
 
       - name: Setup Node
         uses: actions/setup-node@v4
