@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildStediEligibilityRequest,
+  createStediProductionConnector,
+  stediClaimSubmissionFingerprint,
   normalizeStediClaimStatusResponse,
   normalizeStediEligibilityResponse,
   normalizeStedi835Report
@@ -45,6 +47,74 @@ test("hardening - production Stedi requires explicit PHI enablement and test is 
     productionWithGate.find((item) => item.id === "STEDI_PRODUCTION")?.configured,
     true
   );
+});
+
+test("hardening - production 837 submission has an independent kill switch", async () => {
+  const connector = createStediProductionConnector({
+    env: {
+      STEDI_PRODUCTION_API_KEY: "secret",
+      STEDI_PRODUCTION_PHI_CONFIRMED: "true",
+      STEDI_PRODUCTION_SUBMISSION_ENABLED: "false"
+    },
+    fetchImpl: async () => {
+      throw new Error("network must not be reached while submission is disabled");
+    }
+  });
+
+  await assert.rejects(
+    () => connector.submitClaim(
+      { claimForm: "PROFESSIONAL" },
+      { requestPayload: { tradingPartnerServiceId: "60054" } }
+    ),
+    (error) => error?.code === "STEDI_PRODUCTION_SUBMISSION_DISABLED"
+  );
+});
+
+test("hardening - 837 idempotency is derived from canonical payload content", () => {
+  const first = stediClaimSubmissionFingerprint(
+    { claimForm: "PROFESSIONAL" },
+    {
+      requestPayload: {
+        tradingPartnerServiceId: "60054",
+        claimInformation: { patientControlNumber: "PCN-1", claimChargeAmount: "10.00" }
+      },
+      usageIndicator: "P"
+    }
+  );
+  const reordered = stediClaimSubmissionFingerprint(
+    { claimForm: "PROFESSIONAL" },
+    {
+      requestPayload: {
+        claimInformation: { claimChargeAmount: "10.00", patientControlNumber: "PCN-1" },
+        tradingPartnerServiceId: "60054"
+      },
+      usageIndicator: "P"
+    }
+  );
+
+  assert.equal(first.payloadHash, reordered.payloadHash);
+  assert.equal(first.idempotencyKey, reordered.idempotencyKey);
+  assert.match(first.idempotencyKey, /^claim-app-[a-f0-9]{64}$/);
+});
+
+test("hardening - organization profile replaces global 837 submitter and billing defaults", () => {
+  const connector = read("backend/src/services/stediTestConnector.js");
+  const schema = read("backend/prisma/schema.prisma");
+  const claims = read("backend/src/routes/claims.js");
+  const journey = read("frontend/src/modules/journey/ClaimJourney.jsx");
+
+  assert.match(schema, /claimSubmissionProfile\s+Json\?/);
+  assert.match(schema, /requestHash\s+String\?/);
+  assert.match(schema, /@@unique\(\[claimId, transactionType, requestHash\]\)/);
+  assert.doesNotMatch(connector, /STEDI_SUBMITTER_(NAME|ID|PHONE)/);
+  assert.doesNotMatch(connector, /STEDI_BILLING_(PROVIDER_NAME|ADDRESS1|CITY|STATE|POSTAL_CODE)/);
+  assert.doesNotMatch(connector, /placeOfService \|\| "11"/);
+  assert.doesNotMatch(connector, /placeOfService \|\| "21"/);
+  assert.match(claims, /PRODUCTION_SUBMISSION_CONFIRMATION_REQUIRED/);
+  assert.match(claims, /PAYER_SUBMISSION_OUTCOME_UNKNOWN/);
+  assert.match(claims, /requestHash: submissionFingerprint\.payloadHash/);
+  assert.match(journey, /Submit real production claim\?/);
+  assert.match(journey, /confirmProductionSubmission = true/);
 });
 
 test("hardening - dependent eligibility uses subscriber DOB and name", () => {
