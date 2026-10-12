@@ -23,7 +23,8 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
     "pdf-parse": "^2.4.5",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "helmet": "^8.1.0"
   },
   "devDependencies": {
     "prisma": "^5.18.0"

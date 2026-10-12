@@ -2,6 +2,7 @@ import express from "express";
 import crypto from "node:crypto";
 import cors from "cors";
 import dotenv from "dotenv";
+import helmet from "helmet";
 import { prisma, disconnectDatabase } from "./db.js";
 import { captureAsyncRouter } from "./middleware/asyncRouter.js";
 import { standardizeApiErrors } from "./middleware/apiErrors.js";
@@ -18,6 +19,7 @@ import auditRouter from "./routes/audit.js";
 import payerConnectorsRouter from "./routes/payerConnectors.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
+import { createMemoryRateLimiter } from "./middleware/rateLimit.js";
 dotenv.config();
 
 const INSECURE_JWT_SECRETS = new Set([
@@ -39,6 +41,19 @@ if (
 assertDocumentStorageConfiguration();
 
 const app = express();
+app.disable("x-powered-by");
+
+// Security headers are centralized here so every route, including errors,
+// receives the same baseline. HSTS is emitted only in production where TLS
+// termination is expected at the trusted reverse proxy/load balancer.
+app.use(
+  helmet({
+    hsts:
+      process.env.NODE_ENV === "production"
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        : false
+  })
+);
 
 // Only trust the immediate reverse proxy when explicitly enabled. This keeps
 // req.ip useful without blindly trusting spoofable X-Forwarded-For headers.
@@ -76,10 +91,45 @@ app.use(
     }
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "1mb" }));
 app.use(standardizeApiErrors);
 
+const apiRateLimiter = createMemoryRateLimiter({
+  windowMs: Number(process.env.API_RATE_LIMIT_WINDOW_MS || 60000),
+  max: Number(process.env.API_RATE_LIMIT_MAX || 300),
+  code: "API_RATE_LIMITED"
+});
+const expensiveOperationRateLimiter = createMemoryRateLimiter({
+  windowMs: Number(process.env.EXPENSIVE_RATE_LIMIT_WINDOW_MS || 60000),
+  max: Number(process.env.EXPENSIVE_RATE_LIMIT_MAX || 30),
+  code: "EXPENSIVE_OPERATION_RATE_LIMITED",
+  shouldLimit(req) {
+    return /\/documents\/upload(?:\?|$)|\/check(?:\?|$)|\/submit(?:\?|$)|\/journey\/|\/payer-simulation\//.test(
+      req.originalUrl || ""
+    );
+  }
+});
+app.use("/api", apiRateLimiter);
+app.use("/api", expensiveOperationRateLimiter);
+
+let shuttingDown = false;
 app.get("/health", (_, res) => res.json({ ok: true }));
+app.get("/health/live", (_, res) => res.json({ ok: true }));
+app.get("/health/ready", async (_req, res) => {
+  if (shuttingDown) {
+    return res.status(503).json({ ok: false, reason: "shutting_down" });
+  }
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("[readiness] database check failed", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    return res.status(503).json({ ok: false, reason: "database_unavailable" });
+  }
+});
 
 /**
  * AUTH ROUTES
@@ -164,9 +214,6 @@ app.use(
 );
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
 
 // Centralized error handler: unexpected failures never leak database internals.
 app.use((err, req, res, _next) => {
@@ -183,5 +230,35 @@ app.use((err, req, res, _next) => {
   return res.status(500).json({ error: "Internal server error", message: "The request could not be completed", code: "INTERNAL_ERROR" });
 });
 
-process.once("SIGTERM", async () => { await disconnectDatabase(); process.exit(0); });
-process.once("SIGINT", async () => { await disconnectDatabase(); process.exit(0); });
+const server = app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] ${signal} received; stopping HTTP server`);
+
+  const forceCloseTimer = setTimeout(() => {
+    console.error("[shutdown] graceful timeout exceeded; closing remaining connections");
+    server.closeAllConnections?.();
+  }, Number(process.env.GRACEFUL_SHUTDOWN_TIMEOUT_MS || 10000));
+  forceCloseTimer.unref?.();
+
+  server.close(async (closeError) => {
+    try {
+      if (closeError) {
+        console.error("[shutdown] HTTP server close failed", { message: closeError.message });
+      }
+      await disconnectDatabase();
+      clearTimeout(forceCloseTimer);
+      process.exit(closeError ? 1 : 0);
+    } catch (error) {
+      console.error("[shutdown] database disconnect failed", { message: error?.message });
+      process.exit(1);
+    }
+  });
+}
+
+process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
+process.once("SIGINT", () => { void shutdown("SIGINT"); });
