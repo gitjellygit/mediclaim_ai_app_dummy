@@ -27,10 +27,29 @@ async function seedUser(email, role, envKey, organizationId) {
 }
 
 async function main() {
+  const demoSubmissionProfile = {
+    stediSubmitterName: "Demo Hospital",
+    stediSubmitterId: "DEMO-SUBMITTER",
+    stediSubmitterPhone: "3035550100",
+    stediBillingProviderName: "Demo Hospital",
+    stediBillingAddress1: "500 Provider Ave",
+    stediBillingAddress2: null,
+    stediBillingCity: "Denver",
+    stediBillingState: "CO",
+    stediBillingPostalCode: "80203",
+    stediProfessionalSignatureIndicator: "Y",
+    stediProfessionalPlanParticipationCode: "A",
+    stediInstitutionalPlanParticipationCode: "C",
+    stediBenefitsAssignmentIndicator: "Y",
+    stediReleaseInformationCode: "Y",
+    stediDefaultProfessionalPlaceOfService: "11",
+    stediDefaultInstitutionalPlaceOfService: "21"
+  };
+
   const organization = await prisma.organization.upsert({
     where: { slug: "demo-hospital" },
-    update: {},
-    create: { name: "Demo Hospital", slug: "demo-hospital" }
+    update: demoSubmissionProfile,
+    create: { name: "Demo Hospital", slug: "demo-hospital", ...demoSubmissionProfile }
   });
   const results = [];
 

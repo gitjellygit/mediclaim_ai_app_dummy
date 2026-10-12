@@ -20,7 +20,7 @@ Before a production deployment that contains new migrations:
 6. Verify at minimum:
    - every Claim still belongs to the expected Organization;
    - payer transaction uniqueness remains scoped by transaction + claim;
-   - no duplicate `OrganizationBillingProfile.organizationId` values exist;
+   - organization-owned submitter/billing/legal configuration remains associated with the expected Organization;
    - existing claims, documents, service lines, payer transactions, denials, underpayments and audit events retain their counts and foreign-key relationships;
    - login/session and organization-scoped reads still work;
    - representative claim readiness, document access, payer status and remittance workflows can read migrated rows.
@@ -38,11 +38,10 @@ FROM "Claim" c
 LEFT JOIN "Organization" o ON o.id = c."organizationId"
 WHERE o.id IS NULL;
 
--- Organization billing profiles must remain one-to-one.
-SELECT "organizationId", count(*)
-FROM "OrganizationBillingProfile"
-GROUP BY "organizationId"
-HAVING count(*) > 1;
+-- Review organization-owned submission profile fields after migration.
+SELECT id, slug, "stediSubmitterName", "stediBillingProviderName"
+FROM "Organization"
+ORDER BY slug;
 
 -- Payer transaction duplicates under the scoped business key should be zero.
 SELECT "transactionId", "claimId", count(*)

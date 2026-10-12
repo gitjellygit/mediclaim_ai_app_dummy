@@ -167,9 +167,7 @@ export function registerDefaultPayerConnectors() {
     environment: PAYER_CONNECTOR_ENVIRONMENTS.PRODUCTION,
     capabilities: (env) => [
       "checkEligibility",
-      ...(env.STEDI_PRODUCTION_SUBMISSION_ENABLED === "true"
-        ? ["submitClaim"]
-        : []),
+      ...(env.STEDI_PRODUCTION_SUBMISSION_ENABLED === "true" ? ["submitClaim"] : []),
       "getStatus",
       ...(env.STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED === "true"
         ? ["getRemittance"]

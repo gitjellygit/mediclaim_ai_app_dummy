@@ -292,6 +292,7 @@ test("production payer capabilities are truthful and do not advertise prior auth
     listPayerConnectors({
       STEDI_PRODUCTION_API_KEY: "prod",
       STEDI_PRODUCTION_PHI_CONFIRMED: "true",
+      STEDI_PRODUCTION_SUBMISSION_ENABLED: "true",
       STEDI_TEST_API_KEY: "test"
     }).map((item) => [item.id, item])
   );
@@ -372,4 +373,35 @@ test("claim completion filters stay visible and Fix targets exact fields", () =>
   assert.match(detail, /isFixField\("providerTaxonomyCode"\)/);
   assert.match(detail, /document\.querySelector\([\s\S]*data-fix-field/);
   assert.match(detail, /scrollIntoView\([\s\S]*block: "center"/);
+});
+
+
+test("production 837 capability has an independent deployment kill switch", () => {
+  const disabled = listPayerConnectors({
+    STEDI_PRODUCTION_API_KEY: "prod",
+    STEDI_PRODUCTION_PHI_CONFIRMED: "true",
+    STEDI_PRODUCTION_SUBMISSION_ENABLED: "false"
+  }).find((item) => item.id === "STEDI_PRODUCTION");
+  assert.equal(disabled?.configured, true);
+  assert.equal(disabled?.capabilities.includes("submitClaim"), false);
+  assert.equal(disabled?.capabilities.includes("getStatus"), true);
+
+  const enabled = listPayerConnectors({
+    STEDI_PRODUCTION_API_KEY: "prod",
+    STEDI_PRODUCTION_PHI_CONFIRMED: "true",
+    STEDI_PRODUCTION_SUBMISSION_ENABLED: "true"
+  }).find((item) => item.id === "STEDI_PRODUCTION");
+  assert.equal(enabled?.capabilities.includes("submitClaim"), true);
+});
+
+test("production submission route requires explicit confirmation and records retry-safe unknown outcome", () => {
+  const claims = read("backend/src/routes/claims.js");
+  const journey = read("frontend/src/modules/journey/ClaimJourney.jsx");
+
+  assert.match(claims, /PRODUCTION_SUBMISSION_CONFIRMATION_REQUIRED/);
+  assert.match(claims, /requestHash: payerSubmission\.payloadHash/);
+  assert.match(claims, /PAYER_SUBMISSION_OUTCOME_UNKNOWN/);
+  assert.match(claims, /retrySafe: true/);
+  assert.match(journey, /Confirm production 837 submission/);
+  assert.match(journey, /confirmProductionSubmission: true/);
 });

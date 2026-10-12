@@ -1,4 +1,4 @@
-import crypto from "node:crypto";
+import { createHash } from "node:crypto";
 import { PayerConnectorUnavailableError } from "./payerConnectorRegistry.js";
 import { moneyCents, moneyFromCents, validMoney } from "../utils/money.js";
 
@@ -18,6 +18,21 @@ function connectorSignal(signal) {
     : signal;
 }
 
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function stediSubmissionPayloadHash(payload) {
+  return createHash("sha256").update(stableJson(payload)).digest("hex");
+}
 
 function required(value, name) {
   if (value == null || value === "") {
@@ -562,17 +577,12 @@ async function discoverStedi835({
     });
     if (normalized.status === "POSTED") {
       matches.push(normalized);
-      // Two exact matches already require human review; additional report
-      // downloads do not improve the decision and only increase exposure.
       if (matches.length >= 2) break;
     }
   }
 
   if (matches.length === 1) {
-    return {
-      ...matches[0],
-      nextPageToken
-    };
+    return { ...matches[0], nextPageToken };
   }
 
   return {
@@ -617,81 +627,17 @@ function stediAddress(source, prefix) {
 
 function stediProviderAddress(profile = {}) {
   const address = {
-    address1: String(profile.billingAddress1 || "").trim() || null,
-    address2: String(profile.billingAddress2 || "").trim() || null,
-    city: String(profile.billingCity || "").trim() || null,
-    state: String(profile.billingState || "").trim() || null,
-    postalCode: String(profile.billingPostalCode || "").trim() || null
+    address1: String(profile.stediBillingAddress1 || "").trim() || null,
+    address2: String(profile.stediBillingAddress2 || "").trim() || null,
+    city: String(profile.stediBillingCity || "").trim() || null,
+    state: String(profile.stediBillingState || "").trim() || null,
+    postalCode: String(profile.stediBillingPostalCode || "").trim() || null
   };
-  required(address.address1, "organization billingAddress1");
-  required(address.city, "organization billingCity");
-  required(address.state, "organization billingState");
-  required(address.postalCode, "organization billingPostalCode");
+  required(address.address1, "organization.stediBillingAddress1");
+  required(address.city, "organization.stediBillingCity");
+  required(address.state, "organization.stediBillingState");
+  required(address.postalCode, "organization.stediBillingPostalCode");
   return Object.fromEntries(Object.entries(address).filter(([, value]) => value));
-}
-
-function testBillingProfileFromEnv(env = {}) {
-  return {
-    active: true,
-    submitterName: String(env.STEDI_SUBMITTER_NAME || "").trim() || null,
-    submitterId: String(env.STEDI_SUBMITTER_ID || "").trim() || null,
-    submitterPhone: String(env.STEDI_SUBMITTER_PHONE || "").replace(/\D/g, "") || null,
-    billingProviderName:
-      String(env.STEDI_BILLING_PROVIDER_NAME || "").trim() || null,
-    billingAddress1: String(env.STEDI_BILLING_ADDRESS1 || "").trim() || null,
-    billingAddress2: String(env.STEDI_BILLING_ADDRESS2 || "").trim() || null,
-    billingCity: String(env.STEDI_BILLING_CITY || "").trim() || null,
-    billingState: String(env.STEDI_BILLING_STATE || "").trim() || null,
-    billingPostalCode:
-      String(env.STEDI_BILLING_POSTAL_CODE || "").trim() || null,
-    // Test-only compatibility defaults. Production requires an explicit
-    // organization-owned profile and never falls back to these values.
-    signatureOnFile: true,
-    assignmentOfBenefits: true,
-    releaseOfInformation: true,
-    professionalPlanParticipationCode: "A",
-    institutionalPlanParticipationCode: "C",
-    defaultProfessionalPlaceOfService: "11",
-    defaultInstitutionalPlaceOfService: "21"
-  };
-}
-
-function resolveBillingProfile(context = {}, env = {}, usageIndicator = "T") {
-  if (context.billingProfile) {
-    if (context.billingProfile.active !== true) {
-      const error = new Error("Organization billing profile is not active");
-      error.code = "STEDI_CLAIM_REQUEST_INVALID";
-      throw error;
-    }
-    return context.billingProfile;
-  }
-
-  if (usageIndicator === "P") {
-    const error = new Error(
-      "An active organization billing profile is required for production claim submission"
-    );
-    error.code = "STEDI_CLAIM_REQUEST_INVALID";
-    throw error;
-  }
-
-  return testBillingProfileFromEnv(env);
-}
-
-function yesNo(value, field) {
-  if (typeof value !== "boolean") {
-    const error = new Error(
-      `organization billing profile ${field} must be explicitly configured`
-    );
-    error.code = "STEDI_CLAIM_REQUEST_INVALID";
-    throw error;
-  }
-  return value ? "Y" : "N";
-}
-
-function profileValue(profile, field) {
-  const value = String(profile?.[field] || "").trim();
-  required(value, `organization billing profile ${field}`);
-  return value;
 }
 
 function claimFrequencyCode(value) {
@@ -717,13 +663,14 @@ function diagnosisCode(value) {
 }
 
 function stediSubmitter(claim, profile = {}) {
-  const organizationName = profileValue(profile, "submitterName");
-  const phoneNumber = String(profile.submitterPhone || "").replace(/\D/g, "");
-  required(phoneNumber, "organization billing profile submitterPhone");
+  const organizationName = String(profile.stediSubmitterName || "").trim();
+  const phoneNumber = String(profile.stediSubmitterPhone || "").replace(/\D/g, "");
+  required(organizationName, "organization.stediSubmitterName");
+  required(phoneNumber, "organization.stediSubmitterPhone");
   return {
     organizationName,
-    ...(profile.submitterId
-      ? { submitterIdentification: String(profile.submitterId).trim() }
+    ...(profile.stediSubmitterId
+      ? { submitterIdentification: String(profile.stediSubmitterId).trim() }
       : {}),
     contactInformation: {
       name: organizationName,
@@ -805,10 +752,12 @@ function stediBillingProvider(claim, profile = {}) {
   required(claim.billingProviderNpi, "billingProviderNpi");
   required(claim.providerTin, "providerTin");
   required(claim.providerTaxonomyCode, "providerTaxonomyCode");
-  const organizationName = profileValue(profile, "billingProviderName");
-  const contactName = profileValue(profile, "submitterName");
-  const phoneNumber = String(profile.submitterPhone || "").replace(/\D/g, "");
-  required(phoneNumber, "organization billing profile submitterPhone");
+  const organizationName = String(profile.stediBillingProviderName || "").trim();
+  required(organizationName, "organization.stediBillingProviderName");
+  const contactName = String(profile.stediSubmitterName || "").trim();
+  const phoneNumber = String(profile.stediSubmitterPhone || "").replace(/\D/g, "");
+  required(contactName, "organization.stediSubmitterName");
+  required(phoneNumber, "organization.stediSubmitterPhone");
   return {
     providerType: "BillingProvider",
     npi: claim.billingProviderNpi,
@@ -825,8 +774,6 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
     context.claimType || claim?.claimForm || "PROFESSIONAL"
   ).toUpperCase();
   const usageIndicator = context.usageIndicator === "P" ? "P" : "T";
-  const env = context.env || {};
-  const billingProfile = resolveBillingProfile(context, env, usageIndicator);
 
   if (context.requestPayload) {
     return {
@@ -834,6 +781,8 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
       claimType
     };
   }
+
+  const submissionProfile = context.submissionProfile || claim.organization || {};
   const payerId = context.payerId || claim.connectedPayerCode || claim.payerEdiId;
   const payerName =
     context.payerName || claim.connectedPayerName || claim.payerName;
@@ -849,7 +798,7 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
     usageIndicator,
     tradingPartnerServiceId: String(payerId),
     tradingPartnerName: String(payerName),
-    submitter: stediSubmitter(claim, billingProfile),
+    submitter: stediSubmitter(claim, submissionProfile),
     receiver: { organizationName: String(payerName) },
     subscriber: stediSubscriber(claim)
   };
@@ -907,20 +856,23 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
           claimChargeAmount: totalCharge,
           placeOfServiceCode: String(
             lines[0]?.placeOfService ||
-              profileValue(billingProfile, "defaultInstitutionalPlaceOfService")
+              required(
+                submissionProfile.stediDefaultInstitutionalPlaceOfService,
+                "organization.stediDefaultInstitutionalPlaceOfService"
+              )
           ),
           claimFrequencyCode: claimFrequencyCode(claim.claimFrequencyCode),
-          planParticipationCode: profileValue(
-            billingProfile,
-            "institutionalPlanParticipationCode"
+          planParticipationCode: required(
+            submissionProfile.stediInstitutionalPlanParticipationCode,
+            "organization.stediInstitutionalPlanParticipationCode"
           ),
-          benefitsAssignmentCertificationIndicator: yesNo(
-            billingProfile.assignmentOfBenefits,
-            "assignmentOfBenefits"
+          benefitsAssignmentCertificationIndicator: required(
+            submissionProfile.stediBenefitsAssignmentIndicator,
+            "organization.stediBenefitsAssignmentIndicator"
           ),
-          releaseInformationCode: yesNo(
-            billingProfile.releaseOfInformation,
-            "releaseOfInformation"
+          releaseInformationCode: required(
+            submissionProfile.stediReleaseInformationCode,
+            "organization.stediReleaseInformationCode"
           ),
           principalDiagnosis: {
             qualifierCode: "ABK",
@@ -938,12 +890,12 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
             statementEndDate: endDate
           }
         },
-        providers: [stediBillingProvider(claim, billingProfile)]
+        providers: [stediBillingProvider(claim, submissionProfile)]
       }
     };
   }
 
-  const billing = stediBillingProvider(claim, billingProfile);
+  const billing = stediBillingProvider(claim, submissionProfile);
   const diagnosisIndex = new Map(diagnoses.map((code, index) => [code, String(index + 1)]));
   const serviceLines = lines.map((line, index) => {
     required(line.cptHcpcsCode, `serviceLines[${index}].cptHcpcsCode`);
@@ -988,24 +940,27 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
         claimChargeAmount: totalCharge,
         placeOfServiceCode: String(
           lines[0]?.placeOfService ||
-            profileValue(billingProfile, "defaultProfessionalPlaceOfService")
+            required(
+              submissionProfile.stediDefaultProfessionalPlaceOfService,
+              "organization.stediDefaultProfessionalPlaceOfService"
+            )
         ),
         claimFrequencyCode: claimFrequencyCode(claim.claimFrequencyCode),
-        signatureIndicator: yesNo(
-          billingProfile.signatureOnFile,
-          "signatureOnFile"
+        signatureIndicator: required(
+          submissionProfile.stediProfessionalSignatureIndicator,
+          "organization.stediProfessionalSignatureIndicator"
         ),
-        planParticipationCode: profileValue(
-          billingProfile,
-          "professionalPlanParticipationCode"
+        planParticipationCode: required(
+          submissionProfile.stediProfessionalPlanParticipationCode,
+          "organization.stediProfessionalPlanParticipationCode"
         ),
-        benefitsAssignmentCertificationIndicator: yesNo(
-          billingProfile.assignmentOfBenefits,
-          "assignmentOfBenefits"
+        benefitsAssignmentCertificationIndicator: required(
+          submissionProfile.stediBenefitsAssignmentIndicator,
+          "organization.stediBenefitsAssignmentIndicator"
         ),
-        releaseInformationCode: yesNo(
-          billingProfile.releaseOfInformation,
-          "releaseOfInformation"
+        releaseInformationCode: required(
+          submissionProfile.stediReleaseInformationCode,
+          "organization.stediReleaseInformationCode"
         ),
         healthCareCodeInformation: diagnoses.map((code, index) => ({
           diagnosisTypeCode: index === 0 ? "ABK" : "ABF",
@@ -1014,20 +969,6 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
         serviceLines
       }
     }
-  };
-}
-
-function claimSubmissionIdempotencyKey(claim, claimType, payload, prefix = "") {
-  const payloadHash = crypto
-    .createHash("sha256")
-    .update(JSON.stringify(payload))
-    .digest("hex");
-  const base =
-    prefix ||
-    `claim-app-${claim?.id || "claim"}-${claimType}-${claim?.claimFrequencyCode || "ORIGINAL"}`;
-  return {
-    payloadHash,
-    idempotencyKey: `${base}-${payloadHash.slice(0, 32)}`.slice(0, 255)
   };
 }
 
@@ -1269,13 +1210,11 @@ export function createStediTestConnector({
         normalizedType === "INSTITUTIONAL"
           ? "/change/medicalnetwork/institutionalclaims/v1/submission"
           : "/change/medicalnetwork/professionalclaims/v3/submission";
-      const { idempotencyKey, payloadHash } =
-        claimSubmissionIdempotencyKey(
-          claim,
-          normalizedType,
-          payload,
-          context.idempotencyKey
-        );
+      const payloadHash = stediSubmissionPayloadHash(payload);
+      const idempotencyKey = String(
+        context.idempotencyKey ||
+          `claim-app-${claim?.id || "claim"}-${payloadHash}`
+      ).slice(0, 255);
 
       const startedAt = Date.now();
       const response = await fetchImpl(`${claimsBaseUrl}${path}`, {
@@ -1303,6 +1242,13 @@ export function createStediTestConnector({
     },
 
     async getRemittance(claim, context = {}) {
+      if (env.STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED !== "true") {
+        throw new PayerConnectorUnavailableError(
+          "STEDI_PRODUCTION",
+          "Production ERA retrieval is disabled until tenant isolation is explicitly confirmed"
+        );
+      }
+
       const expectedPatientControlNumber =
         context.expectedPatientControlNumber ||
         context.patientControlNumber ||
@@ -1418,7 +1364,7 @@ export function createStediProductionConnector({
       if (env.STEDI_PRODUCTION_SUBMISSION_ENABLED !== "true") {
         throw new PayerConnectorUnavailableError(
           "STEDI_PRODUCTION",
-          "Production claim submission is disabled"
+          "Production 837 submission is disabled by STEDI_PRODUCTION_SUBMISSION_ENABLED"
         );
       }
       const { payload, claimType } = buildStediClaimSubmissionRequest(claim, {
@@ -1432,25 +1378,38 @@ export function createStediProductionConnector({
         normalizedType === "INSTITUTIONAL"
           ? "/change/medicalnetwork/institutionalclaims/v1/submission"
           : "/change/medicalnetwork/professionalclaims/v3/submission";
-      const { idempotencyKey, payloadHash } =
-        claimSubmissionIdempotencyKey(
-          claim,
-          normalizedType,
-          payload,
-          context.idempotencyKey
-        );
+      const payloadHash = stediSubmissionPayloadHash(payload);
+      const idempotencyKey = String(
+        context.idempotencyKey ||
+          `claim-app-${claim?.id || "claim"}-${payloadHash}`
+      ).slice(0, 255);
 
       const startedAt = Date.now();
-      const response = await fetchImpl(`${claimsBaseUrl}${path}`, {
-        method: "POST",
-        headers: {
-          Authorization: apiKey,
-          "Content-Type": "application/json",
-          "Idempotency-Key": idempotencyKey
-        },
-        body: JSON.stringify(payload),
-        signal: connectorSignal(context.signal)
-      });
+      let response;
+      try {
+        response = await fetchImpl(`${claimsBaseUrl}${path}`, {
+          method: "POST",
+          headers: {
+            Authorization: apiKey,
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey
+          },
+          body: JSON.stringify(payload),
+          signal: connectorSignal(context.signal)
+        });
+      } catch (error) {
+        if (error?.name === "TimeoutError" || error?.name === "AbortError") {
+          const unknown = new Error(
+            "Production claim submission outcome is unknown. Retrying the same unchanged payload is safe because the same idempotency key will be reused."
+          );
+          unknown.code = "STEDI_SUBMISSION_OUTCOME_UNKNOWN";
+          unknown.idempotencyKey = idempotencyKey;
+          unknown.payloadHash = payloadHash;
+          unknown.latencyMs = Date.now() - startedAt;
+          throw unknown;
+        }
+        throw error;
+      }
       const body = await parseResponse(response);
       return normalizeStediClaimSubmissionResponse(body, {
         claimType: normalizedType,
@@ -1488,12 +1447,6 @@ export function createStediProductionConnector({
     },
 
     async getRemittance(claim, context = {}) {
-      if (env.STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED !== "true") {
-        throw new PayerConnectorUnavailableError(
-          "STEDI_PRODUCTION",
-          "Production ERA retrieval is disabled until tenant isolation is explicitly confirmed"
-        );
-      }
       const expectedPatientControlNumber =
         context.expectedPatientControlNumber ||
         context.patientControlNumber ||

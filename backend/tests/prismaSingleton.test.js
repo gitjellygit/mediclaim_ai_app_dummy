@@ -28,6 +28,7 @@ test("B6 - backend runtime uses one PrismaClient owner and disconnect hook", () 
 
   const entry = fs.readFileSync(path.join(backendRoot, "src/index.js"), "utf8");
   assert.match(entry, /import \{ prisma, disconnectDatabase \} from "\.\/db\.js"/);
-  assert.match(entry, /process\.once\("SIGTERM", async \(\) => \{ await disconnectDatabase\(\)/);
-  assert.match(entry, /process\.once\("SIGINT", async \(\) => \{ await disconnectDatabase\(\)/);
+  assert.match(entry, /process\.once\("SIGTERM", \(\) => \{ void shutdown\("SIGTERM"\); \}\)/);
+  assert.match(entry, /process\.once\("SIGINT", \(\) => \{ void shutdown\("SIGINT"\); \}\)/);
+  assert.ok(entry.indexOf("server.close(") < entry.indexOf("await disconnectDatabase()"));
 });

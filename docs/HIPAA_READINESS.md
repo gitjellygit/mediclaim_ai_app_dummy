@@ -89,7 +89,7 @@ The current codebase includes:
 - production payer-connector hardening:
   - Stedi production PHI operations are unavailable unless both `STEDI_PRODUCTION_API_KEY` and `STEDI_PRODUCTION_PHI_CONFIRMED=true` are configured;
   - real 837 transmission has an independent default-off `STEDI_PRODUCTION_SUBMISSION_ENABLED` kill switch plus an explicit user confirmation step;
-  - production 837 submitter/billing identity and legal indicators come from the claim's organization-owned `OrganizationBillingProfile`, not process-wide billing environment variables;
+  - production 837 submitter/billing identity and legal indicators come from the claim's organization-owned `Organization submission profile`, not process-wide billing environment variables;
   - 837 idempotency keys include a SHA-256 fingerprint of the canonical payload so the same payload is retry-safe while materially changed claims use a different key;
   - ambiguous network/timeout outcomes return an explicit outcome-unknown state and instruct the user to retry the same claim rather than create a duplicate;
   - production 835 discovery is unavailable unless `STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED=true`; enabling that flag requires an approved tenant-isolation mechanism such as separate organization credentials/account partitioning;
@@ -296,14 +296,14 @@ Password reset is not currently implemented in this application. When that workf
 The application now includes additional release controls from the production-readiness engineering review:
 
 - independent production 837 enablement and an explicit transmission confirmation;
-- per-organization Billing / EDI Profile with explicit signature, assignment-of-benefits, release-of-information, participation-code and default POS settings;
+- per-organization submission profile with explicit signature, assignment-of-benefits, release-of-information, participation-code and default POS settings;
 - payload-bound claim submission idempotency and explicit outcome-unknown timeout handling;
 - production ERA discovery disabled until tenant isolation is explicitly confirmed;
 - bounded/paginated ERA discovery and bounded tenant claim/document list APIs;
 - minimum-necessary document mutation responses with named document-edit permissions;
 - production security headers/HSTS, API throttling, bounded JSON bodies, database readiness health checks and graceful HTTP shutdown;
 - a non-root production backend Dockerfile;
-- read-only CI token permissions, pinned lint/format tool versions, formatting checks, CodeQL and Dependabot configuration;
+- read-only CI token permissions, CodeQL and Dependabot configuration;
 - fail-closed auditing for audit export; permanent claim purge already records audit and deletion atomically.
 
 These controls still require deployment and billing validation. In particular, a qualified billing/EDI specialist must validate configured participation codes, place-of-service defaults, attestations and payer/enrollment requirements before real 837 submission.

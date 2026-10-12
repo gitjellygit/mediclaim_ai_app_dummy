@@ -69,10 +69,10 @@ export const ClaimsApi = {
     });
   },
 
-  submit(id, { confirmProductionSubmission = false } = {}) {
+  submit(id, options = {}) {
     return api(`${BASE}/${id}/submit`, {
       method: "POST",
-      body: JSON.stringify({ confirmProductionSubmission })
+      body: JSON.stringify(options)
     });
   },
 

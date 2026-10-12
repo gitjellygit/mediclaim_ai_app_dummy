@@ -194,43 +194,29 @@ model Organization {
   name      String
   slug      String   @unique
 
+  // Organization-owned 837 submitter/billing/legal configuration.
+  // Nullable by design: production submission fails preflight until configured.
+  stediSubmitterName                         String?
+  stediSubmitterId                           String?
+  stediSubmitterPhone                        String?
+  stediBillingProviderName                   String?
+  stediBillingAddress1                       String?
+  stediBillingAddress2                       String?
+  stediBillingCity                           String?
+  stediBillingState                          String?
+  stediBillingPostalCode                     String?
+  stediProfessionalSignatureIndicator        String?
+  stediProfessionalPlanParticipationCode     String?
+  stediInstitutionalPlanParticipationCode    String?
+  stediBenefitsAssignmentIndicator           String?
+  stediReleaseInformationCode                String?
+  stediDefaultProfessionalPlaceOfService     String?
+  stediDefaultInstitutionalPlaceOfService    String?
+
   users       User[]
   claims      Claim[]
   auditEvents AuditEvent[]
   rules       Rule[]
-  billingProfile OrganizationBillingProfile?
-}
-
-model OrganizationBillingProfile {
-  id             String   @id @default(cuid())
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  organizationId String       @unique
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  active Boolean @default(false)
-
-  submitterName  String?
-  submitterId    String?
-  submitterPhone String?
-
-  billingProviderName String?
-  billingAddress1      String?
-  billingAddress2      String?
-  billingCity          String?
-  billingState         String?
-  billingPostalCode    String?
-
-  signatureOnFile                        Boolean?
-  assignmentOfBenefits                   Boolean?
-  releaseOfInformation                   Boolean?
-  professionalPlanParticipationCode      String?
-  institutionalPlanParticipationCode     String?
-  defaultProfessionalPlaceOfService      String?
-  defaultInstitutionalPlaceOfService     String?
-
-  @@index([organizationId])
 }
 
 model Claim {
@@ -493,10 +479,12 @@ model PayerTransaction {
   transactionType String
   status        String
   latencyMs     Int?
+  requestHash   String?
   requestPayload Json?
   responsePayload Json?
 
   @@unique([transactionId, claimId])
+  @@unique([claimId, transactionType, requestHash])
   @@index([claimId, createdAt])
   @@index([payerCode])
   @@index([transactionType])

@@ -2,13 +2,12 @@ import express from "express";
 import crypto from "node:crypto";
 import cors from "cors";
 import dotenv from "dotenv";
+import helmet from "helmet";
 import { prisma, disconnectDatabase } from "./db.js";
 import { captureAsyncRouter } from "./middleware/asyncRouter.js";
 import { standardizeApiErrors } from "./middleware/apiErrors.js";
 import { requireAuth, requireRoles } from "./middleware/auth.js";
 import { permissionList } from "./security/permissions.js";
-import { securityHeaders } from "./middleware/securityHeaders.js";
-import { apiRateLimit } from "./middleware/apiRateLimit.js";
 
 import claimsRouter from "./routes/claims.js";
 import rulesRouter from "./routes/rules.js";
@@ -18,9 +17,9 @@ import denialsRouter from "./routes/denials.js";
 import underpaymentsRouter from "./routes/underpayments.js";
 import auditRouter from "./routes/audit.js";
 import payerConnectorsRouter from "./routes/payerConnectors.js";
-import organizationBillingProfileRouter from "./routes/organizationBillingProfile.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
+import { createMemoryRateLimiter } from "./middleware/rateLimit.js";
 dotenv.config();
 
 const INSECURE_JWT_SECRETS = new Set([
@@ -44,11 +43,17 @@ assertDocumentStorageConfiguration();
 const app = express();
 app.disable("x-powered-by");
 
-const trustProxy = String(process.env.TRUST_PROXY || "false").trim();
-if (trustProxy === "true") app.set("trust proxy", 1);
-else if (/^\d+$/.test(trustProxy)) app.set("trust proxy", Number(trustProxy));
-
-app.use(securityHeaders);
+// Security headers are centralized here so every route, including errors,
+// receives the same baseline. HSTS is emitted only in production where TLS
+// termination is expected at the trusted reverse proxy/load balancer.
+app.use(
+  helmet({
+    hsts:
+      process.env.NODE_ENV === "production"
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        : false
+  })
+);
 
 // Only trust the immediate reverse proxy when explicitly enabled. This keeps
 // req.ip useful without blindly trusting spoofable X-Forwarded-For headers.
@@ -87,43 +92,52 @@ app.use(
   })
 );
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "1mb" }));
-app.use(
-  apiRateLimit({
-    windowMs: Number(process.env.API_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
-    maxRequests: Number(process.env.API_RATE_LIMIT_MAX || 600),
-    maxExpensiveRequests: Number(
-      process.env.API_EXPENSIVE_RATE_LIMIT_MAX || 120
-    )
-  })
-);
 app.use(standardizeApiErrors);
 
-async function readinessHealth(_req, res) {
+const apiRateLimiter = createMemoryRateLimiter({
+  windowMs: Number(process.env.API_RATE_LIMIT_WINDOW_MS || 60000),
+  max: Number(process.env.API_RATE_LIMIT_MAX || 300),
+  code: "API_RATE_LIMITED"
+});
+const expensiveOperationRateLimiter = createMemoryRateLimiter({
+  windowMs: Number(process.env.EXPENSIVE_RATE_LIMIT_WINDOW_MS || 60000),
+  max: Number(process.env.EXPENSIVE_RATE_LIMIT_MAX || 30),
+  code: "EXPENSIVE_OPERATION_RATE_LIMITED",
+  shouldLimit(req) {
+    return /\/documents\/upload(?:\?|$)|\/check(?:\?|$)|\/submit(?:\?|$)|\/journey\/|\/payer-simulation\//.test(
+      req.originalUrl || ""
+    );
+  }
+});
+// Automated integration/E2E suites exercise many requests through one loopback
+// address; keep the production middleware testable in isolation without making
+// unrelated test order affect API assertions.
+if (
+  process.env.NODE_ENV !== "test" ||
+  process.env.ENABLE_RATE_LIMITS_IN_TEST === "true"
+) {
+  app.use("/api", apiRateLimiter);
+  app.use("/api", expensiveOperationRateLimiter);
+}
+
+let shuttingDown = false;
+app.get("/health", (_, res) => res.json({ ok: true }));
+app.get("/health/live", (_, res) => res.json({ ok: true }));
+app.get("/health/ready", async (_req, res) => {
+  if (shuttingDown) {
+    return res.status(503).json({ ok: false, reason: "shutting_down" });
+  }
   try {
-    await prisma.$queryRawUnsafe("SELECT 1");
-    return res.json({
-      ok: true,
-      status: "ready",
-      database: "reachable"
-    });
+    await prisma.$queryRaw`SELECT 1`;
+    return res.json({ ok: true });
   } catch (error) {
-    console.error("[health] database readiness check failed", {
+    console.error("[readiness] database check failed", {
       name: error?.name || "Error",
       code: error?.code || null
     });
-    return res.status(503).json({
-      ok: false,
-      status: "not_ready",
-      database: "unreachable"
-    });
+    return res.status(503).json({ ok: false, reason: "database_unavailable" });
   }
-}
-
-app.get("/health/live", (_req, res) =>
-  res.json({ ok: true, status: "live" })
-);
-app.get("/health/ready", readinessHealth);
-app.get("/health", readinessHealth);
+});
 
 /**
  * AUTH ROUTES
@@ -178,11 +192,6 @@ if (process.env.E2E_TEST_MODE === "true") {
 app.use("/api/denials", requireAuth, captureAsyncRouter(denialsRouter));
 app.use("/api/underpayments", requireAuth, captureAsyncRouter(underpaymentsRouter));
 app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectorsRouter));
-app.use(
-  "/api/organization/billing-profile",
-  requireAuth,
-  captureAsyncRouter(organizationBillingProfileRouter)
-);
 
 /**
  * DOCUMENT ROUTES
@@ -213,9 +222,6 @@ app.use(
 );
 
 const PORT = process.env.PORT || 4000;
-const server = app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
 
 // Centralized error handler: unexpected failures never leak database internals.
 app.use((err, req, res, _next) => {
@@ -232,39 +238,35 @@ app.use((err, req, res, _next) => {
   return res.status(500).json({ error: "Internal server error", message: "The request could not be completed", code: "INTERNAL_ERROR" });
 });
 
-let shuttingDown = false;
+const server = app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
 
-function shutdown(signal) {
+async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[shutdown] received ${signal}; stopping new HTTP connections`);
+  console.log(`[shutdown] ${signal} received; stopping HTTP server`);
 
-  const forceExit = setTimeout(() => {
-    console.error("[shutdown] grace period expired; forcing exit");
-    process.exit(1);
-  }, 15000);
-  forceExit.unref();
+  const forceCloseTimer = setTimeout(() => {
+    console.error("[shutdown] graceful timeout exceeded; closing remaining connections");
+    server.closeAllConnections?.();
+  }, Number(process.env.GRACEFUL_SHUTDOWN_TIMEOUT_MS || 10000));
+  forceCloseTimer.unref?.();
 
-  server.close(async (serverError) => {
+  server.close(async (closeError) => {
     try {
-      if (serverError) {
-        console.error("[shutdown] HTTP server close failed", {
-          name: serverError.name || "Error",
-          code: serverError.code || null
-        });
+      if (closeError) {
+        console.error("[shutdown] HTTP server close failed", { message: closeError.message });
       }
       await disconnectDatabase();
-      clearTimeout(forceExit);
-      process.exit(serverError ? 1 : 0);
+      clearTimeout(forceCloseTimer);
+      process.exit(closeError ? 1 : 0);
     } catch (error) {
-      console.error("[shutdown] database disconnect failed", {
-        name: error?.name || "Error",
-        code: error?.code || null
-      });
+      console.error("[shutdown] database disconnect failed", { message: error?.message });
       process.exit(1);
     }
   });
 }
 
-process.once("SIGTERM", () => shutdown("SIGTERM"));
-process.once("SIGINT", () => shutdown("SIGINT"));
+process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
+process.once("SIGINT", () => { void shutdown("SIGINT"); });

@@ -25,26 +25,6 @@ const claim = {
   hospitalName: "CLAIM APP Test Provider"
 };
 
-const productionBillingProfile = Object.freeze({
-  active: true,
-  submitterName: "Example Clinic",
-  submitterId: "SUBMITTER-1",
-  submitterPhone: "3035550100",
-  billingProviderName: "Example Clinic",
-  billingAddress1: "500 Provider Ave",
-  billingAddress2: null,
-  billingCity: "Denver",
-  billingState: "CO",
-  billingPostalCode: "80203",
-  signatureOnFile: true,
-  assignmentOfBenefits: true,
-  releaseOfInformation: true,
-  professionalPlanParticipationCode: "A",
-  institutionalPlanParticipationCode: "C",
-  defaultProfessionalPlaceOfService: "11",
-  defaultInstitutionalPlaceOfService: "21"
-});
-
 test("R2A - builds Stedi 270/271 JSON request from normalized claim fields", () => {
   const payload = buildStediEligibilityRequest(claim);
   assert.equal(payload.payerId, "61101");
@@ -288,7 +268,24 @@ test("R2B - Stedi builds trusted professional 837P payload from claim fields", (
     },
     {
       usageIndicator: "P",
-      billingProfile: productionBillingProfile
+      submissionProfile: {
+        stediSubmitterName: "Example Clinic",
+        stediSubmitterId: "SUBMITTER-1",
+        stediSubmitterPhone: "3035550100",
+        stediBillingProviderName: "Example Clinic",
+        stediBillingAddress1: "500 Provider Ave",
+        stediBillingAddress2: null,
+        stediBillingCity: "Denver",
+        stediBillingState: "CO",
+        stediBillingPostalCode: "80203",
+        stediProfessionalSignatureIndicator: "Y",
+        stediProfessionalPlanParticipationCode: "A",
+        stediInstitutionalPlanParticipationCode: "C",
+        stediBenefitsAssignmentIndicator: "Y",
+        stediReleaseInformationCode: "Y",
+        stediDefaultProfessionalPlaceOfService: "11",
+        stediDefaultInstitutionalPlaceOfService: "21"
+      }
     }
   );
 
@@ -389,8 +386,7 @@ test("R2B - Stedi connector submits professional 837P test claim with idempotenc
     "https://claims.example.test/2024-04-01/change/medicalnetwork/professionalclaims/v3/submission"
   );
   assert.equal(captured.options.headers.Authorization, "test-key");
-  assert.match(captured.options.headers["Idempotency-Key"], /^idem-prof-1-[a-f0-9]{32}$/);
-  assert.match(result.payloadHash, /^[a-f0-9]{64}$/);
+  assert.equal(captured.options.headers["Idempotency-Key"], "idem-prof-1");
   assert.equal(JSON.parse(captured.options.body).usageIndicator, "T");
   assert.equal(result.status, "ACKNOWLEDGED");
   assert.equal(result.transactionId, "corr-prof-1");
@@ -859,7 +855,24 @@ test("R3 - production Stedi submitClaim sends production 837 and never returns r
       modifiers: []
     }]
   }, {
-    billingProfile: productionBillingProfile
+    submissionProfile: {
+        stediSubmitterName: "Example Clinic",
+        stediSubmitterId: "SUBMITTER-1",
+        stediSubmitterPhone: "3035550100",
+        stediBillingProviderName: "Example Clinic",
+        stediBillingAddress1: "500 Provider Ave",
+        stediBillingAddress2: null,
+        stediBillingCity: "Denver",
+        stediBillingState: "CO",
+        stediBillingPostalCode: "80203",
+        stediProfessionalSignatureIndicator: "Y",
+        stediProfessionalPlanParticipationCode: "A",
+        stediInstitutionalPlanParticipationCode: "C",
+        stediBenefitsAssignmentIndicator: "Y",
+        stediReleaseInformationCode: "Y",
+        stediDefaultProfessionalPlaceOfService: "11",
+        stediDefaultInstitutionalPlaceOfService: "21"
+      }
   });
 
   assert.match(captured.url, /professionalclaims\/v3\/submission$/);
@@ -916,10 +929,23 @@ test("R2C - Stedi builds institutional 837I with interim frequency and admission
     },
     {
       usageIndicator: "P",
-      billingProfile: {
-        ...productionBillingProfile,
-        submitterName: "Example Hospital",
-        billingProviderName: "Example Hospital"
+      submissionProfile: {
+        stediSubmitterName: "Example Hospital",
+        stediSubmitterId: "SUBMITTER-1",
+        stediSubmitterPhone: "3035550100",
+        stediBillingProviderName: "Example Hospital",
+        stediBillingAddress1: "500 Provider Ave",
+        stediBillingAddress2: null,
+        stediBillingCity: "Denver",
+        stediBillingState: "CO",
+        stediBillingPostalCode: "80203",
+        stediProfessionalSignatureIndicator: "Y",
+        stediProfessionalPlanParticipationCode: "A",
+        stediInstitutionalPlanParticipationCode: "C",
+        stediBenefitsAssignmentIndicator: "Y",
+        stediReleaseInformationCode: "Y",
+        stediDefaultProfessionalPlaceOfService: "11",
+        stediDefaultInstitutionalPlaceOfService: "21"
       }
     }
   );
@@ -932,5 +958,98 @@ test("R2C - Stedi builds institutional 837I with interim frequency and admission
   assert.equal(
     result.payload.claimInformation.serviceLines[0].institutionalService.serviceLineRevenueCode,
     "0120"
+  );
+});
+
+
+test("R3 - production claim submission refuses to send when independent 837 switch is off", async () => {
+  const connector = createStediProductionConnector({
+    env: {
+      STEDI_PRODUCTION_API_KEY: "prod-key",
+      STEDI_PRODUCTION_PHI_CONFIRMED: "true",
+      STEDI_PRODUCTION_SUBMISSION_ENABLED: "false"
+    },
+    fetchImpl: async () => {
+      throw new Error("fetch must not be called");
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      connector.submitClaim(
+        { id: "claim-prod", claimForm: "PROFESSIONAL" },
+        { requestPayload: { tradingPartnerServiceId: "60054" } }
+      ),
+    (error) => error?.code === "PAYER_CONNECTOR_UNAVAILABLE"
+  );
+});
+
+test("R3 - production 837 idempotency key is deterministic for the same payload", async () => {
+  const seen = [];
+  const connector = createStediProductionConnector({
+    env: {
+      STEDI_PRODUCTION_API_KEY: "prod-key",
+      STEDI_PRODUCTION_PHI_CONFIRMED: "true",
+      STEDI_PRODUCTION_SUBMISSION_ENABLED: "true",
+      STEDI_PRODUCTION_CLAIMS_API_BASE_URL: "https://claims.example.test"
+    },
+    fetchImpl: async (_url, options) => {
+      seen.push(options.headers["Idempotency-Key"]);
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        async text() {
+          return JSON.stringify({ status: "SUCCESS", submissionId: "same" });
+        }
+      };
+    }
+  });
+
+  const context = {
+    requestPayload: {
+      tradingPartnerServiceId: "60054",
+      claimInformation: { patientControlNumber: "PCN-1" }
+    }
+  };
+  const first = await connector.submitClaim(
+    { id: "claim-1", claimForm: "PROFESSIONAL" },
+    context
+  );
+  const second = await connector.submitClaim(
+    { id: "claim-1", claimForm: "PROFESSIONAL" },
+    context
+  );
+
+  assert.equal(first.payloadHash, second.payloadHash);
+  assert.equal(seen[0], seen[1]);
+  assert.match(first.payloadHash, /^[a-f0-9]{64}$/);
+});
+
+test("R3 - production timeout becomes outcome unknown with safe-retry metadata", async () => {
+  const connector = createStediProductionConnector({
+    env: {
+      STEDI_PRODUCTION_API_KEY: "prod-key",
+      STEDI_PRODUCTION_PHI_CONFIRMED: "true",
+      STEDI_PRODUCTION_SUBMISSION_ENABLED: "true",
+      STEDI_PRODUCTION_CLAIMS_API_BASE_URL: "https://claims.example.test"
+    },
+    fetchImpl: async () => {
+      const error = new Error("timed out");
+      error.name = "TimeoutError";
+      throw error;
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      connector.submitClaim(
+        { id: "claim-timeout", claimForm: "PROFESSIONAL" },
+        { requestPayload: { tradingPartnerServiceId: "60054" } }
+      ),
+    (error) =>
+      error?.code === "STEDI_SUBMISSION_OUTCOME_UNKNOWN" &&
+      /^[a-f0-9]{64}$/.test(error.payloadHash || "") &&
+      Boolean(error.idempotencyKey)
   );
 });
