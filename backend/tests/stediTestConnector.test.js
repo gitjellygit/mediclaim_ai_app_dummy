@@ -25,6 +25,26 @@ const claim = {
   hospitalName: "CLAIM APP Test Provider"
 };
 
+const productionBillingProfile = Object.freeze({
+  active: true,
+  submitterName: "Example Clinic",
+  submitterId: "SUBMITTER-1",
+  submitterPhone: "3035550100",
+  billingProviderName: "Example Clinic",
+  billingAddress1: "500 Provider Ave",
+  billingAddress2: null,
+  billingCity: "Denver",
+  billingState: "CO",
+  billingPostalCode: "80203",
+  signatureOnFile: true,
+  assignmentOfBenefits: true,
+  releaseOfInformation: true,
+  professionalPlanParticipationCode: "A",
+  institutionalPlanParticipationCode: "C",
+  defaultProfessionalPlaceOfService: "11",
+  defaultInstitutionalPlaceOfService: "21"
+});
+
 test("R2A - builds Stedi 270/271 JSON request from normalized claim fields", () => {
   const payload = buildStediEligibilityRequest(claim);
   assert.equal(payload.payerId, "61101");
@@ -268,14 +288,7 @@ test("R2B - Stedi builds trusted professional 837P payload from claim fields", (
     },
     {
       usageIndicator: "P",
-      env: {
-        STEDI_SUBMITTER_NAME: "Example Clinic",
-        STEDI_SUBMITTER_PHONE: "3035550100",
-        STEDI_BILLING_ADDRESS1: "500 Provider Ave",
-        STEDI_BILLING_CITY: "Denver",
-        STEDI_BILLING_STATE: "CO",
-        STEDI_BILLING_POSTAL_CODE: "80203"
-      }
+      billingProfile: productionBillingProfile
     }
   );
 
@@ -376,7 +389,8 @@ test("R2B - Stedi connector submits professional 837P test claim with idempotenc
     "https://claims.example.test/2024-04-01/change/medicalnetwork/professionalclaims/v3/submission"
   );
   assert.equal(captured.options.headers.Authorization, "test-key");
-  assert.equal(captured.options.headers["Idempotency-Key"], "idem-prof-1");
+  assert.match(captured.options.headers["Idempotency-Key"], /^idem-prof-1-[a-f0-9]{32}$/);
+  assert.match(result.payloadHash, /^[a-f0-9]{64}$/);
   assert.equal(JSON.parse(captured.options.body).usageIndicator, "T");
   assert.equal(result.status, "ACKNOWLEDGED");
   assert.equal(result.transactionId, "corr-prof-1");
@@ -805,13 +819,8 @@ test("R3 - production Stedi submitClaim sends production 837 and never returns r
     env: {
       STEDI_PRODUCTION_API_KEY: "prod-key",
       STEDI_PRODUCTION_PHI_CONFIRMED: "true",
-      STEDI_PRODUCTION_CLAIMS_API_BASE_URL: "https://claims.example.test/2024-04-01",
-      STEDI_SUBMITTER_NAME: "Example Clinic",
-      STEDI_SUBMITTER_PHONE: "3035550100",
-      STEDI_BILLING_ADDRESS1: "500 Provider Ave",
-      STEDI_BILLING_CITY: "Denver",
-      STEDI_BILLING_STATE: "CO",
-      STEDI_BILLING_POSTAL_CODE: "80203"
+      STEDI_PRODUCTION_SUBMISSION_ENABLED: "true",
+      STEDI_PRODUCTION_CLAIMS_API_BASE_URL: "https://claims.example.test/2024-04-01"
     },
     fetchImpl
   });
@@ -849,6 +858,8 @@ test("R3 - production Stedi submitClaim sends production 837 and never returns r
       diagnosisPointers: ["M54.16"],
       modifiers: []
     }]
+  }, {
+    billingProfile: productionBillingProfile
   });
 
   assert.match(captured.url, /professionalclaims\/v3\/submission$/);
@@ -905,13 +916,10 @@ test("R2C - Stedi builds institutional 837I with interim frequency and admission
     },
     {
       usageIndicator: "P",
-      env: {
-        STEDI_SUBMITTER_NAME: "Example Hospital",
-        STEDI_SUBMITTER_PHONE: "3035550100",
-        STEDI_BILLING_ADDRESS1: "500 Provider Ave",
-        STEDI_BILLING_CITY: "Denver",
-        STEDI_BILLING_STATE: "CO",
-        STEDI_BILLING_POSTAL_CODE: "80203"
+      billingProfile: {
+        ...productionBillingProfile,
+        submitterName: "Example Hospital",
+        billingProviderName: "Example Hospital"
       }
     }
   );
