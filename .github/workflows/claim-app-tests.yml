@@ -11,7 +11,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# PR updates validate the current branch head with deterministic installs.
+# PR updates validate the current branch head with deterministic installs and local PostgreSQL.
 jobs:
   claim-app-tests:
     runs-on: ubuntu-latest
