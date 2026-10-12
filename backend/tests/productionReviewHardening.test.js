@@ -343,7 +343,7 @@ test("review - CI and release tooling are explicit", () => {
   assert.equal(backendPkg.scripts.lint, "npx --yes eslint@9.39.1 .");
   assert.equal(backendPkg.scripts["format:check"], "npx --yes prettier@3.6.2 --check .");
   assert.equal(frontendPkg.scripts.lint, "npx --yes eslint@9.39.1 .");
-  assert.match(codeql, /github\/codeql-action\/analyze@v3/);
+  assert.match(codeql, /github\/codeql-action\/analyze@v4/);
   assert.match(dependabot, /package-ecosystem: "npm"/);
   assert.match(migrationRunbook, /representative existing data/);
 });
