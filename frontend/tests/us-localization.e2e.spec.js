@@ -301,7 +301,7 @@ test("5 - Journey, Approval and Denials render USD with no legacy enum leakage",
   await page.goto("/approval");
   await expect(page.getByRole("heading", { name: "Approval Intelligence" })).toBeVisible();
   const approvalSearch = page.getByPlaceholder(
-    "Search patient, payer, policy, member or claim number..."
+    "Search patient, payer, member, policy, claim or authorization..."
   );
   await approvalSearch.fill(PRIMARY_PATIENT);
   const approvalRow = page.getByRole("row").filter({ hasText: PRIMARY_PATIENT });
