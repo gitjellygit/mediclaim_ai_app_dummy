@@ -43,6 +43,11 @@ assertDocumentStorageConfiguration();
 
 const app = express();
 app.disable("x-powered-by");
+
+const trustProxy = String(process.env.TRUST_PROXY || "false").trim();
+if (trustProxy === "true") app.set("trust proxy", 1);
+else if (/^\d+$/.test(trustProxy)) app.set("trust proxy", Number(trustProxy));
+
 app.use(securityHeaders);
 
 // Only trust the immediate reverse proxy when explicitly enabled. This keeps
@@ -82,7 +87,15 @@ app.use(
   })
 );
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "1mb" }));
-app.use(apiRateLimit());
+app.use(
+  apiRateLimit({
+    windowMs: Number(process.env.API_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+    maxRequests: Number(process.env.API_RATE_LIMIT_MAX || 600),
+    maxExpensiveRequests: Number(
+      process.env.API_EXPENSIVE_RATE_LIMIT_MAX || 120
+    )
+  })
+);
 app.use(standardizeApiErrors);
 
 async function readinessHealth(_req, res) {
