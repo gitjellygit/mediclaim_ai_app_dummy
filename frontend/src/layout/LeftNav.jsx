@@ -183,6 +183,14 @@ export default function LeftNav({
             isActive={isActivePath("/rules")}
           />
         )}
+        {hasPermission(user, PERMISSIONS.USER_ADMIN) && (
+          <NavItem
+            icon={<SettingsIcon />}
+            label="Billing / EDI Profile"
+            path="/settings/billing-profile"
+            isActive={isActivePath("/settings/billing-profile")}
+          />
+        )}
       </List>
 
       <Box sx={{ p: 1, borderTop: "1px solid rgba(255,255,255,0.2)" }}>
