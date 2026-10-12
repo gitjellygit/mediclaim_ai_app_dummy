@@ -54,6 +54,10 @@ import { randomBytes } from "node:crypto";
 
 const router = express.Router();
 
+const claimSubmissionMutationSchema = z.object({
+  confirmProductionSubmission: z.boolean().optional().default(false)
+}).strict();
+
 function orgId(req) {
   return req.user.organizationId;
 }
@@ -1104,7 +1108,7 @@ router.delete("/documents/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), (re
 
 router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (req, res) => {
   try {
-    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    const parsedInput = parseMutation(claimSubmissionMutationSchema, req.body);
     if (!parsedInput.ok) {
       return res.status(400).json(parsedInput.response);
     }
@@ -1403,7 +1407,12 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
         checks: { orderBy: { createdAt: "desc" }, take: 1 },
-        serviceLines: { orderBy: { createdAt: "asc" } }
+        serviceLines: { orderBy: { createdAt: "asc" } },
+        organization: {
+          select: {
+            billingProfile: true
+          }
+        }
       }
     });
 
@@ -1496,8 +1505,26 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       if (!connectorDescriptor.capabilities?.includes("submitClaim")) {
         return res.status(409).json({
           error: "Payer claim submission is not supported",
-          message: `${connectorDescriptor.provider} does not support claim submission through the configured connector.`,
-          code: "PAYER_SUBMISSION_NOT_SUPPORTED"
+          message:
+            connectorDescriptor.id === "STEDI_PRODUCTION"
+              ? "Production claim submission is disabled for this deployment."
+              : `${connectorDescriptor.provider} does not support claim submission through the configured connector.`,
+          code:
+            connectorDescriptor.id === "STEDI_PRODUCTION"
+              ? "PRODUCTION_SUBMISSION_DISABLED"
+              : "PAYER_SUBMISSION_NOT_SUPPORTED"
+        });
+      }
+
+      if (
+        connectorDescriptor.id === "STEDI_PRODUCTION" &&
+        parsedInput.data.confirmProductionSubmission !== true
+      ) {
+        return res.status(409).json({
+          error: "Production claim submission requires confirmation",
+          message:
+            "Confirm that this claim is ready to transmit PHI to the production payer/clearinghouse.",
+          code: "PRODUCTION_SUBMISSION_CONFIRMATION_REQUIRED"
         });
       }
 
@@ -1508,7 +1535,8 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       payerSubmission = await connector.submitClaim(
         { ...claim, patientControlNumber },
         {
-          idempotencyKey: `claim-app-${claim.id}-${claim.claimForm || "PROFESSIONAL"}-${claim.claimFrequencyCode || "ORIGINAL"}`
+          idempotencyKey: `claim-app-${claim.id}-${claim.claimForm || "PROFESSIONAL"}-${claim.claimFrequencyCode || "ORIGINAL"}`,
+          billingProfile: claim.organization?.billingProfile || null
         }
       );
 
@@ -1545,7 +1573,8 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
             payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
             claimForm: claim.claimForm || null,
             claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
-            idempotencyKey: payerSubmission.idempotencyKey || null
+            idempotencyKey: payerSubmission.idempotencyKey || null,
+            payloadHash: payerSubmission.payloadHash || null
           },
           responsePayload: safeResult
         },
@@ -1621,9 +1650,31 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
             x12: undefined
           }
         : null,
-      claim: updated
+      claim: minimumNecessaryClaim(updated, req.user)
     });
   } catch (e) {
+    if (
+      e?.name === "TimeoutError" ||
+      e?.name === "AbortError" ||
+      e?.code === "UND_ERR_CONNECT_TIMEOUT"
+    ) {
+      await auditClaim(req, {
+        claimId: req.params.id,
+        action: "CLAIM_SUBMISSION_OUTCOME_UNKNOWN",
+        outcome: "UNKNOWN",
+        metadata: {
+          retrySafe: true
+        }
+      });
+      return res.status(504).json({
+        error: "Claim submission outcome is unknown",
+        message:
+          "The payer connection timed out after transmission may have started. Do not create a duplicate claim. Retry is safe because the same claim payload reuses the same idempotency key.",
+        code: "PAYER_SUBMISSION_OUTCOME_UNKNOWN",
+        retrySafe: true
+      });
+    }
+
     if (e?.status && e?.code !== "STEDI_API_ERROR") throw e;
 
     if (e?.code === "STEDI_REQUEST_INVALID" || e?.code === "STEDI_CLAIM_REQUEST_INVALID") {
