@@ -1114,7 +1114,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   async function applyDocSuggestion(doc) {
-    if (!canDeleteDoc) return showToast("Only CASHIER/ADMIN can apply suggestion", "error");
+    if (!canEditDocuments) {
+      return showToast("Your role does not allow document classification changes", "error");
+    }
     if (!doc?.suggestedType) return;
 
     try {
@@ -1135,7 +1137,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   async function changeDocumentType(doc, nextType) {
-    if (!canDeleteDoc || !doc?.id || !nextType || nextType === doc.type) return;
+    if (!canEditDocuments || !doc?.id || !nextType || nextType === doc.type) return;
 
     try {
       const result = await ClaimsApi.updateDocumentType(doc.id, nextType);
