@@ -99,6 +99,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const isAdmin = user?.role === "ADMIN";
   const canRunAI = hasPermission(user, PERMISSIONS.CLINICAL_VIEW);
   const canDeleteDoc = hasPermission(user, PERMISSIONS.CLAIM_DELETE);
+  const canEditDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_EDIT);
   const canEditClinical = hasPermission(user, PERMISSIONS.CLINICAL_EDIT);
   const canEditClaim =
     hasPermission(user, PERMISSIONS.CLAIM_EDIT) && canEditClinical;
@@ -2591,7 +2592,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                             />
                           </TableCell>
                           <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
-                            {canDeleteDoc && !aiCheckLocked ? (
+                            {canEditDocuments && !aiCheckLocked ? (
                               <TextField
                                 select
                                 size="small"
@@ -2643,7 +2644,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                                   color="primary"
                                   label={DOC_TYPE_LABELS[doc.suggestedType] || doc.suggestedType.replaceAll("_", " ")}
                                 />
-                                {doc.suggestedType !== doc.type && canDeleteDoc && (
+                                {doc.suggestedType !== doc.type && canEditDocuments && (
                                   <Tooltip title="Change the saved document type to the AI-detected type">
                                     <Button
                                       size="small"
