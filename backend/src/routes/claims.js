@@ -1,6 +1,6 @@
 import { validMoney } from "../utils/money.js";
 import { z } from "zod";
-import { claimUpdateSchema, emptyMutationSchema, parseMutation, serviceLineInputSchema } from "../validation/claimMutations.js";
+import { claimSubmissionSchema, claimUpdateSchema, emptyMutationSchema, parseMutation, serviceLineInputSchema } from "../validation/claimMutations.js";
 import {
   drgSchema,
   firstZodMessage,
@@ -51,6 +51,7 @@ import {
   payerConnectorStatusForClaim
 } from "../services/payerGateway.js";
 import { randomBytes } from "node:crypto";
+import { stediClaimSubmissionFingerprint } from "../services/stediTestConnector.js";
 
 const router = express.Router();
 
@@ -1395,13 +1396,14 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
 
 router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (req, res) => {
   try {
-    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    const parsedInput = parseMutation(claimSubmissionSchema, req.body);
     if (!parsedInput.ok) {
       return res.status(400).json(parsedInput.response);
     }
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
+        organization: { select: { claimSubmissionProfile: true } },
         checks: { orderBy: { createdAt: "desc" }, take: 1 },
         serviceLines: { orderBy: { createdAt: "asc" } }
       }
@@ -1501,16 +1503,128 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
         });
       }
 
+      const isStediProduction = connectorDescriptor.id === "STEDI_PRODUCTION";
+      const submissionProfile = claim.organization?.claimSubmissionProfile || null;
+
+      if (isStediProduction && process.env.STEDI_PRODUCTION_SUBMISSION_ENABLED !== "true") {
+        return res.status(503).json({
+          error: "Production claim submission is disabled",
+          message: "Real 837 transmission is disabled by the production submission safety switch.",
+          code: "PRODUCTION_SUBMISSION_DISABLED"
+        });
+      }
+
+      if (isStediProduction && parsedInput.data.confirmProductionSubmission !== true) {
+        return res.status(409).json({
+          error: "Production submission confirmation required",
+          message: "Confirm that this claim should be transmitted to the live payer before continuing.",
+          code: "PRODUCTION_SUBMISSION_CONFIRMATION_REQUIRED"
+        });
+      }
+
+      if (connectorDescriptor.provider === "STEDI" && !submissionProfile) {
+        return res.status(400).json({
+          error: "Organization submission profile is not configured",
+          message: "Configure the organization submitter, billing provider, and 837 legal defaults before submission.",
+          code: "PAYER_SUBMISSION_PROFILE_REQUIRED"
+        });
+      }
+
+      let submissionFingerprint = null;
+      if (connectorDescriptor.provider === "STEDI") {
+        submissionFingerprint = stediClaimSubmissionFingerprint(
+          { ...claim, patientControlNumber },
+          {
+            submissionProfile,
+            usageIndicator: isStediProduction ? "P" : "T"
+          }
+        );
+
+        const priorSubmission = await prisma.payerTransaction.findFirst({
+          where: {
+            claimId: claim.id,
+            transactionType: "CLAIM_SUBMISSION",
+            requestHash: submissionFingerprint.payloadHash
+          },
+          orderBy: { createdAt: "desc" }
+        });
+
+        if (
+          priorSubmission &&
+          ["ACKNOWLEDGED", "SUBMITTED", "REJECTED"].includes(priorSubmission.status)
+        ) {
+          return res.status(409).json({
+            error: "Identical claim payload was already submitted",
+            message: "Change the claim data before submitting again.",
+            code: "DUPLICATE_PAYER_SUBMISSION"
+          });
+        }
+      }
+
       const connector = createPayerConnectorForClaim(
         { ...claim, patientControlNumber },
         claim.connectedPayerCode || claim.payerEdiId
       );
-      payerSubmission = await connector.submitClaim(
-        { ...claim, patientControlNumber },
-        {
-          idempotencyKey: `claim-app-${claim.id}-${claim.claimForm || "PROFESSIONAL"}-${claim.claimFrequencyCode || "ORIGINAL"}`
+
+      try {
+        payerSubmission = await connector.submitClaim(
+          { ...claim, patientControlNumber },
+          {
+            submissionProfile,
+            idempotencyKey: submissionFingerprint?.idempotencyKey || undefined
+          }
+        );
+      } catch (submissionError) {
+        const timedOut =
+          submissionError?.name === "TimeoutError" ||
+          submissionError?.name === "AbortError" ||
+          submissionError?.code === "ETIMEDOUT";
+
+        if (timedOut && submissionFingerprint) {
+          const unknownTransactionId =
+            `837-unknown-${submissionFingerprint.payloadHash.slice(0, 32)}`;
+          await prisma.payerTransaction.upsert({
+            where: {
+              transactionId_claimId: {
+                transactionId: unknownTransactionId,
+                claimId: claim.id
+              }
+            },
+            create: {
+              claimId: claim.id,
+              transactionId: unknownTransactionId,
+              mode: connectorDescriptor.environment,
+              payerCode: claim.connectedPayerCode || claim.payerEdiId || connectorDescriptor.provider,
+              transactionType: "CLAIM_SUBMISSION",
+              status: "OUTCOME_UNKNOWN",
+              requestHash: submissionFingerprint.payloadHash,
+              requestPayload: {
+                transaction: claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
+                patientControlNumber,
+                payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
+                claimForm: claim.claimForm || null,
+                claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
+                idempotencyKey: submissionFingerprint.idempotencyKey
+              },
+              responsePayload: {
+                outcomeUnknown: true,
+                retrySafe: true,
+                idempotencyKey: submissionFingerprint.idempotencyKey
+              }
+            },
+            update: {
+              status: "OUTCOME_UNKNOWN",
+              responsePayload: {
+                outcomeUnknown: true,
+                retrySafe: true,
+                idempotencyKey: submissionFingerprint.idempotencyKey
+              }
+            }
+          });
+          submissionError.code = "PAYER_SUBMISSION_OUTCOME_UNKNOWN";
         }
-      );
+        throw submissionError;
+      }
 
       const safeResult = {
         ...payerSubmission,
@@ -1524,37 +1638,63 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
         payerSubmission.transactionId ||
         `837-${patientControlNumber}-${claim.claimFrequencyCode || "ORIGINAL"}`;
 
-      await prisma.payerTransaction.upsert({
-        where: {
-          transactionId_claimId: {
+      const unknownSubmission = submissionFingerprint
+        ? await prisma.payerTransaction.findFirst({
+            where: {
+              claimId: claim.id,
+              transactionType: "CLAIM_SUBMISSION",
+              requestHash: submissionFingerprint.payloadHash,
+              status: "OUTCOME_UNKNOWN"
+            },
+            orderBy: { createdAt: "desc" }
+          })
+        : null;
+
+      if (unknownSubmission) {
+        await prisma.payerTransaction.update({
+          where: { id: unknownSubmission.id },
+          data: {
             transactionId,
-            claimId: claim.id
+            status: payerSubmission.status,
+            latencyMs: payerSubmission.latencyMs || null,
+            responsePayload: safeResult
           }
-        },
-        create: {
-          claimId: claim.id,
-          transactionId,
-          mode: connectorDescriptor.environment,
-          payerCode: claim.connectedPayerCode || claim.payerEdiId || connectorDescriptor.provider,
-          transactionType: "CLAIM_SUBMISSION",
-          status: payerSubmission.status,
-          latencyMs: payerSubmission.latencyMs || null,
-          requestPayload: {
-            transaction: claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
-            patientControlNumber,
-            payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
-            claimForm: claim.claimForm || null,
-            claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
-            idempotencyKey: payerSubmission.idempotencyKey || null
+        });
+      } else {
+        await prisma.payerTransaction.upsert({
+          where: {
+            transactionId_claimId: {
+              transactionId,
+              claimId: claim.id
+            }
           },
-          responsePayload: safeResult
-        },
-        update: {
-          status: payerSubmission.status,
-          latencyMs: payerSubmission.latencyMs || null,
-          responsePayload: safeResult
-        }
-      });
+          create: {
+            claimId: claim.id,
+            transactionId,
+            mode: connectorDescriptor.environment,
+            payerCode: claim.connectedPayerCode || claim.payerEdiId || connectorDescriptor.provider,
+            transactionType: "CLAIM_SUBMISSION",
+            status: payerSubmission.status,
+            latencyMs: payerSubmission.latencyMs || null,
+            requestHash: submissionFingerprint?.payloadHash || null,
+            requestPayload: {
+              transaction: claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
+              patientControlNumber,
+              payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
+              claimForm: claim.claimForm || null,
+              claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
+              idempotencyKey: payerSubmission.idempotencyKey || submissionFingerprint?.idempotencyKey || null
+            },
+            responsePayload: safeResult
+          },
+          update: {
+            status: payerSubmission.status,
+            latencyMs: payerSubmission.latencyMs || null,
+            requestHash: submissionFingerprint?.payloadHash || null,
+            responsePayload: safeResult
+          }
+        });
+      }
 
       if (payerSubmission.status === "REJECTED") {
         await auditClaim(req, {
@@ -1631,6 +1771,23 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
         error: "Claim is missing information required for payer submission",
         message: e.message,
         code: "PAYER_SUBMISSION_PREFLIGHT_FAILED"
+      });
+    }
+
+    if (e?.code === "PAYER_SUBMISSION_OUTCOME_UNKNOWN") {
+      return res.status(504).json({
+        error: "Submission outcome is unknown",
+        message: "The payer request timed out after transmission may have started. Retrying the unchanged claim is safe because the same payload hash reuses the same idempotency key.",
+        code: "PAYER_SUBMISSION_OUTCOME_UNKNOWN",
+        retrySafe: true
+      });
+    }
+
+    if (e?.code === "STEDI_PRODUCTION_SUBMISSION_DISABLED") {
+      return res.status(503).json({
+        error: "Production claim submission is disabled",
+        message: "Real 837 transmission is disabled by the production submission safety switch.",
+        code: "PRODUCTION_SUBMISSION_DISABLED"
       });
     }
 
