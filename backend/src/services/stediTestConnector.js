@@ -1489,6 +1489,12 @@ export function createStediProductionConnector({
     },
 
     async getRemittance(claim, context = {}) {
+      if (env.STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED !== "true") {
+        throw new PayerConnectorUnavailableError(
+          "STEDI_PRODUCTION",
+          "Production ERA retrieval is disabled until tenant isolation is explicitly confirmed"
+        );
+      }
       const expectedPatientControlNumber =
         context.expectedPatientControlNumber ||
         context.patientControlNumber ||
