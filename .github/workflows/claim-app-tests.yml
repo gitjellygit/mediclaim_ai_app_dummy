@@ -1,5 +1,8 @@
 name: Claim App Automated Tests
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -66,6 +69,10 @@ jobs:
         working-directory: backend
         run: npm run lint
 
+      - name: Check backend formatting
+        working-directory: backend
+        run: npm run format:check
+
       - name: Run backend automated tests
         working-directory: backend
         run: npm test
@@ -81,6 +88,10 @@ jobs:
       - name: Lint frontend
         working-directory: frontend
         run: npm run lint
+
+      - name: Check frontend formatting
+        working-directory: frontend
+        run: npm run format:check
 
       - name: Compile frontend
         working-directory: frontend
