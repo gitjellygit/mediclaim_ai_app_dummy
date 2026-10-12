@@ -27,6 +27,7 @@ test("runtime hardening - API and expensive operations are separately rate limit
   const index = read("backend/src/index.js");
   const limiter = read("backend/src/middleware/rateLimit.js");
 
+  assert.match(index, /process\.env\.NODE_ENV !== "test"/);
   assert.match(index, /app\.use\("\/api", apiRateLimit\)/);
   assert.match(index, /app\.use\("\/api", expensiveOperationRateLimit\)/);
   assert.ok(limiter.includes('/^\\/documents\\/(upload|smart-upload)(?:\\/|$)/'));
