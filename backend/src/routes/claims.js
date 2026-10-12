@@ -144,36 +144,53 @@ async function auditClaim(req, { claimId, action, outcome = "SUCCESS", metadata 
 
 router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
   try {
-    const claims = await prisma.claim.findMany({
-      where: {
-        organizationId: orgId(req),
-        deletedAt: null
-      },
-      select: {
-        id: true,
-        patientName: true,
-        payerName: true,
-        policyNo: true,
-        memberId: true,
-        medicalRecordNumber: true,
-        payerReferenceNo: true,
-        groupNumber: true,
-        subscriberId: true,
-        payerEdiId: true,
-        status: true,
-        amount: true,
-        createdAt: true
-      },
-      orderBy: { createdAt: "desc" }
-    });
+    const requestedPage = Number(req.query.page || 1);
+    const requestedPageSize = Number(req.query.pageSize || 50);
+    const page = Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1);
+    const pageSize = Math.max(
+      1,
+      Math.min(Number.isFinite(requestedPageSize) ? Math.floor(requestedPageSize) : 50, 100)
+    );
+    const where = { organizationId: orgId(req), deletedAt: null };
+    const [claims, total] = await Promise.all([
+      prisma.claim.findMany({
+        where,
+        select: {
+          id: true,
+          patientName: true,
+          payerName: true,
+          policyNo: true,
+          memberId: true,
+          medicalRecordNumber: true,
+          payerReferenceNo: true,
+          groupNumber: true,
+          subscriberId: true,
+          payerEdiId: true,
+          status: true,
+          amount: true,
+          createdAt: true
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.claim.count({ where })
+    ]);
+    const items = claims.map((claim) => minimumNecessaryClaim(claim, req.user));
 
     await writeRequestAudit(prisma, req, {
       action: "CLAIM_LIST_VIEWED",
       entityType: "Claim",
-      metadata: { count: claims.length }
+      metadata: { count: items.length, page, pageSize, total }
     });
 
-    res.json(claims.map((claim) => minimumNecessaryClaim(claim, req.user)));
+    res.setHeader("X-Total-Count", String(total));
+    res.setHeader("X-Page", String(page));
+    res.setHeader("X-Page-Size", String(pageSize));
+    if (String(req.query.paginated || "") === "1") {
+      return res.json({ items, page, pageSize, total });
+    }
+    res.json(items);
   } catch (error) {
     console.error("Error fetching claims:", error);
     res.status(500).json({ error: "Unable to load claims", code: "CLAIM_LIST_FAILED" });

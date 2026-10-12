@@ -37,7 +37,7 @@ export function sanitizeAuditMetadata(metadata = {}) {
   return safe;
 }
 
-export async function writeAuditEvent(prisma, {
+function auditEventData({
   organizationId,
   actorUserId = null,
   claimId = null,
@@ -53,31 +53,46 @@ export async function writeAuditEvent(prisma, {
   requestId = null,
   statusCode = null
 }) {
-  if (!organizationId || !action || !entityType) return null;
+  if (!organizationId || !action || !entityType) {
+    const error = new Error("organizationId, action and entityType are required for audit events");
+    error.code = "AUDIT_EVENT_INVALID";
+    throw error;
+  }
+
+  return {
+    organizationId,
+    actorUserId: normalizeAuditId(actorUserId),
+    claimId: normalizeAuditId(claimId),
+    action,
+    entityType,
+    entityId: normalizeAuditId(entityId),
+    outcome,
+    metadata: sanitizeAuditMetadata(metadata),
+    ipAddress: normalizeAuditId(ipAddress),
+    userAgent: userAgent ? String(userAgent).slice(0, 500) : null,
+    httpMethod: httpMethod ? String(httpMethod).slice(0, 16) : null,
+    httpPath: httpPath ? String(httpPath).slice(0, 300) : null,
+    requestId: normalizeAuditId(requestId),
+    statusCode: Number.isInteger(statusCode) ? statusCode : null
+  };
+}
+
+export async function writeCriticalAuditEvent(prisma, event) {
+  return prisma.auditEvent.create({
+    data: auditEventData(event)
+  });
+}
+
+export async function writeAuditEvent(prisma, event) {
+  let data;
   try {
-    return await prisma.auditEvent.create({
-      data: {
-        organizationId,
-        actorUserId: normalizeAuditId(actorUserId),
-        claimId: normalizeAuditId(claimId),
-        action,
-        entityType,
-        entityId: normalizeAuditId(entityId),
-        outcome,
-        metadata: sanitizeAuditMetadata(metadata),
-        ipAddress: normalizeAuditId(ipAddress),
-        userAgent: userAgent ? String(userAgent).slice(0, 500) : null,
-        httpMethod: httpMethod ? String(httpMethod).slice(0, 16) : null,
-        httpPath: httpPath ? String(httpPath).slice(0, 300) : null,
-        requestId: normalizeAuditId(requestId),
-        statusCode: Number.isInteger(statusCode) ? statusCode : null
-      }
-    });
+    data = auditEventData(event);
+    return await prisma.auditEvent.create({ data });
   } catch (error) {
     console.error("[audit] write failed", {
-      action,
-      entityType,
-      entityId,
+      action: event?.action || null,
+      entityType: event?.entityType || null,
+      entityId: event?.entityId || null,
       name: error?.name || "Error",
       code: error?.code || null
     });
@@ -102,6 +117,15 @@ function requestAuditContext(req, statusCode = null) {
 
 export function writeRequestAudit(prisma, req, event) {
   return writeAuditEvent(prisma, {
+    organizationId: req.user?.organizationId,
+    actorUserId: req.user?.id || null,
+    ...requestAuditContext(req, event?.statusCode),
+    ...event
+  });
+}
+
+export function writeCriticalRequestAudit(prisma, req, event) {
+  return writeCriticalAuditEvent(prisma, {
     organizationId: req.user?.organizationId,
     actorUserId: req.user?.id || null,
     ...requestAuditContext(req, event?.statusCode),

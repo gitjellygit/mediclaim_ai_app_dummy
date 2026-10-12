@@ -1,6 +1,9 @@
 import express from "express";
 import { prisma } from "../db.js";
-import { writeRequestAudit } from "../services/auditLog.js";
+import {
+  writeRequestAudit,
+  writeCriticalRequestAudit
+} from "../services/auditLog.js";
 import { requirePermission } from "../middleware/auth.js";
 import { PERMISSIONS } from "../security/permissions.js";
 
@@ -208,7 +211,9 @@ router.get("/export", requirePermission(PERMISSIONS.AUDIT_EXPORT), async (req, r
     include
   });
 
-  await writeRequestAudit(prisma, req, {
+  // Export is a sensitive disclosure operation. Fail closed if its audit
+  // record cannot be persisted; do not send the CSV without accountability.
+  await writeCriticalRequestAudit(prisma, req, {
     action: "AUDIT_TRAIL_EXPORTED",
     entityType: "AuditEvent",
     statusCode: 200,

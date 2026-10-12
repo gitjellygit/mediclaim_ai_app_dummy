@@ -87,8 +87,13 @@ The current codebase includes:
 - private document-storage support with production S3 enforcement and server-side encryption controls;
 - BAA-gated external denial-LLM use with minimum-necessary, identifier-reduced prompts;
 - production payer-connector hardening:
-  - Stedi production is unavailable unless both `STEDI_PRODUCTION_API_KEY` and `STEDI_PRODUCTION_PHI_CONFIRMED=true` are configured;
-  - the confirmation flag is a deployment safety interlock only and does not prove a BAA or HIPAA compliance;
+  - Stedi production PHI operations are unavailable unless both `STEDI_PRODUCTION_API_KEY` and `STEDI_PRODUCTION_PHI_CONFIRMED=true` are configured;
+  - real 837 transmission has an independent default-off `STEDI_PRODUCTION_SUBMISSION_ENABLED` kill switch plus an explicit user confirmation step;
+  - production 837 submitter/billing identity and legal indicators come from the claim's organization-owned `Organization submission profile`, not process-wide billing environment variables;
+  - 837 idempotency keys include a SHA-256 fingerprint of the canonical payload so the same payload is retry-safe while materially changed claims use a different key;
+  - ambiguous network/timeout outcomes return an explicit outcome-unknown state and instruct the user to retry the same claim rather than create a duplicate;
+  - production 835 discovery is unavailable unless `STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED=true`; enabling that flag requires an approved tenant-isolation mechanism such as separate organization credentials/account partitioning;
+  - the confirmation flags are deployment safety interlocks only and do not prove a BAA or HIPAA compliance;
   - Stedi test connector and its test payer directory are refused when `NODE_ENV=production`;
   - production payer-connector assignment is ADMIN-only;
   - external payer calls have a 15-second timeout;
@@ -157,7 +162,7 @@ Role-based access control is enforced:
 - **CASHIER**: Claim/financial/document operational access within own organization, but no administrative/destructive actions
 - **RECEPTIONIST**: Limited claim intake/read/update access, no submit/delete/purge/payment/admin actions
 
-Role enforcement uses `requireRoles(["ADMIN"])` middleware for sensitive routes.
+Authorization uses named permissions (for example clinical, financial, document, payer, submission, audit and user-admin capabilities) beneath the default roles. A small number of strictly administrative/destructive routes also retain explicit ADMIN role checks. Server-side permission enforcement is authoritative.
 
 #### Tenant Isolation (VERIFIED)
 
@@ -263,7 +268,7 @@ Migration `20261005100000_add_rule_organization_scoping`:
 
 ## H8B-2 — Session & Authentication Security
 
-### Status: IN PROGRESS — implementation complete, CI/regression verification pending
+### Status: VERIFIED — implementation and CI/regression verification complete
 
 Implemented in `hardening/hipaa-8b-2-session-security`:
 
@@ -286,6 +291,30 @@ Regression coverage includes refresh rotation, hashed token storage, cookie flag
 
 Password reset is not currently implemented in this application. When that workflow is added, it must revoke all active sessions as part of the password-change transaction before H8B-2 can be considered complete for that future feature.
 
+## Production review hardening
+
+The application now includes additional release controls from the production-readiness engineering review:
+
+- independent production 837 enablement and an explicit transmission confirmation;
+- per-organization submission profile with explicit signature, assignment-of-benefits, release-of-information, participation-code and default POS settings;
+- payload-bound claim submission idempotency and explicit outcome-unknown timeout handling;
+- production ERA discovery disabled until tenant isolation is explicitly confirmed;
+- bounded/paginated ERA discovery and bounded tenant claim/document list APIs;
+- minimum-necessary document mutation responses with named document-edit permissions;
+- production security headers/HSTS, API throttling, bounded JSON bodies, database readiness health checks and graceful HTTP shutdown;
+- a non-root production backend Dockerfile;
+- read-only CI token permissions, CodeQL and Dependabot configuration;
+- fail-closed auditing for audit export; permanent claim purge already records audit and deletion atomically.
+
+These controls still require deployment and billing validation. In particular, a qualified billing/EDI specialist must validate configured participation codes, place-of-service defaults, attestations and payer/enrollment requirements before real 837 submission.
+
+### Release gates that remain operational rather than code-complete
+
+- Rehearse all pending Prisma migrations using a sanitized copy or representative real-shaped dataset before production deployment.
+- Do not enable production ERA retrieval until the Stedi account/credential design prevents cross-organization ERA discovery.
+- Validate infrastructure encryption, managed secrets, backups/restores, alerting and incident-response procedures in the target environment.
+- Complete applicable BAAs/vendor approvals and the formal HIPAA security risk analysis.
+
 ## Controls still required before production PHI use
 
 ### Governance / contracts
@@ -302,9 +331,9 @@ Password reset is not currently implemented in this application. When that workf
 - Periodic access reviews and immediate deprovisioning.
 
 ### Audit
-- Expand AuditEvent coverage to login, claim read/view, claim edit, document preview/download/delete, exports and administrative actions.
-- Make audit logs tamper-resistant with controlled retention.
-- Add security monitoring and alerting.
+- Application audit coverage now includes authentication/session events, claim views/edits, document preview/download/delete/classification changes, payer actions, permission denials, exports, and administrative configuration changes.
+- Audit CSV export fails closed if its required audit record cannot be persisted; permanent claim purge records its audit event in the same database transaction as deletion.
+- Still required operationally: tamper-resistant/append-only retention controls appropriate to the deployment, centralized security monitoring, alerting, and reviewed retention policy.
 
 ### Data protection
 - TLS everywhere.

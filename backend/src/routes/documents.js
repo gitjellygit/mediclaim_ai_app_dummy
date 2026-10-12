@@ -796,15 +796,24 @@ export function documentsRouter(prisma, uploadDir) {
   // List documents for the current organization without bloating the claims list.
   router.get("/", requirePermission(PERMISSIONS.DOCUMENT_VIEW), async (req, res) => {
     const claimId = String(req.query?.claimId || "").trim();
-    const docs = await prisma.document.findMany({
-      where: {
-        claim: {
-          organizationId: req.user.organizationId,
-          deletedAt: null,
-          ...(claimId ? { id: claimId } : {})
-        }
-      },
-      select: {
+    const requestedPage = Number(req.query.page || 1);
+    const requestedPageSize = Number(req.query.pageSize || 50);
+    const page = Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1);
+    const pageSize = Math.max(
+      1,
+      Math.min(Number.isFinite(requestedPageSize) ? Math.floor(requestedPageSize) : 50, 100)
+    );
+    const where = {
+      claim: {
+        organizationId: req.user.organizationId,
+        deletedAt: null,
+        ...(claimId ? { id: claimId } : {})
+      }
+    };
+    const [docs, total] = await Promise.all([
+      prisma.document.findMany({
+        where,
+        select: {
         id: true,
         fileName: true,
         type: true,
@@ -820,9 +829,13 @@ export function documentsRouter(prisma, uploadDir) {
             status: true
           }
         }
-      },
-      orderBy: { createdAt: "desc" }
-    });
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      }),
+      prisma.document.count({ where })
+    ]);
 
     const items = docs.map(({ claim, codingSuggestions, ...doc }) => ({
       ...doc,
@@ -839,8 +852,22 @@ export function documentsRouter(prisma, uploadDir) {
       action: "DOCUMENT_LIST_VIEWED",
       entityType: claimId ? "Claim" : "Document",
       entityId: claimId || null,
-      metadata: { count: items.length, scoped: Boolean(claimId) }
+      metadata: {
+        count: items.length,
+        scoped: Boolean(claimId),
+        page,
+        pageSize,
+        total
+      }
     });
+
+    res.setHeader("X-Total-Count", String(total));
+    res.setHeader("X-Page", String(page));
+    res.setHeader("X-Page-Size", String(pageSize));
+
+    if (String(req.query.paginated || "") === "1") {
+      return res.json({ items, page, pageSize, total });
+    }
 
     res.json(items);
   });

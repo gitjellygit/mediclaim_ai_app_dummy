@@ -1,5 +1,8 @@
 name: Claim App Automated Tests
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]

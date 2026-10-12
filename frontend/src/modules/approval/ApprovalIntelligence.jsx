@@ -110,8 +110,16 @@ export default function ApprovalIntelligence() {
     setError("");
 
     try {
-      const baseClaims = await ClaimsApi.list();
-      const list = Array.isArray(baseClaims) ? baseClaims : [];
+      const baseClaims = await ClaimsApi.list({
+        page: 1,
+        pageSize: 100,
+        paginated: true
+      });
+      const list = Array.isArray(baseClaims?.items)
+        ? baseClaims.items
+        : Array.isArray(baseClaims)
+        ? baseClaims
+        : [];
 
       const detailed = await Promise.all(
         list.map(async (claim) => {
