@@ -384,7 +384,7 @@ export default function ClaimJourney() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { showToast } = useToast();
+  const { showToast, confirmDialog } = useToast();
 
   const [claims, setClaims] = React.useState([]);
   const [selectedClaim, setSelectedClaim] = React.useState(null);
@@ -944,7 +944,26 @@ export default function ClaimJourney() {
           return;
         }
 
-        const submitted = await ClaimsApi.submit(claim.id);
+        const productionSubmission =
+          externalPayerConnected &&
+          connectedConnector?.id === "STEDI_PRODUCTION";
+
+        if (productionSubmission) {
+          const confirmed = await confirmDialog(
+            "This will transmit this claim and its PHI to the production payer/clearinghouse. Confirm that the claim, billing profile and authorization details are ready for submission.",
+            {
+              title: "Transmit production 837 claim?",
+              severity: "warning",
+              confirmLabel: "Transmit Claim",
+              cancelLabel: "Cancel"
+            }
+          );
+          if (!confirmed) return;
+        }
+
+        const submitted = await ClaimsApi.submit(claim.id, {
+          confirmProductionSubmission: productionSubmission
+        });
         if (externalPayerConnected) {
           setSubmissionBlock(null);
           await loadJourney(claim.id);
