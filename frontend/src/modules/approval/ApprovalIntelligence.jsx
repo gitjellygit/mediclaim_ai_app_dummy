@@ -405,6 +405,7 @@ export default function ApprovalIntelligence() {
                   <TableCell><b>Timely Filing</b></TableCell>
                   <TableCell><b>Eligibility</b></TableCell>
                   <TableCell><b>Prior Auth</b></TableCell>
+                  <TableCell><b>Coding Review</b></TableCell>
                   <TableCell><b>Readiness</b></TableCell>
                   <TableCell><b>Submission Risk</b></TableCell>
                   <TableCell><b>Payment Outlook</b></TableCell>
@@ -529,6 +530,32 @@ export default function ApprovalIntelligence() {
                               Authorization expired
                             </Typography>
                           )}
+                        </Stack>
+                      </TableCell>
+
+                      <TableCell sx={{ minWidth: 160 }}>
+                        <Stack spacing={0.5} alignItems="flex-start">
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            color={
+                              claim.coding?.pendingSuggestions > 0
+                                ? "warning"
+                                : claim.coding?.verifiedServiceLines > 0
+                                ? "success"
+                                : "default"
+                            }
+                            label={
+                              claim.coding?.pendingSuggestions > 0
+                                ? `${claim.coding.pendingSuggestions} suggestion${claim.coding.pendingSuggestions === 1 ? "" : "s"} pending`
+                                : claim.coding?.verifiedServiceLines > 0
+                                ? `${claim.coding.verifiedServiceLines} verified line${claim.coding.verifiedServiceLines === 1 ? "" : "s"}`
+                                : "No verified lines"
+                            }
+                          />
+                          <Typography variant="caption" color="text.secondary">
+                            Official NCCI/MUE and payer edits require a maintained coding-edit source.
+                          </Typography>
                         </Stack>
                       </TableCell>
 
