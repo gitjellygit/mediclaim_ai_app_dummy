@@ -56,6 +56,7 @@ export default function DocumentIntelligence() {
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [documents, setDocuments] = useState([]);
+  const [documentTotal, setDocumentTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [previewDoc, setPreviewDoc] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -79,14 +80,24 @@ export default function DocumentIntelligence() {
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
   useEffect(() => {
-    loadDocuments();
-  }, []);
+    loadDocuments(page, rowsPerPage);
+  }, [page, rowsPerPage, claimIdFilter]);
 
-  async function loadDocuments() {
+  async function loadDocuments(pageIndex = page, pageSize = rowsPerPage) {
     try {
       setLoading(true);
-      const docs = await ClaimsApi.listDocuments(claimIdFilter);
-      setDocuments(Array.isArray(docs) ? docs : []);
+      const result = await ClaimsApi.listDocuments(claimIdFilter, {
+        page: pageIndex + 1,
+        pageSize,
+        paginated: true
+      });
+      const docs = Array.isArray(result?.items)
+        ? result.items
+        : Array.isArray(result)
+        ? result
+        : [];
+      setDocuments(docs);
+      setDocumentTotal(Number(result?.total ?? docs.length));
     } catch (err) {
       console.error("Failed to load documents:", err);
       setDocuments([]);
@@ -386,10 +397,7 @@ export default function DocumentIntelligence() {
     openCodingReview(candidate);
   }, [openCodingFromQuery, loading, filteredDocuments]);
 
-  const paginatedFilteredDocs = filteredDocuments.slice(
-    page * rowsPerPage,
-    page * rowsPerPage + rowsPerPage
-  );
+  const paginatedFilteredDocs = filteredDocuments;
 
   async function handleDownload(doc) {
     try {
