@@ -169,7 +169,8 @@ export function registerDefaultPayerConnectors() {
       "checkEligibility",
       ...(env.STEDI_PRODUCTION_SUBMISSION_ENABLED === "true" ? ["submitClaim"] : []),
       "getStatus",
-      ...(env.STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED === "true"
+      ...(env.STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED === "true" &&
+      String(env.STEDI_PRODUCTION_ERA_ORGANIZATION_ID || "").trim()
         ? ["getRemittance"]
         : [])
     ],
@@ -253,6 +254,24 @@ export function payerConnectorStatusForClaim(claim, env = process.env) {
   if (!descriptor) {
     throw new PayerConnectorNotConfiguredError(id);
   }
+  if (
+    descriptor.id === PAYER_CONNECTOR_IDS.STEDI_PRODUCTION &&
+    descriptor.capabilities.includes("getRemittance")
+  ) {
+    const boundOrganizationId = String(
+      env.STEDI_PRODUCTION_ERA_ORGANIZATION_ID || ""
+    ).trim();
+    const claimOrganizationId = String(claim?.organizationId || "").trim();
+    if (!claimOrganizationId || claimOrganizationId !== boundOrganizationId) {
+      return {
+        ...descriptor,
+        capabilities: descriptor.capabilities.filter(
+          (capability) => capability !== "getRemittance"
+        )
+      };
+    }
+  }
+
   return descriptor;
 }
 
