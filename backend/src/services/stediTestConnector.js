@@ -825,6 +825,8 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
     context.claimType || claim?.claimForm || "PROFESSIONAL"
   ).toUpperCase();
   const usageIndicator = context.usageIndicator === "P" ? "P" : "T";
+  const env = context.env || {};
+  const billingProfile = resolveBillingProfile(context, env, usageIndicator);
 
   if (context.requestPayload) {
     return {
@@ -832,9 +834,6 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
       claimType
     };
   }
-
-  const env = context.env || {};
-  const billingProfile = resolveBillingProfile(context, env, usageIndicator);
   const payerId = context.payerId || claim.connectedPayerCode || claim.payerEdiId;
   const payerName =
     context.payerName || claim.connectedPayerName || claim.payerName;
