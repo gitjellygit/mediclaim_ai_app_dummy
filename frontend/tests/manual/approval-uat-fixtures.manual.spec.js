@@ -62,11 +62,11 @@ test("prepare Approval Intelligence manual UAT scenarios", async ({ page }) => {
     await expect(row("04-AUTH-REQUIRED")).toContainText("Required");
     await expect(row("05-AUTH-DENIED")).toContainText("Denied");
     await expect(row("06-AUTH-EXPIRED")).toContainText("Authorization expired");
-    await expect(row("07-FILING-EXPIRED")).toContainText(/Expired \\d+d ago/);
+    await expect(row("07-FILING-EXPIRED")).toContainText(/Expired \d+d ago/);
     await expect(row("08-FILING-URGENT")).toContainText("3d remaining");
     await expect(row("09-FILING-SOON")).toContainText("21d remaining");
     await expect(row("10-STALE")).toContainText("Stale");
-    await expect(row("11-BLOCKED")).toContainText("1 blockers");
+    await expect(row("11-BLOCKED")).toContainText(/1 blocker/);
     await expect(row("12-CODING-PENDING")).toContainText("1 suggestion pending");
     await expect(row("13-SUBMITTED")).toContainText("SUBMITTED");
     await expect(row("14-DENIED")).toContainText("DENIED");
