@@ -1,12 +1,17 @@
 import express from "express";
 import crypto from "node:crypto";
 import cors from "cors";
+import helmet from "helmet";
 import dotenv from "dotenv";
 import { prisma, disconnectDatabase } from "./db.js";
 import { captureAsyncRouter } from "./middleware/asyncRouter.js";
 import { standardizeApiErrors } from "./middleware/apiErrors.js";
 import { requireAuth, requireRoles } from "./middleware/auth.js";
 import { permissionList } from "./security/permissions.js";
+import {
+  apiRateLimit,
+  expensiveOperationRateLimit
+} from "./middleware/rateLimit.js";
 
 import claimsRouter from "./routes/claims.js";
 import rulesRouter from "./routes/rules.js";
@@ -39,6 +44,7 @@ if (
 assertDocumentStorageConfiguration();
 
 const app = express();
+let shuttingDown = false;
 
 // Only trust the immediate reverse proxy when explicitly enabled. This keeps
 // req.ip useful without blindly trusting spoofable X-Forwarded-For headers.
@@ -65,6 +71,15 @@ if (process.env.NODE_ENV === "production" && configuredCorsOrigins.length === 0)
 }
 
 app.use(
+  helmet({
+    strictTransportSecurity:
+      process.env.NODE_ENV === "production"
+        ? { maxAge: 31_536_000, includeSubDomains: true }
+        : false
+  })
+);
+
+app.use(
   cors({
     credentials: true,
     origin(origin, callback) {
@@ -76,10 +91,34 @@ app.use(
     }
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "1mb" }));
 app.use(standardizeApiErrors);
 
-app.get("/health", (_, res) => res.json({ ok: true }));
+app.get("/health", (_, res) => res.json({ ok: true, status: "live" }));
+app.get("/health/live", (_, res) => res.json({ ok: true, status: "live" }));
+app.get("/health/ready", async (_, res) => {
+  if (shuttingDown) {
+    return res.status(503).json({ ok: false, status: "shutting_down" });
+  }
+
+  try {
+    await prisma.$queryRawUnsafe("SELECT 1");
+    return res.json({ ok: true, status: "ready", database: "reachable" });
+  } catch (error) {
+    console.error("[readiness] database unavailable", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    return res.status(503).json({
+      ok: false,
+      status: "not_ready",
+      database: "unreachable"
+    });
+  }
+});
+
+app.use("/api", apiRateLimit);
+app.use("/api", expensiveOperationRateLimit);
 
 /**
  * AUTH ROUTES
@@ -164,7 +203,7 @@ app.use(
 );
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
 
@@ -183,5 +222,35 @@ app.use((err, req, res, _next) => {
   return res.status(500).json({ error: "Internal server error", message: "The request could not be completed", code: "INTERNAL_ERROR" });
 });
 
-process.once("SIGTERM", async () => { await disconnectDatabase(); process.exit(0); });
-process.once("SIGINT", async () => { await disconnectDatabase(); process.exit(0); });
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] ${signal} received; draining HTTP connections`);
+
+  const forceClose = setTimeout(() => {
+    console.error("[shutdown] graceful drain timed out; closing remaining connections");
+    server.closeAllConnections?.();
+  }, 10_000);
+  forceClose.unref?.();
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeIdleConnections?.();
+    });
+    clearTimeout(forceClose);
+    await disconnectDatabase();
+    process.exit(0);
+  } catch (error) {
+    clearTimeout(forceClose);
+    console.error("[shutdown] failed", {
+      name: error?.name || "Error",
+      message: error?.message || "Unknown shutdown error"
+    });
+    await disconnectDatabase().catch(() => {});
+    process.exit(1);
+  }
+}
+
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
+process.once("SIGINT", () => void shutdown("SIGINT"));
