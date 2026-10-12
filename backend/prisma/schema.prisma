@@ -198,6 +198,39 @@ model Organization {
   claims      Claim[]
   auditEvents AuditEvent[]
   rules       Rule[]
+  billingProfile OrganizationBillingProfile?
+}
+
+model OrganizationBillingProfile {
+  id             String   @id @default(cuid())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  active Boolean @default(false)
+
+  submitterName  String?
+  submitterId    String?
+  submitterPhone String?
+
+  billingProviderName String?
+  billingAddress1      String?
+  billingAddress2      String?
+  billingCity          String?
+  billingState         String?
+  billingPostalCode    String?
+
+  signatureOnFile                        Boolean?
+  assignmentOfBenefits                   Boolean?
+  releaseOfInformation                   Boolean?
+  professionalPlanParticipationCode      String?
+  institutionalPlanParticipationCode     String?
+  defaultProfessionalPlaceOfService      String?
+  defaultInstitutionalPlaceOfService     String?
+
+  @@index([organizationId])
 }
 
 model Claim {
