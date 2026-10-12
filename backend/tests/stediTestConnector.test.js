@@ -396,7 +396,7 @@ test("R2B - Stedi connector submits professional 837P test claim with idempotenc
     "https://claims.example.test/2024-04-01/change/medicalnetwork/professionalclaims/v3/submission"
   );
   assert.equal(captured.options.headers.Authorization, "test-key");
-  assert.equal(captured.options.headers["Idempotency-Key"], "idem-prof-1");
+  assert.match(captured.options.headers["Idempotency-Key"], /^claim-app-[a-f0-9]{64}$/);
   assert.equal(JSON.parse(captured.options.body).usageIndicator, "T");
   assert.equal(result.status, "ACKNOWLEDGED");
   assert.equal(result.transactionId, "corr-prof-1");
