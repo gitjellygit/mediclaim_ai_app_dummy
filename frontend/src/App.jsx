@@ -38,6 +38,7 @@ const UnderpaymentIntelligence = lazy(() =>
   import("./modules/payments/UnderpaymentIntelligence.jsx")
 );
 const AuditTrail = lazy(() => import("./modules/audit/AuditTrail.jsx"));
+const BillingProfile = lazy(() => import("./pages/BillingProfile.jsx"));
 
 const protectedRoutes = [
   { path: "/claims", Component: ClaimsList, permission: PERMISSIONS.CLAIM_VIEW },
@@ -59,7 +60,12 @@ const adminRoutes = [
 ];
 
 const permissionRoutes = [
-  { path: "/audit", Component: AuditTrail, permission: PERMISSIONS.AUDIT_VIEW }
+  { path: "/audit", Component: AuditTrail, permission: PERMISSIONS.AUDIT_VIEW },
+  {
+    path: "/settings/billing-profile",
+    Component: BillingProfile,
+    permission: PERMISSIONS.USER_ADMIN
+  }
 ];
 
 function RouteFallback() {
