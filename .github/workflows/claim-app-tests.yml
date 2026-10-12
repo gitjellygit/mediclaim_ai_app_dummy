@@ -31,21 +31,14 @@ jobs:
         run: |
           set -euo pipefail
           sudo systemctl start postgresql
-          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-          DO $
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app') THEN
-              CREATE ROLE app LOGIN PASSWORD 'app';
-            ELSE
-              ALTER ROLE app WITH LOGIN PASSWORD 'app';
-            END IF;
-          END
-          $;
-          SELECT 'CREATE DATABASE claim_ai_test OWNER app'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM pg_database WHERE datname = 'claim_ai_test'
-          )\gexec
-          SQL
+          if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='app'" | grep -q 1; then
+            sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER ROLE app WITH LOGIN PASSWORD 'app';"
+          else
+            sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE app LOGIN PASSWORD 'app';"
+          fi
+          if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='claim_ai_test'" | grep -q 1; then
+            sudo -u postgres createdb -O app claim_ai_test
+          fi
           PGPASSWORD=app pg_isready -h localhost -p 5432 -U app -d claim_ai_test
 
       - name: Setup Node
