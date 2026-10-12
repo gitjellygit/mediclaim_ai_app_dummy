@@ -29,9 +29,9 @@ test("runtime hardening - API and expensive operations are separately rate limit
 
   assert.match(index, /app\.use\("\/api", apiRateLimit\)/);
   assert.match(index, /app\.use\("\/api", expensiveOperationRateLimit\)/);
-  assert.match(limiter, /documents\\\/(upload\|smart-upload)/);
-  assert.match(limiter, /claims\\\/\[\^\/\]\+\\\/submit/);
-  assert.match(limiter, /claims\\\/\[\^\/\]\+\\\/check/);
+  assert.ok(limiter.includes('/^\\/documents\\/(upload|smart-upload)(?:\\/|$)/'));
+  assert.ok(limiter.includes('/^\\/claims\\/[^/]+\\/submit(?:\\/|$)/'));
+  assert.ok(limiter.includes('/^\\/claims\\/[^/]+\\/check(?:\\/|$)/'));
   assert.match(limiter, /status\(429\)/);
 });
 
