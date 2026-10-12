@@ -444,6 +444,17 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     expect((await duplicateAuth.json()).unchanged).toBe(true);
 
     await clickStageButton(claim, "Submit to Payer");
+
+    const submissionConfirmation = page.getByRole("dialog", {
+      name: "Confirm claim submission"
+    });
+    await expect(submissionConfirmation).toBeVisible();
+    await expect(submissionConfirmation).toContainText(/Claim readiness: \d+%/);
+    await expect(submissionConfirmation).toContainText(scenario.patientName);
+    await submissionConfirmation
+      .getByRole("button", { name: /Submit Claim \(\d+%\)/ })
+      .click();
+
     await expect(claim).toContainText("Submitted");
     const sentButton = claim.getByRole("button", { name: "Sent to Payer", exact: true });
     await expect(sentButton).toBeVisible();

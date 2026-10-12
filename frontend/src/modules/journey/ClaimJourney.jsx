@@ -937,27 +937,51 @@ export default function ClaimJourney() {
         const blockers = Array.isArray(readiness?.issues)
           ? readiness.issues.filter((issue) => issue?.severity === "BLOCK")
           : [];
+        const readinessScore = Number(readiness?.score || 0);
 
-        if (blockers.length > 0 || Number(readiness?.score || 0) < 80) {
+        if (blockers.length > 0 || readinessScore < 80) {
           showSubmissionBlock(readiness);
           await loadJourney(claim.id);
           return;
         }
 
-        let submitOptions = {};
-        if (connectedConnector?.id === "STEDI_PRODUCTION") {
-          const confirmed = await confirmDialog(
-            "This will transmit a real 837 claim to the production payer network. Verify the claim, payer, billing provider, and organization submission settings before continuing.",
-            {
-              title: "Confirm production 837 submission",
-              severity: "warning",
-              confirmLabel: "Transmit real 837",
-              cancelLabel: "Cancel"
-            }
-          );
-          if (!confirmed) return;
-          submitOptions = { confirmProductionSubmission: true };
-        }
+        const productionSubmission =
+          connectedConnector?.id === "STEDI_PRODUCTION";
+        const destination = productionSubmission
+          ? "PRODUCTION payer network"
+          : externalPayerConnected
+          ? connectedConnector?.provider || "external payer"
+          : simulatedPayerConnected
+          ? "simulated payer"
+          : "payer";
+
+        const confirmed = await confirmDialog(
+          [
+            `Claim readiness: ${readinessScore}%`,
+            `Patient: ${claim.patientName || "Unknown Patient"}`,
+            `Payer: ${claim.payerName || connectedPayerName || "Not specified"}`,
+            `Destination: ${destination}`,
+            "",
+            productionSubmission
+              ? "This will transmit a real 837 claim to the production payer network. Verify the claim, payer, billing provider, and organization submission settings before continuing."
+              : "Please confirm that you want to submit this claim. This action advances the claim workflow and may send it to the connected payer."
+          ].join("\n"),
+          {
+            title: productionSubmission
+              ? "Confirm production 837 submission"
+              : "Confirm claim submission",
+            severity: "warning",
+            confirmLabel: productionSubmission
+              ? "Confirm & Transmit 837"
+              : `Submit Claim (${readinessScore}%)`,
+            cancelLabel: "Cancel"
+          }
+        );
+        if (!confirmed) return;
+
+        const submitOptions = productionSubmission
+          ? { confirmProductionSubmission: true }
+          : {};
 
         const submitted = await ClaimsApi.submit(claim.id, submitOptions);
         if (submitted?.outcomeUnknown) {
