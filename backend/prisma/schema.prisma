@@ -194,6 +194,10 @@ model Organization {
   name      String
   slug      String   @unique
 
+  // Tenant-specific 837 submitter, billing provider, and legal/default values.
+  // No patient data belongs in this profile.
+  claimSubmissionProfile Json?
+
   users       User[]
   claims      Claim[]
   auditEvents AuditEvent[]
@@ -462,8 +466,10 @@ model PayerTransaction {
   latencyMs     Int?
   requestPayload Json?
   responsePayload Json?
+  requestHash    String?
 
   @@unique([transactionId, claimId])
+  @@unique([claimId, transactionType, requestHash])
   @@index([claimId, createdAt])
   @@index([payerCode])
   @@index([transactionType])
