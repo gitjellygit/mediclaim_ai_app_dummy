@@ -7,6 +7,8 @@ import { captureAsyncRouter } from "./middleware/asyncRouter.js";
 import { standardizeApiErrors } from "./middleware/apiErrors.js";
 import { requireAuth, requireRoles } from "./middleware/auth.js";
 import { permissionList } from "./security/permissions.js";
+import { securityHeaders } from "./middleware/securityHeaders.js";
+import { apiRateLimit } from "./middleware/apiRateLimit.js";
 
 import claimsRouter from "./routes/claims.js";
 import rulesRouter from "./routes/rules.js";
@@ -40,6 +42,8 @@ if (
 assertDocumentStorageConfiguration();
 
 const app = express();
+app.disable("x-powered-by");
+app.use(securityHeaders);
 
 // Only trust the immediate reverse proxy when explicitly enabled. This keeps
 // req.ip useful without blindly trusting spoofable X-Forwarded-For headers.
@@ -77,10 +81,36 @@ app.use(
     }
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "1mb" }));
+app.use(apiRateLimit());
 app.use(standardizeApiErrors);
 
-app.get("/health", (_, res) => res.json({ ok: true }));
+async function readinessHealth(_req, res) {
+  try {
+    await prisma.$queryRawUnsafe("SELECT 1");
+    return res.json({
+      ok: true,
+      status: "ready",
+      database: "reachable"
+    });
+  } catch (error) {
+    console.error("[health] database readiness check failed", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    return res.status(503).json({
+      ok: false,
+      status: "not_ready",
+      database: "unreachable"
+    });
+  }
+}
+
+app.get("/health/live", (_req, res) =>
+  res.json({ ok: true, status: "live" })
+);
+app.get("/health/ready", readinessHealth);
+app.get("/health", readinessHealth);
 
 /**
  * AUTH ROUTES
@@ -170,7 +200,7 @@ app.use(
 );
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
 
@@ -189,5 +219,39 @@ app.use((err, req, res, _next) => {
   return res.status(500).json({ error: "Internal server error", message: "The request could not be completed", code: "INTERNAL_ERROR" });
 });
 
-process.once("SIGTERM", async () => { await disconnectDatabase(); process.exit(0); });
-process.once("SIGINT", async () => { await disconnectDatabase(); process.exit(0); });
+let shuttingDown = false;
+
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] received ${signal}; stopping new HTTP connections`);
+
+  const forceExit = setTimeout(() => {
+    console.error("[shutdown] grace period expired; forcing exit");
+    process.exit(1);
+  }, 15000);
+  forceExit.unref();
+
+  server.close(async (serverError) => {
+    try {
+      if (serverError) {
+        console.error("[shutdown] HTTP server close failed", {
+          name: serverError.name || "Error",
+          code: serverError.code || null
+        });
+      }
+      await disconnectDatabase();
+      clearTimeout(forceExit);
+      process.exit(serverError ? 1 : 0);
+    } catch (error) {
+      console.error("[shutdown] database disconnect failed", {
+        name: error?.name || "Error",
+        code: error?.code || null
+      });
+      process.exit(1);
+    }
+  });
+}
+
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
