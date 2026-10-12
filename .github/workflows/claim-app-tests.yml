@@ -45,7 +45,7 @@ jobs:
           PGPASSWORD=app pg_isready -h localhost -p 5432 -U app -d claim_ai_test
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
 
