@@ -232,32 +232,48 @@ export default function ClaimsList() {
       return;
     }
 
-    if (deleted.length === 0 && failed.length === 1) {
+    const protectedFailures = failed.filter((item) =>
+      /submitted|finalized|paid|locked/i.test(item.message || "")
+    );
+    const unexpectedFailures = failed.filter(
+      (item) => !protectedFailures.includes(item)
+    );
+
+    if (deleted.length === 0 && protectedFailures.length === failed.length) {
       showDialog(
-        `${failed[0].name}: ${failed[0].message}`,
+        [
+          `${failed.length} selected claim${failed.length === 1 ? "" : "s"} could not be deleted because submitted or finalized claims are locked to preserve billing and audit history.`,
+          "",
+          "No records were changed."
+        ].join("\n"),
         {
-          title: "Claim could not be deleted",
-          severity: "error"
+          title: "No claims were deleted",
+          severity: "warning"
         }
       );
       return;
     }
 
-    const protectedSummary = failed
-      .slice(0, 3)
-      .map((item) => `${item.name}: ${item.message}`)
-      .join(" | ");
+    const summary = [
+      deleted.length > 0
+        ? `${deleted.length} claim${deleted.length === 1 ? "" : "s"} deleted successfully.`
+        : null,
+      protectedFailures.length > 0
+        ? `${protectedFailures.length} submitted or finalized claim${protectedFailures.length === 1 ? " was" : "s were"} retained because locked claims cannot be deleted.`
+        : null,
+      unexpectedFailures.length > 0
+        ? `${unexpectedFailures.length} claim${unexpectedFailures.length === 1 ? "" : "s"} could not be deleted due to an unexpected error. Please retry, and contact support if the issue continues.`
+        : null
+    ].filter(Boolean);
 
     showDialog(
-      `${deleted.length} deleted, ${failed.length} not deleted. ${protectedSummary}${
-        failed.length > 3 ? ` | +${failed.length - 3} more` : ""
-      }`,
+      summary.join("\n\n"),
       {
         title:
           deleted.length > 0
-            ? "Bulk delete completed with warnings"
+            ? "Bulk delete completed with exceptions"
             : "Claims could not be deleted",
-        severity: deleted.length > 0 ? "warning" : "error"
+        severity: "warning"
       }
     );
   }
