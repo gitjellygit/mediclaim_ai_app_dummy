@@ -14,6 +14,33 @@ import {
   searchStediPayers
 } from "../src/services/stediTestConnector.js";
 
+const submissionProfile = {
+  submitter: {
+    organizationName: "Example Clinic",
+    identification: "SUBMITTER-001",
+    phone: "3035550100"
+  },
+  billingProvider: {
+    organizationName: "Example Clinic",
+    address1: "500 Provider Ave",
+    city: "Denver",
+    state: "CO",
+    postalCode: "80203"
+  },
+  professional: {
+    signatureIndicator: "Y",
+    planParticipationCode: "A",
+    benefitsAssignmentCertificationIndicator: "Y",
+    releaseInformationCode: "Y"
+  },
+  institutional: {
+    placeOfServiceCode: "21",
+    planParticipationCode: "C",
+    benefitsAssignmentCertificationIndicator: "Y",
+    releaseInformationCode: "Y"
+  }
+};
+
 const claim = {
   id: "claim-stedi-1",
   patientName: "Jane Doe",
@@ -268,14 +295,7 @@ test("R2B - Stedi builds trusted professional 837P payload from claim fields", (
     },
     {
       usageIndicator: "P",
-      env: {
-        STEDI_SUBMITTER_NAME: "Example Clinic",
-        STEDI_SUBMITTER_PHONE: "3035550100",
-        STEDI_BILLING_ADDRESS1: "500 Provider Ave",
-        STEDI_BILLING_CITY: "Denver",
-        STEDI_BILLING_STATE: "CO",
-        STEDI_BILLING_POSTAL_CODE: "80203"
-      }
+      submissionProfile
     }
   );
 
@@ -805,13 +825,8 @@ test("R3 - production Stedi submitClaim sends production 837 and never returns r
     env: {
       STEDI_PRODUCTION_API_KEY: "prod-key",
       STEDI_PRODUCTION_PHI_CONFIRMED: "true",
-      STEDI_PRODUCTION_CLAIMS_API_BASE_URL: "https://claims.example.test/2024-04-01",
-      STEDI_SUBMITTER_NAME: "Example Clinic",
-      STEDI_SUBMITTER_PHONE: "3035550100",
-      STEDI_BILLING_ADDRESS1: "500 Provider Ave",
-      STEDI_BILLING_CITY: "Denver",
-      STEDI_BILLING_STATE: "CO",
-      STEDI_BILLING_POSTAL_CODE: "80203"
+      STEDI_PRODUCTION_SUBMISSION_ENABLED: "true",
+      STEDI_PRODUCTION_CLAIMS_API_BASE_URL: "https://claims.example.test/2024-04-01"
     },
     fetchImpl
   });
@@ -849,7 +864,7 @@ test("R3 - production Stedi submitClaim sends production 837 and never returns r
       diagnosisPointers: ["M54.16"],
       modifiers: []
     }]
-  });
+  }, { submissionProfile });
 
   assert.match(captured.url, /professionalclaims\/v3\/submission$/);
   assert.equal(JSON.parse(captured.options.body).usageIndicator, "P");
@@ -905,14 +920,7 @@ test("R2C - Stedi builds institutional 837I with interim frequency and admission
     },
     {
       usageIndicator: "P",
-      env: {
-        STEDI_SUBMITTER_NAME: "Example Hospital",
-        STEDI_SUBMITTER_PHONE: "3035550100",
-        STEDI_BILLING_ADDRESS1: "500 Provider Ave",
-        STEDI_BILLING_CITY: "Denver",
-        STEDI_BILLING_STATE: "CO",
-        STEDI_BILLING_POSTAL_CODE: "80203"
-      }
+      submissionProfile
     }
   );
 
