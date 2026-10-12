@@ -40,6 +40,7 @@ import {
   completenessReadinessIssues
 } from "../services/claimCompleteness.js";
 import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
+import { buildApprovalIntelligenceItem } from "../services/approvalIntelligence.js";
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
 import { evaluateUsReadinessRules, usReadinessRuleCodes } from "../services/usReadinessRules.js";
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
@@ -396,6 +397,190 @@ router.get("/:id/medical-consistency", requirePermission(PERMISSIONS.CLINICAL_VI
     });
   }
 });
+
+router.get(
+  "/approval-intelligence",
+  requirePermission(PERMISSIONS.CLINICAL_VIEW),
+  requirePermission(PERMISSIONS.FINANCIAL_VIEW),
+  async (req, res) => {
+    try {
+      const page = Math.max(1, Number.parseInt(String(req.query.page || "1"), 10) || 1);
+      const pageSize = Math.min(
+        100,
+        Math.max(10, Number.parseInt(String(req.query.pageSize || "25"), 10) || 25)
+      );
+      const q = String(req.query.q || "").trim().slice(0, 100);
+      const requestedStatus = String(req.query.status || "ALL").toUpperCase();
+      const allowedStatuses = new Set([
+        "DRAFT",
+        "NEEDS_REVIEW",
+        "READY",
+        "SUBMITTED",
+        "DENIED",
+        "PAID"
+      ]);
+      const status = allowedStatuses.has(requestedStatus) ? requestedStatus : null;
+
+      const where = {
+        organizationId: orgId(req),
+        deletedAt: null,
+        ...(status ? { status } : {}),
+        ...(q
+          ? {
+              OR: [
+                { patientName: { contains: q, mode: "insensitive" } },
+                { payerName: { contains: q, mode: "insensitive" } },
+                { policyNo: { contains: q, mode: "insensitive" } },
+                { memberId: { contains: q, mode: "insensitive" } },
+                { insurerClaimNo: { contains: q, mode: "insensitive" } },
+                { authorizationNo: { contains: q, mode: "insensitive" } }
+              ]
+            }
+          : {})
+      };
+
+      const now = new Date();
+      const filingRiskCutoff = new Date(now);
+      filingRiskCutoff.setUTCDate(filingRiskCutoff.getUTCDate() + 14);
+
+      const [
+        total,
+        claims,
+        organizationTotal,
+        needsReview,
+        readyToSubmit,
+        submitted,
+        filingRisk,
+        totalClaimed,
+        readyAmount
+      ] = await Promise.all([
+        prisma.claim.count({ where }),
+        prisma.claim.findMany({
+          where,
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          include: {
+            documents: { select: { id: true } },
+            serviceLines: {
+              select: { id: true, verified: true, cptHcpcsCode: true }
+            },
+            codingSuggestions: {
+              where: { status: "PENDING" },
+              select: { id: true }
+            },
+            checks: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                id: true,
+                createdAt: true,
+                score: true,
+                issues: true,
+                isStale: true,
+                staleReason: true,
+                riskScore: true,
+                riskLevel: true,
+                riskFactors: true
+              }
+            }
+          }
+        }),
+        prisma.claim.count({
+          where: { organizationId: orgId(req), deletedAt: null }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: { in: ["DRAFT", "NEEDS_REVIEW"] }
+          }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: "READY"
+          }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: { in: ["SUBMITTED", "DENIED", "PAID"] }
+          }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: { in: ["DRAFT", "NEEDS_REVIEW", "READY"] },
+            timelyFilingDeadline: { lte: filingRiskCutoff }
+          }
+        }),
+        prisma.claim.aggregate({
+          where: { organizationId: orgId(req), deletedAt: null },
+          _sum: { amount: true }
+        }),
+        prisma.claim.aggregate({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: "READY"
+          },
+          _sum: { amount: true }
+        })
+      ]);
+
+      const items = claims.map((claim) =>
+        buildApprovalIntelligenceItem(claim, { now })
+      );
+
+      await writeRequestAudit(prisma, req, {
+        action: "APPROVAL_INTELLIGENCE_VIEWED",
+        entityType: "Claim",
+        metadata: {
+          page,
+          pageSize,
+          resultCount: items.length,
+          filteredTotal: total
+        }
+      });
+
+      res.json({
+        items,
+        page,
+        pageSize,
+        total,
+        metrics: {
+          totalClaims: organizationTotal,
+          needsReview,
+          readyToSubmit,
+          submitted,
+          filingRisk,
+          totalClaimed: Number(totalClaimed._sum.amount || 0),
+          readyAmount: Number(readyAmount._sum.amount || 0)
+        },
+        methodology: {
+          readinessThreshold: 80,
+          submissionRisk:
+            "Rules-based pre-submission signal from current readiness evidence; not a payer approval probability.",
+          filingRiskWindowDays: 14,
+          paymentOutlook:
+            "Recorded payer-approved amount when available; otherwise an estimate from current claim financials without payer contract modeling."
+        }
+      });
+    } catch (error) {
+      console.error("[approval-intelligence] failed", {
+        name: error?.name || "Error",
+        code: error?.code || null
+      });
+      res.status(500).json({
+        error: "Unable to load approval intelligence"
+      });
+    }
+  }
+);
 
 router.get("/:id/audit", requirePermission(PERMISSIONS.AUDIT_VIEW), async (req, res) => {
   const claim = await prisma.claim.findFirst({
