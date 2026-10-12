@@ -162,7 +162,7 @@ Role-based access control is enforced:
 - **CASHIER**: Claim/financial/document operational access within own organization, but no administrative/destructive actions
 - **RECEPTIONIST**: Limited claim intake/read/update access, no submit/delete/purge/payment/admin actions
 
-Role enforcement uses `requireRoles(["ADMIN"])` middleware for sensitive routes.
+Authorization uses named permissions (for example clinical, financial, document, payer, submission, audit and user-admin capabilities) beneath the default roles. A small number of strictly administrative/destructive routes also retain explicit ADMIN role checks. Server-side permission enforcement is authoritative.
 
 #### Tenant Isolation (VERIFIED)
 
