@@ -148,7 +148,7 @@ test("Approval Intelligence sends unevaluated editable claims directly to AI rea
   await page.goto("/approval");
 
   const search = page.getByPlaceholder(
-    "Search patient, payer, policy, member or claim number..."
+    "Search patient, payer, member, policy, claim or authorization..."
   );
   await search.fill(scenario.patientName);
 
@@ -156,10 +156,12 @@ test("Approval Intelligence sends unevaluated editable claims directly to AI rea
   await expect(row).toBeVisible();
   await expect(row.getByText("Not evaluated", { exact: true }).first()).toBeVisible();
   await expect(
-    row.getByRole("button", { name: "Run AI Check", exact: true })
+    row.getByRole("button", { name: "Run Readiness Check", exact: true })
   ).toBeVisible();
 
-  await row.getByRole("button", { name: "Run AI Check", exact: true }).click();
+  await row
+    .getByRole("button", { name: "Run Readiness Check", exact: true })
+    .click();
 
   await expect(page).toHaveURL(new RegExp(`/claims/${scenario.id}\\?section=readiness`));
   await expect(
