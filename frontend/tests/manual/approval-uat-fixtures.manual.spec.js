@@ -33,14 +33,16 @@ test("prepare Approval Intelligence manual UAT scenarios", async ({ page }) => {
     const seeded = await seed.json();
     expect(seeded.count).toBe(15);
 
-    await page.addInitScript(({ accessToken, refreshToken, user }) => {
-      localStorage.setItem("accessToken", accessToken);
-      if (refreshToken) localStorage.setItem("refreshToken", refreshToken);
-      localStorage.setItem("user", JSON.stringify(user));
-    }, auth);
+    await page.goto("/login");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Sign In", exact: true }).click();
 
+    await expect(page).toHaveURL(/\/claims$/);
     await page.goto("/approval");
-    await expect(page.getByRole("heading", { name: "Approval Intelligence" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Approval Intelligence" })
+    ).toBeVisible();
     const search = page.getByPlaceholder("Search patient, payer, member, policy, claim or authorization...");
     await search.fill(seeded.prefix);
 
