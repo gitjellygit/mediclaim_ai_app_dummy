@@ -23,7 +23,8 @@ Before a production deployment that contains new migrations:
    - organization-owned submitter/billing/legal configuration remains associated with the expected Organization;
    - existing claims, documents, service lines, payer transactions, denials, underpayments and audit events retain their counts and foreign-key relationships;
    - login/session and organization-scoped reads still work;
-   - representative claim readiness, document access, payer status and remittance workflows can read migrated rows.
+   - representative claim readiness, document access, payer status and remittance workflows can read migrated rows;
+   - if production ERA is enabled, `STEDI_PRODUCTION_ERA_ORGANIZATION_ID` matches the intended organization and a foreign-organization claim is rejected before any external ERA request.
 7. Record migration duration, database size, any locks/timeouts and the rollback/restore time.
 8. Do not approve the production deployment if the rehearsal required manual data correction that is not encoded in a reviewed migration.
 
