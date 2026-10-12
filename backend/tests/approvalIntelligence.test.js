@@ -115,6 +115,24 @@ test("unresolved required prior authorization is high priority", () => {
   assert.ok(item.nextActions.some((action) => action.code === "RESOLVE_PRIOR_AUTH"));
 });
 
+test("expired approved authorization is no longer treated as resolved", () => {
+  const item = buildApprovalIntelligenceItem(
+    baseClaim({
+      status: "DRAFT",
+      priorAuthRequired: true,
+      priorAuthStatus: "APPROVED",
+      authorizationNo: "AUTH-1",
+      priorAuthExpiry: new Date("2026-10-11T00:00:00Z")
+    }),
+    { now }
+  );
+
+  assert.equal(item.priorAuthorization.expired, true);
+  assert.equal(item.actionState, "ACTION_REQUIRED");
+  assert.equal(item.priority, "HIGH");
+  assert.ok(item.nextActions.some((action) => action.code === "RESOLVE_PRIOR_AUTH"));
+});
+
 test("payment outlook distinguishes recorded payer approval from estimates", () => {
   assert.deepEqual(paymentOutlook(baseClaim({ approvedAmount: 725 })), {
     amount: 725,
