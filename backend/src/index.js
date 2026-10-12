@@ -16,6 +16,7 @@ import denialsRouter from "./routes/denials.js";
 import underpaymentsRouter from "./routes/underpayments.js";
 import auditRouter from "./routes/audit.js";
 import payerConnectorsRouter from "./routes/payerConnectors.js";
+import organizationBillingProfileRouter from "./routes/organizationBillingProfile.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
 dotenv.config();
@@ -134,6 +135,11 @@ if (process.env.E2E_TEST_MODE === "true") {
 app.use("/api/denials", requireAuth, captureAsyncRouter(denialsRouter));
 app.use("/api/underpayments", requireAuth, captureAsyncRouter(underpaymentsRouter));
 app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectorsRouter));
+app.use(
+  "/api/organization/billing-profile",
+  requireAuth,
+  captureAsyncRouter(organizationBillingProfileRouter)
+);
 
 /**
  * DOCUMENT ROUTES
