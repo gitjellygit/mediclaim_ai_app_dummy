@@ -1132,7 +1132,7 @@ router.delete("/documents/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), (re
 
 router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (req, res) => {
   try {
-    const parsedInput = parseMutation(claimSubmissionMutationSchema, req.body);
+    const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) {
       return res.status(400).json(parsedInput.response);
     }
@@ -1423,7 +1423,7 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
 
 router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (req, res) => {
   try {
-    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    const parsedInput = parseMutation(claimSubmissionMutationSchema, req.body);
     if (!parsedInput.ok) {
       return res.status(400).json(parsedInput.response);
     }
