@@ -6,6 +6,7 @@ import { prisma, disconnectDatabase } from "./db.js";
 import { captureAsyncRouter } from "./middleware/asyncRouter.js";
 import { standardizeApiErrors } from "./middleware/apiErrors.js";
 import { requireAuth, requireRoles } from "./middleware/auth.js";
+import { permissionList } from "./security/permissions.js";
 
 import claimsRouter from "./routes/claims.js";
 import rulesRouter from "./routes/rules.js";
@@ -107,7 +108,12 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
       });
     }
 
-    res.json({ user });
+    res.json({
+      user: {
+        ...user,
+        permissions: permissionList(user)
+      }
+    });
   } catch (error) {
     console.error("Get me error:", error);
     res.status(500).json({

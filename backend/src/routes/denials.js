@@ -4,6 +4,8 @@ import { assertDenialTransition } from "../services/workflowStateMachine.js";
 import { prisma } from "../db.js";
 import { analyzeDenial } from "../services/denialIntelligence.js";
 import { writeRequestAudit } from "../services/auditLog.js";
+import { requirePermission } from "../middleware/auth.js";
+import { PERMISSIONS } from "../security/permissions.js";
 import {
   DEFAULT_APPEAL_WINDOW_DAYS,
   computeAppealDeadline,
@@ -14,8 +16,9 @@ import {
 
 const router = express.Router();
 
-const MANAGER_ROLES = new Set(["ADMIN", "CASHIER"]);
 const DENIAL_SOURCES = new Set(["MANUAL", "PAYER_STATUS", "SIMULATED_PAYER_STATUS", "ERA"]);
+router.use(requirePermission(PERMISSIONS.DENIAL_VIEW));
+
 const ACTIVE_STATUSES = [
   "OPEN",
   "ANALYZED",
@@ -24,15 +27,6 @@ const ACTIVE_STATUSES = [
   "APPEAL_SUBMITTED",
   "RESUBMITTED"
 ];
-
-function requireManager(req, res, next) {
-  if (!req.user || !MANAGER_ROLES.has(req.user.role)) {
-    return res.status(403).json({
-      error: "Only ADMIN or CASHIER users can modify denial and appeal cases."
-    });
-  }
-  next();
-}
 
 async function audit(req, {
   claimId = null,
@@ -246,7 +240,7 @@ router.get("/reference/codes", async (req, res) => {
   res.json(result);
 });
 
-router.post("/deadline-preview", requireManager, async (req, res) => {
+router.post("/deadline-preview", requirePermission(PERMISSIONS.DENIAL_EDIT), async (req, res) => {
   try {
     const denialDate = parseOptionalDate(req.body.denialDate, "Denial date");
     if (!denialDate) {
@@ -268,7 +262,7 @@ router.post("/deadline-preview", requireManager, async (req, res) => {
   }
 });
 
-router.post("/from-claim/:claimId", requireManager, async (req, res) => {
+router.post("/from-claim/:claimId", requirePermission(PERMISSIONS.DENIAL_EDIT), async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.claimId, organizationId: req.user.organizationId, deletedAt: null }
@@ -373,7 +367,7 @@ router.post("/from-claim/:claimId", requireManager, async (req, res) => {
   }
 });
 
-router.patch("/:id", requireManager, async (req, res) => {
+router.patch("/:id", requirePermission(PERMISSIONS.DENIAL_EDIT), async (req, res) => {
   try {
     const existing = await prisma.denialCase.findFirst({
       where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } }
@@ -483,7 +477,7 @@ router.patch("/:id", requireManager, async (req, res) => {
   }
 });
 
-router.post("/:id/analyze", requireManager, async (req, res) => {
+router.post("/:id/analyze", requirePermission(PERMISSIONS.DENIAL_EDIT), async (req, res) => {
   try {
     const denial = await prisma.denialCase.findFirst({
       where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },

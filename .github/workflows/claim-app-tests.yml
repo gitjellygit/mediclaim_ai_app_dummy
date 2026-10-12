@@ -11,25 +11,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# PR updates validate the current branch head with deterministic installs.
+# PR updates validate the current branch head with deterministic installs, local PostgreSQL, and PHI checks.
 jobs:
   claim-app-tests:
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: app
-          POSTGRES_PASSWORD: app
-          POSTGRES_DB: claim_ai_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U app -d claim_ai_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
 
     env:
       DATABASE_URL: postgresql://app:app@localhost:5432/claim_ai_test?schema=public
@@ -40,6 +25,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Start PostgreSQL test database
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl start postgresql
+          if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='app'" | grep -q 1; then
+            sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER ROLE app WITH LOGIN PASSWORD 'app';"
+          else
+            sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE app LOGIN PASSWORD 'app';"
+          fi
+          if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='claim_ai_test'" | grep -q 1; then
+            sudo -u postgres createdb -O app claim_ai_test
+          fi
+          PGPASSWORD=app pg_isready -h localhost -p 5432 -U app -d claim_ai_test
 
       - name: Setup Node
         uses: actions/setup-node@v4

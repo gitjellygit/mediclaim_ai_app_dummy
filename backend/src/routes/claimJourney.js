@@ -16,7 +16,9 @@ import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
 import { createPayerConnector, createPayerConnectorForClaim, payerConnectorStatusForClaim } from "../services/payerGateway.js";
 import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
-import { requireRoles } from "../middleware/auth.js";
+import { requirePermission } from "../middleware/auth.js";
+import { PERMISSIONS, hasPermission } from "../security/permissions.js";
+import { minimumNecessaryClaim } from "../security/phiView.js";
 
 const router = express.Router();
 
@@ -207,7 +209,7 @@ function buildJourneyState(claim) {
   };
 }
 
-router.get("/:id/journey", async (req, res) => {
+router.get("/:id/journey", requirePermission(PERMISSIONS.INSURANCE_VIEW), async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
@@ -241,13 +243,21 @@ router.get("/:id/journey", async (req, res) => {
 
     const sanitizedClaim = sanitizeClaimPayerTransactions(claim);
 
+    const stages = buildJourneyState(claim);
+    if (!hasPermission(req.user, PERMISSIONS.FINANCIAL_VIEW)) {
+      delete stages.remittance;
+    }
+
     res.json({
-      claim: {
-        ...sanitizedClaim,
-        automationSummary: buildAutomationSummary(claim),
-        completenessSummary: buildClaimCompleteness(claim)
-      },
-      stages: buildJourneyState(claim),
+      claim: minimumNecessaryClaim(
+        {
+          ...sanitizedClaim,
+          automationSummary: buildAutomationSummary(claim),
+          completenessSummary: buildClaimCompleteness(claim)
+        },
+        req.user
+      ),
+      stages,
       payerConnection: {
         mode: claim.payerConnectionMode || "LOCAL",
         simulatedPayerCode: claim.simulatedPayerCode || null,
@@ -272,7 +282,7 @@ router.get("/:id/journey", async (req, res) => {
 
 router.post(
   "/:id/journey/payer-connection",
-  requireRoles(["ADMIN"]),
+  requirePermission(PERMISSIONS.PAYER_CONNECT),
   async (req, res) => {
   try {
     const parsedInput = parseMutation(payerConnectorConnectionSchema, req.body);
@@ -350,7 +360,7 @@ router.post(
   }
 });
 
-router.post("/:id/journey/eligibility/precheck", async (req, res) => {
+router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -538,7 +548,7 @@ router.post("/:id/journey/eligibility/precheck", async (req, res) => {
   }
 });
 
-router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
+router.post("/:id/journey/prior-auth/evaluate", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
     const parsedInput = parseMutation(priorAuthEvaluationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -669,7 +679,7 @@ router.post("/:id/journey/prior-auth/evaluate", async (req, res) => {
   }
 });
 
-router.post("/:id/journey/claim-status/refresh", async (req, res) => {
+router.post("/:id/journey/claim-status/refresh", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -890,7 +900,7 @@ router.post("/:id/journey/claim-status/refresh", async (req, res) => {
   }
 });
 
-router.patch("/:id/journey/claim-status", async (req, res) => {
+router.patch("/:id/journey/claim-status", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
     const parsedInput = parseMutation(payerClaimStatusSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -1024,7 +1034,7 @@ router.patch("/:id/journey/claim-status", async (req, res) => {
   }
 });
 
-router.post("/:id/journey/remittance/refresh", async (req, res) => {
+router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAYER_ACTION), requirePermission(PERMISSIONS.FINANCIAL_VIEW), async (req, res) => {
   try {
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -1410,7 +1420,7 @@ router.post("/:id/journey/remittance/refresh", async (req, res) => {
   }
 });
 
-router.patch("/:id/journey/remittance", async (req, res) => {
+router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTION), requirePermission(PERMISSIONS.FINANCIAL_VIEW), async (req, res) => {
   try {
     const parsedInput = parseMutation(remittanceMutationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);

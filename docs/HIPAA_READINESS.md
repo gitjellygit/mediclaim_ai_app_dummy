@@ -2,6 +2,78 @@
 
 This document is an engineering checklist, not a certification, legal opinion, or evidence that a BAA exists.
 
+
+## Minimum-necessary PHI access control
+
+The application now enforces named permissions in addition to tenant isolation.
+These application defaults are intended to support a minimum-necessary access
+model; they are **not** a determination that a workforce member is legally
+entitled to PHI and are **not** a HIPAA compliance certification. Each customer
+must map workforce responsibilities to approved access through its own HIPAA
+privacy/security policies and risk analysis.
+
+Current default role mapping:
+
+| Capability | ADMIN | CASHIER | RECEPTIONIST |
+| --- | --- | --- | --- |
+| Claim list/detail | Yes | Yes | Yes |
+| Patient identity | Yes | Yes | Yes |
+| Insurance/subscriber data | Yes | Yes | Yes |
+| Clinical diagnosis/procedure data | Yes | Yes | No |
+| Edit clinical/provider data | Yes | Yes | No |
+| Financial/remittance data | Yes | Yes | No |
+| Edit financial submission data | Yes | Yes | No |
+| Clinical document metadata/content | Yes | Yes | No |
+| Document download | Yes | Yes | No |
+| Payer eligibility/status actions | Yes | Yes | No |
+| Attach/change external payer connector | Yes | No | No |
+| Submit claim | Yes | Yes | No |
+| Denial/recovery workspace | Yes | Yes | No |
+| Audit trail/export | Yes | No | No |
+| User/platform administration | Yes | No | No |
+
+Server-side enforcement is authoritative. Frontend route/navigation hiding is
+only a usability layer and does not replace API authorization.
+
+Minimum-necessary response behavior:
+
+- claim responses remove clinical, financial, payer-transaction, denial,
+  recovery and document data when the current role lacks the matching
+  permission;
+- document JSON never exposes storage paths, raw OCR text or file hashes;
+- document extracted/coding content is returned only to clinical viewers;
+- internal claim document-derived bookkeeping is not exposed in ordinary API
+  responses;
+- claim create/update requests are checked by field category so a user cannot
+  bypass the UI and write restricted clinical or financial fields directly;
+- external payer connection remains an ADMIN-only permission;
+- remittance access requires both payer-action and financial permissions;
+- audit exports require a distinct audit-export permission.
+
+Denied permission checks generate a `PHI_ACCESS_DENIED` audit event containing
+the user/security context, permission, route and result, without copying the
+patient payload into the audit record.
+
+### Remaining organizational/deployment decisions
+
+Application permissions are only one layer. Production readiness still
+requires, as applicable:
+
+- customer-approved workforce role definitions and periodic access reviews;
+- onboarding/offboarding and emergency/break-glass procedures;
+- documented minimum-necessary policies and exceptions;
+- HIPAA security risk analysis and risk-management process;
+- BAAs/vendor approvals for infrastructure, clearinghouse, AI/OCR and other
+  services that may receive PHI;
+- encryption/key-management, private storage/IAM, backups, recovery and
+  retention/deletion controls;
+- security monitoring, incident response and breach-notification procedures;
+- verification of state-specific medical/privacy obligations and any special
+  record categories handled by the customer.
+
+A future custom-role feature should persist organization-approved permission
+assignments rather than allowing users to self-select permissions.
+
 ## Current application safeguards
 
 The current codebase includes:

@@ -13,6 +13,7 @@ import {
 } from "../services/authRateLimit.js";
 import { durationToMs } from "../utils/duration.js";
 import { writeAuditEvent } from "../services/auditLog.js";
+import { permissionList } from "../security/permissions.js";
 
 const ACCESS_TOKEN_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "15m";
 const REFRESH_TOKEN_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN || "7d";
@@ -322,7 +323,8 @@ export function authRouter(prisma) {
           id: user.id,
           email: user.email,
           role: user.role,
-          organizationId: user.organizationId
+          organizationId: user.organizationId,
+          permissions: permissionList(user)
         },
         expiresIn: accessLifetimeSeconds()
       });

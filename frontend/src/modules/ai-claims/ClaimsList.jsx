@@ -37,6 +37,8 @@ import {
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 import { useToast } from "../../context/ToastContext.jsx";
+import { AuthApi } from "../../api/auth.js";
+import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
 import { formatUSD } from "../../utils/currency.js";
 
 const statusColor = {
@@ -48,6 +50,13 @@ const statusColor = {
 };
 
 export default function ClaimsList() {
+  const user = AuthApi.getUser();
+  const canCreateFullClaim = hasPermission(user, PERMISSIONS.CLINICAL_EDIT);
+  const canCreateFromDocuments =
+    hasPermission(user, PERMISSIONS.DOCUMENT_VIEW) &&
+    hasPermission(user, PERMISSIONS.CLAIM_EDIT);
+  const canDeleteClaims = hasPermission(user, PERMISSIONS.CLAIM_DELETE);
+  const canViewFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_VIEW);
   const [claims, setClaims] = useState([]);
   const [selected, setSelected] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -415,23 +424,27 @@ export default function ClaimsList() {
           Refresh
         </Button>
 
-        <Button
-          variant="outlined"
-          onClick={() => navigate("/claims/new")}
-        >
-          New Claim
-        </Button>
+        {canCreateFullClaim && (
+          <Button
+            variant="outlined"
+            onClick={() => navigate("/claims/new")}
+          >
+            New Claim
+          </Button>
+        )}
 
-        <Button
-          variant="contained"
-          startIcon={<AutoAwesome />}
-          onClick={openAiCreate}
-        >
-          Create Claim from Documents
-        </Button>
+        {canCreateFromDocuments && (
+          <Button
+            variant="contained"
+            startIcon={<AutoAwesome />}
+            onClick={openAiCreate}
+          >
+            Create Claim from Documents
+          </Button>
+        )}
 
         {/* ✅ BULK DELETE BUTTON */}
-        {selected.length > 0 && (
+        {canDeleteClaims && selected.length > 0 && (
           <Button
             variant="contained"
             color="error"
@@ -446,17 +459,19 @@ export default function ClaimsList() {
         <Table sx={{ minWidth: 760 }}>
           <TableHead>
             <TableRow>
-              <TableCell padding="checkbox">
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={someSelected}
-                  onChange={handleSelectAll}
-                />
-              </TableCell>
+              {canDeleteClaims && (
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    checked={allSelected}
+                    indeterminate={someSelected}
+                    onChange={handleSelectAll}
+                  />
+                </TableCell>
+              )}
 
               <TableCell><strong>Patient Name</strong></TableCell>
               <TableCell><strong>Insurance Company</strong></TableCell>
-              <TableCell><strong>Amount</strong></TableCell>
+              {canViewFinancial && <TableCell><strong>Amount</strong></TableCell>}
               <TableCell><strong>Status</strong></TableCell>
               <TableCell><strong>Created Date</strong></TableCell>
               <TableCell><strong>Actions</strong></TableCell>
@@ -466,12 +481,14 @@ export default function ClaimsList() {
           <TableBody>
             {filteredClaims.map((claim) => (
               <TableRow key={claim.id}>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    checked={selected.includes(claim.id)}
-                    onChange={() => handleSelectOne(claim.id)}
-                  />
-                </TableCell>
+                {canDeleteClaims && (
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      checked={selected.includes(claim.id)}
+                      onChange={() => handleSelectOne(claim.id)}
+                    />
+                  </TableCell>
+                )}
 
                 <TableCell>
                   {claim.patientName || "Unknown Patient"}
@@ -481,9 +498,11 @@ export default function ClaimsList() {
                   {claim.payerName || "Insurance"}
                 </TableCell>
 
-                <TableCell>
-                  {formatUSD(claim.amount)}
-                </TableCell>
+                {canViewFinancial && (
+                  <TableCell>
+                    {formatUSD(claim.amount)}
+                  </TableCell>
+                )}
 
                 <TableCell>
                   <Chip
@@ -504,19 +523,21 @@ export default function ClaimsList() {
                     <Visibility />
                   </IconButton>
 
-                  <IconButton
-                    color="error"
-                    onClick={() => handleDeleteClaim(claim.id)}
-                  >
-                    <Delete />
-                  </IconButton>
+                  {canDeleteClaims && (
+                    <IconButton
+                      color="error"
+                      onClick={() => handleDeleteClaim(claim.id)}
+                    >
+                      <Delete />
+                    </IconButton>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
 
             {filteredClaims.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={(canDeleteClaims ? 1 : 0) + 5 + (canViewFinancial ? 1 : 0)} align="center">
                   No claims found
                 </TableCell>
               </TableRow>

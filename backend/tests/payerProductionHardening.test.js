@@ -143,7 +143,7 @@ test("hardening - payer transaction and ERA trust boundaries are claim-scoped", 
   assert.doesNotMatch(schema, /transactionId\s+String\s+@unique/);
   assert.match(
     journey,
-    /requireRoles\(\["ADMIN"\]\)[\s\S]*payer-connection|payer-connection[\s\S]*requireRoles\(\["ADMIN"\]\)/
+    /payer-connection",[\s\S]*requirePermission\(PERMISSIONS\.PAYER_CONNECT\)/
   );
   assert.match(journey, /parseMutation\(emptyMutationSchema, req\.body\)/);
   assert.doesNotMatch(
@@ -354,7 +354,7 @@ test("document API serialization strips storage paths raw OCR and file hashes", 
   assert.match(helper, /delete safe\.fileHash/);
   assert.match(documents, /publicDocument/);
   assert.match(documents, /publicClaimDocuments/);
-  assert.match(claims, /publicClaimDocuments\(claim\)/);
+  assert.match(claims, /minimumNecessaryClaim\([\s\S]*claim[\s\S]*req\.user/);
 });
 
 

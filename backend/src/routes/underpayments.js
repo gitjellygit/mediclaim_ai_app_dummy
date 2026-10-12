@@ -1,6 +1,8 @@
 import express from "express";
 import { auditOnResponse } from "../services/auditLog.js";
 import { prisma } from "../db.js";
+import { requirePermission } from "../middleware/auth.js";
+import { PERMISSIONS } from "../security/permissions.js";
 import { moneyCents, moneyFromCents, validMoney } from "../utils/money.js";
 import {
   assertUnderpaymentTransition,
@@ -38,22 +40,14 @@ router.use((req, res, next) => {
   }
   next();
 });
-const MANAGER_ROLES = new Set(["ADMIN", "CASHIER"]);
+router.use(requirePermission(PERMISSIONS.FINANCIAL_VIEW));
+
 const ACTIVE_STATUSES = [
   "OPEN",
   "REVIEWING",
   "DISPUTE_PREPARED",
   "DISPUTE_SUBMITTED"
 ];
-
-function requireManager(req, res, next) {
-  if (!req.user || !MANAGER_ROLES.has(req.user.role)) {
-    return res.status(403).json({
-      error: "Only ADMIN or CASHIER users can modify underpayment recovery cases."
-    });
-  }
-  next();
-}
 
 async function audit(req, claimId, action, entityId, metadata = {}) {
   try {
@@ -199,7 +193,7 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-router.post("/detect/:claimId", requireManager, async (req, res) => {
+router.post("/detect/:claimId", requirePermission(PERMISSIONS.RECOVERY_EDIT), async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
       where: {
@@ -258,7 +252,7 @@ router.post("/detect/:claimId", requireManager, async (req, res) => {
   }
 });
 
-router.patch("/:id", requireManager, async (req, res) => {
+router.patch("/:id", requirePermission(PERMISSIONS.RECOVERY_EDIT), async (req, res) => {
   try {
     const existing = await prisma.underpaymentCase.findFirst({
       where: {

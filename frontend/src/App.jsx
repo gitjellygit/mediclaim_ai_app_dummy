@@ -6,8 +6,10 @@ import { AuthProvider } from "./context/AuthContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
 import {
   ProtectedRoute,
-  RoleProtectedRoute
+  RoleProtectedRoute,
+  PermissionProtectedRoute
 } from "./components/ProtectedRoute.jsx";
+import { PERMISSIONS } from "./security/permissions.js";
 
 const Login = lazy(() => import("./pages/Login.jsx"));
 const NewClaim = lazy(() => import("./pages/NewClaim.jsx"));
@@ -38,23 +40,26 @@ const UnderpaymentIntelligence = lazy(() =>
 const AuditTrail = lazy(() => import("./modules/audit/AuditTrail.jsx"));
 
 const protectedRoutes = [
-  { path: "/claims", Component: ClaimsList },
-  { path: "/claims/new", Component: NewClaim },
-  { path: "/claims/:id", Component: ClaimDetail },
-  { path: "/journey", Component: ClaimJourney },
-  { path: "/denials", Component: DenialIntelligence },
-  { path: "/payments", Component: UnderpaymentIntelligence },
-  { path: "/medical-ai", Component: MedicalConsistency },
-  { path: "/documents", Component: DocumentIntelligence },
-  { path: "/approval", Component: ApprovalIntelligence },
-  { path: "/analytics", Component: AnalyticsDashboard }
+  { path: "/claims", Component: ClaimsList, permission: PERMISSIONS.CLAIM_VIEW },
+  { path: "/claims/new", Component: NewClaim, permission: PERMISSIONS.CLINICAL_EDIT },
+  { path: "/claims/:id", Component: ClaimDetail, permission: PERMISSIONS.CLAIM_VIEW },
+  { path: "/journey", Component: ClaimJourney, permission: PERMISSIONS.INSURANCE_VIEW },
+  { path: "/denials", Component: DenialIntelligence, permission: PERMISSIONS.DENIAL_VIEW },
+  { path: "/payments", Component: UnderpaymentIntelligence, permission: PERMISSIONS.FINANCIAL_VIEW },
+  { path: "/medical-ai", Component: MedicalConsistency, permission: PERMISSIONS.CLINICAL_VIEW },
+  { path: "/documents", Component: DocumentIntelligence, permission: PERMISSIONS.DOCUMENT_VIEW },
+  { path: "/approval", Component: ApprovalIntelligence, permission: PERMISSIONS.CLINICAL_VIEW },
+  { path: "/analytics", Component: AnalyticsDashboard, permission: PERMISSIONS.FINANCIAL_VIEW }
 ];
 
 const adminRoutes = [
   { path: "/rules", Component: Rules },
   { path: "/rules/new", Component: NewRule },
-  { path: "/rules/:id/edit", Component: EditRule },
-  { path: "/audit", Component: AuditTrail }
+  { path: "/rules/:id/edit", Component: EditRule }
+];
+
+const permissionRoutes = [
+  { path: "/audit", Component: AuditTrail, permission: PERMISSIONS.AUDIT_VIEW }
 ];
 
 function RouteFallback() {
@@ -86,8 +91,16 @@ function AppRoutes() {
         >
           <Route index element={<Navigate to="/claims" replace />} />
 
-          {protectedRoutes.map(({ path, Component }) => (
-            <Route key={path} path={path} element={<Component />} />
+          {protectedRoutes.map(({ path, Component, permission }) => (
+            <Route
+              key={path}
+              path={path}
+              element={
+                <PermissionProtectedRoute permission={permission}>
+                  <Component />
+                </PermissionProtectedRoute>
+              }
+            />
           ))}
 
           {adminRoutes.map(({ path, Component }) => (
@@ -98,6 +111,18 @@ function AppRoutes() {
                 <RoleProtectedRoute allowedRoles={["ADMIN"]}>
                   <Component />
                 </RoleProtectedRoute>
+              }
+            />
+          ))}
+
+          {permissionRoutes.map(({ path, Component, permission }) => (
+            <Route
+              key={path}
+              path={path}
+              element={
+                <PermissionProtectedRoute permission={permission}>
+                  <Component />
+                </PermissionProtectedRoute>
               }
             />
           ))}

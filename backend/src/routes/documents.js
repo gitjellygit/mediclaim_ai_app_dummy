@@ -1,5 +1,6 @@
 import express from "express";
-import { requireRoles } from "../middleware/auth.js";
+import { requirePermission, requireRoles } from "../middleware/auth.js";
+import { PERMISSIONS } from "../security/permissions.js";
 import { verifyUploadSignature } from "../middleware/uploadSafety.js";
 import { createDocumentUpload } from "../services/documentUpload.js";
 import { publicClaimDocuments, publicDocument } from "../services/documentPublicView.js";
@@ -263,7 +264,7 @@ export function documentsRouter(prisma, uploadDir) {
 
   const upload = createDocumentUpload(uploadDir);
 
-  router.post("/smart-upload", upload.single("file"), verifyUploadSignature, async (req, res) => {
+  router.post("/smart-upload", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), upload.single("file"), verifyUploadSignature, async (req, res) => {
     let uploadedFilePath = null;
     let storedDocumentPath = null;
     
@@ -788,12 +789,12 @@ export function documentsRouter(prisma, uploadDir) {
   }
   }
 
-  router.post("/upload", upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
+  router.post("/upload", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
   // Compatibility for callers using POST /api/claims/documents.
-  router.post("/", upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
+  router.post("/", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
 
   // List documents for the current organization without bloating the claims list.
-  router.get("/", async (req, res) => {
+  router.get("/", requirePermission(PERMISSIONS.DOCUMENT_VIEW), async (req, res) => {
     const claimId = String(req.query?.claimId || "").trim();
     const docs = await prisma.document.findMany({
       where: {
@@ -845,7 +846,7 @@ export function documentsRouter(prisma, uploadDir) {
   });
 
   // List docs for a claim
-  router.get("/claim/:claimId", async (req, res) => {
+  router.get("/claim/:claimId", requirePermission(PERMISSIONS.DOCUMENT_VIEW), async (req, res) => {
     const docs = await prisma.document.findMany({
       where: { claimId: req.params.claimId, claim: { organizationId: req.user.organizationId, deletedAt: null } },
       orderBy: { createdAt: "desc" }
@@ -883,16 +884,16 @@ export function documentsRouter(prisma, uploadDir) {
     return serveStoredDocument(prisma, req, res, { download, uploadDir });
   }
 
-  router.get("/:id/download", (req, res) => serveAuditedDocument(req, res, true));
-  router.get("/:id/preview", (req, res) => serveAuditedDocument(req, res, false));
+  router.get("/:id/download", requirePermission(PERMISSIONS.DOCUMENT_DOWNLOAD), (req, res) => serveAuditedDocument(req, res, true));
+  router.get("/:id/preview", requirePermission(PERMISSIONS.DOCUMENT_VIEW), (req, res) => serveAuditedDocument(req, res, false));
 
   // DELETE doc
-  router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =>
+  router.delete("/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), (req, res) =>
     deleteStoredDocument(prisma, req, res, { uploadDir })
   );
 
   // Process document with AI
-  router.post("/:id/process", async (req, res) => {
+  router.post("/:id/process", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => {
     try {
       const doc = await prisma.document.findFirst({
         where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },
@@ -991,7 +992,7 @@ export function documentsRouter(prisma, uploadDir) {
     }
   });
 
-  router.get("/:id/coding-suggestions", async (req, res) => {
+  router.get("/:id/coding-suggestions", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (req, res) => {
     const doc = await prisma.document.findFirst({
       where: {
         id: req.params.id,
@@ -1026,7 +1027,7 @@ export function documentsRouter(prisma, uploadDir) {
     res.json({ items: suggestions });
   });
 
-  router.patch("/coding-suggestions/:suggestionId", async (req, res) => {
+  router.patch("/coding-suggestions/:suggestionId", requirePermission(PERMISSIONS.CLINICAL_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => {
     const action = String(req.body?.action || "").trim().toUpperCase();
     if (!["ACCEPT", "CHANGE", "REJECT"].includes(action)) {
       return res.status(400).json({
@@ -1157,7 +1158,7 @@ export function documentsRouter(prisma, uploadDir) {
   });
 
   // Manual document type override remains available until claim transmission.
-  router.patch("/:id/type", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
+  router.patch("/:id/type", requirePermission(PERMISSIONS.DOCUMENT_EDIT), async (req, res) => {
     try {
       const nextType = String(req.body?.type || "").trim().toUpperCase();
       if (!DOC_TYPES.includes(nextType)) {
@@ -1185,7 +1186,7 @@ export function documentsRouter(prisma, uploadDir) {
 
       if (doc.type === nextType) {
         return res.json({
-          ...doc,
+          ...publicDocument(doc),
           unchanged: true,
           message: "Document type is already set to this value"
         });
@@ -1228,7 +1229,7 @@ export function documentsRouter(prisma, uploadDir) {
       });
 
       return res.json({
-        ...updated,
+        ...publicDocument(updated),
         message: `Document type changed to ${nextType.replaceAll("_", " ")}`
       });
     } catch (error) {
@@ -1242,7 +1243,7 @@ export function documentsRouter(prisma, uploadDir) {
     }
   });
 
-  router.patch("/:id/identity-review", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
+  router.patch("/:id/identity-review", requirePermission(PERMISSIONS.DOCUMENT_EDIT), async (req, res) => {
     try {
       const decision = String(req.body?.decision || "CONFIRMED").trim().toUpperCase();
       if (!["CONFIRMED"].includes(decision)) {
@@ -1340,7 +1341,7 @@ export function documentsRouter(prisma, uploadDir) {
       });
 
       return res.json({
-        ...updated,
+        ...publicDocument(updated),
         message: "Document identity review completed"
       });
     } catch (error) {
@@ -1355,7 +1356,7 @@ export function documentsRouter(prisma, uploadDir) {
   });
 
   // Canonical document operations; legacy /api/claims/documents URLs share this router.
-  router.post("/:id/apply-suggestion", async (req, res) => {
+  router.post("/:id/apply-suggestion", requirePermission(PERMISSIONS.DOCUMENT_EDIT), async (req, res) => {
   try {
     const doc = await prisma.document.findFirst({
       where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },
@@ -1380,7 +1381,7 @@ export function documentsRouter(prisma, uploadDir) {
 
     if (doc.type === doc.suggestedType) {
       return res.json({
-        ...doc,
+        ...publicDocument(doc),
         unchanged: true,
         message: "Document type already matches the AI suggestion"
       });
@@ -1411,8 +1412,19 @@ export function documentsRouter(prisma, uploadDir) {
       return changed;
     });
 
+    await auditDocumentEvent(prisma, req, {
+      claimId: doc.claimId,
+      documentId: doc.id,
+      action: "DOCUMENT_AI_TYPE_APPLIED",
+      metadata: {
+        previousType: doc.type,
+        newType: updated.type,
+        changeSource: "AI_SUGGESTION"
+      }
+    });
+
     res.json({
-      ...updated,
+      ...publicDocument(updated),
       message: `Document type changed to ${updated.type.replaceAll("_", " ")}`
     });
   } catch (error) {

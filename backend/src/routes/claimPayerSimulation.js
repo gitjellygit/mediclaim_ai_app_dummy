@@ -2,6 +2,8 @@ import express from "express";
 import { auditOnResponse } from "../services/auditLog.js";
 import { emptyMutationSchema, parseMutation, payerConnectSchema, payerPriorAuthSchema } from "../validation/claimMutations.js";
 import { prisma } from "../db.js";
+import { requirePermission } from "../middleware/auth.js";
+import { PERMISSIONS } from "../security/permissions.js";
 import { differenceMoney } from "../utils/money.js";
 import {
   mergeProvenance,
@@ -101,7 +103,7 @@ async function getSimulationClaim(id, organizationId) {
   });
 }
 
-router.post("/:id/payer-simulation/connect", async (req, res) => {
+router.post("/:id/payer-simulation/connect", requirePermission(PERMISSIONS.PAYER_CONNECT), async (req, res) => {
   try {
     const parsedInput = parseMutation(payerConnectSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -198,7 +200,7 @@ router.post("/:id/payer-simulation/connect", async (req, res) => {
   }
 });
 
-router.post("/:id/payer-simulation/eligibility", async (req, res) => {
+router.post("/:id/payer-simulation/eligibility", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -297,7 +299,7 @@ router.post("/:id/payer-simulation/eligibility", async (req, res) => {
   }
 });
 
-router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
+router.post("/:id/payer-simulation/prior-auth", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
     const parsedInput = parseMutation(payerPriorAuthSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -403,7 +405,7 @@ router.post("/:id/payer-simulation/prior-auth", async (req, res) => {
   }
 });
 
-router.post("/:id/payer-simulation/submission", async (req, res) => {
+router.post("/:id/payer-simulation/submission", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (req, res) => {
   try {
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -498,7 +500,7 @@ router.post("/:id/payer-simulation/submission", async (req, res) => {
   }
 });
 
-router.post("/:id/payer-simulation/status", async (req, res) => {
+router.post("/:id/payer-simulation/status", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
@@ -626,7 +628,7 @@ router.post("/:id/payer-simulation/status", async (req, res) => {
   }
 });
 
-router.post("/:id/payer-simulation/remittance", async (req, res) => {
+router.post("/:id/payer-simulation/remittance", requirePermission(PERMISSIONS.PAYER_ACTION), requirePermission(PERMISSIONS.FINANCIAL_VIEW), async (req, res) => {
   try {
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);

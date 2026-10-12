@@ -1,6 +1,8 @@
 import express from "express";
 import { prisma } from "../db.js";
 import { writeRequestAudit } from "../services/auditLog.js";
+import { requirePermission } from "../middleware/auth.js";
+import { PERMISSIONS } from "../security/permissions.js";
 
 const router = express.Router();
 const EXPORT_LIMIT = 10000;
@@ -196,7 +198,7 @@ function toCsv(items) {
   ].join("\n");
 }
 
-router.get("/export", async (req, res) => {
+router.get("/export", requirePermission(PERMISSIONS.AUDIT_EXPORT), async (req, res) => {
   validateExportScope(req);
   const where = buildWhere(req);
   const items = await prisma.auditEvent.findMany({
@@ -223,7 +225,7 @@ router.get("/export", async (req, res) => {
   });
 });
 
-router.get("/", async (req, res) => {
+router.get("/", requirePermission(PERMISSIONS.AUDIT_VIEW), async (req, res) => {
   const page = Math.max(1, Number(req.query.page || 1));
   const pageSize = Math.min(100, Math.max(10, Number(req.query.pageSize || 25)));
 

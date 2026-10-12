@@ -17,7 +17,10 @@ import { parseClaimDate } from "../utils/claimDate.js";
 import { serveStoredDocument } from "../services/documentResponse.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
 import express from "express";
-import { requireRoles } from "../middleware/auth.js";
+import { requirePermission, requireRoles } from "../middleware/auth.js";
+import { PERMISSIONS } from "../security/permissions.js";
+import { minimumNecessaryClaim } from "../security/phiView.js";
+import { forbiddenClaimMutationFields } from "../security/claimMutationAccess.js";
 import { prisma } from "../db.js";
 import claimPayerSimulationRouter from "./claimPayerSimulation.js";
 import claimJourneyRouter from "./claimJourney.js";
@@ -48,7 +51,6 @@ import {
   payerConnectorStatusForClaim
 } from "../services/payerGateway.js";
 import { randomBytes } from "node:crypto";
-import { publicClaimDocuments } from "../services/documentPublicView.js";
 
 const router = express.Router();
 
@@ -140,7 +142,7 @@ async function auditClaim(req, { claimId, action, outcome = "SUCCESS", metadata 
 }
 
 
-router.get("/", async (req, res) => {
+router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
   try {
     const claims = await prisma.claim.findMany({
       where: {
@@ -171,7 +173,7 @@ router.get("/", async (req, res) => {
       metadata: { count: claims.length }
     });
 
-    res.json(claims);
+    res.json(claims.map((claim) => minimumNecessaryClaim(claim, req.user)));
   } catch (error) {
     console.error("Error fetching claims:", error);
     res.status(500).json({ error: "Unable to load claims", code: "CLAIM_LIST_FAILED" });
@@ -190,7 +192,7 @@ router.get("/", async (req, res) => {
  * Empty query returns recent claims; non-empty query searches common operational identifiers.
  * Results are intentionally capped so the browser never needs to load the full claim table.
  */
-router.get("/search", async (req, res) => {
+router.get("/search", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
   try {
     const q = String(req.query.q || "").trim();
     const requestedLimit = Number(req.query.limit || 20);
@@ -246,7 +248,7 @@ router.get("/search", async (req, res) => {
     });
 
     res.json({
-      items: claims,
+      items: claims.map((claim) => minimumNecessaryClaim(claim, req.user)),
       query: q,
       limit,
       recent: !q
@@ -264,7 +266,7 @@ router.get("/search", async (req, res) => {
 router.use(claimPayerSimulationRouter);
 router.use(claimJourneyRouter);
 
-router.get("/medical-consistency/summary", async (req, res) => {
+router.get("/medical-consistency/summary", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (req, res) => {
   try {
     const q = String(req.query.q || "").trim();
     const requestedLimit = Number(req.query.limit || 50);
@@ -347,7 +349,7 @@ router.get("/medical-consistency/summary", async (req, res) => {
   }
 });
 
-router.get("/:id/medical-consistency", async (req, res) => {
+router.get("/:id/medical-consistency", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (req, res) => {
   try {
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
@@ -363,7 +365,7 @@ router.get("/:id/medical-consistency", async (req, res) => {
     }
 
     res.json({
-      claim: publicClaimDocuments(claim),
+      claim: minimumNecessaryClaim(claim, req.user),
       analysis: analyzeMedicalConsistency(claim)
     });
   } catch (error) {
@@ -378,7 +380,7 @@ router.get("/:id/medical-consistency", async (req, res) => {
   }
 });
 
-router.get("/:id/audit", async (req, res) => {
+router.get("/:id/audit", requirePermission(PERMISSIONS.AUDIT_VIEW), async (req, res) => {
   const claim = await prisma.claim.findFirst({
     where: {
       id: req.params.id,
@@ -414,7 +416,7 @@ router.get("/:id/audit", async (req, res) => {
   res.json({ items: events });
 });
 
-router.get("/:id", async (req, res) => {
+router.get("/:id", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
   const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
     include: {
@@ -449,16 +451,30 @@ router.get("/:id", async (req, res) => {
     comparison: compareReadinessChecks(check, all[index + 1] || null)
   }));
 
-  res.json({
-    ...publicClaimDocuments(claim),
-    checks,
-    automationSummary: buildAutomationSummary(claim),
-    completenessSummary: buildClaimCompleteness(claim)
-  });
+  res.json(
+    minimumNecessaryClaim(
+      {
+        ...claim,
+        checks,
+        automationSummary: buildAutomationSummary(claim),
+        completenessSummary: buildClaimCompleteness(claim)
+      },
+      req.user
+    )
+  );
 });
 
-router.post("/", async (req, res) => {
+router.post("/", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => {
   try {
+    const forbiddenFields = forbiddenClaimMutationFields(req.user, req.body);
+    if (forbiddenFields.length > 0) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "You do not have permission to set one or more clinical or financial claim fields.",
+        code: "PHI_FIELD_EDIT_DENIED",
+        fields: forbiddenFields
+      });
+    }
     if (!req.body.patientName || !req.body.payerName) {
       return res.status(400).json({
         error: "patientName and payerName are required"
@@ -657,15 +673,24 @@ router.post("/", async (req, res) => {
       include: { serviceLines: { orderBy: { createdAt: "asc" } } }
     });
 
-    res.json(createdClaim);
+    res.json(minimumNecessaryClaim(createdClaim, req.user));
   } catch (e) {
     console.error("[claim-create] failed", { name: e.name, code: e.code || null });
     res.status(500).json({ error: "Unable to create claim", code: "CLAIM_CREATE_FAILED" });
   }
 });
 
-router.patch("/:id", async (req, res) => {
+router.patch("/:id", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => {
   try {
+    const forbiddenFields = forbiddenClaimMutationFields(req.user, req.body);
+    if (forbiddenFields.length > 0) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "You do not have permission to change one or more clinical or financial claim fields.",
+        code: "PHI_FIELD_EDIT_DENIED",
+        fields: forbiddenFields
+      });
+    }
     const parsedInput = parseMutation(claimUpdateSchema, req.body);
     if (!parsedInput.ok) {
       return res.status(400).json(parsedInput.response);
@@ -946,12 +971,17 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
-    res.json({
-      ...updated,
-      unchanged: !anyClaimDataChanged,
-      automationSummary: buildAutomationSummary(updated),
-      completenessSummary: buildClaimCompleteness(updated)
-    });
+    res.json(
+      minimumNecessaryClaim(
+        {
+          ...updated,
+          unchanged: !anyClaimDataChanged,
+          automationSummary: buildAutomationSummary(updated),
+          completenessSummary: buildClaimCompleteness(updated)
+        },
+        req.user
+      )
+    );
   } catch (e) {
     if (e?.status) throw e;
     console.error("[claim-edit] failed", { name: e.name, code: e.code || null });
@@ -1029,7 +1059,7 @@ router.delete("/:id/purge", requireRoles(["ADMIN"]), async (req, res) => {
   }
 });
 
-router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
+router.delete("/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), async (req, res) => {
   try {
     const id = req.params.id;
 
@@ -1063,16 +1093,16 @@ router.delete("/:id", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
 });
 
 // Legacy URLs delegate to the same implementation as /api/documents.
-router.get("/:id/preview", (req, res) => serveStoredDocument(prisma, req, res));
-router.get("/:id/download", (req, res) => serveStoredDocument(prisma, req, res, { download: true }));
+router.get("/:id/preview", requirePermission(PERMISSIONS.DOCUMENT_VIEW), (req, res) => serveStoredDocument(prisma, req, res));
+router.get("/:id/download", requirePermission(PERMISSIONS.DOCUMENT_DOWNLOAD), (req, res) => serveStoredDocument(prisma, req, res, { download: true }));
 
 
 
-router.delete("/documents/:id", requireRoles(["ADMIN", "CASHIER"]), (req, res) =>
+router.delete("/documents/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), (req, res) =>
   deleteStoredDocument(prisma, req, res, { legacy: true })
 );
 
-router.post("/:id/check", async (req, res) => {
+router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (req, res) => {
   try {
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) {
@@ -1363,7 +1393,7 @@ router.post("/:id/check", async (req, res) => {
 
 
 
-router.post("/:id/submit", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
+router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (req, res) => {
   try {
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) {
