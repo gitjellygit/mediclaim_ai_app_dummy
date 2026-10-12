@@ -294,6 +294,7 @@ test("production payer capabilities are truthful and do not advertise prior auth
       STEDI_PRODUCTION_PHI_CONFIRMED: "true",
       STEDI_PRODUCTION_SUBMISSION_ENABLED: "true",
       STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED: "true",
+      STEDI_PRODUCTION_ERA_ORGANIZATION_ID: "org-era-1",
       STEDI_TEST_API_KEY: "test"
     }).map((item) => [item.id, item])
   );
