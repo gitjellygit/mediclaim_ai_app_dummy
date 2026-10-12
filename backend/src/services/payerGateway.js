@@ -171,7 +171,9 @@ export function registerDefaultPayerConnectors() {
         ? ["submitClaim"]
         : []),
       "getStatus",
-      "getRemittance"
+      ...(env.STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED === "true"
+        ? ["getRemittance"]
+        : [])
     ],
     configured: (env) =>
       Boolean(env.STEDI_PRODUCTION_API_KEY) &&
