@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { listPayerConnectors } from "../src/services/payerGateway.js";
+import {
+  listPayerConnectors,
+  payerConnectorStatusForClaim
+} from "../src/services/payerGateway.js";
 import { createStediProductionConnector } from "../src/services/stediTestConnector.js";
 import {
   writeAuditEvent,
