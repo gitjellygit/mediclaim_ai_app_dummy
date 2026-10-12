@@ -117,8 +117,10 @@ app.get("/health/ready", async (_, res) => {
   }
 });
 
-app.use("/api", apiRateLimit);
-app.use("/api", expensiveOperationRateLimit);
+if (process.env.NODE_ENV !== "test") {
+  app.use("/api", apiRateLimit);
+  app.use("/api", expensiveOperationRateLimit);
+}
 
 /**
  * AUTH ROUTES
