@@ -194,6 +194,25 @@ model Organization {
   name      String
   slug      String   @unique
 
+  // Organization-owned 837 submitter/billing/legal configuration.
+  // Nullable by design: production submission fails preflight until configured.
+  stediSubmitterName                         String?
+  stediSubmitterId                           String?
+  stediSubmitterPhone                        String?
+  stediBillingProviderName                   String?
+  stediBillingAddress1                       String?
+  stediBillingAddress2                       String?
+  stediBillingCity                           String?
+  stediBillingState                          String?
+  stediBillingPostalCode                     String?
+  stediProfessionalSignatureIndicator        String?
+  stediProfessionalPlanParticipationCode     String?
+  stediInstitutionalPlanParticipationCode    String?
+  stediBenefitsAssignmentIndicator           String?
+  stediReleaseInformationCode                String?
+  stediDefaultProfessionalPlaceOfService     String?
+  stediDefaultInstitutionalPlaceOfService    String?
+
   users       User[]
   claims      Claim[]
   auditEvents AuditEvent[]
@@ -460,10 +479,12 @@ model PayerTransaction {
   transactionType String
   status        String
   latencyMs     Int?
+  requestHash   String?
   requestPayload Json?
   responsePayload Json?
 
   @@unique([transactionId, claimId])
+  @@unique([claimId, transactionType, requestHash])
   @@index([claimId, createdAt])
   @@index([payerCode])
   @@index([transactionType])
