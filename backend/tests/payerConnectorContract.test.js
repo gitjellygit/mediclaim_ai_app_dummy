@@ -278,6 +278,7 @@ test("R3 - STEDI_PRODUCTION is separate from test mode and exposes 276/277 when 
       STEDI_PRODUCTION_PHI_CONFIRMED: "true",
       STEDI_PRODUCTION_SUBMISSION_ENABLED: "true",
       STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED: "true",
+      STEDI_PRODUCTION_ERA_ORGANIZATION_ID: "org-era-1",
       STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
     }).map((item) => [item.id, item])
   );
@@ -291,6 +292,7 @@ test("R3 - STEDI_PRODUCTION is separate from test mode and exposes 276/277 when 
 
   const claimStatus = payerConnectorStatusForClaim(
     {
+      organizationId: "org-era-1",
       payerConnectionMode: "LIVE",
       payerConnectorId: "STEDI_PRODUCTION"
     },
@@ -299,6 +301,7 @@ test("R3 - STEDI_PRODUCTION is separate from test mode and exposes 276/277 when 
       STEDI_PRODUCTION_PHI_CONFIRMED: "true",
       STEDI_PRODUCTION_SUBMISSION_ENABLED: "true",
       STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED: "true",
+      STEDI_PRODUCTION_ERA_ORGANIZATION_ID: "org-era-1",
       STEDI_CLAIM_STATUS_URL: "https://status.example.test/change/medicalnetwork/claimstatus/v2"
     }
   );
