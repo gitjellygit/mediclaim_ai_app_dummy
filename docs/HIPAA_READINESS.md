@@ -92,7 +92,7 @@ The current codebase includes:
   - production 837 submitter/billing identity and legal indicators come from the claim's organization-owned `Organization submission profile`, not process-wide billing environment variables;
   - 837 idempotency keys include a SHA-256 fingerprint of the canonical payload so the same payload is retry-safe while materially changed claims use a different key;
   - ambiguous network/timeout outcomes return an explicit outcome-unknown state and instruct the user to retry the same claim rather than create a duplicate;
-  - production 835 discovery is unavailable unless `STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED=true`; enabling that flag requires an approved tenant-isolation mechanism such as separate organization credentials/account partitioning;
+  - production 835 discovery is unavailable unless `STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED=true` and `STEDI_PRODUCTION_ERA_ORGANIZATION_ID` binds the configured Stedi ERA credential/account to the same CLAIM APP organization as the claim; cross-organization ERA reads are rejected before any Stedi request;
   - the confirmation flags are deployment safety interlocks only and do not prove a BAA or HIPAA compliance;
   - Stedi test connector and its test payer directory are refused when `NODE_ENV=production`;
   - production payer-connector assignment is ADMIN-only;

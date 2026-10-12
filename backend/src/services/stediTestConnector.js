@@ -1447,6 +1447,23 @@ export function createStediProductionConnector({
         );
       }
 
+      const boundOrganizationId = String(
+        env.STEDI_PRODUCTION_ERA_ORGANIZATION_ID || ""
+      ).trim();
+      const claimOrganizationId = String(claim?.organizationId || "").trim();
+      if (!boundOrganizationId) {
+        throw new PayerConnectorUnavailableError(
+          "STEDI_PRODUCTION",
+          "Production ERA retrieval requires STEDI_PRODUCTION_ERA_ORGANIZATION_ID"
+        );
+      }
+      if (!claimOrganizationId || claimOrganizationId !== boundOrganizationId) {
+        throw new PayerConnectorUnavailableError(
+          "STEDI_PRODUCTION",
+          "Production ERA credential is not bound to this claim organization"
+        );
+      }
+
       const expectedPatientControlNumber =
         context.expectedPatientControlNumber ||
         context.patientControlNumber ||
