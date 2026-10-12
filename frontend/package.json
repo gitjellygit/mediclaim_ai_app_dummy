@@ -35,7 +35,9 @@
     "test:payer:browser:fast": "playwright test tests/payer-browser-observability.e2e.spec.js",
     "lint": "eslint .",
     "format:check": "prettier --check .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "uat:approval:seed": "APPROVAL_UAT_ACTION=seed playwright test --config=playwright.uat.config.js --headed",
+    "uat:approval:cleanup": "APPROVAL_UAT_ACTION=cleanup playwright test --config=playwright.uat.config.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
