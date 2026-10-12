@@ -967,7 +967,9 @@ export default function ClaimJourney() {
               : "Please confirm that you want to submit this claim. This action advances the claim workflow and may send it to the connected payer."
           ].join("\n"),
           {
-            title: "Confirm claim submission",
+            title: productionSubmission
+              ? "Confirm production 837 submission"
+              : "Confirm claim submission",
             severity: "warning",
             confirmLabel: productionSubmission
               ? "Confirm & Transmit 837"
