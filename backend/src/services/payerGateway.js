@@ -165,9 +165,11 @@ export function registerDefaultPayerConnectors() {
     mode: "LIVE",
     provider: "STEDI",
     environment: PAYER_CONNECTOR_ENVIRONMENTS.PRODUCTION,
-    capabilities: [
+    capabilities: (env) => [
       "checkEligibility",
-      "submitClaim",
+      ...(env.STEDI_PRODUCTION_SUBMISSION_ENABLED === "true"
+        ? ["submitClaim"]
+        : []),
       "getStatus",
       "getRemittance"
     ],
