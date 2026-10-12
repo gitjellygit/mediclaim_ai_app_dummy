@@ -6,6 +6,9 @@ const DEFAULT_BASE_URL = "https://healthcare.us.stedi.com/2026-06-01";
 const DEFAULT_CLAIMS_BASE_URL = "https://healthcare.us.stedi.com/2024-04-01";
 
 const CONNECTOR_TIMEOUT_MS = 15000;
+const ERA_DISCOVERY_DEADLINE_MS = 20000;
+const ERA_DISCOVERY_MAX_PAGES = 3;
+const ERA_DISCOVERY_MAX_CANDIDATES = 20;
 
 function connectorSignal(signal) {
   const timeout = AbortSignal.timeout(CONNECTOR_TIMEOUT_MS);
@@ -492,38 +495,65 @@ async function discoverStedi835({
   const safeStart = Number.isNaN(requestedStart.getTime())
     ? fallbackStart
     : requestedStart;
-  // Stedi requires a time at least one minute in the past.
   const latestAllowed = new Date(Date.now() - 60 * 1000);
   const pollStart = safeStart > latestAllowed ? latestAllowed : safeStart;
 
-  const url = new URL(`${coreBaseUrl}/polling/transactions`);
-  url.searchParams.set("startDateTime", pollStart.toISOString());
-  url.searchParams.set("pageSize", "100");
+  const deadlineSignal = AbortSignal.timeout(ERA_DISCOVERY_DEADLINE_MS);
+  const overallSignal =
+    signal && typeof AbortSignal.any === "function"
+      ? AbortSignal.any([signal, deadlineSignal])
+      : signal || deadlineSignal;
 
-  const pollResponse = await fetchImpl(url, {
-    headers: { Authorization: apiKey },
-    signal: connectorSignal(signal)
-  });
-  const pollBody = await parseResponse(pollResponse);
-  const candidates = (pollBody?.items || [])
-    .filter(
-      (item) =>
-        String(item?.direction || "").toUpperCase() === "INBOUND" &&
-        String(item?.status || "").toLowerCase() === "succeeded" &&
-        String(stediTransactionType(item)) === "835" &&
-        item?.transactionId
-    )
-    .slice(-20)
-    .reverse();
+  const discovered = [];
+  const seen = new Set();
+  let nextPageToken = null;
 
+  for (
+    let page = 0;
+    page < ERA_DISCOVERY_MAX_PAGES &&
+    discovered.length < ERA_DISCOVERY_MAX_CANDIDATES;
+    page += 1
+  ) {
+    const url = new URL(`${coreBaseUrl}/polling/transactions`);
+    url.searchParams.set("startDateTime", pollStart.toISOString());
+    url.searchParams.set("pageSize", "100");
+    if (nextPageToken) url.searchParams.set("pageToken", nextPageToken);
+
+    const pollResponse = await fetchImpl(url, {
+      headers: { Authorization: apiKey },
+      signal: connectorSignal(overallSignal)
+    });
+    const pollBody = await parseResponse(pollResponse);
+
+    for (const item of pollBody?.items || []) {
+      if (
+        String(item?.direction || "").toUpperCase() !== "INBOUND" ||
+        String(item?.status || "").toLowerCase() !== "succeeded" ||
+        String(stediTransactionType(item)) !== "835" ||
+        !item?.transactionId ||
+        seen.has(item.transactionId)
+      ) {
+        continue;
+      }
+      seen.add(item.transactionId);
+      discovered.push(item);
+      if (discovered.length >= ERA_DISCOVERY_MAX_CANDIDATES) break;
+    }
+
+    nextPageToken = pollBody?.nextPageToken || null;
+    if (!nextPageToken) break;
+  }
+
+  const candidates = discovered.slice(-ERA_DISCOVERY_MAX_CANDIDATES).reverse();
   const matches = [];
+
   for (const candidate of candidates) {
     const { body, latencyMs } = await fetchStedi835Report({
       transactionId: candidate.transactionId,
       apiKey,
       eraBaseUrl,
       fetchImpl,
-      signal: connectorSignal(signal)
+      signal: connectorSignal(overallSignal)
     });
     const normalized = normalizeStedi835Report(body, {
       expectedPatientControlNumber,
@@ -532,13 +562,16 @@ async function discoverStedi835({
     });
     if (normalized.status === "POSTED") {
       matches.push(normalized);
+      // Two exact matches already require human review; additional report
+      // downloads do not improve the decision and only increase exposure.
+      if (matches.length >= 2) break;
     }
   }
 
   if (matches.length === 1) {
     return {
       ...matches[0],
-      nextPageToken: pollBody?.nextPageToken || null
+      nextPageToken
     };
   }
 
@@ -547,7 +580,7 @@ async function discoverStedi835({
     transactionType: "835",
     matchCount: matches.length,
     candidateTransactionIds: matches.map((item) => item.transactionId),
-    nextPageToken: pollBody?.nextPageToken || null,
+    nextPageToken,
     testMode: true
   };
 }
