@@ -37,6 +37,10 @@ export const serviceLineInputSchema = z.object({
 
 export const emptyMutationSchema = z.object({}).strict();
 
+export const claimSubmissionSchema = z.object({
+  confirmProductionSubmission: z.boolean().optional()
+}).strict();
+
 export const claimUpdateSchema = z.object({
   patientName: z.string().trim().min(1).max(250),
   payerName: z.string().trim().min(1).max(250),
