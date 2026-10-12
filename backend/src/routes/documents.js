@@ -1158,7 +1158,7 @@ export function documentsRouter(prisma, uploadDir) {
   });
 
   // Manual document type override remains available until claim transmission.
-  router.patch("/:id/type", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
+  router.patch("/:id/type", requirePermission(PERMISSIONS.DOCUMENT_EDIT), async (req, res) => {
     try {
       const nextType = String(req.body?.type || "").trim().toUpperCase();
       if (!DOC_TYPES.includes(nextType)) {
@@ -1186,7 +1186,7 @@ export function documentsRouter(prisma, uploadDir) {
 
       if (doc.type === nextType) {
         return res.json({
-          ...doc,
+          ...publicDocument(doc),
           unchanged: true,
           message: "Document type is already set to this value"
         });
@@ -1229,7 +1229,7 @@ export function documentsRouter(prisma, uploadDir) {
       });
 
       return res.json({
-        ...updated,
+        ...publicDocument(updated),
         message: `Document type changed to ${nextType.replaceAll("_", " ")}`
       });
     } catch (error) {
@@ -1243,7 +1243,7 @@ export function documentsRouter(prisma, uploadDir) {
     }
   });
 
-  router.patch("/:id/identity-review", requireRoles(["ADMIN", "CASHIER"]), async (req, res) => {
+  router.patch("/:id/identity-review", requirePermission(PERMISSIONS.DOCUMENT_EDIT), async (req, res) => {
     try {
       const decision = String(req.body?.decision || "CONFIRMED").trim().toUpperCase();
       if (!["CONFIRMED"].includes(decision)) {
@@ -1341,7 +1341,7 @@ export function documentsRouter(prisma, uploadDir) {
       });
 
       return res.json({
-        ...updated,
+        ...publicDocument(updated),
         message: "Document identity review completed"
       });
     } catch (error) {
@@ -1356,7 +1356,7 @@ export function documentsRouter(prisma, uploadDir) {
   });
 
   // Canonical document operations; legacy /api/claims/documents URLs share this router.
-  router.post("/:id/apply-suggestion", async (req, res) => {
+  router.post("/:id/apply-suggestion", requirePermission(PERMISSIONS.DOCUMENT_EDIT), async (req, res) => {
   try {
     const doc = await prisma.document.findFirst({
       where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },
@@ -1381,7 +1381,7 @@ export function documentsRouter(prisma, uploadDir) {
 
     if (doc.type === doc.suggestedType) {
       return res.json({
-        ...doc,
+        ...publicDocument(doc),
         unchanged: true,
         message: "Document type already matches the AI suggestion"
       });
@@ -1412,8 +1412,19 @@ export function documentsRouter(prisma, uploadDir) {
       return changed;
     });
 
+    await auditDocumentEvent(prisma, req, {
+      claimId: doc.claimId,
+      documentId: doc.id,
+      action: "DOCUMENT_AI_TYPE_APPLIED",
+      metadata: {
+        previousType: doc.type,
+        newType: updated.type,
+        changeSource: "AI_SUGGESTION"
+      }
+    });
+
     res.json({
-      ...updated,
+      ...publicDocument(updated),
       message: `Document type changed to ${updated.type.replaceAll("_", " ")}`
     });
   } catch (error) {
