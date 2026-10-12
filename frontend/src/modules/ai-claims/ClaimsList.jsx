@@ -58,6 +58,9 @@ export default function ClaimsList() {
   const canDeleteClaims = hasPermission(user, PERMISSIONS.CLAIM_DELETE);
   const canViewFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_VIEW);
   const [claims, setClaims] = useState([]);
+  const [totalClaims, setTotalClaims] = useState(0);
+  const [claimsPage, setClaimsPage] = useState(1);
+  const [loadingClaims, setLoadingClaims] = useState(false);
   const [selected, setSelected] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [aiCreateOpen, setAiCreateOpen] = useState(false);
@@ -72,14 +75,29 @@ export default function ClaimsList() {
     loadClaims();
   }, []);
 
-  async function loadClaims() {
+  async function loadClaims({ page = 1, append = false } = {}) {
     try {
-      const data = await ClaimsApi.list();
-      setClaims(Array.isArray(data) ? data : []);
+      setLoadingClaims(true);
+      const data = await ClaimsApi.list({ page, pageSize: 50, paginated: true });
+      const items = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data)
+        ? data
+        : [];
+      setClaims((current) => {
+        if (!append) return items;
+        const merged = new Map(current.map((claim) => [claim.id, claim]));
+        for (const claim of items) merged.set(claim.id, claim);
+        return [...merged.values()];
+      });
+      setTotalClaims(Number(data?.total ?? items.length));
+      setClaimsPage(page);
       setSelected([]);
     } catch (e) {
       console.error("Failed to load claims:", e);
-      setClaims([]);
+      if (!append) setClaims([]);
+    } finally {
+      setLoadingClaims(false);
     }
   }
 
@@ -392,7 +410,7 @@ export default function ClaimsList() {
   return (
     <Box sx={{ p: { xs: 1, sm: 2, lg: 3 } }}>
       <Typography variant="h4" fontWeight={700} mb={3}>
-        AI Claims ({filteredClaims.length})
+        AI Claims ({filteredClaims.length}{totalClaims > claims.length ? ` of ${totalClaims}` : ""})
       </Typography>
 
       <Stack
@@ -419,7 +437,7 @@ export default function ClaimsList() {
         <Button
           variant="outlined"
           startIcon={<Refresh />}
-          onClick={loadClaims}
+          onClick={() => loadClaims()}
         >
           Refresh
         </Button>
@@ -545,6 +563,20 @@ export default function ClaimsList() {
           </TableBody>
         </Table>
       </Paper>
+
+      {claims.length < totalClaims && !searchTerm.trim() && (
+        <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
+          <Button
+            variant="outlined"
+            disabled={loadingClaims}
+            onClick={() =>
+              loadClaims({ page: claimsPage + 1, append: true })
+            }
+          >
+            {loadingClaims ? "Loading..." : "Load More Claims"}
+          </Button>
+        </Box>
+      )}
 
       <Dialog
         open={aiCreateOpen}
