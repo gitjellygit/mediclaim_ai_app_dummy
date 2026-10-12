@@ -27,6 +27,7 @@ test("PHI permissions - role matrix follows minimum necessary", () => {
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.FINANCIAL_VIEW), false);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.FINANCIAL_EDIT), false);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.DOCUMENT_VIEW), false);
+  assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.DOCUMENT_EDIT), false);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.DOCUMENT_DOWNLOAD), false);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.PAYER_ACTION), false);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.CLAIM_SUBMIT), false);
@@ -38,6 +39,7 @@ test("PHI permissions - role matrix follows minimum necessary", () => {
   assert.equal(hasPermission("CASHIER", PERMISSIONS.FINANCIAL_VIEW), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.FINANCIAL_EDIT), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.DOCUMENT_VIEW), true);
+  assert.equal(hasPermission("CASHIER", PERMISSIONS.DOCUMENT_EDIT), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.CLAIM_SUBMIT), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.RECOVERY_EDIT), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.PAYER_CONNECT), false);
@@ -275,4 +277,16 @@ test("PHI auth contract - authorization resolves the current database role for a
   assert.match(authMiddleware, /select:[\s\S]*role: true[\s\S]*organizationId: true/);
   assert.match(authMiddleware, /req\.user = tokenUser\(payload, currentUser\)/);
   assert.doesNotMatch(authMiddleware, /req\.user = tokenUser\(payload\);/);
+});
+
+
+test("PHI document mutation routes are sanitized and permission-gated", () => {
+  const documents = read("src/routes/documents.js");
+
+  assert.match(documents, /\/:id\/type", requirePermission\(PERMISSIONS\.DOCUMENT_EDIT\)/);
+  assert.match(documents, /\/:id\/identity-review", requirePermission\(PERMISSIONS\.DOCUMENT_EDIT\)/);
+  assert.match(documents, /\/:id\/apply-suggestion", requirePermission\(PERMISSIONS\.DOCUMENT_EDIT\)/);
+  assert.match(documents, /DOCUMENT_AI_TYPE_APPLIED/);
+  assert.match(documents, /publicDocument\(updated\)/);
+  assert.match(documents, /publicDocument\(doc\)/);
 });
