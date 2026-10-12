@@ -43,6 +43,23 @@ export const ClaimsApi = {
     return api(`${BASE}/${id}`);
   },
 
+  approvalIntelligence({
+    page = 1,
+    pageSize = 25,
+    q = "",
+    status = "ALL"
+  } = {}) {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize)
+    });
+    if (q.trim()) params.set("q", q.trim());
+    if (status && status !== "ALL") params.set("status", status);
+    return withReadRetry(() =>
+      api(`${BASE}/approval-intelligence?${params.toString()}`)
+    );
+  },
+
   create(data) {
     return api(BASE, {
       method: "POST",
