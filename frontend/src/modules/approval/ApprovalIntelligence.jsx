@@ -104,6 +104,13 @@ function priorAuthLabel(auth) {
   return "Not checked";
 }
 
+function actionButtonLabel(action) {
+  if (action?.code === "RUN_READINESS") return "Run Readiness Check";
+  if (action?.code === "REFRESH_READINESS") return "Refresh Readiness";
+  if (action?.code === "READY_TO_SUBMIT") return "Review & Submit";
+  return "Resolve";
+}
+
 function nextActionPath(claim) {
   const first = claim?.nextActions?.[0];
   const target = String(first?.target || "").toLowerCase();
@@ -642,7 +649,7 @@ export default function ApprovalIntelligence() {
                               endIcon={<ArrowForward />}
                               onClick={() => openClaim(claim, true)}
                             >
-                              Resolve
+                              {actionButtonLabel(nextAction)}
                             </Button>
                           </Stack>
                         ) : (
