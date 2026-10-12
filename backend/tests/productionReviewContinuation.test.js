@@ -14,35 +14,64 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(root, "..");
 const read = (relative) => fs.readFileSync(path.join(repoRoot, relative), "utf8");
 
-test("production ERA is independently gated by tenant isolation", async () => {
+test("production ERA is independently gated and bound to one organization", async () => {
   const baseEnv = {
     STEDI_PRODUCTION_API_KEY: "prod-key",
     STEDI_PRODUCTION_PHI_CONFIRMED: "true"
   };
+
   const disabled = listPayerConnectors(baseEnv).find(
     (item) => item.id === "STEDI_PRODUCTION"
   );
   assert.equal(disabled?.configured, true);
   assert.equal(disabled?.capabilities.includes("getRemittance"), false);
 
-  const enabled = listPayerConnectors({
+  const enabledEnv = {
     ...baseEnv,
-    STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED: "true"
-  }).find((item) => item.id === "STEDI_PRODUCTION");
+    STEDI_PRODUCTION_ERA_TENANT_ISOLATION_CONFIRMED: "true",
+    STEDI_PRODUCTION_ERA_ORGANIZATION_ID: "org-era-1"
+  };
+  const enabled = listPayerConnectors(enabledEnv).find(
+    (item) => item.id === "STEDI_PRODUCTION"
+  );
   assert.equal(enabled?.capabilities.includes("getRemittance"), true);
 
+  const matching = payerConnectorStatusForClaim(
+    {
+      organizationId: "org-era-1",
+      payerConnectionMode: "LIVE",
+      payerConnectorId: "STEDI_PRODUCTION"
+    },
+    enabledEnv
+  );
+  assert.equal(matching.capabilities.includes("getRemittance"), true);
+
+  const foreign = payerConnectorStatusForClaim(
+    {
+      organizationId: "org-era-2",
+      payerConnectionMode: "LIVE",
+      payerConnectorId: "STEDI_PRODUCTION"
+    },
+    enabledEnv
+  );
+  assert.equal(foreign.capabilities.includes("getRemittance"), false);
+
   const connector = createStediProductionConnector({
-    env: baseEnv,
+    env: enabledEnv,
     fetchImpl: async () => {
       throw new Error("network must not be reached");
     }
   });
 
   await assert.rejects(
-    () => connector.getRemittance({ patientControlNumber: "PCN-1" }),
+    () =>
+      connector.getRemittance({
+        organizationId: "org-era-2",
+        patientControlNumber: "PCN-1"
+      }),
     (error) =>
       error?.code === "PAYER_CONNECTOR_UNAVAILABLE" &&
-      /tenant isolation/i.test(error.message)
+      /not bound to this claim organization/i.test(error.message)
   );
 });
 
