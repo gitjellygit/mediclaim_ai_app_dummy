@@ -106,9 +106,13 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
   const finalStatus = ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status);
   const alreadySubmitted = Boolean(claim?.claimSubmissionDate) || finalStatus;
   const eligibilityResolved = claim?.eligibilityStatus === "VERIFIED";
-  const priorAuthResolved = ["APPROVED", "NOT_REQUIRED"].includes(
-    claim?.priorAuthStatus
-  );
+  const priorAuthExpired =
+    claim?.priorAuthStatus === "APPROVED" &&
+    Boolean(claim?.priorAuthExpiry) &&
+    daysUntil(claim.priorAuthExpiry, now) < 0;
+  const priorAuthResolved =
+    ["APPROVED", "NOT_REQUIRED"].includes(claim?.priorAuthStatus) &&
+    !priorAuthExpired;
 
   const filingDaysRemaining = daysUntil(claim?.timelyFilingDeadline, now);
   const filingState =
@@ -308,9 +312,7 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
       status: claim.priorAuthStatus,
       authorizationNo: claim.authorizationNo || null,
       expiresAt: claim.priorAuthExpiry || null,
-      expired:
-        Boolean(claim.priorAuthExpiry) &&
-        daysUntil(claim.priorAuthExpiry, now) < 0
+      expired: priorAuthExpired
     },
     timelyFiling: {
       deadline: claim.timelyFilingDeadline || null,
