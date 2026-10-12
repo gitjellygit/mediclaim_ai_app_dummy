@@ -109,8 +109,16 @@ const expensiveOperationRateLimiter = createMemoryRateLimiter({
     );
   }
 });
-app.use("/api", apiRateLimiter);
-app.use("/api", expensiveOperationRateLimiter);
+// Automated integration/E2E suites exercise many requests through one loopback
+// address; keep the production middleware testable in isolation without making
+// unrelated test order affect API assertions.
+if (
+  process.env.NODE_ENV !== "test" ||
+  process.env.ENABLE_RATE_LIMITS_IN_TEST === "true"
+) {
+  app.use("/api", apiRateLimiter);
+  app.use("/api", expensiveOperationRateLimiter);
+}
 
 let shuttingDown = false;
 app.get("/health", (_, res) => res.json({ ok: true }));
