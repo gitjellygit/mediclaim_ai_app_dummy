@@ -30,8 +30,13 @@ async function withReadRetry(operation, attempts = 3, baseDelayMs = 350) {
 }
 
 export const ClaimsApi = {
-  list() {
-    return api(BASE);
+  list({ page = 1, pageSize = 50, paginated = true } = {}) {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize)
+    });
+    if (paginated) params.set("paginated", "1");
+    return api(`${BASE}?${params.toString()}`);
   },
 
   get(id) {
@@ -127,11 +132,17 @@ export const ClaimsApi = {
     });
   },
 
-  listDocuments(claimId = "") {
-    const params = new URLSearchParams();
+  listDocuments(
+    claimId = "",
+    { page = 1, pageSize = 50, paginated = true } = {}
+  ) {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize)
+    });
     if (claimId) params.set("claimId", claimId);
-    const query = params.toString();
-    return withReadRetry(() => api(`/api/documents${query ? `?${query}` : ""}`));
+    if (paginated) params.set("paginated", "1");
+    return withReadRetry(() => api(`/api/documents?${params.toString()}`));
   },
 
   getDocumentCodingSuggestions(docId) {
