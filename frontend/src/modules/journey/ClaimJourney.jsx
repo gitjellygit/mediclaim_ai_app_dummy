@@ -384,7 +384,7 @@ export default function ClaimJourney() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { showToast } = useToast();
+  const { showToast, confirmDialog } = useToast();
 
   const [claims, setClaims] = React.useState([]);
   const [selectedClaim, setSelectedClaim] = React.useState(null);
@@ -944,7 +944,32 @@ export default function ClaimJourney() {
           return;
         }
 
-        const submitted = await ClaimsApi.submit(claim.id);
+        let submitOptions = {};
+        if (connectedConnector?.id === "STEDI_PRODUCTION") {
+          const confirmed = await confirmDialog(
+            "This will transmit a real 837 claim to the production payer network. Verify the claim, payer, billing provider, and organization submission settings before continuing.",
+            {
+              title: "Confirm production 837 submission",
+              severity: "warning",
+              confirmLabel: "Transmit real 837",
+              cancelLabel: "Cancel"
+            }
+          );
+          if (!confirmed) return;
+          submitOptions = { confirmProductionSubmission: true };
+        }
+
+        const submitted = await ClaimsApi.submit(claim.id, submitOptions);
+        if (submitted?.outcomeUnknown) {
+          setSubmissionBlock(null);
+          await loadJourney(claim.id);
+          showToast(
+            submitted.message ||
+              "The payer submission outcome is unknown. Retry is safe while the claim remains unchanged.",
+            "warning"
+          );
+          return;
+        }
         if (externalPayerConnected) {
           setSubmissionBlock(null);
           await loadJourney(claim.id);

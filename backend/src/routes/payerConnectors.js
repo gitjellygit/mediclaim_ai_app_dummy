@@ -1,4 +1,7 @@
 import express from "express";
+import { z } from "zod";
+import { prisma } from "../db.js";
+import { requireRoles } from "../middleware/auth.js";
 import { listPayerConnectors } from "../services/payerGateway.js";
 import {
   listStediPayers,
@@ -6,6 +9,70 @@ import {
 } from "../services/stediTestConnector.js";
 
 const router = express.Router();
+
+const submissionProfileSchema = z.object({
+  stediSubmitterName: z.string().trim().min(1).max(250),
+  stediSubmitterId: z.string().trim().max(100).nullish(),
+  stediSubmitterPhone: z.string().trim().regex(/^\d{7,15}$/),
+  stediBillingProviderName: z.string().trim().min(1).max(250),
+  stediBillingAddress1: z.string().trim().min(1).max(250),
+  stediBillingAddress2: z.string().trim().max(250).nullish(),
+  stediBillingCity: z.string().trim().min(1).max(100),
+  stediBillingState: z.string().trim().min(2).max(2),
+  stediBillingPostalCode: z.string().trim().min(5).max(12),
+  stediProfessionalSignatureIndicator: z.enum(["Y", "N"]),
+  stediProfessionalPlanParticipationCode: z.string().trim().min(1).max(1),
+  stediInstitutionalPlanParticipationCode: z.string().trim().min(1).max(1),
+  stediBenefitsAssignmentIndicator: z.enum(["Y", "N"]),
+  stediReleaseInformationCode: z.enum(["Y", "I"]),
+  stediDefaultProfessionalPlaceOfService: z.string().trim().regex(/^\d{2}$/).nullish(),
+  stediDefaultInstitutionalPlaceOfService: z.string().trim().regex(/^\d{2}$/).nullish()
+}).strict();
+
+const submissionProfileSelect = Object.freeze({
+  stediSubmitterName: true,
+  stediSubmitterId: true,
+  stediSubmitterPhone: true,
+  stediBillingProviderName: true,
+  stediBillingAddress1: true,
+  stediBillingAddress2: true,
+  stediBillingCity: true,
+  stediBillingState: true,
+  stediBillingPostalCode: true,
+  stediProfessionalSignatureIndicator: true,
+  stediProfessionalPlanParticipationCode: true,
+  stediInstitutionalPlanParticipationCode: true,
+  stediBenefitsAssignmentIndicator: true,
+  stediReleaseInformationCode: true,
+  stediDefaultProfessionalPlaceOfService: true,
+  stediDefaultInstitutionalPlaceOfService: true
+});
+
+router.get("/submission-profile", requireRoles(["ADMIN"]), async (req, res) => {
+  const profile = await prisma.organization.findUnique({
+    where: { id: req.user.organizationId },
+    select: submissionProfileSelect
+  });
+  if (!profile) return res.status(404).json({ error: "Organization not found" });
+  res.json({ profile });
+});
+
+router.put("/submission-profile", requireRoles(["ADMIN"]), async (req, res) => {
+  const parsed = submissionProfileSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid submission profile",
+      message: parsed.error.issues[0]?.message || "Review the organization submission settings.",
+      code: "INVALID_SUBMISSION_PROFILE"
+    });
+  }
+  const profile = await prisma.organization.update({
+    where: { id: req.user.organizationId },
+    data: parsed.data,
+    select: submissionProfileSelect
+  });
+  res.json({ profile });
+});
 
 router.get("/", (_req, res) => {
   res.json({ connectors: listPayerConnectors() });

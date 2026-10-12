@@ -64,9 +64,10 @@ export const ClaimsApi = {
     });
   },
 
-  submit(id) {
+  submit(id, options = {}) {
     return api(`${BASE}/${id}/submit`, {
-      method: "POST"
+      method: "POST",
+      body: JSON.stringify(options)
     });
   },
 

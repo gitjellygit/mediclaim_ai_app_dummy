@@ -1,6 +1,6 @@
 import { validMoney } from "../utils/money.js";
 import { z } from "zod";
-import { claimUpdateSchema, emptyMutationSchema, parseMutation, serviceLineInputSchema } from "../validation/claimMutations.js";
+import { claimSubmissionSchema, claimUpdateSchema, emptyMutationSchema, parseMutation, serviceLineInputSchema } from "../validation/claimMutations.js";
 import {
   drgSchema,
   firstZodMessage,
@@ -1395,7 +1395,7 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
 
 router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (req, res) => {
   try {
-    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    const parsedInput = parseMutation(claimSubmissionSchema, req.body);
     if (!parsedInput.ok) {
       return res.status(400).json(parsedInput.response);
     }
@@ -1403,7 +1403,27 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
         checks: { orderBy: { createdAt: "desc" }, take: 1 },
-        serviceLines: { orderBy: { createdAt: "asc" } }
+        serviceLines: { orderBy: { createdAt: "asc" } },
+        organization: {
+          select: {
+            stediSubmitterName: true,
+            stediSubmitterId: true,
+            stediSubmitterPhone: true,
+            stediBillingProviderName: true,
+            stediBillingAddress1: true,
+            stediBillingAddress2: true,
+            stediBillingCity: true,
+            stediBillingState: true,
+            stediBillingPostalCode: true,
+            stediProfessionalSignatureIndicator: true,
+            stediProfessionalPlanParticipationCode: true,
+            stediInstitutionalPlanParticipationCode: true,
+            stediBenefitsAssignmentIndicator: true,
+            stediReleaseInformationCode: true,
+            stediDefaultProfessionalPlaceOfService: true,
+            stediDefaultInstitutionalPlaceOfService: true
+          }
+        }
       }
     });
 
@@ -1493,6 +1513,28 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
           code: "PAYER_SUBMISSION_NOT_CONFIGURED"
         });
       }
+      if (
+        connectorDescriptor.id === "STEDI_PRODUCTION" &&
+        process.env.STEDI_PRODUCTION_SUBMISSION_ENABLED !== "true"
+      ) {
+        return res.status(503).json({
+          error: "Production claim submission is disabled",
+          message: "Real 837 transmission is disabled for this deployment.",
+          code: "PRODUCTION_SUBMISSION_DISABLED"
+        });
+      }
+
+      if (
+        connectorDescriptor.id === "STEDI_PRODUCTION" &&
+        parsedInput.data.confirmProductionSubmission !== true
+      ) {
+        return res.status(409).json({
+          error: "Production submission confirmation required",
+          message: "Confirm the real 837 transmission before submitting this claim.",
+          code: "PRODUCTION_SUBMISSION_CONFIRMATION_REQUIRED"
+        });
+      }
+
       if (!connectorDescriptor.capabilities?.includes("submitClaim")) {
         return res.status(409).json({
           error: "Payer claim submission is not supported",
@@ -1508,7 +1550,7 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       payerSubmission = await connector.submitClaim(
         { ...claim, patientControlNumber },
         {
-          idempotencyKey: `claim-app-${claim.id}-${claim.claimForm || "PROFESSIONAL"}-${claim.claimFrequencyCode || "ORIGINAL"}`
+          submissionProfile: claim.organization
         }
       );
 
@@ -1539,13 +1581,15 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
           transactionType: "CLAIM_SUBMISSION",
           status: payerSubmission.status,
           latencyMs: payerSubmission.latencyMs || null,
+          requestHash: payerSubmission.payloadHash || null,
           requestPayload: {
             transaction: claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
             patientControlNumber,
             payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
             claimForm: claim.claimForm || null,
             claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
-            idempotencyKey: payerSubmission.idempotencyKey || null
+            idempotencyKey: payerSubmission.idempotencyKey || null,
+            payloadHash: payerSubmission.payloadHash || null
           },
           responsePayload: safeResult
         },
@@ -1625,6 +1669,62 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
     });
   } catch (e) {
     if (e?.status && e?.code !== "STEDI_API_ERROR") throw e;
+
+    if (e?.code === "STEDI_SUBMISSION_OUTCOME_UNKNOWN") {
+      const existing = await prisma.claim.findFirst({
+        where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
+      });
+
+      if (existing) {
+        const unknownTransactionId = `837-unknown-${String(e.payloadHash || "unknown").slice(0, 32)}`;
+        await prisma.payerTransaction.upsert({
+          where: {
+            transactionId_claimId: {
+              transactionId: unknownTransactionId,
+              claimId: existing.id
+            }
+          },
+          create: {
+            claimId: existing.id,
+            transactionId: unknownTransactionId,
+            mode: "PRODUCTION",
+            payerCode: existing.connectedPayerCode || existing.payerEdiId || "STEDI",
+            transactionType: "CLAIM_SUBMISSION",
+            status: "OUTCOME_UNKNOWN",
+            latencyMs: e.latencyMs || null,
+            requestHash: e.payloadHash || null,
+            requestPayload: {
+              patientControlNumber: existing.patientControlNumber || null,
+              idempotencyKey: e.idempotencyKey || null,
+              payloadHash: e.payloadHash || null,
+              retrySafe: true
+            },
+            responsePayload: {
+              outcomeUnknown: true,
+              retrySafe: true
+            }
+          },
+          update: {
+            status: "OUTCOME_UNKNOWN",
+            latencyMs: e.latencyMs || null,
+            requestHash: e.payloadHash || null,
+            responsePayload: {
+              outcomeUnknown: true,
+              retrySafe: true
+            }
+          }
+        });
+      }
+
+      return res.status(202).json({
+        success: false,
+        outcomeUnknown: true,
+        retrySafe: true,
+        error: "Submission outcome unknown",
+        message: e.message,
+        code: "PAYER_SUBMISSION_OUTCOME_UNKNOWN"
+      });
+    }
 
     if (e?.code === "STEDI_REQUEST_INVALID" || e?.code === "STEDI_CLAIM_REQUEST_INVALID") {
       return res.status(400).json({
