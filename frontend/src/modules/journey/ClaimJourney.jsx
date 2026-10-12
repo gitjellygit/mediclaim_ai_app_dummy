@@ -384,7 +384,7 @@ export default function ClaimJourney() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { showToast } = useToast();
+  const { showToast, confirmDialog } = useToast();
 
   const [claims, setClaims] = React.useState([]);
   const [selectedClaim, setSelectedClaim] = React.useState(null);
@@ -944,7 +944,27 @@ export default function ClaimJourney() {
           return;
         }
 
-        const submitted = await ClaimsApi.submit(claim.id);
+        let confirmProductionSubmission = false;
+        if (
+          externalPayerConnected &&
+          connectedConnector?.environment === "PRODUCTION"
+        ) {
+          const confirmed = await confirmDialog(
+            "This sends a real 837 claim to the connected production payer. Confirm that the claim and organization billing/submitter settings are correct before transmitting.",
+            {
+              title: "Submit real production claim?",
+              severity: "warning",
+              confirmLabel: "Transmit 837",
+              cancelLabel: "Cancel"
+            }
+          );
+          if (!confirmed) return;
+          confirmProductionSubmission = true;
+        }
+
+        const submitted = await ClaimsApi.submit(claim.id, {
+          confirmProductionSubmission
+        });
         if (externalPayerConnected) {
           setSubmissionBlock(null);
           await loadJourney(claim.id);
