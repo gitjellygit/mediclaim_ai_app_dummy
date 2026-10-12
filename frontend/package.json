@@ -33,9 +33,9 @@
     "test:payments:fast": "playwright test tests/payment-variance.e2e.spec.js",
     "test:payer:browser": "playwright test tests/payer-browser-observability.e2e.spec.js --headed",
     "test:payer:browser:fast": "playwright test tests/payer-browser-observability.e2e.spec.js",
-    "lint": "npx --yes eslint@9 .",
-    "format:check": "npx --yes prettier@3 --check .",
-    "format": "npx --yes prettier@3 --write ."
+    "lint": "eslint .",
+    "format:check": "prettier --check .",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -50,7 +50,9 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.2",
-    "@playwright/test": "^1.55.0"
+    "@playwright/test": "^1.55.0",
+    "eslint": "9.39.1",
+    "prettier": "3.8.1"
   },
   "overrides": {
     "yaml": "1.10.3"
