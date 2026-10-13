@@ -167,11 +167,19 @@ export const ClaimsApi = {
 
   listDocuments(
     claimId = "",
-    { page = 1, pageSize = 50, paginated = true } = {}
+    {
+      page = 1,
+      pageSize = 50,
+      paginated = true,
+      sort = "createdAt",
+      direction = "desc"
+    } = {}
   ) {
     const params = new URLSearchParams({
       page: String(page),
-      pageSize: String(pageSize)
+      pageSize: String(pageSize),
+      sort,
+      direction
     });
     if (claimId) params.set("claimId", claimId);
     if (paginated) params.set("paginated", "1");
