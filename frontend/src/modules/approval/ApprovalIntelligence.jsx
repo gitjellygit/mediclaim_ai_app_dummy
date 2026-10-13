@@ -21,6 +21,7 @@ import {
   TableHead,
   TablePagination,
   TableRow,
+  TableSortLabel,
   TextField,
   Tooltip,
   Typography
@@ -120,6 +121,29 @@ function headerLabel(label, help) {
       </Box>
     </Tooltip>
   );
+}
+
+function sortableHeader(label, field, sort, direction, onSort, help = "") {
+  const content = (
+    <TableSortLabel
+      active={sort === field}
+      direction={sort === field ? direction : "asc"}
+      onClick={() => onSort(field)}
+    >
+      <b>{label}</b>
+    </TableSortLabel>
+  );
+
+  return help ? (
+    <Stack direction="row" spacing={0.5} alignItems="center">
+      {content}
+      <Tooltip title={help} arrow>
+        <Typography component="span" variant="caption" color="text.secondary" sx={{ cursor: "help" }}>
+          ⓘ
+        </Typography>
+      </Tooltip>
+    </Stack>
+  ) : content;
 }
 
 function codingReviewPresentation(claim) {
@@ -280,6 +304,8 @@ export default function ApprovalIntelligence() {
   const [filterAnchor, setFilterAnchor] = React.useState(null);
   const [page, setPage] = React.useState(0);
   const [pageSize, setPageSize] = React.useState(25);
+  const [sort, setSort] = React.useState("priority");
+  const [direction, setDirection] = React.useState("desc");
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -300,7 +326,9 @@ export default function ApprovalIntelligence() {
         q: query,
         status,
         work,
-        filing
+        filing,
+        sort,
+        direction
       });
 
       setData({
@@ -315,11 +343,25 @@ export default function ApprovalIntelligence() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, query, status, work, filing]);
+  }, [page, pageSize, query, status, work, filing, sort, direction]);
 
   React.useEffect(() => {
     load();
   }, [load]);
+
+  function handleSort(field) {
+    setPage(0);
+    if (sort === field) {
+      setDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSort(field);
+    setDirection(
+      ["priority", "coding", "readiness", "risk", "payment"].includes(field)
+        ? "desc"
+        : "asc"
+    );
+  }
 
   const metrics = data.metrics || {
     totalClaims: 0,
@@ -661,15 +703,15 @@ export default function ApprovalIntelligence() {
             <Table size="small" sx={{ minWidth: 1500 }}>
               <TableHead>
                 <TableRow>
-                  <TableCell><b>Priority / Claim</b></TableCell>
-                  <TableCell><b>Form / Status</b></TableCell>
-                  <TableCell>{headerLabel("Timely Filing", "Deadline urgency before submission; finalized claims show when they were filed instead of a remaining-day countdown.")}</TableCell>
-                  <TableCell>{headerLabel("Eligibility", "Coverage verification used during claim preparation. On submitted or finalized claims this is historical context.")}</TableCell>
-                  <TableCell>{headerLabel("Prior Auth", "Prior-authorization state used during claim preparation. On submitted or finalized claims this is historical context.")}</TableCell>
-                  <TableCell>{headerLabel("Coding Review", "Actionable coding work before submission; after submission this becomes a historical coding snapshot.")}</TableCell>
-                  <TableCell>{headerLabel("Readiness", "Pre-submission validation score. After submission, it is shown only as the historical score at submission.")}</TableCell>
-                  <TableCell>{headerLabel("Pre-Submit Risk", "Rules-based pre-submission risk signal. It is not a payer approval or denial probability and is not actionable after submission.")}</TableCell>
-                  <TableCell>{headerLabel("Payment Outlook", "Estimated reimbursement before adjudication, payer-approved amount during adjudication, revenue at risk after denial, or actual payer payment after remittance.")}</TableCell>
+                  <TableCell>{sortableHeader("Priority / Claim", "priority", sort, direction, handleSort)}</TableCell>
+                  <TableCell>{sortableHeader("Form / Status", "formStatus", sort, direction, handleSort)}</TableCell>
+                  <TableCell>{sortableHeader("Timely Filing", "timelyFiling", sort, direction, handleSort, "Deadline urgency before submission; finalized claims show when they were filed instead of a remaining-day countdown.")}</TableCell>
+                  <TableCell>{sortableHeader("Eligibility", "eligibility", sort, direction, handleSort, "Coverage verification used during claim preparation. On submitted or finalized claims this is historical context.")}</TableCell>
+                  <TableCell>{sortableHeader("Prior Auth", "priorAuth", sort, direction, handleSort, "Prior-authorization state used during claim preparation. On submitted or finalized claims this is historical context.")}</TableCell>
+                  <TableCell>{sortableHeader("Coding Review", "coding", sort, direction, handleSort, "Actionable coding work before submission; after submission this becomes a historical coding snapshot.")}</TableCell>
+                  <TableCell>{sortableHeader("Readiness", "readiness", sort, direction, handleSort, "Pre-submission validation score. After submission, it is shown only as the historical score at submission.")}</TableCell>
+                  <TableCell>{sortableHeader("Pre-Submit Risk", "risk", sort, direction, handleSort, "Rules-based pre-submission risk signal. It is not a payer approval or denial probability and is not actionable after submission.")}</TableCell>
+                  <TableCell>{sortableHeader("Payment Outlook", "payment", sort, direction, handleSort, "Estimated reimbursement before adjudication, payer-approved amount during adjudication, revenue at risk after denial, or actual payer payment after remittance.")}</TableCell>
                   <TableCell><b>Next Action</b></TableCell>
                 </TableRow>
               </TableHead>
