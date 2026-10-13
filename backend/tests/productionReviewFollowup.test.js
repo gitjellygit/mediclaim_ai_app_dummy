@@ -8,6 +8,7 @@ import {
   buildStediEligibilityRequest,
   createStediProductionConnector
 } from "../src/services/stediTestConnector.js";
+import { evaluateUsReadinessRules } from "../src/services/usReadinessRules.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(here, "..");
@@ -130,6 +131,26 @@ test("review follow-up - professional 837 enforces 12 diagnoses and 50 service l
       }),
     /at most 50 service lines/
   );
+});
+
+test("review follow-up - professional readiness surfaces rendering identity and Stedi count limits", () => {
+  const claim = professionalClaim({
+    payerConnectionMode: "LIVE",
+    payerConnectorId: "STEDI_PRODUCTION",
+    renderingProviderNpi: "1888888873",
+    doctorName: "",
+    icd10Codes: Array.from({ length: 13 }, (_, index) => `Z${String(index).padStart(2, "0")}.0`),
+    serviceLines: Array.from({ length: 51 }, (_, index) => ({
+      ...professionalClaim().serviceLines[0],
+      id: `line-${index + 1}`
+    }))
+  });
+
+  const issues = evaluateUsReadinessRules(claim);
+  const messages = issues.map((issue) => issue.message).join(" | ");
+  assert.match(messages, /rendering provider name/);
+  assert.match(messages, /no more than 12 diagnosis codes/);
+  assert.match(messages, /no more than 50 verified service lines/);
 });
 
 test("review follow-up - production eligibility cannot invent a provider name", () => {
