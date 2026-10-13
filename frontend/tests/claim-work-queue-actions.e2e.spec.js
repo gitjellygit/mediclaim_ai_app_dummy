@@ -91,6 +91,39 @@ test("Claim Work Queue renders the renamed work queue and compact smart filters"
   await expect(queueRow(page, "09-FILING-SOON")).toHaveCount(0);
 });
 
+test("Claim Work Queue sorts the full filtered result set by derived risk", async ({ page }) => {
+  await openQueue(page);
+
+  const highRisk = scenario("11-BLOCKED").patientName;
+  const lowRisk = scenario("01-READY").patientName;
+
+  await page.getByRole("button", { name: /Pre-Submit Risk/i }).click();
+  let rows = page.locator("tbody tr");
+  let highIndex = await rows.evaluateAll((items, name) =>
+    items.findIndex((item) => item.textContent?.includes(name)),
+    highRisk
+  );
+  let lowIndex = await rows.evaluateAll((items, name) =>
+    items.findIndex((item) => item.textContent?.includes(name)),
+    lowRisk
+  );
+  expect(highIndex).toBeGreaterThanOrEqual(0);
+  expect(lowIndex).toBeGreaterThanOrEqual(0);
+  expect(highIndex).toBeLessThan(lowIndex);
+
+  await page.getByRole("button", { name: /Pre-Submit Risk/i }).click();
+  rows = page.locator("tbody tr");
+  highIndex = await rows.evaluateAll((items, name) =>
+    items.findIndex((item) => item.textContent?.includes(name)),
+    highRisk
+  );
+  lowIndex = await rows.evaluateAll((items, name) =>
+    items.findIndex((item) => item.textContent?.includes(name)),
+    lowRisk
+  );
+  expect(lowIndex).toBeLessThan(highIndex);
+});
+
 test("finalized claims show lifecycle-aware historical and payment context", async ({ page }) => {
   await openQueue(page);
 

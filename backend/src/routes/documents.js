@@ -801,6 +801,11 @@ export function documentsRouter(prisma, uploadDir) {
     const claimId = String(req.query?.claimId || "").trim();
     const requestedPage = Number(req.query.page || 1);
     const requestedPageSize = Number(req.query.pageSize || 50);
+    const requestedSort = String(req.query.sort || "createdAt");
+    const requestedDirection = String(req.query.direction || "desc").toLowerCase();
+    const allowedSorts = new Set(["fileName", "type", "confidence", "patientName", "createdAt"]);
+    const sort = allowedSorts.has(requestedSort) ? requestedSort : "createdAt";
+    const direction = requestedDirection === "asc" ? "asc" : "desc";
     const page = Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1);
     const pageSize = Math.max(
       1,
@@ -833,7 +838,10 @@ export function documentsRouter(prisma, uploadDir) {
           }
         }
         },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        orderBy:
+          sort === "patientName"
+            ? [{ claim: { patientName: direction } }, { id: "desc" }]
+            : [{ [sort]: direction }, { id: "desc" }],
         skip: (page - 1) * pageSize,
         take: pageSize
       }),
@@ -860,7 +868,9 @@ export function documentsRouter(prisma, uploadDir) {
         scoped: Boolean(claimId),
         page,
         pageSize,
-        total
+        total,
+        sort,
+        direction
       }
     });
 

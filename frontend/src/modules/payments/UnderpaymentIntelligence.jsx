@@ -22,6 +22,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   TextField,
   Typography
 } from "@mui/material";
@@ -69,6 +70,8 @@ export default function UnderpaymentIntelligence() {
   });
   const [search, setSearch] = React.useState("");
   const [status, setStatus] = React.useState("ALL");
+  const [sort, setSort] = React.useState("outstanding");
+  const [direction, setDirection] = React.useState("desc");
   const [loading, setLoading] = React.useState(true);
   const [detail, setDetail] = React.useState(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
@@ -101,7 +104,9 @@ export default function UnderpaymentIntelligence() {
 
   React.useEffect(() => {
     const timer = setTimeout(load, 300);
-    return () => clearTimeout(timer);
+
+
+  return () => clearTimeout(timer);
   }, [load]);
 
   async function openCase(id) {
@@ -154,6 +159,44 @@ export default function UnderpaymentIntelligence() {
     } finally {
       setSaving(false);
     }
+  }
+
+  const sortedRows = React.useMemo(() => {
+  const copy = [...rows];
+  const value = (row) => {
+    switch (sort) {
+      case "patient": return String(row.claim?.patientName || "").toLowerCase();
+      case "expected": return Number(row.expectedPayerPayment || 0);
+      case "paid": return Number(row.actualPaidAmount || 0);
+      case "variance": return Number(row.varianceAmount || 0);
+      case "recovered": return Number(row.recoveredAmount || 0);
+      case "outstanding": return Number(row.outstandingAmount || 0);
+      case "status": return String(row.status || "");
+      default: return 0;
+    }
+  };
+  copy.sort((a, b) => {
+    const left = value(a);
+    const right = value(b);
+    const result = typeof left === "string"
+      ? left.localeCompare(String(right))
+      : Number(left) - Number(right);
+    return direction === "desc" ? -result : result;
+  });
+  return copy;
+  }, [rows, sort, direction]);
+
+  function handleSort(field) {
+  if (sort === field) {
+    setDirection((current) => (current === "asc" ? "desc" : "asc"));
+    return;
+  }
+  setSort(field);
+  setDirection(
+    ["expected", "paid", "variance", "recovered", "outstanding"].includes(field)
+      ? "desc"
+      : "asc"
+  );
   }
 
   return (
@@ -246,18 +289,18 @@ export default function UnderpaymentIntelligence() {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell><b>Patient / Payer</b></TableCell>
-                <TableCell><b>Expected Payer</b></TableCell>
-                <TableCell><b>Paid</b></TableCell>
-                <TableCell><b>Variance</b></TableCell>
-                <TableCell><b>Recovered</b></TableCell>
-                <TableCell><b>Outstanding</b></TableCell>
-                <TableCell><b>Status</b></TableCell>
+                <TableCell><TableSortLabel active={sort === "patient"} direction={sort === "patient" ? direction : "asc"} onClick={() => handleSort("patient")}><b>Patient / Payer</b></TableSortLabel></TableCell>
+                <TableCell><TableSortLabel active={sort === "expected"} direction={sort === "expected" ? direction : "desc"} onClick={() => handleSort("expected")}><b>Expected Payer</b></TableSortLabel></TableCell>
+                <TableCell><TableSortLabel active={sort === "paid"} direction={sort === "paid" ? direction : "desc"} onClick={() => handleSort("paid")}><b>Paid</b></TableSortLabel></TableCell>
+                <TableCell><TableSortLabel active={sort === "variance"} direction={sort === "variance" ? direction : "desc"} onClick={() => handleSort("variance")}><b>Variance</b></TableSortLabel></TableCell>
+                <TableCell><TableSortLabel active={sort === "recovered"} direction={sort === "recovered" ? direction : "desc"} onClick={() => handleSort("recovered")}><b>Recovered</b></TableSortLabel></TableCell>
+                <TableCell><TableSortLabel active={sort === "outstanding"} direction={sort === "outstanding" ? direction : "desc"} onClick={() => handleSort("outstanding")}><b>Outstanding</b></TableSortLabel></TableCell>
+                <TableCell><TableSortLabel active={sort === "status"} direction={sort === "status" ? direction : "asc"} onClick={() => handleSort("status")}><b>Status</b></TableSortLabel></TableCell>
                 <TableCell align="right"><b>Action</b></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((row) => (
+              {sortedRows.map((row) => (
                 <TableRow key={row.id} hover>
                   <TableCell>
                     <Typography fontWeight={600}>{row.claim?.patientName || "—"}</Typography>
