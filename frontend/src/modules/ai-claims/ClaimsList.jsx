@@ -64,6 +64,7 @@ export default function ClaimsList() {
   const [loadingClaims, setLoadingClaims] = useState(false);
   const [selected, setSelected] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [query, setQuery] = useState("");
   const [sort, setSort] = useState("createdAt");
   const [direction, setDirection] = useState("desc");
   const [aiCreateOpen, setAiCreateOpen] = useState(false);
@@ -75,8 +76,15 @@ export default function ClaimsList() {
   const { showToast, showDialog, confirmDialog } = useToast();
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setQuery(searchTerm.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
+
+  useEffect(() => {
     loadClaims({ page: 1 });
-  }, [sort, direction]);
+  }, [sort, direction, query]);
 
   async function loadClaims({ page = 1, append = false } = {}) {
     try {
@@ -86,7 +94,8 @@ export default function ClaimsList() {
         pageSize: 50,
         paginated: true,
         sort,
-        direction
+        direction,
+        q: query
       });
       const items = Array.isArray(data?.items)
         ? data.items
@@ -119,27 +128,7 @@ export default function ClaimsList() {
     setDirection(field === "createdAt" || field === "amount" ? "desc" : "asc");
   }
 
-  const filteredClaims = useMemo(() => {
-    const search = searchTerm.toLowerCase().trim();
-
-    if (!search) return claims;
-
-    return claims.filter((claim) => {
-      return (
-        claim.patientName?.toLowerCase().includes(search) ||
-        claim.payerName?.toLowerCase().includes(search) ||
-        claim.policyNo?.toLowerCase().includes(search) ||
-        claim.memberId?.toLowerCase().includes(search) ||
-        claim.medicalRecordNumber?.toLowerCase().includes(search) ||
-        claim.payerReferenceNo?.toLowerCase().includes(search) ||
-        claim.groupNumber?.toLowerCase().includes(search) ||
-        claim.subscriberId?.toLowerCase().includes(search) ||
-        claim.payerEdiId?.toLowerCase().includes(search) ||
-        claim.status?.toLowerCase().includes(search) ||
-        String(claim.amount || "").includes(search)
-      );
-    });
-  }, [claims, searchTerm]);
+  const filteredClaims = claims;
 
   const allSelected =
     filteredClaims.length > 0 &&
