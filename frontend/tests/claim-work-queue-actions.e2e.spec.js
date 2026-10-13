@@ -91,6 +91,35 @@ test("Claim Work Queue renders the renamed work queue and compact smart filters"
   await expect(queueRow(page, "09-FILING-SOON")).toHaveCount(0);
 });
 
+test("finalized claims show lifecycle-aware historical and payment context", async ({ page }) => {
+  await openQueue(page);
+
+  const paid = queueRow(page, "15-PAID");
+  await expect(paid).toContainText("837P");
+  await expect(paid).toContainText("PAID");
+  await expect(paid).toContainText(/Filed/);
+  await expect(paid).toContainText("Historical");
+  await expect(paid).toContainText("Finalized");
+  await expect(paid).not.toContainText(/suggestion.*pending/i);
+  await expect(paid).toContainText("At submission");
+  await expect(paid).toContainText("Pre-submit only");
+  await expect(paid).toContainText("$980");
+  await expect(paid).toContainText("Paid");
+
+  const denied = queueRow(page, "14-DENIED");
+  await expect(denied).toContainText("Revenue at risk");
+  await expect(denied).toContainText("Pre-submit only");
+
+  const submitted = queueRow(page, "13-SUBMITTED");
+  await expect(submitted).toContainText("At submission");
+  await expect(submitted).toContainText("Pre-submit only");
+
+  const ready = queueRow(page, "01-READY");
+  await expect(ready).toContainText("LOW");
+  await expect(ready).toContainText(/\/100 risk score/);
+  await expect(ready).toContainText("Est. reimbursement");
+});
+
 test("Review & Submit opens Submission Readiness and highlights Submit Claim", async ({ page }) => {
   await openQueue(page);
   await queueRow(page, "01-READY").getByRole("button", { name: "Review & Submit" }).click();
