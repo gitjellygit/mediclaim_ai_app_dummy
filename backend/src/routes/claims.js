@@ -413,6 +413,22 @@ router.get(
       const requestedStatus = String(req.query.status || "ALL").toUpperCase();
       const requestedWork = String(req.query.work || "ALL").toUpperCase();
       const requestedFiling = String(req.query.filing || "ALL").toUpperCase();
+      const requestedSort = String(req.query.sort || "priority").trim();
+      const requestedDirection = String(req.query.direction || "asc").toLowerCase();
+      const allowedSorts = new Set([
+        "priority",
+        "patient",
+        "formStatus",
+        "timelyFiling",
+        "eligibility",
+        "priorAuth",
+        "coding",
+        "readiness",
+        "risk",
+        "payment"
+      ]);
+      const sort = allowedSorts.has(requestedSort) ? requestedSort : "priority";
+      const direction = requestedDirection === "desc" ? "desc" : "asc";
       const allowedStatuses = new Set([
         "DRAFT",
         "NEEDS_REVIEW",
@@ -514,8 +530,6 @@ router.get(
         prisma.claim.findMany({
           where,
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          skip: (page - 1) * pageSize,
-          take: pageSize,
           include: {
             documents: { select: { id: true } },
             serviceLines: {
@@ -588,9 +602,80 @@ router.get(
         })
       ]);
 
-      const items = claims.map((claim) =>
+      const allItems = claims.map((claim) =>
         buildApprovalIntelligenceItem(claim, { now })
       );
+
+      const priorityRank = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
+      const statusRank = {
+        DRAFT: 1,
+        NEEDS_REVIEW: 2,
+        READY: 3,
+        SUBMITTED: 4,
+        DENIED: 5,
+        PAID: 6
+      };
+      const eligibilityRank = {
+        FAILED: 4,
+        NEEDS_REVIEW: 3,
+        NOT_CHECKED: 2,
+        VERIFIED: 1
+      };
+      const priorAuthRank = {
+        DENIED: 5,
+        REQUIRED: 4,
+        NEEDS_REVIEW: 3,
+        NOT_CHECKED: 2,
+        APPROVED: 1,
+        NOT_REQUIRED: 0
+      };
+
+      const sortValue = (item) => {
+        switch (sort) {
+          case "patient":
+            return String(item.patientName || "").toLowerCase();
+          case "formStatus":
+            return `${String(item.claimForm || "")}:${statusRank[item.status] || 0}`;
+          case "timelyFiling":
+            return item.timelyFiling?.daysRemaining == null
+              ? Number.POSITIVE_INFINITY
+              : Number(item.timelyFiling.daysRemaining);
+          case "eligibility":
+            return eligibilityRank[item.eligibility?.status] || 0;
+          case "priorAuth":
+            return priorAuthRank[item.priorAuthorization?.status] || 0;
+          case "coding":
+            return Number(item.coding?.pendingSuggestions || 0) * 1000 -
+              Number(item.coding?.verifiedServiceLines || 0);
+          case "readiness":
+            return item.readiness?.score == null ? -1 : Number(item.readiness.score);
+          case "risk":
+            return item.submissionRisk?.score == null ? -1 : Number(item.submissionRisk.score);
+          case "payment":
+            return item.paymentOutlook?.amount == null ? -1 : Number(item.paymentOutlook.amount);
+          case "priority":
+          default:
+            return priorityRank[item.priority] || 0;
+        }
+      };
+
+      const compareValues = (left, right) => {
+        const a = sortValue(left);
+        const b = sortValue(right);
+        let result = 0;
+        if (typeof a === "string" || typeof b === "string") {
+          result = String(a).localeCompare(String(b));
+        } else {
+          result = Number(a) - Number(b);
+        }
+        if (result === 0) {
+          result = new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
+        }
+        return direction === "desc" ? -result : result;
+      };
+
+      allItems.sort(compareValues);
+      const items = allItems.slice((page - 1) * pageSize, page * pageSize);
 
       await writeRequestAudit(prisma, req, {
         action: "APPROVAL_INTELLIGENCE_VIEWED",
@@ -602,7 +687,9 @@ router.get(
           filteredTotal: total,
           status: status || "ALL",
           work: work || "ALL",
-          filing: filing || "ALL"
+          filing: filing || "ALL",
+          sort,
+          direction
         }
       });
 
@@ -611,6 +698,8 @@ router.get(
         page,
         pageSize,
         total,
+        sort,
+        direction,
         metrics: {
           totalClaims: organizationTotal,
           needsReview,
