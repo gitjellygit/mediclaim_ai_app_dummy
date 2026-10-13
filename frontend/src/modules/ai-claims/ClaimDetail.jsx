@@ -2285,11 +2285,19 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 )}
               </TextField>
               <TextField
+                data-fix-field="timelyFilingDeadline"
                 label="Timely Filing Deadline"
                 type="date"
                 InputLabelProps={{ shrink: true }}
                 value={editForm.timelyFilingDeadline}
                 onChange={(e) => updateEditField("timelyFilingDeadline", e.target.value)}
+                color={isFixField("timelyFilingDeadline") ? "warning" : "primary"}
+                focused={isFixField("timelyFilingDeadline")}
+                helperText={
+                  isFixField("timelyFilingDeadline")
+                    ? "Review the payer filing deadline and resolve this filing-risk exception."
+                    : undefined
+                }
                 fullWidth
               />
               <Box sx={{ gridColumn: "1 / -1" }}>
