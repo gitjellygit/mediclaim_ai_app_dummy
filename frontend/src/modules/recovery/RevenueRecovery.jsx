@@ -336,6 +336,7 @@ export default function RevenueRecovery() {
           <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel>Recovery Type</InputLabel>
             <Select
+              data-testid="recovery-type-filter"
               label="Recovery Type"
               value={type}
               onChange={(event) => setType(event.target.value)}
@@ -349,6 +350,7 @@ export default function RevenueRecovery() {
           <FormControl size="small" sx={{ minWidth: 180 }}>
             <InputLabel>Workflow</InputLabel>
             <Select
+              data-testid="recovery-workflow-filter"
               label="Workflow"
               value={status}
               onChange={(event) => setStatus(event.target.value)}
