@@ -225,6 +225,7 @@ test("PHI route contract - sensitive surfaces require named permissions", () => 
   const audit = read("src/routes/audit.js");
   const denials = read("src/routes/denials.js");
   const underpayments = read("src/routes/underpayments.js");
+  const revenueRecovery = read("src/routes/revenueRecovery.js");
   const index = read("src/index.js");
   const auth = read("src/routes/auth.js");
 
@@ -239,6 +240,7 @@ test("PHI route contract - sensitive surfaces require named permissions", () => 
   assert.match(audit, /router\.get\("\/", requirePermission\(PERMISSIONS\.AUDIT_VIEW\)/);
   assert.match(denials, /router\.use\(requirePermission\(PERMISSIONS\.DENIAL_VIEW\)\)/);
   assert.match(underpayments, /router\.use\(requirePermission\(PERMISSIONS\.FINANCIAL_VIEW\)\)/);
+  assert.match(revenueRecovery, /router\.use\(requirePermission\(PERMISSIONS\.RECOVERY_VIEW\)\)/);
   assert.match(index, /permissions: permissionList\(user\)/);
   assert.match(auth, /permissions: permissionList\(user\)/);
 });
@@ -253,10 +255,11 @@ test("PHI frontend contract - routes and navigation hide restricted healthcare d
   assert.match(app, /\/claims\/new"[\s\S]*PERMISSIONS\.CLINICAL_EDIT/);
   assert.match(app, /\/denials"[\s\S]*PERMISSIONS\.DENIAL_VIEW/);
   assert.match(app, /\/payments"[\s\S]*PERMISSIONS\.FINANCIAL_VIEW/);
+  assert.match(app, /\/revenue-recovery"[\s\S]*PERMISSIONS\.RECOVERY_VIEW/);
   assert.match(app, /\/documents"[\s\S]*PERMISSIONS\.DOCUMENT_VIEW/);
   assert.match(app, /\/audit"[\s\S]*PERMISSIONS\.AUDIT_VIEW/);
 
-  assert.match(nav, /hasPermission\(user, PERMISSIONS\.DENIAL_VIEW\)/);
+  assert.match(nav, /hasPermission\(user, PERMISSIONS\.RECOVERY_VIEW\)/);
   assert.match(nav, /hasPermission\(user, PERMISSIONS\.FINANCIAL_VIEW\)/);
   assert.match(nav, /hasPermission\(user, PERMISSIONS\.AUDIT_VIEW\)/);
 
