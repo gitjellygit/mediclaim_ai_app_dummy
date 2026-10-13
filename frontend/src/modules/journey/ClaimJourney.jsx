@@ -642,7 +642,7 @@ export default function ClaimJourney() {
 
     target.addEventListener("click", clearFocus, { once: true });
     return () => target.removeEventListener("click", clearFocus);
-  }, [focusedAction, focusedStage, searchParams, setSearchParams]);
+  }, [focusedAction, focusedStage, claim?.id, searchParams, setSearchParams]);
 
   const focusActionSx = (key) =>
     focusedAction === key
