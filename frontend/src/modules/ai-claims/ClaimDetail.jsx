@@ -2888,6 +2888,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   color="success"
                   onClick={submitClaim}
                   disabled={!canSubmit || submittingClaim}
+                  data-testid="submit-claim-action"
+                  sx={
+                    routeFocus === "submit-claim-action"
+                      ? {
+                          boxShadow: "0 0 0 4px rgba(46,125,50,0.20)",
+                          outline: "2px solid",
+                          outlineColor: "success.main",
+                          outlineOffset: 2
+                        }
+                      : undefined
+                  }
                 >
                   {submittingClaim ? "Submitting..." : "Submit Claim"}
                 </Button>
