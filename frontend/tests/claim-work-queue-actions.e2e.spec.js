@@ -97,7 +97,16 @@ test("Claim Work Queue sorts the full filtered result set by derived risk", asyn
   const highRisk = scenario("11-BLOCKED").patientName;
   const lowRisk = scenario("01-READY").patientName;
 
+  await page.getByPlaceholder(
+    "Search patient, payer, member, policy, claim or authorization..."
+  ).fill("UAT-APPROVAL-");
+
+  await expect(page.getByRole("row").filter({ hasText: highRisk })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: lowRisk })).toBeVisible();
+
   await page.getByRole("button", { name: /Pre-Submit Risk/i }).click();
+  await expect(page.getByRole("row").filter({ hasText: highRisk })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: lowRisk })).toBeVisible();
   let rows = page.locator("tbody tr");
   let highIndex = await rows.evaluateAll((items, name) =>
     items.findIndex((item) => item.textContent?.includes(name)),
@@ -112,6 +121,8 @@ test("Claim Work Queue sorts the full filtered result set by derived risk", asyn
   expect(highIndex).toBeLessThan(lowIndex);
 
   await page.getByRole("button", { name: /Pre-Submit Risk/i }).click();
+  await expect(page.getByRole("row").filter({ hasText: highRisk })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: lowRisk })).toBeVisible();
   rows = page.locator("tbody tr");
   highIndex = await rows.evaluateAll((items, name) =>
     items.findIndex((item) => item.textContent?.includes(name)),

@@ -12,7 +12,6 @@ import BarChartIcon from "@mui/icons-material/BarChart";
 import SettingsIcon from "@mui/icons-material/Settings";
 import LogoutIcon from "@mui/icons-material/Logout";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
-import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -135,20 +134,16 @@ export default function LeftNav({
             isActive={isActivePath("/journey")}
           />
         )}
-        {hasPermission(user, PERMISSIONS.DENIAL_VIEW) && (
-          <NavItem
-            icon={<ReportProblemIcon />}
-            label="Denial Intelligence"
-            path="/denials"
-            isActive={isActivePath("/denials")}
-          />
-        )}
-        {hasPermission(user, PERMISSIONS.FINANCIAL_VIEW) && (
+        {hasPermission(user, PERMISSIONS.RECOVERY_VIEW) && (
           <NavItem
             icon={<AccountBalanceWalletIcon />}
-            label="Payment Variance"
-            path="/payments"
-            isActive={isActivePath("/payments")}
+            label="Revenue Recovery"
+            path="/revenue-recovery"
+            isActive={
+              isActivePath("/revenue-recovery") ||
+              isActivePath("/denials") ||
+              isActivePath("/payments")
+            }
           />
         )}
         {hasPermission(user, PERMISSIONS.CLINICAL_VIEW) && (

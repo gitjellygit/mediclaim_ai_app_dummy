@@ -31,6 +31,9 @@ const MedicalConsistency = lazy(() =>
   import("./modules/medical-ai/MedicalConsistency.jsx")
 );
 const ClaimJourney = lazy(() => import("./modules/journey/ClaimJourney.jsx"));
+const RevenueRecovery = lazy(() =>
+  import("./modules/recovery/RevenueRecovery.jsx")
+);
 const DenialIntelligence = lazy(() =>
   import("./modules/denials/DenialIntelligence.jsx")
 );
@@ -44,6 +47,7 @@ const protectedRoutes = [
   { path: "/claims/new", Component: NewClaim, permission: PERMISSIONS.CLINICAL_EDIT },
   { path: "/claims/:id", Component: ClaimDetail, permission: PERMISSIONS.CLAIM_VIEW },
   { path: "/journey", Component: ClaimJourney, permission: PERMISSIONS.INSURANCE_VIEW },
+  { path: "/revenue-recovery", Component: RevenueRecovery, permission: PERMISSIONS.RECOVERY_VIEW },
   { path: "/denials", Component: DenialIntelligence, permission: PERMISSIONS.DENIAL_VIEW },
   { path: "/payments", Component: UnderpaymentIntelligence, permission: PERMISSIONS.FINANCIAL_VIEW },
   { path: "/medical-ai", Component: MedicalConsistency, permission: PERMISSIONS.CLINICAL_VIEW },

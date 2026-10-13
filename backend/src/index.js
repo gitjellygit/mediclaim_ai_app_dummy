@@ -15,6 +15,7 @@ import { authRouter } from "./routes/auth.js";
 import { documentsRouter } from "./routes/documents.js";
 import denialsRouter from "./routes/denials.js";
 import underpaymentsRouter from "./routes/underpayments.js";
+import revenueRecoveryRouter from "./routes/revenueRecovery.js";
 import auditRouter from "./routes/audit.js";
 import payerConnectorsRouter from "./routes/payerConnectors.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
@@ -191,6 +192,7 @@ if (process.env.E2E_TEST_MODE === "true") {
 }
 app.use("/api/denials", requireAuth, captureAsyncRouter(denialsRouter));
 app.use("/api/underpayments", requireAuth, captureAsyncRouter(underpaymentsRouter));
+app.use("/api/revenue-recovery", requireAuth, captureAsyncRouter(revenueRecoveryRouter));
 app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectorsRouter));
 
 /**

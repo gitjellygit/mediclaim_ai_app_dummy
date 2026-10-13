@@ -94,7 +94,7 @@ export default function UnderpaymentIntelligence() {
       setMetrics(result?.metrics || {});
     } catch (error) {
       showDialog(error.message || "Unable to load payment variance cases.", {
-        title: "Payment Variance Intelligence",
+        title: "Underpayment Recovery",
         severity: "error"
       });
     } finally {
@@ -210,7 +210,7 @@ export default function UnderpaymentIntelligence() {
       >
         <Box>
           <Typography variant="h4" fontWeight={700}>
-            Payment Variance Intelligence
+            Underpayment Recovery
           </Typography>
           <Typography color="text.secondary">
             Detect payer underpayments and track recovery from review through resolution.

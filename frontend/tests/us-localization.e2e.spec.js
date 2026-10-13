@@ -323,7 +323,7 @@ test("5 - Journey, Claim Work Queue and Denials render USD with no legacy enum l
 
   await page.goto("/denials");
   await expect(
-    page.getByRole("heading", { name: "Denial & Appeal Intelligence" })
+    page.getByRole("heading", { name: "Denial Recovery" })
   ).toBeVisible();
   const denialSearch = page.getByPlaceholder(
     "Search patient, payer, policy, claim number, CARC/RARC or category..."
