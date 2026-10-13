@@ -58,7 +58,7 @@ test("hardening - dependent eligibility uses subscriber DOB and name", () => {
     subscriberRelationship: "CHILD",
     payerEdiId: "60054",
     billingProviderNpi: "1999999984"
-  });
+  }, { providerName: "Lifecycle Test Hospital" });
 
   assert.equal(request.subscriber.memberId, "SUB-100");
   assert.equal(request.subscriber.dateOfBirth, "1985-04-05");
