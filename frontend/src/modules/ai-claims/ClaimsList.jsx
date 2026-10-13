@@ -75,8 +75,8 @@ export default function ClaimsList() {
   const { showToast, showDialog, confirmDialog } = useToast();
 
   useEffect(() => {
-    loadClaims();
-  }, []);
+    loadClaims({ page: 1 });
+  }, [sort, direction]);
 
   async function loadClaims({ page = 1, append = false } = {}) {
     try {
@@ -111,15 +111,12 @@ export default function ClaimsList() {
   }
 
   function handleSort(field) {
-    setSort((current) => {
-      if (current === field) {
-        setDirection((value) => (value === "asc" ? "desc" : "asc"));
-        return current;
-      }
-      setDirection(field === "createdAt" || field === "amount" ? "desc" : "asc");
-      return field;
-    });
-    loadClaims({ page: 1 });
+    if (sort === field) {
+      setDirection((value) => (value === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSort(field);
+    setDirection(field === "createdAt" || field === "amount" ? "desc" : "asc");
   }
 
   const filteredClaims = useMemo(() => {
