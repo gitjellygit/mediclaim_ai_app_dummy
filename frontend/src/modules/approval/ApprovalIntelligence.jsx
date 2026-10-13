@@ -164,7 +164,7 @@ function nextActionPath(claim) {
     return `/journey?claimId=${claim.id}&stage=prior-auth&focus=prior-auth-action`;
   }
   if (target === "journey") {
-    return `/journey?claimId=${claim.id}&stage=claim&focus=submit-action`;
+    return `/claims/${claim.id}?section=readiness&focus=submit-claim-action`;
   }
   if (target === "documents") {
     return `/claims/${claim.id}?section=documents&focus=documents`;
