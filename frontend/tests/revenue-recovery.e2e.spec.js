@@ -90,11 +90,11 @@ test("Revenue Recovery workspace searches filters and opens underlying recovery 
   await search.fill("UAT-FINAL-");
   await expect(page.locator("tbody tr").first()).toContainText("UAT-FINAL-");
 
-  await page.getByRole("combobox", { name: "Recovery Type" }).click();
+  await page.getByTestId("recovery-type-filter").click();
   await page.getByRole("option", { name: "Underpayments" }).click();
   await expect(page.locator("tbody tr").first()).toContainText("Underpayment");
 
-  await page.getByRole("combobox", { name: "Recovery Type" }).click();
+  await page.getByTestId("recovery-type-filter").click();
   await page.getByRole("option", { name: "Denials" }).click();
   const denialRow = page.locator("tbody tr").first();
   await expect(denialRow).toContainText("Denial");
