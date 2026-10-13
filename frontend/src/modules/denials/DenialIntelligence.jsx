@@ -157,38 +157,7 @@ export default function DenialIntelligence() {
       load(search, statusFilter);
     }, 350);
 
-    const sortedRows = React.useMemo(() => {
-    const copy = [...rows];
-    const value = (row) => {
-      switch (sort) {
-        case "patient": return String(row.claim?.patientName || "").toLowerCase();
-        case "category": return String(row.denialCategory || "");
-        case "revenueAtRisk": return Number(row.revenueAtRisk || 0);
-        case "appeal": return row.appealEligible ? 1 : 0;
-        case "deadline": return row.appealDeadline ? new Date(row.appealDeadline).getTime() : Number.POSITIVE_INFINITY;
-        case "status": return String(row.status || "");
-        default: return 0;
-      }
-    };
-    copy.sort((a, b) => {
-      const left = value(a);
-      const right = value(b);
-      const result = typeof left === "string"
-        ? left.localeCompare(String(right))
-        : Number(left) - Number(right);
-      return direction === "desc" ? -result : result;
-    });
-    return copy;
-  }, [rows, sort, direction]);
 
-  function handleSort(field) {
-    if (sort === field) {
-      setDirection((current) => (current === "asc" ? "desc" : "asc"));
-      return;
-    }
-    setSort(field);
-    setDirection(["revenueAtRisk", "appeal"].includes(field) ? "desc" : "asc");
-  }
 
   return () => clearTimeout(timer);
   }, [search, statusFilter]);
@@ -322,6 +291,39 @@ export default function DenialIntelligence() {
     } finally {
       setAction("");
     }
+  }
+
+  const sortedRows = React.useMemo(() => {
+  const copy = [...rows];
+  const value = (row) => {
+    switch (sort) {
+      case "patient": return String(row.claim?.patientName || "").toLowerCase();
+      case "category": return String(row.denialCategory || "");
+      case "revenueAtRisk": return Number(row.revenueAtRisk || 0);
+      case "appeal": return row.appealEligible ? 1 : 0;
+      case "deadline": return row.appealDeadline ? new Date(row.appealDeadline).getTime() : Number.POSITIVE_INFINITY;
+      case "status": return String(row.status || "");
+      default: return 0;
+    }
+  };
+  copy.sort((a, b) => {
+    const left = value(a);
+    const right = value(b);
+    const result = typeof left === "string"
+      ? left.localeCompare(String(right))
+      : Number(left) - Number(right);
+    return direction === "desc" ? -result : result;
+  });
+  return copy;
+  }, [rows, sort, direction]);
+
+  function handleSort(field) {
+  if (sort === field) {
+    setDirection((current) => (current === "asc" ? "desc" : "asc"));
+    return;
+  }
+  setSort(field);
+  setDirection(["revenueAtRisk", "appeal"].includes(field) ? "desc" : "asc");
   }
 
   return (
