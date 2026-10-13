@@ -91,6 +91,20 @@ test("Claim Work Queue renders the renamed work queue and compact smart filters"
   await expect(queueRow(page, "09-FILING-SOON")).toHaveCount(0);
 });
 
+test("Claim Work Queue sorts the full filtered result set by derived risk", async ({ page }) => {
+  await openQueue(page);
+
+  await page.getByRole("button", { name: /Pre-Submit Risk/i }).click();
+  await expect(page.locator("tbody tr").first()).toContainText(
+    scenario("11-BLOCKED").patientName
+  );
+
+  await page.getByRole("button", { name: /Pre-Submit Risk/i }).click();
+  await expect(page.locator("tbody tr").first()).toContainText(
+    scenario("15-PAID").patientName
+  );
+});
+
 test("finalized claims show lifecycle-aware historical and payment context", async ({ page }) => {
   await openQueue(page);
 
