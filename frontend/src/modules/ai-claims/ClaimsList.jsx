@@ -9,6 +9,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TableSortLabel,
   TableContainer,
   Paper,
   Checkbox,
@@ -63,6 +64,8 @@ export default function ClaimsList() {
   const [loadingClaims, setLoadingClaims] = useState(false);
   const [selected, setSelected] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [sort, setSort] = useState("createdAt");
+  const [direction, setDirection] = useState("desc");
   const [aiCreateOpen, setAiCreateOpen] = useState(false);
   const [aiFiles, setAiFiles] = useState([]);
   const [aiCreating, setAiCreating] = useState(false);
@@ -78,7 +81,13 @@ export default function ClaimsList() {
   async function loadClaims({ page = 1, append = false } = {}) {
     try {
       setLoadingClaims(true);
-      const data = await ClaimsApi.list({ page, pageSize: 50, paginated: true });
+      const data = await ClaimsApi.list({
+        page,
+        pageSize: 50,
+        paginated: true,
+        sort,
+        direction
+      });
       const items = Array.isArray(data?.items)
         ? data.items
         : Array.isArray(data)
@@ -99,6 +108,18 @@ export default function ClaimsList() {
     } finally {
       setLoadingClaims(false);
     }
+  }
+
+  function handleSort(field) {
+    setSort((current) => {
+      if (current === field) {
+        setDirection((value) => (value === "asc" ? "desc" : "asc"));
+        return current;
+      }
+      setDirection(field === "createdAt" || field === "amount" ? "desc" : "asc");
+      return field;
+    });
+    loadClaims({ page: 1 });
   }
 
   const filteredClaims = useMemo(() => {
@@ -503,11 +524,11 @@ export default function ClaimsList() {
                 </TableCell>
               )}
 
-              <TableCell><strong>Patient Name</strong></TableCell>
-              <TableCell><strong>Insurance Company</strong></TableCell>
-              {canViewFinancial && <TableCell><strong>Amount</strong></TableCell>}
-              <TableCell><strong>Status</strong></TableCell>
-              <TableCell><strong>Created Date</strong></TableCell>
+              <TableCell><TableSortLabel active={sort === "patientName"} direction={sort === "patientName" ? direction : "asc"} onClick={() => handleSort("patientName")}><strong>Patient Name</strong></TableSortLabel></TableCell>
+              <TableCell><TableSortLabel active={sort === "payerName"} direction={sort === "payerName" ? direction : "asc"} onClick={() => handleSort("payerName")}><strong>Insurance Company</strong></TableSortLabel></TableCell>
+              {canViewFinancial && <TableCell><TableSortLabel active={sort === "amount"} direction={sort === "amount" ? direction : "desc"} onClick={() => handleSort("amount")}><strong>Amount</strong></TableSortLabel></TableCell>}
+              <TableCell><TableSortLabel active={sort === "status"} direction={sort === "status" ? direction : "asc"} onClick={() => handleSort("status")}><strong>Status</strong></TableSortLabel></TableCell>
+              <TableCell><TableSortLabel active={sort === "createdAt"} direction={sort === "createdAt" ? direction : "desc"} onClick={() => handleSort("createdAt")}><strong>Created Date</strong></TableSortLabel></TableCell>
               <TableCell><strong>Actions</strong></TableCell>
             </TableRow>
           </TableHead>
