@@ -43,7 +43,12 @@ export default defineConfig({
       env: {
         ...process.env,
         PORT: "4101",
+        NODE_ENV: "test",
         E2E_TEST_MODE: "true",
+        ENABLE_RATE_LIMITS_IN_TEST: "false",
+        DATABASE_URL:
+          process.env.DATABASE_URL ||
+          "postgresql://app:app@localhost:5432/claim_ai?schema=public",
         CORS_ORIGIN: "http://127.0.0.1:5174",
         STEDI_TEST_API_KEY:
           process.env.STEDI_TEST_API_KEY || "e2e-stedi-test-key",
