@@ -167,7 +167,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
     target.addEventListener("click", clearFocus, { once: true });
     return () => target.removeEventListener("click", clearFocus);
-  }, [routeFocus, claim?.id, location.pathname, location.search, location.state, navigate]);
+  }, [routeFocus, claim?.id, editMode, location.pathname, location.search, location.state, navigate]);
 
   const pendingCodingSuggestions = React.useMemo(() => {
     const bySystemAndCode = new Map();
