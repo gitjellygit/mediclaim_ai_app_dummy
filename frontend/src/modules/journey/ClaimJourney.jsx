@@ -624,6 +624,18 @@ export default function ClaimJourney() {
   const claim = journey?.claim;
   const stages = journey?.stages;
   const focusedStage = searchParams.get("stage") || "";
+  const focusedAction = searchParams.get("focus") || "";
+  const focusActionSx = (key) =>
+    focusedAction === key
+      ? {
+          boxShadow: "0 0 0 4px rgba(237,108,2,0.20)",
+          outline: "2px solid",
+          outlineColor: "warning.main",
+          outlineOffset: 2,
+          transition: "box-shadow 220ms ease, transform 220ms ease",
+          transform: "translateY(-1px)"
+        }
+      : undefined;
 
   const eligibilityComplete = stages?.eligibility?.status === "VERIFIED";
 
@@ -1878,6 +1890,8 @@ export default function ClaimJourney() {
                   variant="contained"
                   size="small"
                   disabled={!payerConnected || action !== "" || eligibilityComplete}
+                  data-testid="eligibility-action"
+                  sx={focusActionSx("eligibility-action")}
                   onClick={() =>
                     runAction(
                       "eligibility",
@@ -1969,6 +1983,8 @@ export default function ClaimJourney() {
                 <Button
                   variant="contained"
                   size="small"
+                  data-testid="prior-auth-action"
+                  sx={focusActionSx("prior-auth-action")}
                   disabled={
                     !payerConnected ||
                     !stages.priorAuth.actionable ||
@@ -2045,6 +2061,8 @@ export default function ClaimJourney() {
                             size="small"
                             disabled={action !== ""}
                             onClick={submitConnectedClaim}
+                            data-testid="submit-action"
+                            sx={focusActionSx("submit-action")}
                           >
                             {action === "payer-submit"
                               ? "Transmitting..."
@@ -2060,6 +2078,8 @@ export default function ClaimJourney() {
                         size="small"
                         disabled={action !== "" || !stages.claim.actionable}
                         onClick={submitConnectedClaim}
+                        data-testid="submit-action"
+                        sx={focusActionSx("submit-action")}
                       >
                         {action === "payer-submit" ? "Submitting..." : "Submit to Payer"}
                       </Button>
@@ -2120,6 +2140,8 @@ export default function ClaimJourney() {
                 <Button
                   variant="contained"
                   size="small"
+                  data-testid="status-action"
+                  sx={focusActionSx("status-action")}
                   disabled={
                     !stages.claimStatus.actionable ||
                     action !== "" ||
@@ -2238,7 +2260,13 @@ export default function ClaimJourney() {
                         </Alert>
                       )}
 
-                    <Button variant="outlined" size="small" onClick={viewPostedRemittance}>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={viewPostedRemittance}
+                      data-testid="remittance-action"
+                      sx={focusActionSx("remittance-action")}
+                    >
                       View Remittance Details
                     </Button>
                   </>
@@ -2365,6 +2393,8 @@ export default function ClaimJourney() {
                     <Button
                       variant="contained"
                       size="small"
+                      data-testid="remittance-action"
+                      sx={focusActionSx("remittance-action")}
                       disabled={
                         !stages.remittance.actionable ||
                         action !== "" ||
