@@ -132,6 +132,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [fixFocus, setFixFocus] = React.useState("");
   const [fixFields, setFixFields] = React.useState([]);
   const [readinessHistoryExpanded, setReadinessHistoryExpanded] = React.useState(false);
+  const routeFocus = new URLSearchParams(location.search).get("focus") || "";
   const patientPolicyRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
@@ -2284,11 +2285,19 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 )}
               </TextField>
               <TextField
+                data-fix-field="timelyFilingDeadline"
                 label="Timely Filing Deadline"
                 type="date"
                 InputLabelProps={{ shrink: true }}
                 value={editForm.timelyFilingDeadline}
                 onChange={(e) => updateEditField("timelyFilingDeadline", e.target.value)}
+                color={isFixField("timelyFilingDeadline") ? "warning" : "primary"}
+                focused={isFixField("timelyFilingDeadline")}
+                helperText={
+                  isFixField("timelyFilingDeadline")
+                    ? "Review the payer filing deadline and resolve this filing-risk exception."
+                    : undefined
+                }
                 fullWidth
               />
               <Box sx={{ gridColumn: "1 / -1" }}>
@@ -2821,7 +2830,20 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         </CardContent>
       </Card>
 
-      <Card ref={readinessRef} sx={{ scrollMarginTop: 88 }}>
+      <Card
+        ref={readinessRef}
+        data-testid="submission-readiness-card"
+        sx={{
+          scrollMarginTop: 88,
+          ...(routeFocus === "readiness-action"
+            ? {
+                border: "2px solid",
+                borderColor: "warning.main",
+                boxShadow: "0 0 0 4px rgba(237,108,2,0.12)"
+              }
+            : {})
+        }}
+      >
         <CardContent>
           <Stack
             direction={{ xs: "column", sm: "row" }}
@@ -2848,6 +2870,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   variant="contained"
                   onClick={runAICheck}
                   disabled={aiRunning || !canRunAI || aiCheckLocked || !eligibilityClear}
+                  data-testid="readiness-action"
+                  sx={
+                    routeFocus === "readiness-action"
+                      ? {
+                          boxShadow: "0 0 0 4px rgba(237,108,2,0.22)",
+                          outline: "2px solid",
+                          outlineColor: "warning.main",
+                          outlineOffset: 2
+                        }
+                      : undefined
+                  }
                 >
                   {aiRunning
                     ? "Checking..."
@@ -2863,6 +2896,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   color="success"
                   onClick={submitClaim}
                   disabled={!canSubmit || submittingClaim}
+                  data-testid="submit-claim-action"
+                  sx={
+                    routeFocus === "submit-claim-action"
+                      ? {
+                          boxShadow: "0 0 0 4px rgba(46,125,50,0.20)",
+                          outline: "2px solid",
+                          outlineColor: "success.main",
+                          outlineOffset: 2
+                        }
+                      : undefined
+                  }
                 >
                   {submittingClaim ? "Submitting..." : "Submit Claim"}
                 </Button>

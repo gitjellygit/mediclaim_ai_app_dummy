@@ -292,14 +292,14 @@ test("4 - document duplicate scope and U.S. ID classification", async () => {
   expect(driverBody.suggestedType).toBe("ID_PROOF");
 });
 
-test("5 - Journey, Approval and Denials render USD with no legacy enum leakage", async ({ page }) => {
+test("5 - Journey, Claim Work Queue and Denials render USD with no legacy enum leakage", async ({ page }) => {
   await page.goto(`/journey?claimId=${primaryClaimId}`);
   await expect(page.getByRole("heading", { name: "Claim Journey" })).toBeVisible();
   await expect(page.getByText("Claimed *:", { exact: true }).locator("..")).toContainText("$1,234.56");
   await expect(page.getByText("₹")).toHaveCount(0);
 
   await page.goto("/approval");
-  await expect(page.getByRole("heading", { name: "Approval Intelligence" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Claim Work Queue" })).toBeVisible();
   const approvalSearch = page.getByPlaceholder(
     "Search patient, payer, member, policy, claim or authorization..."
   );

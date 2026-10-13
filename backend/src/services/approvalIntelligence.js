@@ -86,9 +86,16 @@ function issueCategory(issue) {
   return "CLAIM_EDIT";
 }
 
-function addAction(actions, code, label, target, severity = "info") {
+function addAction(
+  actions,
+  code,
+  label,
+  target,
+  severity = "info",
+  metadata = {}
+) {
   if (actions.some((item) => item.code === code)) return;
-  actions.push({ code, label, target, severity });
+  actions.push({ code, label, target, severity, ...metadata });
 }
 
 export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) {
@@ -203,7 +210,11 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
         `BLOCKER_${issue?.rule || issue?.field || actions.length}`,
         issue?.message || "Resolve blocking claim issue",
         issue?.fixTarget || category.toLowerCase(),
-        "error"
+        "error",
+        {
+          field: issue?.field || null,
+          rule: issue?.rule || null
+        }
       );
     }
 

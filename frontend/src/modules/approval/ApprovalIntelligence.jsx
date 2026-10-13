@@ -7,13 +7,12 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  FormControl,
   InputAdornment,
-  InputLabel,
   LinearProgress,
+  ListSubheader,
+  Menu,
   MenuItem,
   Paper,
-  Select,
   Stack,
   Table,
   TableBody,
@@ -28,10 +27,12 @@ import {
 } from "@mui/material";
 import {
   ArrowForward,
+  Check,
   CheckCircleOutline,
   Refresh,
   Schedule,
   Search as SearchIcon,
+  Tune,
   WarningAmber
 } from "@mui/icons-material";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -123,7 +124,7 @@ function lifecycleAction(claim) {
       code: "REVIEW_DENIAL",
       label: "Review denial and recovery options",
       buttonLabel: "Review Denial",
-      path: `/journey?claimId=${claim.id}&stage=claim-status`
+      path: `/journey?claimId=${claim.id}&stage=claim-status&focus=status-action`
     };
   }
 
@@ -132,7 +133,7 @@ function lifecycleAction(claim) {
       code: "VIEW_REMITTANCE",
       label: "Review payer remittance and payment details",
       buttonLabel: "View Remittance",
-      path: `/journey?claimId=${claim.id}&stage=remittance`
+      path: `/journey?claimId=${claim.id}&stage=remittance&focus=remittance-action`
     };
   }
 
@@ -141,7 +142,7 @@ function lifecycleAction(claim) {
       code: "TRACK_CLAIM",
       label: "Track payer claim status",
       buttonLabel: "Track Claim",
-      path: `/journey?claimId=${claim.id}&stage=claim-status`
+      path: `/journey?claimId=${claim.id}&stage=claim-status&focus=status-action`
     };
   }
 
@@ -151,21 +152,31 @@ function lifecycleAction(claim) {
 function nextActionPath(claim) {
   const first = claim?.nextActions?.[0];
   const target = String(first?.target || "").toLowerCase();
+  const code = String(first?.code || "");
 
   if (target === "eligibility") {
-    return `/journey?claimId=${claim.id}&stage=eligibility`;
+    return `/journey?claimId=${claim.id}&stage=eligibility&focus=eligibility-action`;
   }
   if (target === "prior-auth" || target === "prior_auth") {
-    return `/journey?claimId=${claim.id}&stage=prior-auth`;
+    return `/journey?claimId=${claim.id}&stage=prior-auth&focus=prior-auth-action`;
   }
   if (target === "journey") {
-    return `/journey?claimId=${claim.id}&stage=claim`;
+    return `/claims/${claim.id}?section=readiness&focus=submit-claim-action`;
   }
   if (target === "documents") {
-    return `/claims/${claim.id}?section=documents`;
+    return `/claims/${claim.id}?section=documents&focus=documents`;
   }
   if (target === "readiness") {
-    return `/claims/${claim.id}?section=readiness`;
+    return `/claims/${claim.id}?section=readiness&focus=readiness-action`;
+  }
+  if (code.startsWith("TIMELY_FILING_")) {
+    return `/claims/${claim.id}?edit=1&focus=timelyFilingDeadline`;
+  }
+  if (code.startsWith("BLOCKER_") && first?.field) {
+    return `/claims/${claim.id}?edit=1&focus=${encodeURIComponent(first.field)}`;
+  }
+  if (code.startsWith("BLOCKER_") && target === "servicelines") {
+    return `/claims/${claim.id}?edit=1&focus=cptHcpcsCode`;
   }
   return `/claims/${claim.id}`;
 }
@@ -184,6 +195,9 @@ export default function ApprovalIntelligence() {
   const [search, setSearch] = React.useState("");
   const [query, setQuery] = React.useState("");
   const [status, setStatus] = React.useState("ALL");
+  const [work, setWork] = React.useState("ALL");
+  const [filing, setFiling] = React.useState("ALL");
+  const [filterAnchor, setFilterAnchor] = React.useState(null);
   const [page, setPage] = React.useState(0);
   const [pageSize, setPageSize] = React.useState(25);
 
@@ -204,7 +218,9 @@ export default function ApprovalIntelligence() {
         page: page + 1,
         pageSize,
         q: query,
-        status
+        status,
+        work,
+        filing
       });
 
       setData({
@@ -215,11 +231,11 @@ export default function ApprovalIntelligence() {
       });
     } catch (e) {
       setData((current) => ({ ...current, items: [], total: 0 }));
-      setError(e?.message || "Approval Intelligence could not be loaded.");
+      setError(e?.message || "Claim Work Queue could not be loaded.");
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, query, status]);
+  }, [page, pageSize, query, status, work, filing]);
 
   React.useEffect(() => {
     load();
@@ -242,7 +258,7 @@ export default function ApprovalIntelligence() {
       {
         state: {
           from: location.pathname + location.search,
-          backLabel: "Back to Approval Intelligence"
+          backLabel: "Back to Claim Work Queue"
         }
       }
     );
@@ -259,11 +275,11 @@ export default function ApprovalIntelligence() {
       >
         <Box>
           <Typography variant="h4" fontWeight={800}>
-            Approval Intelligence
+            Claim Work Queue
           </Typography>
           <Typography color="text.secondary">
-            Pre-submission work queue for claim readiness, eligibility, prior authorization,
-            timely filing, coding, and payer risk.
+            Prioritized billing work queue for claim readiness, eligibility, prior authorization,
+            timely filing, coding, and submission follow-up.
           </Typography>
         </Box>
 
@@ -381,10 +397,10 @@ export default function ApprovalIntelligence() {
         </Card>
       </Box>
 
-      <Paper sx={{ p: 2, mb: 2 }}>
+      <Paper sx={{ p: 1.5, mb: 2 }}>
         <Stack
           direction={{ xs: "column", md: "row" }}
-          spacing={2}
+          spacing={1.25}
           alignItems={{ xs: "stretch", md: "center" }}
         >
           <TextField
@@ -402,33 +418,157 @@ export default function ApprovalIntelligence() {
             }}
           />
 
-          <FormControl size="small" sx={{ minWidth: 180 }}>
-            <InputLabel>Claim Status</InputLabel>
-            <Select
-              label="Claim Status"
-              value={status}
-              onChange={(event) => {
-                setStatus(event.target.value);
+          <Button
+            variant={(status !== "ALL" || work !== "ALL" || filing !== "ALL") ? "contained" : "outlined"}
+            startIcon={<Tune />}
+            onClick={(event) => setFilterAnchor(event.currentTarget)}
+            sx={{ whiteSpace: "nowrap" }}
+            data-testid="claim-work-queue-filters"
+          >
+            Smart Filters
+            {(status !== "ALL" || work !== "ALL" || filing !== "ALL")
+              ? ` (${[status !== "ALL", work !== "ALL", filing !== "ALL"].filter(Boolean).length})`
+              : ""}
+          </Button>
+
+          {(status !== "ALL" || work !== "ALL" || filing !== "ALL") && (
+            <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+              {work !== "ALL" && (
+                <Chip
+                  size="small"
+                  label={
+                    {
+                      NEEDS_ACTION: "Needs action",
+                      READY: "Ready to submit",
+                      ELIGIBILITY: "Eligibility",
+                      PRIOR_AUTH: "Prior auth"
+                    }[work] || work
+                  }
+                  onDelete={() => {
+                    setWork("ALL");
+                    setPage(0);
+                  }}
+                />
+              )}
+              {filing !== "ALL" && (
+                <Chip
+                  size="small"
+                  label={
+                    {
+                      EXPIRED: "Filing expired",
+                      DUE_7: "Filing ≤ 7 days",
+                      DUE_30: "Filing ≤ 30 days"
+                    }[filing] || filing
+                  }
+                  onDelete={() => {
+                    setFiling("ALL");
+                    setPage(0);
+                  }}
+                />
+              )}
+              {status !== "ALL" && (
+                <Chip
+                  size="small"
+                  label={`Status: ${status.replaceAll("_", " ")}`}
+                  onDelete={() => {
+                    setStatus("ALL");
+                    setPage(0);
+                  }}
+                />
+              )}
+            </Stack>
+          )}
+        </Stack>
+
+        <Menu
+          anchorEl={filterAnchor}
+          open={Boolean(filterAnchor)}
+          onClose={() => setFilterAnchor(null)}
+          MenuListProps={{ dense: true, sx: { minWidth: 290, py: 0.5 } }}
+        >
+          <ListSubheader disableSticky>Work type</ListSubheader>
+          {[
+            ["ALL", "All work"],
+            ["NEEDS_ACTION", "Needs action"],
+            ["READY", "Ready to submit"],
+            ["ELIGIBILITY", "Eligibility issues"],
+            ["PRIOR_AUTH", "Prior authorization issues"]
+          ].map(([value, label]) => (
+            <MenuItem
+              key={value}
+              onClick={() => {
+                setWork(value);
                 setPage(0);
               }}
             >
-              <MenuItem value="ALL">All statuses</MenuItem>
-              <MenuItem value="DRAFT">Draft</MenuItem>
-              <MenuItem value="NEEDS_REVIEW">Needs review</MenuItem>
-              <MenuItem value="READY">Ready</MenuItem>
-              <MenuItem value="SUBMITTED">Submitted</MenuItem>
-              <MenuItem value="DENIED">Denied</MenuItem>
-              <MenuItem value="PAID">Paid</MenuItem>
-            </Select>
-          </FormControl>
-        </Stack>
+              <Box sx={{ width: 28 }}>{work === value ? <Check fontSize="small" /> : null}</Box>
+              {label}
+            </MenuItem>
+          ))}
+
+          <ListSubheader disableSticky>Timely filing</ListSubheader>
+          {[
+            ["ALL", "Any filing window"],
+            ["EXPIRED", "Expired"],
+            ["DUE_7", "Due within 7 days"],
+            ["DUE_30", "Due within 30 days"]
+          ].map(([value, label]) => (
+            <MenuItem
+              key={value}
+              onClick={() => {
+                setFiling(value);
+                setPage(0);
+              }}
+            >
+              <Box sx={{ width: 28 }}>{filing === value ? <Check fontSize="small" /> : null}</Box>
+              {label}
+            </MenuItem>
+          ))}
+
+          <ListSubheader disableSticky>Claim status</ListSubheader>
+          {[
+            ["ALL", "All statuses"],
+            ["DRAFT", "Draft"],
+            ["NEEDS_REVIEW", "Needs review"],
+            ["READY", "Ready"],
+            ["SUBMITTED", "Submitted"],
+            ["DENIED", "Denied"],
+            ["PAID", "Paid"]
+          ].map(([value, label]) => (
+            <MenuItem
+              key={value}
+              onClick={() => {
+                setStatus(value);
+                setPage(0);
+              }}
+            >
+              <Box sx={{ width: 28 }}>{status === value ? <Check fontSize="small" /> : null}</Box>
+              {label}
+            </MenuItem>
+          ))}
+
+          {(status !== "ALL" || work !== "ALL" || filing !== "ALL") && (
+            <MenuItem
+              onClick={() => {
+                setStatus("ALL");
+                setWork("ALL");
+                setFiling("ALL");
+                setPage(0);
+                setFilterAnchor(null);
+              }}
+              sx={{ mt: 0.5, fontWeight: 700 }}
+            >
+              Clear all filters
+            </MenuItem>
+          )}
+        </Menu>
       </Paper>
 
       {loading ? (
         <Paper sx={{ p: 6, textAlign: "center" }}>
           <CircularProgress size={34} />
           <Typography color="text.secondary" sx={{ mt: 2 }}>
-            Loading pre-submission work queue...
+            Loading Claim Work Queue...
           </Typography>
         </Paper>
       ) : data.items.length === 0 ? (

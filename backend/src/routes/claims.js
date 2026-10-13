@@ -411,6 +411,8 @@ router.get(
       );
       const q = String(req.query.q || "").trim().slice(0, 100);
       const requestedStatus = String(req.query.status || "ALL").toUpperCase();
+      const requestedWork = String(req.query.work || "ALL").toUpperCase();
+      const requestedFiling = String(req.query.filing || "ALL").toUpperCase();
       const allowedStatuses = new Set([
         "DRAFT",
         "NEEDS_REVIEW",
@@ -419,29 +421,83 @@ router.get(
         "DENIED",
         "PAID"
       ]);
+      const allowedWork = new Set([
+        "NEEDS_ACTION",
+        "READY",
+        "ELIGIBILITY",
+        "PRIOR_AUTH"
+      ]);
+      const allowedFiling = new Set(["EXPIRED", "DUE_7", "DUE_30"]);
       const status = allowedStatuses.has(requestedStatus) ? requestedStatus : null;
-
-      const where = {
-        organizationId: orgId(req),
-        deletedAt: null,
-        ...(status ? { status } : {}),
-        ...(q
-          ? {
-              OR: [
-                { patientName: { contains: q, mode: "insensitive" } },
-                { payerName: { contains: q, mode: "insensitive" } },
-                { policyNo: { contains: q, mode: "insensitive" } },
-                { memberId: { contains: q, mode: "insensitive" } },
-                { insurerClaimNo: { contains: q, mode: "insensitive" } },
-                { authorizationNo: { contains: q, mode: "insensitive" } }
-              ]
-            }
-          : {})
-      };
+      const work = allowedWork.has(requestedWork) ? requestedWork : null;
+      const filing = allowedFiling.has(requestedFiling) ? requestedFiling : null;
 
       const now = new Date();
       const filingRiskCutoff = new Date(now);
       filingRiskCutoff.setUTCDate(filingRiskCutoff.getUTCDate() + 14);
+      const filing7 = new Date(now);
+      filing7.setUTCDate(filing7.getUTCDate() + 7);
+      const filing30 = new Date(now);
+      filing30.setUTCDate(filing30.getUTCDate() + 30);
+
+      const filters = [];
+
+      if (status) filters.push({ status });
+
+      if (work === "NEEDS_ACTION") {
+        filters.push({ status: { in: ["DRAFT", "NEEDS_REVIEW"] } });
+      } else if (work === "READY") {
+        filters.push({ status: "READY" });
+      } else if (work === "ELIGIBILITY") {
+        filters.push({
+          status: { in: ["DRAFT", "NEEDS_REVIEW", "READY"] },
+          NOT: { eligibilityStatus: "VERIFIED" }
+        });
+      } else if (work === "PRIOR_AUTH") {
+        filters.push({
+          status: { in: ["DRAFT", "NEEDS_REVIEW", "READY"] },
+          OR: [
+            { priorAuthStatus: { notIn: ["APPROVED", "NOT_REQUIRED"] } },
+            { priorAuthExpiry: { lt: now } }
+          ]
+        });
+      }
+
+      if (filing === "EXPIRED") {
+        filters.push({
+          status: { in: ["DRAFT", "NEEDS_REVIEW", "READY"] },
+          timelyFilingDeadline: { lt: now }
+        });
+      } else if (filing === "DUE_7") {
+        filters.push({
+          status: { in: ["DRAFT", "NEEDS_REVIEW", "READY"] },
+          timelyFilingDeadline: { gte: now, lte: filing7 }
+        });
+      } else if (filing === "DUE_30") {
+        filters.push({
+          status: { in: ["DRAFT", "NEEDS_REVIEW", "READY"] },
+          timelyFilingDeadline: { gte: now, lte: filing30 }
+        });
+      }
+
+      if (q) {
+        filters.push({
+          OR: [
+            { patientName: { contains: q, mode: "insensitive" } },
+            { payerName: { contains: q, mode: "insensitive" } },
+            { policyNo: { contains: q, mode: "insensitive" } },
+            { memberId: { contains: q, mode: "insensitive" } },
+            { insurerClaimNo: { contains: q, mode: "insensitive" } },
+            { authorizationNo: { contains: q, mode: "insensitive" } }
+          ]
+        });
+      }
+
+      const where = {
+        organizationId: orgId(req),
+        deletedAt: null,
+        ...(filters.length ? { AND: filters } : {})
+      };
 
       const [
         total,
@@ -543,7 +599,10 @@ router.get(
           page,
           pageSize,
           resultCount: items.length,
-          filteredTotal: total
+          filteredTotal: total,
+          status: status || "ALL",
+          work: work || "ALL",
+          filing: filing || "ALL"
         }
       });
 
