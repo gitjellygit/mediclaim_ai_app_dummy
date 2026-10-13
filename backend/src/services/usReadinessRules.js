@@ -216,6 +216,23 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
       if (!claim.subscriberPostalCode) missing.push("subscriber postal code");
     }
 
+    if (claim.claimForm === "PROFESSIONAL") {
+      if (!claim.renderingProviderNpi) {
+        missing.push("rendering provider NPI");
+      } else if (
+        String(claim.renderingProviderNpi) !== String(claim.billingProviderNpi || "") &&
+        !String(claim.doctorName || "").trim()
+      ) {
+        missing.push("rendering provider name");
+      }
+      if ((claim.icd10Codes || []).filter(Boolean).length > 12) {
+        missing.push("no more than 12 diagnosis codes");
+      }
+      if (verifiedServiceLines.length > 50) {
+        missing.push("no more than 50 verified service lines");
+      }
+    }
+
     if (claim.claimForm === "INSTITUTIONAL") {
       if (!claim.admissionTypeCode) missing.push("admission type code");
       if (!claim.admissionSourceCode) missing.push("admission source code");
