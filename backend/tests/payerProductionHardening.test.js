@@ -58,7 +58,7 @@ test("hardening - dependent eligibility uses subscriber DOB and name", () => {
     subscriberRelationship: "CHILD",
     payerEdiId: "60054",
     billingProviderNpi: "1999999984"
-  });
+  }, { providerName: "Lifecycle Test Hospital" });
 
   assert.equal(request.subscriber.memberId, "SUB-100");
   assert.equal(request.subscriber.dateOfBirth, "1985-04-05");
@@ -274,7 +274,8 @@ test("payer connection - dev startup prepares Prisma and stale schema is actiona
     pkg.scripts["db:prepare"],
     "prisma generate && prisma migrate deploy"
   );
-  assert.match(pkg.scripts.dev, /npm run db:prepare/);
+  assert.match(pkg.scripts.dev, /npm run db:prepare:dev/);
+  assert.match(pkg.scripts["db:prepare:dev"], /guardDevMigrations\.js/);
   assert.equal(pkg.scripts.postinstall, "prisma generate");
 
   assert.match(simulation, /PAYER_SCHEMA_OUT_OF_DATE/);
@@ -321,11 +322,15 @@ test("claim submission transmits LIVE claims before local submitted state is com
   const submitStart = claims.indexOf('router.post("/:id/submit"');
   const submitSource = claims.slice(submitStart);
 
+  const transitionValidation = submitSource.indexOf(
+    'const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED")'
+  );
   const connectorCall = submitSource.indexOf("connector.submitClaim");
   const transactionWrite = submitSource.indexOf("payerTransaction.upsert");
   const claimSubmittedWrite = submitSource.indexOf('status: submittedStatus');
 
-  assert.ok(connectorCall >= 0);
+  assert.ok(transitionValidation >= 0);
+  assert.ok(connectorCall > transitionValidation);
   assert.ok(transactionWrite > connectorCall);
   assert.ok(claimSubmittedWrite > transactionWrite);
   assert.match(submitSource, /PAYER_SUBMISSION_NOT_SUPPORTED/);

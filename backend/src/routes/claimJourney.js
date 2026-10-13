@@ -365,8 +365,16 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
     const parsedInput = parseMutation(emptyMutationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
     const claim = await prisma.claim.findFirst({
-      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
+      include: {
+        organization: {
+          select: { stediBillingProviderName: true }
+        }
+      }
+    });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
+    const eligibilityProviderName = claim.organization?.stediBillingProviderName || null;
+    delete claim.organization;
 
     // Eligibility is idempotent when the payer/member inputs have not changed,
     // including stable negative results such as inactive/member-not-found.
@@ -417,7 +425,9 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
       claim,
       claim.connectedPayerCode || claim.payerEdiId || claim.simulatedPayerCode
     );
-    const eligibility = await connector.checkEligibility(claim);
+    const eligibility = await connector.checkEligibility(claim, {
+      providerName: eligibilityProviderName
+    });
     const now = new Date();
     const missing = eligibility.missingFields || [];
     const eligibilityStatus =
@@ -689,9 +699,16 @@ router.post("/:id/journey/claim-status/refresh", requirePermission(PERMISSIONS.P
         id: req.params.id,
         organizationId: orgId(req),
         deletedAt: null
+      },
+      include: {
+        organization: {
+          select: { stediBillingProviderName: true }
+        }
       }
     });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
+    const claimStatusProviderName = claim.organization?.stediBillingProviderName || null;
+    delete claim.organization;
 
     if (!isClaimSubmittedOrLater(claim)) {
       return res.status(409).json({
@@ -721,7 +738,9 @@ router.post("/:id/journey/claim-status/refresh", requirePermission(PERMISSIONS.P
     }
 
     const connector = createPayerConnectorForClaim(claim);
-    const result = await connector.getStatus(claim);
+    const result = await connector.getStatus(claim, {
+      providerName: claimStatusProviderName
+    });
     const now = new Date();
     const storableStatuses = new Set([
       "ACKNOWLEDGED",
@@ -792,8 +811,6 @@ router.post("/:id/journey/claim-status/refresh", requirePermission(PERMISSIONS.P
             claim.status,
             normalizedStatus === "DENIED"
               ? "DENIED"
-              : normalizedStatus === "PAID"
-              ? "PAID"
               : claim.status
           ),
           fieldProvenance: mergeProvenance(
@@ -954,8 +971,6 @@ router.patch("/:id/journey/claim-status", requirePermission(PERMISSIONS.PAYER_AC
             claim.status,
             connectorPayerClaimStatus === "DENIED"
               ? "DENIED"
-              : connectorPayerClaimStatus === "PAID"
-              ? "PAID"
               : claim.status
           ),
           fieldProvenance: mergeProvenance(
@@ -1420,7 +1435,7 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
   }
 });
 
-router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTION), requirePermission(PERMISSIONS.FINANCIAL_VIEW), async (req, res) => {
+router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTION), requirePermission(PERMISSIONS.FINANCIAL_EDIT), async (req, res) => {
   try {
     const parsedInput = parseMutation(remittanceMutationSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);

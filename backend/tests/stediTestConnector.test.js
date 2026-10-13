@@ -250,6 +250,8 @@ test("R2B - Stedi builds trusted professional 837P payload from claim fields", (
       subscriberRelationship: "SELF",
       coordinationOfBenefits: "PRIMARY",
       billingProviderNpi: "1999999984",
+      renderingProviderNpi: "1888888873",
+      doctorName: "Jane Smith",
       providerTin: "123456789",
       providerTaxonomyCode: "207Q00000X",
       hospitalName: "Example Clinic",
@@ -290,6 +292,7 @@ test("R2B - Stedi builds trusted professional 837P payload from claim fields", (
   );
 
   assert.equal(result.claimType, "PROFESSIONAL");
+  assert.equal(result.payload.rendering?.npi, "1888888873");
   assert.equal(result.payload.usageIndicator, "P");
   assert.equal(result.payload.tradingPartnerServiceId, "60054");
   assert.equal(result.payload.subscriber.memberId, "MEMBER123");
@@ -839,6 +842,8 @@ test("R3 - production Stedi submitClaim sends production 837 and never returns r
     memberId: "MEMBER123",
     subscriberRelationship: "SELF",
     billingProviderNpi: "1999999984",
+    renderingProviderNpi: "1888888873",
+    doctorName: "Jane Smith",
     providerTin: "123456789",
     providerTaxonomyCode: "207Q00000X",
     hospitalName: "Example Clinic",
