@@ -168,7 +168,7 @@ test("payment variance - workspace shows the detected case", async ({ page }) =>
 
   await page.goto("/payments");
   await expect(
-    page.getByRole("heading", { name: "Payment Variance Intelligence" })
+    page.getByRole("heading", { name: "Underpayment Recovery" })
   ).toBeVisible();
   await expect(page.getByText("E2E-PAYMENT-VARIANCE", { exact: true })).toBeVisible();
   await expect(page.getByText("RECOVERED", { exact: true })).toBeVisible();
