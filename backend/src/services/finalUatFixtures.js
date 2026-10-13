@@ -174,6 +174,11 @@ export function buildFinalUatScenarios({
       },
       typeOfBill: institutional ? "0111" : null,
       patientStatusCode: institutional ? "01" : null,
+      admissionDate: institutional ? daysFromNow(-(12 + (index % 45))) : null,
+      dischargeDate: institutional ? daysFromNow(-(9 + (index % 45))) : null,
+      admissionType: institutional ? "PLANNED" : null,
+      roomCategory: institutional ? "PRIVATE" : null,
+      icuDays: institutional ? 0 : null,
       claimFilingCode: "CI",
       fieldProvenance: {
         finalUat: {
