@@ -1745,6 +1745,11 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       );
     }
 
+    // Validate the local workflow transition before any external payer call.
+    // The value is reused after transmission so we never discover an invalid
+    // transition only after an irreversible 837 has already left the system.
+    const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED");
+
     let patientControlNumber = claim.patientControlNumber;
     if (!patientControlNumber) {
       patientControlNumber = randomBytes(9)
@@ -1782,6 +1787,19 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
           error: "Production claim submission is disabled",
           message: "Real 837 transmission is disabled for this deployment.",
           code: "PRODUCTION_SUBMISSION_DISABLED"
+        });
+      }
+
+      if (
+        connectorDescriptor.id === "STEDI_PRODUCTION" &&
+        claim.claimForm === "INSTITUTIONAL" &&
+        process.env.STEDI_PRODUCTION_837I_ENABLED !== "true"
+      ) {
+        return res.status(503).json({
+          error: "Production institutional claim submission is disabled",
+          message:
+            "Real 837I transmission remains disabled until the institutional payload mapping is production-approved.",
+          code: "PRODUCTION_837I_DISABLED"
         });
       }
 
@@ -1883,7 +1901,6 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       }
     }
 
-    const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED");
     const updated = await prisma.claim.update({
       where: { id: claim.id },
       data: {
