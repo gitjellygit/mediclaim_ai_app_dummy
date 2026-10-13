@@ -30,10 +30,18 @@ async function withReadRetry(operation, attempts = 3, baseDelayMs = 350) {
 }
 
 export const ClaimsApi = {
-  list({ page = 1, pageSize = 50, paginated = true } = {}) {
+  list({
+    page = 1,
+    pageSize = 50,
+    paginated = true,
+    sort = "createdAt",
+    direction = "desc"
+  } = {}) {
     const params = new URLSearchParams({
       page: String(page),
-      pageSize: String(pageSize)
+      pageSize: String(pageSize),
+      sort,
+      direction
     });
     if (paginated) params.set("paginated", "1");
     return api(`${BASE}?${params.toString()}`);
