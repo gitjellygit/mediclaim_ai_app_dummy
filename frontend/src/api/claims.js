@@ -35,7 +35,8 @@ export const ClaimsApi = {
     pageSize = 50,
     paginated = true,
     sort = "createdAt",
-    direction = "desc"
+    direction = "desc",
+    q = ""
   } = {}) {
     const params = new URLSearchParams({
       page: String(page),
@@ -43,6 +44,7 @@ export const ClaimsApi = {
       sort,
       direction
     });
+    if (q.trim()) params.set("q", q.trim());
     if (paginated) params.set("paginated", "1");
     return api(`${BASE}?${params.toString()}`);
   },
