@@ -133,11 +133,11 @@ test("expired approved authorization is no longer treated as resolved", () => {
   assert.ok(item.nextActions.some((action) => action.code === "RESOLVE_PRIOR_AUTH"));
 });
 
-test("payment outlook distinguishes recorded payer approval from estimates", () => {
+test("payment outlook follows the claim lifecycle", () => {
   assert.deepEqual(paymentOutlook(baseClaim({ approvedAmount: 725 })), {
     amount: 725,
-    kind: "RECORDED",
-    source: "Recorded payer-approved amount"
+    kind: "EXPECTED",
+    source: "Payer-approved amount awaiting or preceding final payment"
   });
 
   const estimate = paymentOutlook(
@@ -146,6 +146,17 @@ test("payment outlook distinguishes recorded payer approval from estimates", () 
   assert.equal(estimate.amount, 850);
   assert.equal(estimate.kind, "ESTIMATE");
   assert.match(estimate.source, /deductions\/copay/i);
+
+  const denied = paymentOutlook(baseClaim({ status: "DENIED", amount: 1000 }));
+  assert.equal(denied.amount, 1000);
+  assert.equal(denied.kind, "AT_RISK");
+
+  const paid = paymentOutlook(
+    baseClaim({ status: "PAID", approvedAmount: 980, paidAmount: 940 })
+  );
+  assert.equal(paid.amount, 940);
+  assert.equal(paid.kind, "PAID");
+  assert.match(paid.source, /actual payer payment/i);
 });
 
 test("daysUntil uses calendar-day boundaries", () => {
