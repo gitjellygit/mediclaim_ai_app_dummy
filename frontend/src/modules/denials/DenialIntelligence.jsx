@@ -139,7 +139,7 @@ export default function DenialIntelligence() {
       showDialog(
         error?.message || "Denial cases could not be loaded. Please try again.",
         {
-          title: "Unable to load Denial Intelligence",
+          title: "Unable to load Denial Recovery",
           severity: "error"
         }
       );
@@ -337,7 +337,7 @@ export default function DenialIntelligence() {
       >
         <Box>
           <Typography variant="h4" fontWeight={700}>
-            Denial & Appeal Intelligence
+            Denial Recovery
           </Typography>
           <Typography color="text.secondary">
             Identify denial drivers, revenue at risk, and the next best recovery action.
@@ -1006,7 +1006,7 @@ export default function DenialIntelligence() {
                 navigate(`/claims/${detail.claimId}`, {
                   state: {
                     from: location.pathname + location.search,
-                    backLabel: "Back to Denial Intelligence"
+                    backLabel: "Back to Denial Recovery"
                   }
                 })
               }
