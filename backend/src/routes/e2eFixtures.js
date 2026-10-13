@@ -1,4 +1,5 @@
 import express from "express";
+import { buildFinalUatScenarios, finalUatLocalSafety } from "../services/finalUatFixtures.js";
 
 /** Synthetic test fixtures only. Never mount this router in normal environments. */
 export function e2eFixturesRouter(prisma) {
@@ -1127,6 +1128,124 @@ router.delete("/e2e/approval-intelligence/cleanup", async (req, res) => {
     res.status(500).json({
       error: "Unable to clean Approval Intelligence UAT scenarios"
     });
+  }
+});
+
+
+function finalUatGuard(req, res) {
+  const safety = finalUatLocalSafety();
+  if (!safety.ok || req.user?.role !== "ADMIN") {
+    res.status(safety.ok ? 404 : 403).json({
+      error: safety.ok ? "Not found" : "Unsafe Final UAT environment",
+      message: safety.reason || undefined
+    });
+    return false;
+  }
+  return true;
+}
+
+router.delete("/e2e/final-uat/reset", async (req, res) => {
+  if (!finalUatGuard(req, res)) return;
+
+  try {
+    const organizationId = req.user.organizationId;
+    const [auditResult, claimResult] = await prisma.$transaction([
+      prisma.auditEvent.deleteMany({ where: { organizationId } }),
+      prisma.claim.deleteMany({ where: { organizationId } })
+    ]);
+
+    res.json({
+      ok: true,
+      scope: "LOCAL_TEST_ORGANIZATION",
+      deletedClaims: claimResult.count,
+      deletedAuditEvents: auditResult.count,
+      preserved: ["users", "organization", "rules"]
+    });
+  } catch (error) {
+    console.error("[final-uat] reset failed", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({ error: "Unable to reset local Final UAT data" });
+  }
+});
+
+router.post("/e2e/final-uat/seed", async (req, res) => {
+  if (!finalUatGuard(req, res)) return;
+
+  const organizationId = req.user.organizationId;
+  const fixture = buildFinalUatScenarios({
+    organizationId,
+    createdById: req.user.id,
+    now: new Date()
+  });
+
+  try {
+    await prisma.claim.deleteMany({
+      where: {
+        organizationId,
+        patientName: { startsWith: fixture.prefix }
+      }
+    });
+
+    const created = [];
+
+    for (const scenario of fixture.scenarios) {
+      const data = { ...scenario.createData };
+      if (data.serviceLines === undefined) delete data.serviceLines;
+      if (data.checks === undefined) delete data.checks;
+      if (data.denialCases === undefined) delete data.denialCases;
+      if (data.underpaymentCase === undefined) delete data.underpaymentCase;
+      if (data.documents === undefined) delete data.documents;
+
+      const claim = await prisma.claim.create({
+        data,
+        include: { documents: true }
+      });
+
+      if (
+        scenario.addPendingCodingSuggestion &&
+        claim.documents[0]
+      ) {
+        await prisma.codingSuggestion.create({
+          data: {
+            claimId: claim.id,
+            documentId: claim.documents[0].id,
+            system: scenario.index % 4 === 0 ? "ICD10_CM" : "CPT",
+            suggestedCode: scenario.index % 4 === 0 ? "Z00.01" : "99214",
+            confidence: 78 + (scenario.index % 20),
+            evidenceText: "Synthetic Final UAT coding suggestion",
+            status: "PENDING"
+          }
+        });
+      }
+
+      created.push({
+        id: claim.id,
+        index: scenario.index,
+        patientName: claim.patientName,
+        category: scenario.category,
+        expected: scenario.expected
+      });
+    }
+
+    res.json({
+      prefix: fixture.prefix,
+      count: created.length,
+      synthetic: true,
+      categories: fixture.categories.map((category) => ({
+        category,
+        count: created.filter((item) => item.category === category).length
+      })),
+      scenarios: created
+    });
+  } catch (error) {
+    console.error("[final-uat] seed failed", {
+      name: error?.name || "Error",
+      code: error?.code || null,
+      message: error?.message || null
+    });
+    res.status(500).json({ error: "Unable to seed Final UAT scenarios" });
   }
 });
 
