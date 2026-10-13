@@ -105,6 +105,86 @@ function priorAuthLabel(auth) {
   return "Not checked";
 }
 
+function isPostSubmission(claim) {
+  return ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status);
+}
+
+function headerLabel(label, help) {
+  return (
+    <Tooltip title={help} arrow>
+      <Box component="span" sx={{ cursor: "help", whiteSpace: "nowrap" }}>
+        <b>{label}</b>{" "}
+        <Typography component="span" variant="caption" color="text.secondary">
+          ⓘ
+        </Typography>
+      </Box>
+    </Tooltip>
+  );
+}
+
+function codingReviewPresentation(claim) {
+  const verified = Number(claim?.coding?.verifiedServiceLines || 0);
+  const pending = Number(claim?.coding?.pendingSuggestions || 0);
+
+  if (claim?.status === "PAID") {
+    return {
+      label: "Finalized",
+      color: "success",
+      detail: verified > 0
+        ? `${verified} verified line${verified === 1 ? "" : "s"} at submission`
+        : "Coding snapshot retained in claim history"
+    };
+  }
+
+  if (claim?.status === "DENIED") {
+    return {
+      label: pending > 0 ? "Review for denial" : "Submitted coding",
+      color: pending > 0 ? "warning" : "default",
+      detail: pending > 0
+        ? "Historical coding suggestions may be reviewed during denial recovery"
+        : verified > 0
+        ? `${verified} verified line${verified === 1 ? "" : "s"} at submission`
+        : "Coding snapshot retained in claim history"
+    };
+  }
+
+  if (claim?.status === "SUBMITTED") {
+    return {
+      label: verified > 0
+        ? `${verified} verified line${verified === 1 ? "" : "s"}`
+        : "Submitted coding",
+      color: verified > 0 ? "success" : "default",
+      detail: "Submitted coding snapshot"
+    };
+  }
+
+  return {
+    label:
+      pending > 0
+        ? `${pending} suggestion${pending === 1 ? "" : "s"} pending`
+        : verified > 0
+        ? `${verified} verified line${verified === 1 ? "" : "s"}`
+        : "No verified lines",
+    color: pending > 0 ? "warning" : verified > 0 ? "success" : "default",
+    detail: "Official NCCI/MUE and payer edits require a maintained coding-edit source."
+  };
+}
+
+function paymentKindLabel(kind) {
+  if (kind === "PAID") return "Paid";
+  if (kind === "AT_RISK") return "Revenue at risk";
+  if (kind === "EXPECTED") return "Payer approved";
+  if (kind === "ESTIMATE") return "Est. reimbursement";
+  return "Unavailable";
+}
+
+function paymentKindColor(kind) {
+  if (kind === "PAID") return "success";
+  if (kind === "AT_RISK") return "error";
+  if (kind === "EXPECTED") return "info";
+  return "default";
+}
+
 function actionButtonLabel(action) {
   if (action?.code === "RUN_READINESS") return "Run Readiness Check";
   if (action?.code === "REFRESH_READINESS") return "Refresh Readiness";
@@ -583,13 +663,13 @@ export default function ApprovalIntelligence() {
                 <TableRow>
                   <TableCell><b>Priority / Claim</b></TableCell>
                   <TableCell><b>Form / Status</b></TableCell>
-                  <TableCell><b>Timely Filing</b></TableCell>
-                  <TableCell><b>Eligibility</b></TableCell>
-                  <TableCell><b>Prior Auth</b></TableCell>
-                  <TableCell><b>Coding Review</b></TableCell>
-                  <TableCell><b>Readiness</b></TableCell>
-                  <TableCell><b>Submission Risk</b></TableCell>
-                  <TableCell><b>Payment Outlook</b></TableCell>
+                  <TableCell>{headerLabel("Timely Filing", "Deadline urgency before submission; finalized claims show when they were filed instead of a remaining-day countdown.")}</TableCell>
+                  <TableCell>{headerLabel("Eligibility", "Coverage verification used during claim preparation. On submitted or finalized claims this is historical context.")}</TableCell>
+                  <TableCell>{headerLabel("Prior Auth", "Prior-authorization state used during claim preparation. On submitted or finalized claims this is historical context.")}</TableCell>
+                  <TableCell>{headerLabel("Coding Review", "Actionable coding work before submission; after submission this becomes a historical coding snapshot.")}</TableCell>
+                  <TableCell>{headerLabel("Readiness", "Pre-submission validation score. After submission, it is shown only as the historical score at submission.")}</TableCell>
+                  <TableCell>{headerLabel("Pre-Submit Risk", "Rules-based pre-submission risk signal. It is not a payer approval or denial probability and is not actionable after submission.")}</TableCell>
+                  <TableCell>{headerLabel("Payment Outlook", "Estimated reimbursement before adjudication, payer-approved amount during adjudication, revenue at risk after denial, or actual payer payment after remittance.")}</TableCell>
                   <TableCell><b>Next Action</b></TableCell>
                 </TableRow>
               </TableHead>
@@ -602,6 +682,8 @@ export default function ApprovalIntelligence() {
                   const nextAction = claim.nextActions?.[0] || null;
                   const terminalAction = lifecycleAction(claim);
                   const primaryAction = terminalAction || nextAction;
+                  const postSubmission = isPostSubmission(claim);
+                  const codingDisplay = codingReviewPresentation(claim);
 
                   return (
                     <TableRow key={claim.id} hover>
@@ -649,17 +731,28 @@ export default function ApprovalIntelligence() {
                         <Stack spacing={0.5} alignItems="flex-start">
                           <Chip
                             size="small"
-                            color={filingColor(claim.timelyFiling?.state)}
+                            color={postSubmission ? "default" : filingColor(claim.timelyFiling?.state)}
                             variant={
-                              claim.timelyFiling?.state === "UNKNOWN"
+                              postSubmission || claim.timelyFiling?.state === "UNKNOWN"
                                 ? "outlined"
                                 : "filled"
                             }
-                            label={filingLabel(claim.timelyFiling)}
+                            label={
+                              postSubmission
+                                ? claim.claimSubmissionDate
+                                  ? `Filed ${date(claim.claimSubmissionDate)}`
+                                  : "Filed"
+                                : filingLabel(claim.timelyFiling)
+                            }
                           />
-                          {claim.timelyFiling?.deadline && (
+                          {!postSubmission && claim.timelyFiling?.deadline && (
                             <Typography variant="caption" color="text.secondary">
                               Deadline {date(claim.timelyFiling.deadline)}
+                            </Typography>
+                          )}
+                          {postSubmission && (
+                            <Typography variant="caption" color="text.secondary">
+                              Filing window is historical after submission
                             </Typography>
                           )}
                         </Stack>
@@ -682,7 +775,11 @@ export default function ApprovalIntelligence() {
                             label={eligibilityLabel(claim.eligibility?.status)}
                           />
                           <Typography variant="caption" color="text.secondary">
-                            {claim.eligibility?.checkedAt
+                            {postSubmission
+                              ? claim.eligibility?.checkedAt
+                                ? `Historical • checked ${date(claim.eligibility.checkedAt)}`
+                                : "Historical eligibility status"
+                              : claim.eligibility?.checkedAt
                               ? `Checked ${date(claim.eligibility.checkedAt)}`
                               : "No current verification"}
                           </Typography>
@@ -708,9 +805,14 @@ export default function ApprovalIntelligence() {
                               Auth {auth.authorizationNo}
                             </Typography>
                           )}
-                          {auth.expired && (
+                          {auth.expired && !postSubmission && (
                             <Typography variant="caption" color="error">
                               Authorization expired
+                            </Typography>
+                          )}
+                          {postSubmission && (
+                            <Typography variant="caption" color="text.secondary">
+                              Historical authorization status
                             </Typography>
                           )}
                         </Stack>
@@ -721,74 +823,74 @@ export default function ApprovalIntelligence() {
                           <Chip
                             size="small"
                             variant="outlined"
-                            color={
-                              claim.coding?.pendingSuggestions > 0
-                                ? "warning"
-                                : claim.coding?.verifiedServiceLines > 0
-                                ? "success"
-                                : "default"
-                            }
-                            label={
-                              claim.coding?.pendingSuggestions > 0
-                                ? `${claim.coding.pendingSuggestions} suggestion${claim.coding.pendingSuggestions === 1 ? "" : "s"} pending`
-                                : claim.coding?.verifiedServiceLines > 0
-                                ? `${claim.coding.verifiedServiceLines} verified line${claim.coding.verifiedServiceLines === 1 ? "" : "s"}`
-                                : "No verified lines"
-                            }
+                            color={codingDisplay.color}
+                            label={codingDisplay.label}
                           />
                           <Typography variant="caption" color="text.secondary">
-                            Official NCCI/MUE and payer edits require a maintained coding-edit source.
+                            {codingDisplay.detail}
                           </Typography>
                         </Stack>
                       </TableCell>
 
                       <TableCell sx={{ minWidth: 175 }}>
                         {Number.isFinite(Number(readiness.score)) ? (
-                          <Stack spacing={0.75}>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <Typography fontWeight={700}>
-                                {readiness.score}/100
+                          postSubmission ? (
+                            <Stack spacing={0.5} alignItems="flex-start">
+                              <Typography fontWeight={700}>{readiness.score}/100</Typography>
+                              <Chip size="small" variant="outlined" label="At submission" />
+                              <Typography variant="caption" color="text.secondary">
+                                Historical pre-submit snapshot
                               </Typography>
-                              {readiness.state === "STALE" && (
-                                <Chip size="small" color="warning" label="Stale" />
-                              )}
                             </Stack>
-                            <LinearProgress
-                              variant="determinate"
-                              value={Math.max(0, Math.min(100, Number(readiness.score)))}
-                              color={readinessColor(Number(readiness.score))}
-                              sx={{ height: 6, borderRadius: 4 }}
-                            />
-                            <Typography variant="caption" color="text.secondary">
-                              {readiness.blockerCount || 0} blockers •{" "}
-                              {readiness.warningCount || 0} warnings
-                            </Typography>
-                          </Stack>
+                          ) : (
+                            <Stack spacing={0.75}>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Typography fontWeight={700}>{readiness.score}/100</Typography>
+                                {readiness.state === "STALE" && (
+                                  <Chip size="small" color="warning" label="Stale" />
+                                )}
+                              </Stack>
+                              <LinearProgress
+                                variant="determinate"
+                                value={Math.max(0, Math.min(100, Number(readiness.score)))}
+                                color={readinessColor(Number(readiness.score))}
+                                sx={{ height: 6, borderRadius: 4 }}
+                              />
+                              <Typography variant="caption" color="text.secondary">
+                                {readiness.blockerCount || 0} blockers •{" "}
+                                {readiness.warningCount || 0} warnings
+                              </Typography>
+                            </Stack>
+                          )
                         ) : (
                           <Chip
                             size="small"
                             variant="outlined"
-                            label="Not evaluated"
+                            label={postSubmission ? "No submission snapshot" : "Not evaluated"}
                           />
                         )}
                       </TableCell>
 
                       <TableCell sx={{ minWidth: 180 }}>
-                        {risk.level ? (
+                        {postSubmission ? (
+                          <Stack spacing={0.5} alignItems="flex-start">
+                            <Typography variant="body2" color="text.secondary">—</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Pre-submit only
+                            </Typography>
+                          </Stack>
+                        ) : risk.level ? (
                           <Stack spacing={0.5} alignItems="flex-start">
                             <Tooltip title={risk.methodology || ""}>
-                              <Chip
-                                size="small"
-                                color={riskColor(risk.level)}
-                                label={`${risk.level} • ${percentage(risk.score)}`}
-                              />
+                              <Chip size="small" color={riskColor(risk.level)} label={risk.level} />
                             </Tooltip>
+                            <Typography variant="caption" color="text.secondary">
+                              {Number.isFinite(Number(risk.score))
+                                ? `${Math.round(Number(risk.score) * 100)}/100 risk score`
+                                : "Rules-based risk signal"}
+                            </Typography>
                             {risk.factors?.[0] && (
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                sx={{ maxWidth: 220 }}
-                              >
+                              <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 220 }}>
                                 {risk.factors[0]}
                               </Typography>
                             )}
@@ -808,18 +910,8 @@ export default function ApprovalIntelligence() {
                           <Chip
                             size="small"
                             variant="outlined"
-                            color={
-                              claim.paymentOutlook?.kind === "RECORDED"
-                                ? "success"
-                                : "default"
-                            }
-                            label={
-                              claim.paymentOutlook?.kind === "RECORDED"
-                                ? "Recorded"
-                                : claim.paymentOutlook?.kind === "ESTIMATE"
-                                ? "Estimate"
-                                : "Unavailable"
-                            }
+                            color={paymentKindColor(claim.paymentOutlook?.kind)}
+                            label={paymentKindLabel(claim.paymentOutlook?.kind)}
                           />
                         </Stack>
                         <Typography
