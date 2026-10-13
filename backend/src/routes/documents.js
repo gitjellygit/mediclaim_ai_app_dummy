@@ -292,6 +292,7 @@ export function documentsRouter(prisma, uploadDir) {
       let claim = null;
       let pendingNewClaimData = null;
       let pendingNewClaimId = null;
+      let pendingExistingClaimUpdate = null;
       let matchStatus = "NEW";
       let matchScore = 0;
       let candidateClaim = null;
@@ -373,25 +374,22 @@ export function documentsRouter(prisma, uploadDir) {
         );
 
         if (Object.keys(updatePayload).length > 0) {
-          claim = await prisma.claim.update({
-            where: { id: claim.id },
-            data: {
-              ...updatePayload,
-              documentDerivedFields: mergeDerivedFields(
-                claim.documentDerivedFields,
-                Object.keys(updatePayload)
-              ),
-              fieldProvenance: mergeProvenance(
-                claim.fieldProvenance,
-                documentProvenance({
-                  fields: Object.keys(updatePayload),
-                  confidence: intel.confidence,
-                  fileName: req.file.originalname,
-                  documentType: intel.suggestedType || "OTHER"
-                })
-              )
-            }
-          });
+          pendingExistingClaimUpdate = {
+            ...updatePayload,
+            documentDerivedFields: mergeDerivedFields(
+              claim.documentDerivedFields,
+              Object.keys(updatePayload)
+            ),
+            fieldProvenance: mergeProvenance(
+              claim.fieldProvenance,
+              documentProvenance({
+                fields: Object.keys(updatePayload),
+                confidence: intel.confidence,
+                fileName: req.file.originalname,
+                documentType: intel.suggestedType || "OTHER"
+              })
+            )
+          };
         }
 
       }
@@ -410,6 +408,11 @@ export function documentsRouter(prisma, uploadDir) {
               id: pendingNewClaimId,
               ...pendingNewClaimData
             }
+          });
+        } else if (pendingExistingClaimUpdate) {
+          claim = await tx.claim.update({
+            where: { id: claim.id },
+            data: pendingExistingClaimUpdate
           });
         }
 
@@ -1306,7 +1309,7 @@ export function documentsRouter(prisma, uploadDir) {
 
       if (!review) {
         return res.json({
-          ...doc,
+          ...publicDocument(doc),
           unchanged: true,
           message: "This document has no pending identity review"
         });
@@ -1314,7 +1317,7 @@ export function documentsRouter(prisma, uploadDir) {
 
       if (review.reviewed === true) {
         return res.json({
-          ...doc,
+          ...publicDocument(doc),
           unchanged: true,
           message: "Document identity has already been reviewed"
         });
