@@ -47,7 +47,9 @@ export const ClaimsApi = {
     page = 1,
     pageSize = 25,
     q = "",
-    status = "ALL"
+    status = "ALL",
+    work = "ALL",
+    filing = "ALL"
   } = {}) {
     const params = new URLSearchParams({
       page: String(page),
@@ -55,6 +57,8 @@ export const ClaimsApi = {
     });
     if (q.trim()) params.set("q", q.trim());
     if (status && status !== "ALL") params.set("status", status);
+    if (work && work !== "ALL") params.set("work", work);
+    if (filing && filing !== "ALL") params.set("filing", filing);
     return withReadRetry(() =>
       api(`${BASE}/approval-intelligence?${params.toString()}`)
     );
