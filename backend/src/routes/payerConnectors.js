@@ -1,5 +1,6 @@
 import express from "express";
 import { z } from "zod";
+import { writeCriticalRequestAudit } from "../services/auditLog.js";
 import { prisma } from "../db.js";
 import { requireRoles } from "../middleware/auth.js";
 import { listPayerConnectors } from "../services/payerGateway.js";
@@ -66,11 +67,40 @@ router.put("/submission-profile", requireRoles(["ADMIN"]), async (req, res) => {
       code: "INVALID_SUBMISSION_PROFILE"
     });
   }
-  const profile = await prisma.organization.update({
-    where: { id: req.user.organizationId },
-    data: parsed.data,
-    select: submissionProfileSelect
+
+  const profile = await prisma.$transaction(async (tx) => {
+    const existing = await tx.organization.findUnique({
+      where: { id: req.user.organizationId },
+      select: submissionProfileSelect
+    });
+    if (!existing) {
+      const error = new Error("Organization not found");
+      error.status = 404;
+      throw error;
+    }
+
+    const changedFields = Object.keys(parsed.data).filter(
+      (field) => (existing[field] ?? null) !== (parsed.data[field] ?? null)
+    );
+
+    const updated = await tx.organization.update({
+      where: { id: req.user.organizationId },
+      data: parsed.data,
+      select: submissionProfileSelect
+    });
+
+    await writeCriticalRequestAudit(tx, req, {
+      action: "SUBMISSION_PROFILE_UPDATED",
+      entityType: "Organization",
+      entityId: req.user.organizationId,
+      outcome: "SUCCESS",
+      statusCode: 200,
+      metadata: { changedFields }
+    });
+
+    return updated;
   });
+
   res.json({ profile });
 });
 
