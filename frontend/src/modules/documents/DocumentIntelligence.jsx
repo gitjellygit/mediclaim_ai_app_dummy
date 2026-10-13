@@ -17,6 +17,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   TablePagination,
   LinearProgress,
   InputAdornment,
@@ -77,11 +78,13 @@ export default function DocumentIntelligence() {
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [sort, setSort] = useState("createdAt");
+  const [direction, setDirection] = useState("desc");
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
   useEffect(() => {
     loadDocuments(page, rowsPerPage);
-  }, [page, rowsPerPage, claimIdFilter]);
+  }, [page, rowsPerPage, claimIdFilter, sort, direction]);
 
   async function loadDocuments(pageIndex = page, pageSize = rowsPerPage) {
     try {
@@ -89,7 +92,9 @@ export default function DocumentIntelligence() {
       const result = await ClaimsApi.listDocuments(claimIdFilter, {
         page: pageIndex + 1,
         pageSize,
-        paginated: true
+        paginated: true,
+        sort,
+        direction
       });
       const docs = Array.isArray(result?.items)
         ? result.items
@@ -376,7 +381,17 @@ export default function DocumentIntelligence() {
     }
   }
 
-  const filteredDocuments = useMemo(() => {
+  function handleSort(field) {
+    setPage(0);
+    if (sort === field) {
+      setDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSort(field);
+    setDirection(field === "confidence" || field === "createdAt" ? "desc" : "asc");
+  }
+
+    const filteredDocuments = useMemo(() => {
     const scoped = claimIdFilter
       ? documents.filter((doc) => doc.claimId === claimIdFilter)
       : documents;
@@ -518,10 +533,10 @@ export default function DocumentIntelligence() {
                         onChange={handleSelectAll}
                       />
                     </TableCell>
-                    <TableCell>File Name</TableCell>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Confidence</TableCell>
-                    <TableCell>Patient</TableCell>
+                    <TableCell><TableSortLabel active={sort === "fileName"} direction={sort === "fileName" ? direction : "asc"} onClick={() => handleSort("fileName")}>File Name</TableSortLabel></TableCell>
+                    <TableCell><TableSortLabel active={sort === "type"} direction={sort === "type" ? direction : "asc"} onClick={() => handleSort("type")}>Type</TableSortLabel></TableCell>
+                    <TableCell><TableSortLabel active={sort === "confidence"} direction={sort === "confidence" ? direction : "desc"} onClick={() => handleSort("confidence")}>Confidence</TableSortLabel></TableCell>
+                    <TableCell><TableSortLabel active={sort === "patientName"} direction={sort === "patientName" ? direction : "asc"} onClick={() => handleSort("patientName")}>Patient</TableSortLabel></TableCell>
                     <TableCell>Coding</TableCell>
                     <TableCell>Actions</TableCell>
                   </TableRow>
