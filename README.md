@@ -134,8 +134,8 @@ or legal approval.
 Implemented Stedi application capabilities:
 
 - 270/271 eligibility: test and production.
-- 837P professional claim submission: test and production.
-- 837I institutional claim submission: test and production.
+- 837P professional claim submission: test and production, subject to the production submission kill switch.
+- 837I institutional claim submission: test mode is available, but production is separately disabled by default with `STEDI_PRODUCTION_837I_ENABLED=false` until the richer institutional mapping completes production validation.
 - 276/277 real-time claim status: production only. Stedi test mode does not support real-time claim status; test 837s instead receive 277CA acknowledgments.
 - 835 ERA/remittance discovery and posting: test and production.
 - Prior authorization requirement: surfaced from eligibility/readiness, but
@@ -143,7 +143,7 @@ Implemented Stedi application capabilities:
   not advertise a generic Stedi prior-authorization transaction that it cannot
   actually perform.
 
-Production 837 submission is generated server-side from trusted claim fields.
+Production 837 submission is generated server-side from trusted claim fields. Professional 837P is the first production-supported claim form; institutional 837I remains separately gated until its full production mapping is approved.
 The browser cannot submit arbitrary 837 JSON. Before transmission, readiness
 requires the applicable patient/subscriber identity, structured address,
 provider NPI/TIN/taxonomy, claim filing code, diagnosis/service-line data, and
