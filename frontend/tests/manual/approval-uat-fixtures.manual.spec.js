@@ -64,16 +64,33 @@ test("prepare Approval Intelligence manual UAT scenarios", async ({ page }) => {
     await expect(row("04-AUTH-REQUIRED")).toContainText("Required");
     await expect(row("05-AUTH-DENIED")).toContainText("Denied");
     await expect(row("06-AUTH-EXPIRED")).toContainText("Authorization expired");
-    await expect(row("07-FILING-EXPIRED")).toContainText(/Expired \d+d ago/);
-    await expect(row("08-FILING-URGENT")).toContainText("3d remaining");
-    await expect(row("09-FILING-SOON")).toContainText("21d remaining");
+    await expect(row("07-FILING-EXPIRED")).toContainText(/Expired \d+ D ago/);
+    await expect(row("08-FILING-URGENT")).toContainText("3 D remaining");
+    await expect(row("09-FILING-SOON")).toContainText("21 D remaining");
     await expect(row("10-STALE")).toContainText("Stale");
     await expect(row("11-BLOCKED")).toContainText(/1 blocker/);
     await expect(row("12-CODING-PENDING")).toContainText("1 suggestion pending");
     await expect(row("13-SUBMITTED")).toContainText("SUBMITTED");
+    await expect(
+      row("13-SUBMITTED").getByRole("button", { name: "Track Claim" })
+    ).toBeVisible();
+
     await expect(row("14-DENIED")).toContainText("DENIED");
+    await expect(
+      row("14-DENIED").getByRole("button", { name: "Review Denial" })
+    ).toBeVisible();
+
     await expect(row("15-PAID")).toContainText("PAID");
     await expect(row("15-PAID")).toContainText("Recorded");
+    await expect(
+      row("15-PAID").getByRole("button", { name: "View Remittance" })
+    ).toBeVisible();
+
+    for (const key of ["01-READY", "13-SUBMITTED", "14-DENIED", "15-PAID"]) {
+      await expect(
+        row(key).getByRole("button", { name: "View Claim" })
+      ).toBeVisible();
+    }
 
     console.log("\nApproval Intelligence UAT data is ready.");
     console.log(`Created ${seeded.count} synthetic claims with prefix ${seeded.prefix}`);
