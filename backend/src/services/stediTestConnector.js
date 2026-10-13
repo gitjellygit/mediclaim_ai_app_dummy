@@ -80,6 +80,11 @@ export function buildStediEligibilityRequest(claim, context = {}) {
     subscriberIsPatient ? claim.patientDob : claim.subscriberDob
   );
   const npi = context.providerNpi || claim.billingProviderNpi || claim.renderingProviderNpi;
+  const providerName =
+    context.providerName ||
+    claim.organization?.stediBillingProviderName ||
+    claim.hospitalName ||
+    (context.allowTestProviderFallback ? "CLAIM APP Test Provider" : null);
 
   required(payerId, "payerEdiId");
   required(memberId, "memberId/subscriberId");
@@ -90,6 +95,7 @@ export function buildStediEligibilityRequest(claim, context = {}) {
   required(names.firstName, "subscriber first name");
   required(names.lastName, "subscriber last name");
   required(npi, "provider NPI");
+  required(providerName, "organization.stediBillingProviderName/provider name");
 
   return {
     payerId,
@@ -105,7 +111,7 @@ export function buildStediEligibilityRequest(claim, context = {}) {
     },
     provider: {
       name: {
-        organization: context.providerName || claim.hospitalName || "CLAIM APP Test Provider"
+        organization: providerName
       },
       npi
     },
@@ -139,6 +145,11 @@ export function buildStediClaimStatusRequest(claim, context = {}) {
   );
   const providerNpi =
     context.providerNpi || claim.billingProviderNpi || claim.renderingProviderNpi;
+  const providerName =
+    context.providerName ||
+    claim.organization?.stediBillingProviderName ||
+    claim.hospitalName ||
+    (context.allowTestProviderFallback ? "CLAIM APP Test Provider" : null);
   const beginningDateOfService = compactDate(
     claim.dateOfService || claim.admissionDate || claim.procedureDate
   );
@@ -155,6 +166,7 @@ export function buildStediClaimStatusRequest(claim, context = {}) {
   required(names.firstName, "subscriber first name");
   required(names.lastName, "subscriber last name");
   required(providerNpi, "provider NPI");
+  required(providerName, "organization.stediBillingProviderName/provider name");
   required(beginningDateOfService, "dateOfService/admissionDate");
 
   return {
@@ -162,8 +174,7 @@ export function buildStediClaimStatusRequest(claim, context = {}) {
     providers: [
       {
         npi: providerNpi,
-        organizationName:
-          context.providerName || claim.hospitalName || "CLAIM APP Provider",
+        organizationName: providerName,
         providerType: "BillingProvider"
       }
     ],
@@ -738,14 +749,43 @@ function stediDependent(claim) {
   };
 }
 
-function verifiedServiceLines(claim) {
+function verifiedServiceLines(claim, { maxLines = null } = {}) {
   const lines = (claim.serviceLines || []).filter((line) => line.verified !== false);
   if (!lines.length) {
     const error = new Error("At least one verified service line is required for Stedi claim submission");
     error.code = "STEDI_CLAIM_REQUEST_INVALID";
     throw error;
   }
+  if (Number.isInteger(maxLines) && lines.length > maxLines) {
+    const error = new Error(`Stedi 837P supports at most ${maxLines} service lines per claim`);
+    error.code = "STEDI_CLAIM_REQUEST_INVALID";
+    throw error;
+  }
   return lines;
+}
+
+function stediRenderingProvider(claim) {
+  required(claim.renderingProviderNpi, "renderingProviderNpi");
+
+  if (String(claim.renderingProviderNpi) === String(claim.billingProviderNpi || "")) {
+    return null;
+  }
+
+  const providerName = String(claim.doctorName || "")
+    .replace(/^dr\.?\s+/i, "")
+    .trim();
+  const names = nameParts(providerName);
+  required(names.lastName, "doctorName for rendering provider");
+
+  return {
+    providerType: "RenderingProvider",
+    npi: String(claim.renderingProviderNpi),
+    ...(names.firstName ? { firstName: names.firstName } : {}),
+    lastName: names.lastName,
+    ...(claim.providerTaxonomyCode
+      ? { taxonomyCode: String(claim.providerTaxonomyCode) }
+      : {})
+  };
 }
 
 function stediBillingProvider(claim, profile = {}) {
@@ -812,7 +852,16 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
     throw error;
   }
 
-  const lines = verifiedServiceLines(claim);
+  if (claimType !== "INSTITUTIONAL" && diagnoses.length > 12) {
+    const error = new Error("Stedi 837P supports at most 12 diagnosis codes per claim");
+    error.code = "STEDI_CLAIM_REQUEST_INVALID";
+    throw error;
+  }
+
+  const lines = verifiedServiceLines(
+    claim,
+    claimType === "INSTITUTIONAL" ? {} : { maxLines: 50 }
+  );
   if (claimType === "INSTITUTIONAL") {
     required(claim.admissionTypeCode, "admissionTypeCode");
     required(claim.admissionSourceCode, "admissionSourceCode");
@@ -896,7 +945,15 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
   }
 
   const billing = stediBillingProvider(claim, submissionProfile);
+  const rendering = stediRenderingProvider(claim);
   const diagnosisIndex = new Map(diagnoses.map((code, index) => [code, String(index + 1)]));
+  const claimPlaceOfService = String(
+    lines[0]?.placeOfService ||
+      required(
+        submissionProfile.stediDefaultProfessionalPlaceOfService,
+        "organization.stediDefaultProfessionalPlaceOfService"
+      )
+  );
   const serviceLines = lines.map((line, index) => {
     required(line.cptHcpcsCode, `serviceLines[${index}].cptHcpcsCode`);
     const charge = validMoney(line.charge);
@@ -923,6 +980,9 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
         lineItemChargeAmount: charge,
         measurementUnit: "UN",
         serviceUnitCount: String(line.units || 1),
+        ...(line.placeOfService && String(line.placeOfService) !== claimPlaceOfService
+          ? { placeOfServiceCode: String(line.placeOfService) }
+          : {}),
         compositeDiagnosisCodePointers: { diagnosisCodePointers: pointers }
       },
       providerControlNumber: String(line.id || `${claim.patientControlNumber}-${index + 1}`).slice(0, 30)
@@ -934,17 +994,12 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
     payload: {
       ...base,
       billing,
+      ...(rendering ? { rendering } : {}),
       claimInformation: {
         claimFilingCode: claim.claimFilingCode,
         patientControlNumber: String(claim.patientControlNumber).slice(0, 17),
         claimChargeAmount: totalCharge,
-        placeOfServiceCode: String(
-          lines[0]?.placeOfService ||
-            required(
-              submissionProfile.stediDefaultProfessionalPlaceOfService,
-              "organization.stediDefaultProfessionalPlaceOfService"
-            )
-        ),
+        placeOfServiceCode: claimPlaceOfService,
         claimFrequencyCode: claimFrequencyCode(claim.claimFrequencyCode),
         signatureIndicator: required(
           submissionProfile.stediProfessionalSignatureIndicator,
@@ -1178,7 +1233,10 @@ export function createStediTestConnector({
     mode: "LIVE",
 
     async checkEligibility(claim, context = {}) {
-      const payload = buildStediEligibilityRequest(claim, context);
+      const payload = buildStediEligibilityRequest(claim, {
+        ...context,
+        allowTestProviderFallback: true
+      });
       const startedAt = Date.now();
       const response = await fetchImpl(`${baseUrl}/eligibility-check`, {
         method: "POST",
@@ -1330,7 +1388,10 @@ export function createStediProductionConnector({
     mode: "LIVE",
 
     async checkEligibility(claim, context = {}) {
-      const payload = buildStediEligibilityRequest(claim, context);
+      const payload = buildStediEligibilityRequest(claim, {
+        ...context,
+        allowTestProviderFallback: false
+      });
       const startedAt = Date.now();
       const response = await fetchImpl(`${baseUrl}/eligibility-check`, {
         method: "POST",
@@ -1358,6 +1419,15 @@ export function createStediProductionConnector({
         throw new PayerConnectorUnavailableError(
           "STEDI_PRODUCTION",
           "Production 837 submission is disabled by STEDI_PRODUCTION_SUBMISSION_ENABLED"
+        );
+      }
+      if (
+        String(claim?.claimForm || "").toUpperCase() === "INSTITUTIONAL" &&
+        env.STEDI_PRODUCTION_837I_ENABLED !== "true"
+      ) {
+        throw new PayerConnectorUnavailableError(
+          "STEDI_PRODUCTION",
+          "Production 837I submission is disabled by STEDI_PRODUCTION_837I_ENABLED"
         );
       }
       const { payload, claimType } = buildStediClaimSubmissionRequest(claim, {
@@ -1421,7 +1491,10 @@ export function createStediProductionConnector({
         );
       }
 
-      const payload = buildStediClaimStatusRequest(claim, context);
+      const payload = buildStediClaimStatusRequest(claim, {
+        ...context,
+        allowTestProviderFallback: false
+      });
       const startedAt = Date.now();
       const response = await fetchImpl(claimStatusUrl, {
         method: "POST",
