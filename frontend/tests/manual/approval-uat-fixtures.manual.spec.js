@@ -16,7 +16,7 @@ async function login() {
   return { api, auth: await response.json() };
 }
 
-test("prepare Approval Intelligence manual UAT scenarios", async ({ page }) => {
+test("prepare Claim Work Queue manual UAT scenarios", async ({ page }) => {
   const { api, auth } = await login();
   const headers = { Authorization: `Bearer ${auth.accessToken}` };
   try {
@@ -24,12 +24,12 @@ test("prepare Approval Intelligence manual UAT scenarios", async ({ page }) => {
       const cleanup = await api.delete("/api/claims/e2e/approval-intelligence/cleanup", { headers });
       expect(cleanup.ok()).toBeTruthy();
       const result = await cleanup.json();
-      console.log(`Approval Intelligence UAT cleanup complete: ${result.deleted} synthetic claim(s) removed.`);
+      console.log(`Claim Work Queue UAT cleanup complete: ${result.deleted} synthetic claim(s) removed.`);
       return;
     }
 
     const seed = await api.post("/api/claims/e2e/approval-intelligence/seed", { headers });
-    if (!seed.ok()) throw new Error(`Approval UAT seed failed (${seed.status()}): ${await seed.text()}`);
+    if (!seed.ok()) throw new Error(`Claim Work Queue UAT seed failed (${seed.status()}): ${await seed.text()}`);
     const seeded = await seed.json();
     expect(seeded.count).toBe(15);
 
@@ -41,7 +41,7 @@ test("prepare Approval Intelligence manual UAT scenarios", async ({ page }) => {
     await expect(page).toHaveURL(/\/claims$/);
     await page.goto("/approval");
     await expect(
-      page.getByRole("heading", { name: "Approval Intelligence" })
+      page.getByRole("heading", { name: "Claim Work Queue" })
     ).toBeVisible();
     const search = page.getByPlaceholder("Search patient, payer, member, policy, claim or authorization...");
     await search.fill(seeded.prefix);
@@ -92,9 +92,9 @@ test("prepare Approval Intelligence manual UAT scenarios", async ({ page }) => {
       ).toBeVisible();
     }
 
-    console.log("\nApproval Intelligence UAT data is ready.");
+    console.log("\nClaim Work Queue UAT data is ready.");
     console.log(`Created ${seeded.count} synthetic claims with prefix ${seeded.prefix}`);
-    console.log("Open your normal local app and go to /approval.");
+    console.log("Open your normal local app and go to Claim Work Queue (/approval).");
     console.log("Search for: UAT-APPROVAL-");
     console.log("Fixtures are intentionally left in the database for manual review.");
     console.log("Run npm run uat:approval:cleanup when finished.");
