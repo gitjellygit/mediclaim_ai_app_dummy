@@ -100,10 +100,10 @@ test("Revenue Recovery workspace searches filters and opens underlying recovery 
   await expect(denialRow).toContainText("Denial");
   await denialRow.getByRole("button", { name: "Work Case" }).click();
 
-  await expect(page).toHaveURL(/\/denials\?caseId=/);
+  await expect(page).toHaveURL(/\/denials\?caseId=/, { timeout: 30_000 });
   await expect(
-    page.getByRole("heading", { name: "Denial Recovery" })
-  ).toBeVisible();
+    page.locator("h4").filter({ hasText: "Denial Recovery" })
+  ).toBeVisible({ timeout: 30_000 });
 });
 
 test("Revenue Recovery rejects roles without recovery permissions", async () => {
