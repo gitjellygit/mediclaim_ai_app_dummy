@@ -6,8 +6,7 @@ import { auditOnResponse } from "../services/auditLog.js";
 
 const router = express.Router();
 
-router.use(requirePermission(PERMISSIONS.DENIAL_VIEW));
-router.use(requirePermission(PERMISSIONS.FINANCIAL_VIEW));
+router.use(requirePermission(PERMISSIONS.RECOVERY_VIEW));
 
 router.use((req, res, next) => {
   if (req.method === "GET" && req.path === "/") {
