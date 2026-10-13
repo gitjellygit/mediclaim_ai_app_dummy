@@ -147,6 +147,11 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
   try {
     const requestedPage = Number(req.query.page || 1);
     const requestedPageSize = Number(req.query.pageSize || 50);
+    const requestedSort = String(req.query.sort || "createdAt");
+    const requestedDirection = String(req.query.direction || "desc").toLowerCase();
+    const allowedSorts = new Set(["patientName", "payerName", "amount", "status", "createdAt"]);
+    const sort = allowedSorts.has(requestedSort) ? requestedSort : "createdAt";
+    const direction = requestedDirection === "asc" ? "asc" : "desc";
     const page = Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1);
     const pageSize = Math.max(
       1,
@@ -171,7 +176,7 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
           amount: true,
           createdAt: true
         },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        orderBy: [{ [sort]: direction }, { id: "desc" }],
         skip: (page - 1) * pageSize,
         take: pageSize
       }),
@@ -182,7 +187,7 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
     await writeRequestAudit(prisma, req, {
       action: "CLAIM_LIST_VIEWED",
       entityType: "Claim",
-      metadata: { count: items.length, page, pageSize, total }
+      metadata: { count: items.length, page, pageSize, total, sort, direction }
     });
 
     res.setHeader("X-Total-Count", String(total));
