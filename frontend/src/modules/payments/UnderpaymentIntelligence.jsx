@@ -104,43 +104,7 @@ export default function UnderpaymentIntelligence() {
 
   React.useEffect(() => {
     const timer = setTimeout(load, 300);
-    const sortedRows = React.useMemo(() => {
-    const copy = [...rows];
-    const value = (row) => {
-      switch (sort) {
-        case "patient": return String(row.claim?.patientName || "").toLowerCase();
-        case "expected": return Number(row.expectedPayerPayment || 0);
-        case "paid": return Number(row.actualPaidAmount || 0);
-        case "variance": return Number(row.varianceAmount || 0);
-        case "recovered": return Number(row.recoveredAmount || 0);
-        case "outstanding": return Number(row.outstandingAmount || 0);
-        case "status": return String(row.status || "");
-        default: return 0;
-      }
-    };
-    copy.sort((a, b) => {
-      const left = value(a);
-      const right = value(b);
-      const result = typeof left === "string"
-        ? left.localeCompare(String(right))
-        : Number(left) - Number(right);
-      return direction === "desc" ? -result : result;
-    });
-    return copy;
-  }, [rows, sort, direction]);
 
-  function handleSort(field) {
-    if (sort === field) {
-      setDirection((current) => (current === "asc" ? "desc" : "asc"));
-      return;
-    }
-    setSort(field);
-    setDirection(
-      ["expected", "paid", "variance", "recovered", "outstanding"].includes(field)
-        ? "desc"
-        : "asc"
-    );
-  }
 
   return () => clearTimeout(timer);
   }, [load]);
@@ -195,6 +159,44 @@ export default function UnderpaymentIntelligence() {
     } finally {
       setSaving(false);
     }
+  }
+
+  const sortedRows = React.useMemo(() => {
+  const copy = [...rows];
+  const value = (row) => {
+    switch (sort) {
+      case "patient": return String(row.claim?.patientName || "").toLowerCase();
+      case "expected": return Number(row.expectedPayerPayment || 0);
+      case "paid": return Number(row.actualPaidAmount || 0);
+      case "variance": return Number(row.varianceAmount || 0);
+      case "recovered": return Number(row.recoveredAmount || 0);
+      case "outstanding": return Number(row.outstandingAmount || 0);
+      case "status": return String(row.status || "");
+      default: return 0;
+    }
+  };
+  copy.sort((a, b) => {
+    const left = value(a);
+    const right = value(b);
+    const result = typeof left === "string"
+      ? left.localeCompare(String(right))
+      : Number(left) - Number(right);
+    return direction === "desc" ? -result : result;
+  });
+  return copy;
+  }, [rows, sort, direction]);
+
+  function handleSort(field) {
+  if (sort === field) {
+    setDirection((current) => (current === "asc" ? "desc" : "asc"));
+    return;
+  }
+  setSort(field);
+  setDirection(
+    ["expected", "paid", "variance", "recovered", "outstanding"].includes(field)
+      ? "desc"
+      : "asc"
+  );
   }
 
   return (
