@@ -21,16 +21,42 @@ export function daysUntil(value, now = new Date()) {
 }
 
 export function paymentOutlook(claim) {
+  const status = String(claim?.status || "");
+  const paid = asNumber(claim?.paidAmount);
   const approved = asNumber(claim?.approvedAmount);
-  if (approved != null && approved >= 0) {
+  const claimed = asNumber(claim?.amount);
+
+  if (status === "PAID") {
+    const amount = paid ?? approved;
     return {
-      amount: approved,
-      kind: "RECORDED",
-      source: "Recorded payer-approved amount"
+      amount,
+      kind: amount == null ? "UNAVAILABLE" : "PAID",
+      source:
+        amount == null
+          ? "Payment finalized; payer-paid amount is not recorded"
+          : "Actual payer payment from posted remittance"
     };
   }
 
-  const claimed = asNumber(claim?.amount);
+  if (status === "DENIED") {
+    return {
+      amount: claimed,
+      kind: claimed == null ? "UNAVAILABLE" : "AT_RISK",
+      source:
+        claimed == null
+          ? "Denied claim; billed amount is not available"
+          : "Billed amount currently at risk after denial"
+    };
+  }
+
+  if (approved != null && approved >= 0) {
+    return {
+      amount: approved,
+      kind: "EXPECTED",
+      source: "Payer-approved amount awaiting or preceding final payment"
+    };
+  }
+
   if (claimed == null || claimed <= 0) {
     return {
       amount: null,
@@ -47,8 +73,8 @@ export function paymentOutlook(claim) {
     kind: "ESTIMATE",
     source:
       deductions > 0 || copay > 0
-        ? "Estimate from billed amount less recorded deductions/copay"
-        : "Estimate from current billed amount; payer contract terms not applied"
+        ? "Estimated reimbursement from billed amount less recorded deductions/copay"
+        : "Estimated reimbursement from current billed amount; payer contract terms not applied"
   };
 }
 
@@ -284,6 +310,7 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
   return {
     id: claim.id,
     createdAt: claim.createdAt,
+    claimSubmissionDate: claim.claimSubmissionDate || null,
     patientName: claim.patientName,
     payerName: claim.payerName,
     memberId: claim.memberId,

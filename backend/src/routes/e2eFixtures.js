@@ -1022,6 +1022,7 @@ router.post("/e2e/approval-intelligence/seed", async (req, res) => {
     {
       key: "15-PAID",
       expected: "paid",
+      codingSuggestion: true,
       data: base("15-PAID", {
         status: "PAID",
         claimSubmissionDate: daysFromNow(-20),
