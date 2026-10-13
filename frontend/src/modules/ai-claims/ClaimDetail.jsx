@@ -132,6 +132,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [fixFocus, setFixFocus] = React.useState("");
   const [fixFields, setFixFields] = React.useState([]);
   const [readinessHistoryExpanded, setReadinessHistoryExpanded] = React.useState(false);
+  const routeFocus = new URLSearchParams(location.search).get("focus") || "";
   const patientPolicyRef = React.useRef(null);
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
@@ -2821,7 +2822,20 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         </CardContent>
       </Card>
 
-      <Card ref={readinessRef} sx={{ scrollMarginTop: 88 }}>
+      <Card
+        ref={readinessRef}
+        data-testid="submission-readiness-card"
+        sx={{
+          scrollMarginTop: 88,
+          ...(routeFocus === "readiness-action"
+            ? {
+                border: "2px solid",
+                borderColor: "warning.main",
+                boxShadow: "0 0 0 4px rgba(237,108,2,0.12)"
+              }
+            : {})
+        }}
+      >
         <CardContent>
           <Stack
             direction={{ xs: "column", sm: "row" }}
@@ -2848,6 +2862,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   variant="contained"
                   onClick={runAICheck}
                   disabled={aiRunning || !canRunAI || aiCheckLocked || !eligibilityClear}
+                  data-testid="readiness-action"
+                  sx={
+                    routeFocus === "readiness-action"
+                      ? {
+                          boxShadow: "0 0 0 4px rgba(237,108,2,0.22)",
+                          outline: "2px solid",
+                          outlineColor: "warning.main",
+                          outlineOffset: 2
+                        }
+                      : undefined
+                  }
                 >
                   {aiRunning
                     ? "Checking..."
