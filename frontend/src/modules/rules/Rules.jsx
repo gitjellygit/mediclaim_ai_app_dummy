@@ -11,6 +11,7 @@ import {
   TableRow,
   TableCell,
   TableBody,
+  TableSortLabel,
   Switch,
   FormControl,
   Select,
@@ -38,6 +39,8 @@ const severityColor = {
 export default function Rules() {
   const [rules, setRules] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
+  const [sort, setSort] = React.useState("code");
+  const [direction, setDirection] = React.useState("asc");
   const [deleteTarget, setDeleteTarget] = React.useState(null); // { id, name }
   const [deleting, setDeleting] = React.useState(false);
   const navigate = useNavigate();
@@ -79,6 +82,38 @@ export default function Rules() {
       setDeleting(false);
       setDeleteTarget(null);
     }
+  }
+
+  const sortedRules = React.useMemo(() => {
+    const severityRank = { BLOCK: 3, WARN: 2, INFO: 1 };
+    const copy = [...rules];
+    const value = (rule) => {
+      switch (sort) {
+        case "code": return String(rule.code || "").toLowerCase();
+        case "name": return String(rule.name || "").toLowerCase();
+        case "severity": return severityRank[rule.severity] || 0;
+        case "enabled": return rule.enabled ? 1 : 0;
+        default: return "";
+      }
+    };
+    copy.sort((a, b) => {
+      const left = value(a);
+      const right = value(b);
+      const result = typeof left === "string"
+        ? left.localeCompare(String(right))
+        : Number(left) - Number(right);
+      return direction === "desc" ? -result : result;
+    });
+    return copy;
+  }, [rules, sort, direction]);
+
+  function handleSort(field) {
+    if (sort === field) {
+      setDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSort(field);
+    setDirection(["severity", "enabled"].includes(field) ? "desc" : "asc");
   }
 
   return (
@@ -123,16 +158,16 @@ export default function Rules() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 700 }}>Code</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Severity</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Enabled</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sort === "code"} direction={sort === "code" ? direction : "asc"} onClick={() => handleSort("code")}>Code</TableSortLabel></TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sort === "name"} direction={sort === "name" ? direction : "asc"} onClick={() => handleSort("name")}>Name</TableSortLabel></TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sort === "severity"} direction={sort === "severity" ? direction : "desc"} onClick={() => handleSort("severity")}>Severity</TableSortLabel></TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sort === "enabled"} direction={sort === "enabled" ? direction : "desc"} onClick={() => handleSort("enabled")}>Enabled</TableSortLabel></TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Action</TableCell>
                   </TableRow>
                 </TableHead>
 
                 <TableBody>
-                  {rules.map((r) => (
+                  {sortedRules.map((r) => (
                     <TableRow key={r.id} hover>
                       <TableCell sx={{ fontFamily: "monospace" }}>
                         {r.code}
