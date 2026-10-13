@@ -82,10 +82,10 @@ function filingColor(state) {
 function filingLabel(filing) {
   if (!filing || filing.state === "UNKNOWN") return "No deadline";
   if (filing.state === "EXPIRED") {
-    return `Expired ${Math.abs(filing.daysRemaining)}d ago`;
+    return `Expired ${Math.abs(filing.daysRemaining)} D ago`;
   }
   if (filing.daysRemaining === 0) return "Due today";
-  return `${filing.daysRemaining}d remaining`;
+  return `${filing.daysRemaining} D remaining`;
 }
 
 function eligibilityLabel(value) {
@@ -108,7 +108,44 @@ function actionButtonLabel(action) {
   if (action?.code === "RUN_READINESS") return "Run Readiness Check";
   if (action?.code === "REFRESH_READINESS") return "Refresh Readiness";
   if (action?.code === "READY_TO_SUBMIT") return "Review & Submit";
+  if (action?.code === "VERIFY_ELIGIBILITY") return "Check Eligibility";
+  if (action?.code === "RESOLVE_PRIOR_AUTH") return "Review Prior Auth";
+  if (String(action?.code || "").startsWith("TIMELY_FILING_")) {
+    return "Resolve Filing Risk";
+  }
+  if (String(action?.code || "").startsWith("BLOCKER_")) return "Resolve Issue";
   return "Resolve";
+}
+
+function lifecycleAction(claim) {
+  if (claim?.status === "DENIED") {
+    return {
+      code: "REVIEW_DENIAL",
+      label: "Review denial and recovery options",
+      buttonLabel: "Review Denial",
+      path: `/journey?claimId=${claim.id}&stage=claim-status`
+    };
+  }
+
+  if (claim?.status === "PAID") {
+    return {
+      code: "VIEW_REMITTANCE",
+      label: "Review payer remittance and payment details",
+      buttonLabel: "View Remittance",
+      path: `/journey?claimId=${claim.id}&stage=remittance`
+    };
+  }
+
+  if (claim?.status === "SUBMITTED") {
+    return {
+      code: "TRACK_CLAIM",
+      label: "Track payer claim status",
+      buttonLabel: "Track Claim",
+      path: `/journey?claimId=${claim.id}&stage=claim-status`
+    };
+  }
+
+  return null;
 }
 
 function nextActionPath(claim) {
@@ -198,13 +235,17 @@ export default function ApprovalIntelligence() {
     readyAmount: 0
   };
 
-  function openClaim(claim, useNextAction = false) {
-    navigate(useNextAction ? nextActionPath(claim) : `/claims/${claim.id}`, {
-      state: {
-        from: location.pathname + location.search,
-        backLabel: "Back to Approval Intelligence"
+  function openClaim(claim, useNextAction = false, explicitPath = null) {
+    navigate(
+      explicitPath ||
+        (useNextAction ? nextActionPath(claim) : `/claims/${claim.id}`),
+      {
+        state: {
+          from: location.pathname + location.search,
+          backLabel: "Back to Approval Intelligence"
+        }
       }
-    });
+    );
   }
 
   return (
@@ -419,6 +460,8 @@ export default function ApprovalIntelligence() {
                   const risk = claim.submissionRisk || {};
                   const auth = claim.priorAuthorization || {};
                   const nextAction = claim.nextActions?.[0] || null;
+                  const terminalAction = lifecycleAction(claim);
+                  const primaryAction = terminalAction || nextAction;
 
                   return (
                     <TableRow key={claim.id} hover>
@@ -649,46 +692,55 @@ export default function ApprovalIntelligence() {
                         </Typography>
                       </TableCell>
 
-                      <TableCell sx={{ minWidth: 260 }}>
-                        {nextAction ? (
-                          <Stack spacing={0.75} alignItems="flex-start">
-                            <Typography
-                              variant="body2"
-                              fontWeight={600}
-                              color={
-                                nextAction.severity === "error"
-                                  ? "error.main"
-                                  : nextAction.severity === "warning"
-                                  ? "warning.dark"
-                                  : "text.primary"
-                              }
-                            >
-                              {nextAction.label}
-                            </Typography>
-                            {claim.nextActions.length > 1 && (
-                              <Typography variant="caption" color="text.secondary">
-                                +{claim.nextActions.length - 1} additional action
-                                {claim.nextActions.length - 1 === 1 ? "" : "s"}
+                      <TableCell sx={{ minWidth: 280 }}>
+                        <Stack spacing={0.75} alignItems="flex-start">
+                          {primaryAction && (
+                            <>
+                              <Typography
+                                variant="body2"
+                                fontWeight={600}
+                                color={
+                                  primaryAction.severity === "error"
+                                    ? "error.main"
+                                    : primaryAction.severity === "warning"
+                                    ? "warning.dark"
+                                    : "text.primary"
+                                }
+                              >
+                                {primaryAction.label}
                               </Typography>
-                            )}
-                            <Button
-                              size="small"
-                              endIcon={<ArrowForward />}
-                              onClick={() => openClaim(claim, true)}
-                            >
-                              {actionButtonLabel(nextAction)}
-                            </Button>
-                          </Stack>
-                        ) : (
+
+                              {!terminalAction && claim.nextActions.length > 1 && (
+                                <Typography variant="caption" color="text.secondary">
+                                  +{claim.nextActions.length - 1} additional action
+                                  {claim.nextActions.length - 1 === 1 ? "" : "s"}
+                                </Typography>
+                              )}
+
+                              <Button
+                                size="small"
+                                variant="contained"
+                                endIcon={<ArrowForward />}
+                                onClick={() =>
+                                  terminalAction
+                                    ? openClaim(claim, false, terminalAction.path)
+                                    : openClaim(claim, true)
+                                }
+                              >
+                                {terminalAction?.buttonLabel ||
+                                  actionButtonLabel(nextAction)}
+                              </Button>
+                            </>
+                          )}
+
                           <Button
                             size="small"
                             variant="text"
-                            endIcon={<ArrowForward />}
                             onClick={() => openClaim(claim)}
                           >
-                            View claim
+                            View Claim
                           </Button>
-                        )}
+                        </Stack>
                       </TableCell>
                     </TableRow>
                   );
