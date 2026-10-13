@@ -102,6 +102,10 @@ test("Review & Submit opens Submission Readiness and highlights Submit Claim", a
   const submit = page.getByTestId("submit-claim-action");
   await expect(submit).toBeVisible();
   await expect(submit).toHaveCSS("outline-style", "solid");
+
+  await page.getByTestId("submission-readiness-card").click({ position: { x: 12, y: 12 } });
+  await expect(page).not.toHaveURL(/focus=submit-claim-action/);
+  await expect(submit).not.toHaveCSS("outline-style", "solid");
 });
 
 test("Check Eligibility opens the exact Journey stage and highlights the eligibility action", async ({ page }) => {
@@ -115,6 +119,10 @@ test("Check Eligibility opens the exact Journey stage and highlights the eligibi
   const action = page.getByTestId("eligibility-action");
   await expect(action).toBeVisible();
   await expect(action).toHaveCSS("outline-style", "solid");
+
+  await page.getByTestId("journey-stage-eligibility").click({ position: { x: 12, y: 12 } });
+  await expect(page).not.toHaveURL(/focus=eligibility-action/);
+  await expect(action).not.toHaveCSS("outline-style", "solid");
 });
 
 test("Review Prior Auth opens the exact Journey stage and highlights the prior-auth action", async ({ page }) => {
@@ -128,6 +136,10 @@ test("Review Prior Auth opens the exact Journey stage and highlights the prior-a
   const action = page.getByTestId("prior-auth-action");
   await expect(action).toBeVisible();
   await expect(action).toHaveCSS("outline-style", "solid");
+
+  await page.getByTestId("journey-stage-prior-auth").click({ position: { x: 12, y: 12 } });
+  await expect(page).not.toHaveURL(/focus=prior-auth-action/);
+  await expect(action).not.toHaveCSS("outline-style", "solid");
 });
 
 test("Refresh Readiness opens Submission Readiness and highlights the readiness control", async ({ page }) => {
@@ -140,6 +152,10 @@ test("Refresh Readiness opens Submission Readiness and highlights the readiness 
   const action = page.getByTestId("readiness-action");
   await expect(action).toBeVisible();
   await expect(action).toHaveCSS("outline-style", "solid");
+
+  await page.getByTestId("submission-readiness-card").click({ position: { x: 12, y: 12 } });
+  await expect(page).not.toHaveURL(/focus=readiness-action/);
+  await expect(action).not.toHaveCSS("outline-style", "solid");
 });
 
 test("Resolve Issue opens edit mode on the exact blocking Billing Provider NPI field", async ({ page }) => {
@@ -152,6 +168,9 @@ test("Resolve Issue opens edit mode on the exact blocking Billing Provider NPI f
   const field = page.locator('[data-fix-field="billingProviderNpi"]');
   await expect(field).toBeVisible();
   await expect(field.locator("input")).toBeFocused();
+
+  await field.click();
+  await expect(page).not.toHaveURL(/focus=billingProviderNpi/);
 });
 
 test("Resolve Filing Risk opens edit mode on the Timely Filing Deadline field", async ({ page }) => {
@@ -164,6 +183,9 @@ test("Resolve Filing Risk opens edit mode on the Timely Filing Deadline field", 
   const field = page.locator('[data-fix-field="timelyFilingDeadline"]');
   await expect(field).toBeVisible();
   await expect(field.locator("input")).toBeFocused();
+
+  await field.click();
+  await expect(page).not.toHaveURL(/focus=timelyFilingDeadline/);
 });
 
 test("Track Claim opens Claim Status and highlights the status action", async ({ page }) => {
@@ -173,8 +195,13 @@ test("Track Claim opens Claim Status and highlights the status action", async ({
   await expect(page).toHaveURL(
     new RegExp(`/journey\\?claimId=${scenario("13-SUBMITTED").id}&stage=claim-status&focus=status-action`)
   );
-  await expect(page.getByTestId("journey-stage-claim-status")).toBeVisible();
-  await expect(page.getByTestId("status-action")).toBeVisible();
+  const stage = page.getByTestId("journey-stage-claim-status");
+  const action = page.getByTestId("status-action");
+  await expect(stage).toBeVisible();
+  await expect(action).toBeVisible();
+
+  await stage.click({ position: { x: 12, y: 12 } });
+  await expect(page).not.toHaveURL(/focus=status-action/);
 });
 
 test("Review Denial opens the denied claim status context", async ({ page }) => {
@@ -194,8 +221,13 @@ test("View Remittance opens Remittance and highlights the remittance action", as
   await expect(page).toHaveURL(
     new RegExp(`/journey\\?claimId=${scenario("15-PAID").id}&stage=remittance&focus=remittance-action`)
   );
-  await expect(page.getByTestId("journey-stage-remittance")).toBeVisible();
-  await expect(page.getByTestId("remittance-action")).toBeVisible();
+  const stage = page.getByTestId("journey-stage-remittance");
+  const action = page.getByTestId("remittance-action");
+  await expect(stage).toBeVisible();
+  await expect(action).toBeVisible();
+
+  await stage.click({ position: { x: 12, y: 12 } });
+  await expect(page).not.toHaveURL(/focus=remittance-action/);
 });
 
 test("View Claim remains available as the secondary action", async ({ page }) => {
