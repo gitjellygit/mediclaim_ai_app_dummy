@@ -82,7 +82,7 @@ test("Revenue Recovery workspace searches filters and opens underlying recovery 
   await expect(page.getByText("Outstanding Recovery")).toBeVisible();
   await expect(page.getByText("Top Payer Leakage")).toBeVisible();
   await expect(page.getByText("Top Recovery Root Causes")).toBeVisible();
-  await expect(page.getByText(/not a probability of payment/i)).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "Recovery Priority" })).toContainText("not a probability of payment");
 
   const search = page.getByPlaceholder(
     "Search patient, payer or payer claim number..."
