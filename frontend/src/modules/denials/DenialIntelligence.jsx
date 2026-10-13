@@ -22,6 +22,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   TextField,
   Typography
 } from "@mui/material";
@@ -88,6 +89,8 @@ export default function DenialIntelligence() {
   });
   const [search, setSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("ALL");
+  const [sort, setSort] = React.useState("revenueAtRisk");
+  const [direction, setDirection] = React.useState("desc");
   const [loading, setLoading] = React.useState(true);
   const [selectedId, setSelectedId] = React.useState("");
   const [detail, setDetail] = React.useState(null);
@@ -154,7 +157,40 @@ export default function DenialIntelligence() {
       load(search, statusFilter);
     }, 350);
 
-    return () => clearTimeout(timer);
+    const sortedRows = React.useMemo(() => {
+    const copy = [...rows];
+    const value = (row) => {
+      switch (sort) {
+        case "patient": return String(row.claim?.patientName || "").toLowerCase();
+        case "category": return String(row.denialCategory || "");
+        case "revenueAtRisk": return Number(row.revenueAtRisk || 0);
+        case "appeal": return row.appealEligible ? 1 : 0;
+        case "deadline": return row.appealDeadline ? new Date(row.appealDeadline).getTime() : Number.POSITIVE_INFINITY;
+        case "status": return String(row.status || "");
+        default: return 0;
+      }
+    };
+    copy.sort((a, b) => {
+      const left = value(a);
+      const right = value(b);
+      const result = typeof left === "string"
+        ? left.localeCompare(String(right))
+        : Number(left) - Number(right);
+      return direction === "desc" ? -result : result;
+    });
+    return copy;
+  }, [rows, sort, direction]);
+
+  function handleSort(field) {
+    if (sort === field) {
+      setDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSort(field);
+    setDirection(["revenueAtRisk", "appeal"].includes(field) ? "desc" : "asc");
+  }
+
+  return () => clearTimeout(timer);
   }, [search, statusFilter]);
 
   React.useEffect(() => {
@@ -445,20 +481,20 @@ export default function DenialIntelligence() {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell><b>Patient / Payer</b></TableCell>
-                <TableCell><b>Category</b></TableCell>
+                <TableCell><TableSortLabel active={sort === "patient"} direction={sort === "patient" ? direction : "asc"} onClick={() => handleSort("patient")}><b>Patient / Payer</b></TableSortLabel></TableCell>
+                <TableCell><TableSortLabel active={sort === "category"} direction={sort === "category" ? direction : "asc"} onClick={() => handleSort("category")}><b>Category</b></TableSortLabel></TableCell>
                 <TableCell><b>CARC / RARC</b></TableCell>
-                <TableCell><b>Revenue at Risk</b></TableCell>
-                <TableCell><b>Appeal</b></TableCell>
-                <TableCell><b>Deadline</b></TableCell>
-                <TableCell><b>Status</b></TableCell>
+                <TableCell><TableSortLabel active={sort === "revenueAtRisk"} direction={sort === "revenueAtRisk" ? direction : "desc"} onClick={() => handleSort("revenueAtRisk")}><b>Revenue at Risk</b></TableSortLabel></TableCell>
+                <TableCell><TableSortLabel active={sort === "appeal"} direction={sort === "appeal" ? direction : "desc"} onClick={() => handleSort("appeal")}><b>Appeal</b></TableSortLabel></TableCell>
+                <TableCell><TableSortLabel active={sort === "deadline"} direction={sort === "deadline" ? direction : "asc"} onClick={() => handleSort("deadline")}><b>Deadline</b></TableSortLabel></TableCell>
+                <TableCell><TableSortLabel active={sort === "status"} direction={sort === "status" ? direction : "asc"} onClick={() => handleSort("status")}><b>Status</b></TableSortLabel></TableCell>
                 <TableCell><b>AI</b></TableCell>
                 <TableCell align="right"><b>Action</b></TableCell>
               </TableRow>
             </TableHead>
 
             <TableBody>
-              {rows.map((row) => (
+              {sortedRows.map((row) => (
                 <TableRow key={row.id} hover>
                   <TableCell>
                     <Typography fontWeight={600}>
