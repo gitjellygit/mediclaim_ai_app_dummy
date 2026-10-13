@@ -110,19 +110,6 @@ function isPostSubmission(claim) {
   return ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status);
 }
 
-function headerLabel(label, help) {
-  return (
-    <Tooltip title={help} arrow>
-      <Box component="span" sx={{ cursor: "help", whiteSpace: "nowrap" }}>
-        <b>{label}</b>{" "}
-        <Typography component="span" variant="caption" color="text.secondary">
-          ⓘ
-        </Typography>
-      </Box>
-    </Tooltip>
-  );
-}
-
 function sortableHeader(label, field, sort, direction, onSort, help = "") {
   const content = (
     <TableSortLabel
