@@ -44,6 +44,7 @@ export default defineConfig({
         ...process.env,
         PORT: "4101",
         E2E_TEST_MODE: "true",
+        CORS_ORIGIN: "http://127.0.0.1:5174",
         STEDI_TEST_API_KEY:
           process.env.STEDI_TEST_API_KEY || "e2e-stedi-test-key",
         STEDI_API_BASE_URL:
