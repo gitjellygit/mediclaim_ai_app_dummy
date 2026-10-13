@@ -172,11 +172,11 @@ test("review follow-up - document identity unchanged responses are sanitized and
 
   assert.match(
     documents,
-    /message: "This document has no pending identity review"[\s\S]*publicDocument\(doc\)/
+    /publicDocument\(doc\)[\s\S]*message: "This document has no pending identity review"/
   );
   assert.match(
     documents,
-    /message: "Document identity has already been reviewed"[\s\S]*publicDocument\(doc\)/
+    /publicDocument\(doc\)[\s\S]*message: "Document identity has already been reviewed"/
   );
 
   const staged = documents.indexOf("pendingExistingClaimUpdate =");
