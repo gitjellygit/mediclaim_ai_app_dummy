@@ -83,7 +83,7 @@ jobs:
           docker run -d --rm             --name claim-app-backend-ci             --network host             -e PORT=4200             -e DATABASE_URL="$DATABASE_URL"             -e JWT_SECRET="claim-app-docker-runtime-secret-unique-2026"             -e CORS_ORIGIN="http://127.0.0.1:5173"             -e DOCUMENT_STORAGE_BACKEND="s3"             -e AWS_REGION="us-east-1"             -e DOCUMENT_S3_BUCKET="claim-app-ci-placeholder"             claim-app-backend-ci
           cleanup() {
             docker logs claim-app-backend-ci || true
-            docker stop claim-app-backend-ci >/dev/null 2>&1 || true
+            docker rm -f claim-app-backend-ci >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
           for attempt in {1..30}; do
