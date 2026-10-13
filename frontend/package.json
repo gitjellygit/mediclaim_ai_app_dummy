@@ -38,7 +38,9 @@
     "format": "prettier --write .",
     "uat:approval:seed": "APPROVAL_UAT_ACTION=seed playwright test --config=playwright.uat.config.js --headed",
     "uat:approval:cleanup": "APPROVAL_UAT_ACTION=cleanup playwright test --config=playwright.uat.config.js",
-    "test:postmerge:visible": "PW_SLOW_MO=700 playwright test tests/claim-work-queue-actions.e2e.spec.js tests/payer-journey.e2e.spec.js tests/payer-connector.e2e.spec.js tests/us-readiness-rules.e2e.spec.js tests/document-claim-autofill.e2e.spec.js --headed"
+    "test:postmerge:visible": "PW_SLOW_MO=700 playwright test tests/claim-work-queue-actions.e2e.spec.js tests/payer-journey.e2e.spec.js tests/payer-connector.e2e.spec.js tests/us-readiness-rules.e2e.spec.js tests/document-claim-autofill.e2e.spec.js --headed",
+    "test:final-uat": "playwright test tests/final-synthetic-uat.e2e.spec.js tests/us-advanced-regression.e2e.spec.js tests/us-claim-form.e2e.spec.js tests/us-readiness-rules.e2e.spec.js tests/document-claim-autofill.e2e.spec.js tests/coding-readiness.e2e.spec.js tests/payer-journey.e2e.spec.js tests/payment-variance.e2e.spec.js tests/us-denial-appeals.e2e.spec.js tests/tenant-isolation.e2e.spec.js tests/claim-work-queue-actions.e2e.spec.js",
+    "test:final-uat:visible": "PW_SLOW_MO=600 playwright test tests/final-synthetic-uat.e2e.spec.js tests/us-advanced-regression.e2e.spec.js tests/us-claim-form.e2e.spec.js tests/us-readiness-rules.e2e.spec.js tests/document-claim-autofill.e2e.spec.js tests/coding-readiness.e2e.spec.js tests/payer-journey.e2e.spec.js tests/payment-variance.e2e.spec.js tests/us-denial-appeals.e2e.spec.js tests/tenant-isolation.e2e.spec.js tests/claim-work-queue-actions.e2e.spec.js --headed"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
