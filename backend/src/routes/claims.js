@@ -154,6 +154,8 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
     const direction = requestedDirection === "asc" ? "asc" : "desc";
     const page = Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1);
     const q = String(req.query.q || "").trim().slice(0, 100);
+    const qAmount = Number(q);
+    const hasQAmount = q !== "" && Number.isFinite(qAmount);
     const pageSize = Math.max(
       1,
       Math.min(Number.isFinite(requestedPageSize) ? Math.floor(requestedPageSize) : 50, 100)
@@ -168,7 +170,13 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
               { payerName: { contains: q, mode: "insensitive" } },
               { policyNo: { contains: q, mode: "insensitive" } },
               { memberId: { contains: q, mode: "insensitive" } },
-              { insurerClaimNo: { contains: q, mode: "insensitive" } }
+              { medicalRecordNumber: { contains: q, mode: "insensitive" } },
+              { payerReferenceNo: { contains: q, mode: "insensitive" } },
+              { groupNumber: { contains: q, mode: "insensitive" } },
+              { subscriberId: { contains: q, mode: "insensitive" } },
+              { payerEdiId: { contains: q, mode: "insensitive" } },
+              { insurerClaimNo: { contains: q, mode: "insensitive" } },
+              ...(hasQAmount ? [{ amount: qAmount }] : [])
             ]
           }
         : {})
