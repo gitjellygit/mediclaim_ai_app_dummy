@@ -625,6 +625,25 @@ export default function ClaimJourney() {
   const stages = journey?.stages;
   const focusedStage = searchParams.get("stage") || "";
   const focusedAction = searchParams.get("focus") || "";
+
+  React.useEffect(() => {
+    if (!focusedAction) return;
+
+    const target =
+      document.getElementById(`journey-stage-${focusedStage}`) ||
+      document.querySelector(`[data-testid="${focusedAction}"]`);
+    if (!target) return;
+
+    const clearFocus = () => {
+      const next = new URLSearchParams(searchParams);
+      next.delete("focus");
+      setSearchParams(next, { replace: true });
+    };
+
+    target.addEventListener("click", clearFocus, { once: true });
+    return () => target.removeEventListener("click", clearFocus);
+  }, [focusedAction, focusedStage, claim?.id, searchParams, setSearchParams]);
+
   const focusActionSx = (key) =>
     focusedAction === key
       ? {

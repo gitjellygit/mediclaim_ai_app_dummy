@@ -137,6 +137,38 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const documentsRef = React.useRef(null);
   const readinessRef = React.useRef(null);
 
+  React.useEffect(() => {
+    if (!routeFocus) return;
+
+    let target = null;
+    if (["readiness-action", "submit-claim-action"].includes(routeFocus)) {
+      target = readinessRef.current;
+    } else if (routeFocus === "documents") {
+      target = documentsRef.current;
+    } else {
+      target = document.querySelector(`[data-fix-field="${routeFocus}"]`);
+    }
+    if (!target) return;
+
+    const clearFocus = () => {
+      setFixFocus("");
+      setFixFields([]);
+
+      const params = new URLSearchParams(location.search);
+      params.delete("focus");
+      navigate(
+        {
+          pathname: location.pathname,
+          search: params.toString() ? `?${params.toString()}` : ""
+        },
+        { replace: true, state: location.state }
+      );
+    };
+
+    target.addEventListener("click", clearFocus, { once: true });
+    return () => target.removeEventListener("click", clearFocus);
+  }, [routeFocus, claim?.id, editMode, location.pathname, location.search, location.state, navigate]);
+
   const pendingCodingSuggestions = React.useMemo(() => {
     const bySystemAndCode = new Map();
     for (const suggestion of claim?.codingSuggestions || []) {
