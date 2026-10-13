@@ -134,8 +134,7 @@ export default function LeftNav({
             isActive={isActivePath("/journey")}
           />
         )}
-        {hasPermission(user, PERMISSIONS.DENIAL_VIEW) &&
-          hasPermission(user, PERMISSIONS.FINANCIAL_VIEW) && (
+        {hasPermission(user, PERMISSIONS.RECOVERY_VIEW) && (
           <NavItem
             icon={<AccountBalanceWalletIcon />}
             label="Revenue Recovery"
