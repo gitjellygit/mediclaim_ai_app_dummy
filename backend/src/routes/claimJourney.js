@@ -373,6 +373,8 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
       }
     });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
+    const eligibilityProviderName = claim.organization?.stediBillingProviderName || null;
+    delete claim.organization;
 
     // Eligibility is idempotent when the payer/member inputs have not changed,
     // including stable negative results such as inactive/member-not-found.
@@ -423,7 +425,9 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
       claim,
       claim.connectedPayerCode || claim.payerEdiId || claim.simulatedPayerCode
     );
-    const eligibility = await connector.checkEligibility(claim);
+    const eligibility = await connector.checkEligibility(claim, {
+      providerName: eligibilityProviderName
+    });
     const now = new Date();
     const missing = eligibility.missingFields || [];
     const eligibilityStatus =
@@ -703,6 +707,8 @@ router.post("/:id/journey/claim-status/refresh", requirePermission(PERMISSIONS.P
       }
     });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
+    const claimStatusProviderName = claim.organization?.stediBillingProviderName || null;
+    delete claim.organization;
 
     if (!isClaimSubmittedOrLater(claim)) {
       return res.status(409).json({
@@ -732,7 +738,9 @@ router.post("/:id/journey/claim-status/refresh", requirePermission(PERMISSIONS.P
     }
 
     const connector = createPayerConnectorForClaim(claim);
-    const result = await connector.getStatus(claim);
+    const result = await connector.getStatus(claim, {
+      providerName: claimStatusProviderName
+    });
     const now = new Date();
     const storableStatuses = new Set([
       "ACKNOWLEDGED",
