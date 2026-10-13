@@ -154,7 +154,7 @@ export default function LeftNav({
         {hasPermission(user, PERMISSIONS.CLINICAL_VIEW) && (
           <NavItem
             icon={<MonetizationOnIcon />}
-            label="Approval Intelligence"
+            label="Claim Work Queue"
             path="/approval"
             isActive={isActivePath("/approval")}
           />
