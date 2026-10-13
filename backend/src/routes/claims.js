@@ -153,11 +153,26 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
     const sort = allowedSorts.has(requestedSort) ? requestedSort : "createdAt";
     const direction = requestedDirection === "asc" ? "asc" : "desc";
     const page = Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1);
+    const q = String(req.query.q || "").trim().slice(0, 100);
     const pageSize = Math.max(
       1,
       Math.min(Number.isFinite(requestedPageSize) ? Math.floor(requestedPageSize) : 50, 100)
     );
-    const where = { organizationId: orgId(req), deletedAt: null };
+    const where = {
+      organizationId: orgId(req),
+      deletedAt: null,
+      ...(q
+        ? {
+            OR: [
+              { patientName: { contains: q, mode: "insensitive" } },
+              { payerName: { contains: q, mode: "insensitive" } },
+              { policyNo: { contains: q, mode: "insensitive" } },
+              { memberId: { contains: q, mode: "insensitive" } },
+              { insurerClaimNo: { contains: q, mode: "insensitive" } }
+            ]
+          }
+        : {})
+    };
     const [claims, total] = await Promise.all([
       prisma.claim.findMany({
         where,
@@ -187,7 +202,7 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
     await writeRequestAudit(prisma, req, {
       action: "CLAIM_LIST_VIEWED",
       entityType: "Claim",
-      metadata: { count: items.length, page, pageSize, total, sort, direction }
+      metadata: { count: items.length, page, pageSize, total, sort, direction, searched: Boolean(q) }
     });
 
     res.setHeader("X-Total-Count", String(total));
