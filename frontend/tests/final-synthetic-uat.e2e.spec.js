@@ -183,9 +183,7 @@ test("Claim Work Queue searches filters and sorts across the Final UAT dataset",
   await page.keyboard.press("Escape");
 
   await filters.click();
-  await page.getByRole("menuitem", { name: "Status: Paid" }).click().catch(async () => {
-    await page.getByRole("menuitem", { name: "Paid" }).click();
-  });
+  await page.getByRole("menuitem", { name: "Paid" }).click();
   await page.keyboard.press("Escape");
 
   await expect(page.locator("tbody tr").first()).toContainText("PAID");
