@@ -2419,8 +2419,21 @@ export default function ClaimJourney() {
                         action !== "" ||
                         !remittanceDirty
                       }
-                      onClick={() =>
-                        runAction(
+                      onClick={async () => {
+                        if (remittanceStatus === "POSTED") {
+                          const confirmed = await confirmDialog(
+                            "Are you sure you want to post this remittance? Posting payment values affects the claim's financial state and may create or update an underpayment recovery case.",
+                            {
+                              title: "Confirm remittance posting",
+                              severity: "warning",
+                              confirmLabel: "Post Remittance",
+                              cancelLabel: "Cancel"
+                            }
+                          );
+                          if (!confirmed) return;
+                        }
+
+                        await runAction(
                           "remittance",
                           () =>
                             ClaimsApi.updateRemittance(claim.id, {
@@ -2433,8 +2446,8 @@ export default function ClaimJourney() {
                           remittanceStatus === "POSTED"
                             ? "Remittance posted"
                             : "Remittance updated"
-                        )
-                      }
+                        );
+                      }}
                     >
                       {action === "remittance"
                         ? "Saving..."
