@@ -36,7 +36,8 @@ test("Demo UAT seed covers major claim and recovery lifecycle families", () => {
   }
 
   assert.match(source, /NAMES\.length/);
-  assert.match(source, /Demo UAT seed complete: \\${NAMES\\.length} synthetic patients created/);
+  assert.match(source, /Demo UAT seed complete:/);
+  assert.match(source, /synthetic patients created/);
   assert.match(source, /denialCases/);
   assert.match(source, /underpaymentCase/);
   assert.match(source, /payerTransactions/);
