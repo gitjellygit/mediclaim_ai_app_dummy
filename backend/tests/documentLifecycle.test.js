@@ -3157,7 +3157,7 @@ test("F7 - denial API rejects skipped lifecycle transitions", { concurrency: fal
 
   assert.equal(response.status, 409);
   const body = await response.json();
-  assert.match(body.error, /Invalid denial case status transition/);
+  assert.match(body.error, /Use the Appeal Workspace for appeal preparation and submission status/);
 
   const persisted = await prisma.denialCase.findUnique({ where: { id: denial.id } });
   assert.equal(persisted.status, "OPEN");
