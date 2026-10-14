@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { requireAuth, requireRoles } from "../middleware/auth.js";
+import { requireAuth } from "../middleware/auth.js";
 import express from "express";
 import jwt from "jsonwebtoken";
 import {
@@ -45,6 +45,12 @@ function hashRefreshToken(token) {
 
 function requestIp(req) {
   return req.ip || req.socket?.remoteAddress || null;
+}
+
+function isLoopbackRequest(req) {
+  const raw = String(requestIp(req) || "").toLowerCase();
+  const normalized = raw.startsWith("::ffff:") ? raw.slice(7) : raw;
+  return ["127.0.0.1", "::1", "localhost"].includes(normalized);
 }
 
 function loginRateKeys(email, req) {
@@ -643,65 +649,67 @@ export function authRouter(prisma) {
     }
   });
 
-  router.post(
-    "/reset-lockout",
-    requireAuth,
-    requireRoles(["ADMIN"]),
-    async (req, res) => {
-      if (process.env.NODE_ENV === "production") {
-        return res
-          .status(404)
-          .json({ error: "Not found", code: "NOT_FOUND" });
+  router.post("/reset-lockout", async (req, res) => {
+    // This self-service reset exists only for a backend reached from the same
+    // machine during local development. Production intentionally exposes no
+    // unauthenticated account-reset surface.
+    if (process.env.NODE_ENV === "production" || !isLoopbackRequest(req)) {
+      return res
+        .status(404)
+        .json({ error: "Not found", code: "NOT_FOUND" });
+    }
+
+    try {
+      const { email } = req.body || {};
+
+      if (!email) {
+        return res.status(400).json({
+          error: "Validation error",
+          message: "Email is required"
+        });
       }
 
-      try {
-        const { email } = req.body || {};
+      const emailKey = String(email).toLowerCase().trim();
+      const rateKeys = loginRateKeys(emailKey, req);
 
-        if (!email) {
-          return res.status(400).json({
-            error: "Validation error",
-            message: "Email is required"
-          });
-        }
+      // Clear both dimensions used by login protection. Clearing only the
+      // account key leaves a locally blocked IP unable to sign in.
+      await Promise.all([
+        clearAuthRateLimit(prisma, rateKeys.emailKey),
+        clearAuthRateLimit(prisma, rateKeys.ipKey)
+      ]);
 
-        const emailKey = email.toLowerCase().trim();
-        const { emailKey: emailRateKey } = loginRateKeys(emailKey, req);
-        await clearAuthRateLimit(prisma, emailRateKey);
+      const user = await prisma.user.findUnique({
+        where: { email: emailKey }
+      });
 
-        const user = await prisma.user.findFirst({
-          where: {
-            email: emailKey,
-            organizationId: req.user.organizationId
+      if (user) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            failedLoginAttempts: 0,
+            lockedUntil: null
           }
         });
-
-        if (user) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: {
-              failedLoginAttempts: 0,
-              lockedUntil: null
-            }
-          });
-        }
-
-        res.json({
-          message: "Account lockout and rate limits reset successfully",
-          email: emailKey,
-          success: true
-        });
-      } catch (error) {
-        console.error("Reset lockout error:", {
-          name: error?.name || "Error",
-          code: error?.code || null
-        });
-        res.status(500).json({
-          error: "Internal server error",
-          message: "An error occurred while resetting lockout"
-        });
       }
+
+      // Keep the response generic so the endpoint does not become an account
+      // enumeration primitive even in local development.
+      res.json({
+        message: "Account lockout and rate limits reset successfully",
+        success: true
+      });
+    } catch (error) {
+      console.error("Reset lockout error:", {
+        name: error?.name || "Error",
+        code: error?.code || null
+      });
+      res.status(500).json({
+        error: "Internal server error",
+        message: "An error occurred while resetting lockout"
+      });
     }
-  );
+  });
 
   return router;
 }
