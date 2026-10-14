@@ -198,6 +198,424 @@ router.get("/", async (req, res) => {
   }
 });
 
+
+router.get(
+  "/:id/appeal-workspace",
+  requirePermission(PERMISSIONS.RECOVERY_VIEW),
+  async (req, res) => {
+    try {
+      const denial = await prisma.denialCase.findFirst({
+        where: {
+          id: req.params.id,
+          claim: {
+            organizationId: req.user.organizationId,
+            deletedAt: null
+          }
+        },
+        select: {
+          id: true,
+          claimId: true,
+          source: true,
+          status: true,
+          denialCategory: true,
+          groupCode: true,
+          carcCode: true,
+          rarcCode: true,
+          reasonText: true,
+          denialDate: true,
+          correctable: true,
+          appealEligible: true,
+          appealDeadline: true,
+          revenueAtRisk: true,
+          recoveredAmount: true,
+          assessmentOverrideReason: true,
+          assessmentOverriddenAt: true,
+          appealRationale: true,
+          appealEvidenceDocumentIds: true,
+          appealPreparedAt: true,
+          appealSubmittedAt: true,
+          appealSubmissionReference: true,
+          recommendedAction: true,
+          requiredDocuments: true,
+          aiExplanation: true,
+          aiConfidence: true,
+          aiProvider: true,
+          aiModel: true,
+          aiAnalyzedAt: true,
+          claim: {
+            select: {
+              patientName: true,
+              payerName: true,
+              insurerClaimNo: true,
+              patientControlNumber: true,
+              amount: true,
+              allowedAmount: true,
+              paidAmount: true,
+              patientResponsibility: true,
+              dateOfService: true,
+              authorizationNo: true,
+              priorAuthStatus: true,
+              eligibilityStatus: true,
+              claimForm: true,
+              documents: {
+                select: {
+                  id: true,
+                  type: true,
+                  fileName: true,
+                  verified: true,
+                  status: true,
+                  createdAt: true
+                },
+                orderBy: { createdAt: "desc" }
+              }
+            }
+          }
+        }
+      });
+
+      if (!denial) {
+        return res.status(404).json({ error: "Denial case not found" });
+      }
+
+      await audit(req, {
+        claimId: denial.claimId,
+        action: "APPEAL_WORKSPACE_VIEWED",
+        entityType: "DenialCase",
+        entityId: denial.id
+      });
+
+      res.json({
+        ...denial,
+        revenueAtRisk: Number(denial.revenueAtRisk || 0),
+        recoveredAmount: Number(denial.recoveredAmount || 0),
+        claim: {
+          ...denial.claim,
+          amount: Number(denial.claim.amount || 0),
+          allowedAmount:
+            denial.claim.allowedAmount == null
+              ? null
+              : Number(denial.claim.allowedAmount),
+          paidAmount:
+            denial.claim.paidAmount == null
+              ? null
+              : Number(denial.claim.paidAmount),
+          patientResponsibility:
+            denial.claim.patientResponsibility == null
+              ? null
+              : Number(denial.claim.patientResponsibility)
+        }
+      });
+    } catch (error) {
+      console.error("[appeal-workspace] get failed", {
+        denialId: req.params.id,
+        name: error?.name || "Error"
+      });
+      res.status(500).json({ error: "Unable to load appeal workspace" });
+    }
+  }
+);
+
+router.post(
+  "/:id/assessment-override",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  async (req, res) => {
+    try {
+      const existing = await prisma.denialCase.findFirst({
+        where: {
+          id: req.params.id,
+          claim: {
+            organizationId: req.user.organizationId,
+            deletedAt: null
+          }
+        }
+      });
+      if (!existing) {
+        return res.status(404).json({ error: "Denial case not found" });
+      }
+
+      const reason = String(req.body.reason || "").trim();
+      if (reason.length < 10 || reason.length > 1000) {
+        return res.status(400).json({
+          error: "Override reason must be between 10 and 1000 characters"
+        });
+      }
+
+      const hasAppealEligible =
+        typeof req.body.appealEligible === "boolean";
+      const hasCorrectable =
+        typeof req.body.correctable === "boolean";
+
+      if (!hasAppealEligible && !hasCorrectable) {
+        return res.status(400).json({
+          error: "Choose at least one assessment value to override"
+        });
+      }
+
+      const updated = await prisma.denialCase.update({
+        where: { id: existing.id },
+        data: {
+          appealEligible: hasAppealEligible
+            ? req.body.appealEligible
+            : undefined,
+          correctable: hasCorrectable
+            ? req.body.correctable
+            : undefined,
+          assessmentOverrideReason: reason,
+          assessmentOverriddenAt: new Date()
+        }
+      });
+
+      await audit(req, {
+        claimId: existing.claimId,
+        action: "RECOVERY_ASSESSMENT_OVERRIDDEN",
+        entityType: "DenialCase",
+        entityId: existing.id,
+        metadata: {
+          appealEligibleChanged: hasAppealEligible,
+          correctableChanged: hasCorrectable,
+          reasonProvided: true
+        }
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("[appeal-workspace] assessment override failed", {
+        denialId: req.params.id,
+        name: error?.name || "Error"
+      });
+      res.status(error.status || 500).json({
+        error:
+          error.status
+            ? error.message
+            : "Unable to override recovery assessment"
+      });
+    }
+  }
+);
+
+router.patch(
+  "/:id/appeal-draft",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  async (req, res) => {
+    try {
+      const existing = await prisma.denialCase.findFirst({
+        where: {
+          id: req.params.id,
+          claim: {
+            organizationId: req.user.organizationId,
+            deletedAt: null
+          }
+        }
+      });
+      if (!existing) {
+        return res.status(404).json({ error: "Denial case not found" });
+      }
+      if (["APPEAL_SUBMITTED", "OVERTURNED", "CLOSED"].includes(existing.status)) {
+        return res.status(409).json({
+          error: "Submitted or closed appeals cannot be edited"
+        });
+      }
+
+      const rationale = String(req.body.rationale || "").trim();
+      if (rationale.length > 5000) {
+        return res.status(400).json({
+          error: "Appeal rationale must be 5000 characters or fewer"
+        });
+      }
+
+      const evidenceIds = Array.isArray(req.body.evidenceDocumentIds)
+        ? [...new Set(req.body.evidenceDocumentIds.map((id) => String(id)))]
+        : existing.appealEvidenceDocumentIds;
+
+      if (evidenceIds.length > 50) {
+        return res.status(400).json({ error: "Too many evidence documents selected" });
+      }
+
+      if (evidenceIds.length > 0) {
+        const count = await prisma.document.count({
+          where: {
+            id: { in: evidenceIds },
+            claimId: existing.claimId
+          }
+        });
+        if (count !== evidenceIds.length) {
+          return res.status(400).json({
+            error: "Appeal evidence must belong to this claim"
+          });
+        }
+      }
+
+      const updated = await prisma.denialCase.update({
+        where: { id: existing.id },
+        data: {
+          appealRationale: rationale || null,
+          appealEvidenceDocumentIds: evidenceIds
+        }
+      });
+
+      await audit(req, {
+        claimId: existing.claimId,
+        action: "APPEAL_DRAFT_SAVED",
+        entityType: "DenialCase",
+        entityId: existing.id,
+        metadata: {
+          rationalePresent: Boolean(rationale),
+          evidenceCount: evidenceIds.length
+        }
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("[appeal-workspace] draft save failed", {
+        denialId: req.params.id,
+        name: error?.name || "Error"
+      });
+      res.status(error.status || 500).json({
+        error: error.status ? error.message : "Unable to save appeal draft"
+      });
+    }
+  }
+);
+
+router.post(
+  "/:id/appeal-prepare",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  async (req, res) => {
+    try {
+      const existing = await prisma.denialCase.findFirst({
+        where: {
+          id: req.params.id,
+          claim: {
+            organizationId: req.user.organizationId,
+            deletedAt: null
+          }
+        }
+      });
+      if (!existing) {
+        return res.status(404).json({ error: "Denial case not found" });
+      }
+      if (!existing.aiAnalyzedAt) {
+        return res.status(409).json({
+          error: "Run recovery analysis before preparing an appeal"
+        });
+      }
+      if (existing.appealEligible !== true) {
+        return res.status(409).json({
+          error:
+            "This case is not currently assessed as appeal eligible. Use an authorized assessment override with a reason if appropriate."
+        });
+      }
+      if (!String(existing.appealRationale || "").trim()) {
+        return res.status(409).json({
+          error: "Add and save the appeal rationale before preparing the appeal"
+        });
+      }
+
+      const status = assertDenialTransition(
+        existing.status,
+        "APPEAL_PREPARED"
+      );
+      const updated = await prisma.denialCase.update({
+        where: { id: existing.id },
+        data: {
+          status,
+          appealPreparedAt: existing.appealPreparedAt || new Date()
+        }
+      });
+
+      await audit(req, {
+        claimId: existing.claimId,
+        action: "APPEAL_PREPARED",
+        entityType: "DenialCase",
+        entityId: existing.id,
+        metadata: {
+          evidenceCount: existing.appealEvidenceDocumentIds.length
+        }
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("[appeal-workspace] prepare failed", {
+        denialId: req.params.id,
+        name: error?.name || "Error"
+      });
+      res.status(error.status || 500).json({
+        error: error.status ? error.message : "Unable to prepare appeal"
+      });
+    }
+  }
+);
+
+router.post(
+  "/:id/appeal-submit",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  async (req, res) => {
+    try {
+      const existing = await prisma.denialCase.findFirst({
+        where: {
+          id: req.params.id,
+          claim: {
+            organizationId: req.user.organizationId,
+            deletedAt: null
+          }
+        }
+      });
+      if (!existing) {
+        return res.status(404).json({ error: "Denial case not found" });
+      }
+      if (req.body.confirmed !== true) {
+        return res.status(400).json({
+          error: "Submission confirmation is required"
+        });
+      }
+
+      const status = assertDenialTransition(
+        existing.status,
+        "APPEAL_SUBMITTED"
+      );
+      const reference =
+        String(req.body.submissionReference || "").trim().slice(0, 200) || null;
+
+      const updated = await prisma.denialCase.update({
+        where: { id: existing.id },
+        data: {
+          status,
+          appealSubmittedAt: new Date(),
+          appealSubmissionReference: reference
+        }
+      });
+
+      await audit(req, {
+        claimId: existing.claimId,
+        action: "APPEAL_MARKED_SUBMITTED",
+        entityType: "DenialCase",
+        entityId: existing.id,
+        metadata: {
+          submissionReferencePresent: Boolean(reference),
+          externalTransmissionPerformed: false
+        }
+      });
+
+      res.json({
+        denialCase: updated,
+        transmission: {
+          performed: false,
+          note:
+            "Appeal submission status was recorded internally. No external payer transmission was performed."
+        }
+      });
+    } catch (error) {
+      console.error("[appeal-workspace] submit failed", {
+        denialId: req.params.id,
+        name: error?.name || "Error"
+      });
+      res.status(error.status || 500).json({
+        error: error.status ? error.message : "Unable to mark appeal submitted"
+      });
+    }
+  }
+);
+
 router.get("/:id", async (req, res) => {
   try {
     const denial = await prisma.denialCase.findFirst({
@@ -380,6 +798,21 @@ router.patch("/:id", requirePermission(PERMISSIONS.DENIAL_EDIT), async (req, res
       ? String(req.body.status).toUpperCase()
       : existing.status;
 
+    if (
+      typeof req.body.appealEligible === "boolean" ||
+      typeof req.body.correctable === "boolean"
+    ) {
+      return res.status(409).json({
+        error: "Use the audited recovery assessment override workflow for assessment changes"
+      });
+    }
+
+    if (["APPEAL_PREPARED", "APPEAL_SUBMITTED"].includes(nextStatus)) {
+      return res.status(409).json({
+        error: "Use the Appeal Workspace for appeal preparation and submission status"
+      });
+    }
+
     assertDenialTransition(existing.status, nextStatus);
 
     const requestedDenialDate =
@@ -424,14 +857,6 @@ router.patch("/:id", requirePermission(PERMISSIONS.DENIAL_EDIT), async (req, res
         reasonText:
           req.body.reasonText !== undefined
             ? String(req.body.reasonText || "").trim().slice(0, 2000) || null
-            : undefined,
-        correctable:
-          typeof req.body.correctable === "boolean"
-            ? req.body.correctable
-            : undefined,
-        appealEligible:
-          typeof req.body.appealEligible === "boolean"
-            ? req.body.appealEligible
             : undefined,
         denialDate:
           req.body.denialDate !== undefined ? requestedDenialDate : undefined,

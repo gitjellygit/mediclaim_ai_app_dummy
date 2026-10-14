@@ -64,8 +64,6 @@ const CASE_STATUSES = [
   "OPEN",
   "ANALYZED",
   "CORRECTION_REQUIRED",
-  "APPEAL_PREPARED",
-  "APPEAL_SUBMITTED",
   "RESUBMITTED",
   "OVERTURNED",
   "UPHELD",
@@ -102,8 +100,6 @@ export default function DenialIntelligence() {
     groupCode: "",
     carcCode: "",
     rarcCode: "",
-    appealEligible: "",
-    correctable: "",
     appealDeadline: "",
     status: "OPEN",
     recoveredAmount: ""
@@ -181,18 +177,6 @@ export default function DenialIntelligence() {
         groupCode: data.groupCode || "",
         carcCode: data.carcCode || "",
         rarcCode: data.rarcCode || "",
-        appealEligible:
-          data.appealEligible == null
-            ? ""
-            : data.appealEligible
-            ? "YES"
-            : "NO",
-        correctable:
-          data.correctable == null
-            ? ""
-            : data.correctable
-            ? "YES"
-            : "NO",
         appealDeadline: data.appealDeadline
           ? new Date(data.appealDeadline).toISOString().slice(0, 10)
           : "",
@@ -224,14 +208,6 @@ export default function DenialIntelligence() {
         groupCode: edit.groupCode,
         carcCode: edit.carcCode,
         rarcCode: edit.rarcCode,
-        appealEligible:
-          edit.appealEligible === ""
-            ? undefined
-            : edit.appealEligible === "YES",
-        correctable:
-          edit.correctable === ""
-            ? undefined
-            : edit.correctable === "YES",
         appealDeadline: edit.appealDeadline || null,
         status: edit.status,
         recoveredAmount:
@@ -271,13 +247,9 @@ export default function DenialIntelligence() {
           "success"
         );
       } else {
-        showDialog(
-          result?.ai?.llmReason ||
-            "Deterministic denial rules were used. No external LLM was called.",
-          {
-            title: "AI analysis completed with rule engine",
-            severity: "info"
-          }
+        showToast(
+          "Analysis completed using Recovery Rules. No claim information was sent to an external AI service.",
+          "info"
         );
       }
     } catch (error) {
@@ -778,41 +750,33 @@ export default function DenialIntelligence() {
                 gap: 1.5
               }}
             >
-              <FormControl size="small">
-                <InputLabel>Appeal Eligible?</InputLabel>
-                <Select
-                  label="Appeal Eligible?"
-                  value={edit.appealEligible}
-                  onChange={(e) =>
-                    setEdit((current) => ({
-                      ...current,
-                      appealEligible: e.target.value
-                    }))
-                  }
-                >
-                  <MenuItem value="">Unknown</MenuItem>
-                  <MenuItem value="YES">Yes</MenuItem>
-                  <MenuItem value="NO">No</MenuItem>
-                </Select>
-              </FormControl>
+              <TextField
+                size="small"
+                label="Appeal Eligible?"
+                value={
+                  detail.appealEligible == null
+                    ? "Not assessed"
+                    : detail.appealEligible
+                    ? "Yes"
+                    : "No"
+                }
+                InputProps={{ readOnly: true }}
+                helperText="System assessment. Override only from Appeal Workspace."
+              />
 
-              <FormControl size="small">
-                <InputLabel>Correctable?</InputLabel>
-                <Select
-                  label="Correctable?"
-                  value={edit.correctable}
-                  onChange={(e) =>
-                    setEdit((current) => ({
-                      ...current,
-                      correctable: e.target.value
-                    }))
-                  }
-                >
-                  <MenuItem value="">Unknown</MenuItem>
-                  <MenuItem value="YES">Yes</MenuItem>
-                  <MenuItem value="NO">No</MenuItem>
-                </Select>
-              </FormControl>
+              <TextField
+                size="small"
+                label="Correctable?"
+                value={
+                  detail.correctable == null
+                    ? "Not assessed"
+                    : detail.correctable
+                    ? "Yes"
+                    : "No"
+                }
+                InputProps={{ readOnly: true }}
+                helperText="System assessment. Override only from Appeal Workspace."
+              />
 
               <TextField
                 size="small"
@@ -999,6 +963,16 @@ export default function DenialIntelligence() {
                 )}
               </Paper>
             )}
+
+            <Button
+              variant="contained"
+              component="a"
+              href={`/revenue-recovery/appeals/${detail.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open Appeal Workspace
+            </Button>
 
             <Button
               startIcon={<Visibility />}

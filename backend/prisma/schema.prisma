@@ -610,6 +610,19 @@ model DenialCase {
   revenueAtRisk   Decimal? @db.Decimal(14,2)
   recoveredAmount Decimal? @db.Decimal(14,2)
 
+  // Recovery assessment remains system-derived by default. An authorized
+  // override requires a reason and is recorded here plus in AuditEvent.
+  assessmentOverrideReason String?
+  assessmentOverriddenAt   DateTime?
+
+  // Human-reviewed appeal workspace fields. Evidence IDs refer only to
+  // documents already attached to the same claim.
+  appealRationale          String?
+  appealEvidenceDocumentIds String[] @default([])
+  appealPreparedAt         DateTime?
+  appealSubmittedAt        DateTime?
+  appealSubmissionReference String?
+
   recommendedAction String?
   requiredDocuments Json?
 

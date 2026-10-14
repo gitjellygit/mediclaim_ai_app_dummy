@@ -40,6 +40,37 @@ export const DenialsApi = {
     return withReadRetry(() => api(`${BASE}/${id}`));
   },
 
+  getAppealWorkspace(id) {
+    return withReadRetry(() => api(`${BASE}/${id}/appeal-workspace`));
+  },
+
+  overrideAssessment(id, data) {
+    return api(`${BASE}/${id}/assessment-override`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+  },
+
+  saveAppealDraft(id, data) {
+    return api(`${BASE}/${id}/appeal-draft`, {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
+  },
+
+  prepareAppeal(id) {
+    return api(`${BASE}/${id}/appeal-prepare`, {
+      method: "POST"
+    });
+  },
+
+  markAppealSubmitted(id, data) {
+    return api(`${BASE}/${id}/appeal-submit`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+  },
+
   lookupCodes({ carc = "", rarc = "" } = {}) {
     const params = new URLSearchParams();
     if (carc) params.set("carc", carc);
