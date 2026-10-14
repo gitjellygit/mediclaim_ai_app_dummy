@@ -11,12 +11,13 @@ function buildDemoPdf(title) {
   const safeTitle = String(title || "Synthetic Demo Document")
     .replace(/[()\\]/g, " ")
     .slice(0, 90);
+  const stream = `BT /F1 18 Tf 72 720 Td (${safeTitle}) Tj ET\n`;
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
     "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    `<< /Length ${52 + safeTitle.length} >>\nstream\nBT /F1 18 Tf 72 720 Td (${safeTitle}) Tj ET\nendstream`
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream`
   ];
   let pdf = "%PDF-1.4\n";
   const offsets = [0];
