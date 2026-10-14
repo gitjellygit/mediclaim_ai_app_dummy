@@ -798,6 +798,15 @@ router.patch("/:id", requirePermission(PERMISSIONS.DENIAL_EDIT), async (req, res
       ? String(req.body.status).toUpperCase()
       : existing.status;
 
+    if (
+      typeof req.body.appealEligible === "boolean" ||
+      typeof req.body.correctable === "boolean"
+    ) {
+      return res.status(409).json({
+        error: "Use the audited recovery assessment override workflow for assessment changes"
+      });
+    }
+
     if (["APPEAL_PREPARED", "APPEAL_SUBMITTED"].includes(nextStatus)) {
       return res.status(409).json({
         error: "Use the Appeal Workspace for appeal preparation and submission status"
