@@ -140,6 +140,12 @@ export default function RevenueRecovery() {
     load();
   }, [load]);
 
+  React.useEffect(() => {
+    const refreshOnFocus = () => load();
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, [load]);
+
   const metrics = data.metrics || {
     activeOpportunities: 0,
     totalOutstanding: 0,
@@ -150,7 +156,11 @@ export default function RevenueRecovery() {
 
   function openRecovery(item) {
     if (item.type === "DENIAL") {
-      navigate(`/denials?caseId=${item.id}`);
+      window.open(
+        `/revenue-recovery/appeals/${item.id}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
       return;
     }
     navigate(`/payments?caseId=${item.id}`);
@@ -206,12 +216,12 @@ export default function RevenueRecovery() {
         {summaryCard(
           "Active Opportunities",
           metrics.activeOpportunities,
-          "Denials + underpayments"
+          "Denials + Underpayments"
         )}
         {summaryCard(
           "Outstanding Recovery",
           money(metrics.totalOutstanding),
-          "Open recoverable dollars"
+          "Open recoverable amount"
         )}
         {summaryCard(
           "Recovered",
@@ -220,7 +230,7 @@ export default function RevenueRecovery() {
           "success.main"
         )}
         {summaryCard(
-          "Deadlines ≤ 7 Days",
+          "Appeals Due ≤ 7 Days",
           metrics.deadlinesDue7,
           "Appeal deadlines",
           metrics.deadlinesDue7 > 0 ? "warning.main" : "text.primary"
