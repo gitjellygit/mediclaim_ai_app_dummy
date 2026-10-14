@@ -82,3 +82,18 @@ test("B10 - login route uses shared hashed email and IP rate keys", () => {
   assert.doesNotMatch(source, /checkRateLimit\(/);
   assert.doesNotMatch(source, /recordFailedAttempt\(/);
 });
+
+
+test("B10 - local reset is loopback-only and production-disabled", () => {
+  const source = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/routes/auth.js"),
+    "utf8"
+  );
+
+  assert.match(source, /router\.post\("\/reset-lockout", async/);
+  assert.match(source, /process\.env\.NODE_ENV === "production"/);
+  assert.match(source, /isLoopbackRequest\(req\)/);
+  assert.match(source, /clearAuthRateLimit\(prisma, rateKeys\.emailKey\)/);
+  assert.match(source, /clearAuthRateLimit\(prisma, rateKeys\.ipKey\)/);
+  assert.doesNotMatch(source, /"\/reset-lockout",[\s\S]*?requireRoles\(\["ADMIN"\]\)/);
+});
