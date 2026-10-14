@@ -247,12 +247,9 @@ export default function DenialIntelligence() {
           "success"
         );
       } else {
-        showDialog(
+        showToast(
           "Analysis completed using Recovery Rules. No claim information was sent to an external AI service.",
-          {
-            title: "Recovery analysis completed",
-            severity: "info"
-          }
+          "info"
         );
       }
     } catch (error) {
