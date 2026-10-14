@@ -50,6 +50,14 @@ function yesNo(value) {
   return "Not assessed";
 }
 
+function signalRevenueRecoveryUpdate() {
+  try {
+    localStorage.setItem("revenueRecoveryUpdatedAt", String(Date.now()));
+  } catch {
+    // Cross-tab refresh is best effort; persisted API state remains authoritative.
+  }
+}
+
 export default function AppealWorkspace() {
   const { id } = useParams();
   const user = AuthApi.getUser();
@@ -120,6 +128,7 @@ export default function AppealWorkspace() {
         evidenceDocumentIds: evidenceIds
       });
       await load();
+      signalRevenueRecoveryUpdate();
       showToast("Appeal draft saved", "success");
     } catch (error) {
       showDialog(error?.message || "Appeal draft could not be saved.", {
@@ -140,6 +149,7 @@ export default function AppealWorkspace() {
       });
       await DenialsApi.prepareAppeal(id);
       await load();
+      signalRevenueRecoveryUpdate();
       showToast("Appeal prepared and ready for submission review", "success");
     } catch (error) {
       showDialog(error?.message || "Appeal could not be prepared.", {
@@ -169,6 +179,7 @@ export default function AppealWorkspace() {
         confirmed: true
       });
       await load();
+      signalRevenueRecoveryUpdate();
       showDialog(
         result?.transmission?.note ||
           "Appeal status was recorded as submitted.",
@@ -204,6 +215,7 @@ export default function AppealWorkspace() {
       setOverrideOpen(false);
       setOverride({ appealEligible: "", correctable: "", reason: "" });
       await load();
+      signalRevenueRecoveryUpdate();
       showToast("Recovery assessment override recorded", "success");
     } catch (error) {
       showDialog(error?.message || "Assessment override could not be saved.", {
