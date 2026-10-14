@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { validMoney, differenceMoney, moneyCents, moneyFromCents } from "../utils/money.js";
 import express from "express";
 import { assertDenialTransition } from "../services/workflowStateMachine.js";
@@ -6,6 +7,20 @@ import { analyzeDenial } from "../services/denialIntelligence.js";
 import { writeRequestAudit } from "../services/auditLog.js";
 import { requirePermission } from "../middleware/auth.js";
 import { PERMISSIONS } from "../security/permissions.js";
+import { createDocumentUpload } from "../services/documentUpload.js";
+import { verifyUploadSignature } from "../middleware/uploadSafety.js";
+import {
+  documentCreateData,
+  findDuplicateDocument,
+  inspectUploadedDocument
+} from "../services/documentProcessing.js";
+import {
+  deleteStoredObject,
+  persistUploadedDocument
+} from "../services/documentStorage.js";
+import { validateDocumentIdentityAgainstClaim } from "../services/documentIdentity.js";
+import { publicDocument } from "../services/documentPublicView.js";
+import { DOC_TYPES } from "../services/docIntel.js";
 import {
   DEFAULT_APPEAL_WINDOW_DAYS,
   computeAppealDeadline,
@@ -15,6 +30,21 @@ import {
 } from "../services/denialCodes.js";
 
 const router = express.Router();
+const appealUploadDir = process.env.UPLOAD_DIR || "uploads";
+const appealUpload = createDocumentUpload(appealUploadDir);
+const APPEAL_SUBMISSION_CHANNELS = new Set([
+  "PAYER_PORTAL",
+  "CLEARINGHOUSE",
+  "FAX",
+  "MAIL",
+  "OTHER"
+]);
+const APPEAL_LOCKED_STATUSES = new Set([
+  "APPEAL_SUBMITTED",
+  "OVERTURNED",
+  "UPHELD",
+  "CLOSED"
+]);
 
 const DENIAL_SOURCES = new Set(["MANUAL", "PAYER_STATUS", "SIMULATED_PAYER_STATUS", "ERA"]);
 router.use(requirePermission(PERMISSIONS.DENIAL_VIEW));
@@ -235,6 +265,8 @@ router.get(
           appealPreparedAt: true,
           appealSubmittedAt: true,
           appealSubmissionReference: true,
+          appealSubmissionChannel: true,
+          appealExternalSubmittedAt: true,
           recommendedAction: true,
           requiredDocuments: true,
           aiExplanation: true,
@@ -264,7 +296,8 @@ router.get(
                   fileName: true,
                   verified: true,
                   status: true,
-                  createdAt: true
+                  createdAt: true,
+                  appealCaseId: true
                 },
                 orderBy: { createdAt: "desc" }
               }
@@ -311,6 +344,156 @@ router.get(
         name: error?.name || "Error"
       });
       res.status(500).json({ error: "Unable to load appeal workspace" });
+    }
+  }
+);
+
+router.post(
+  "/:id/appeal-evidence",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  requirePermission(PERMISSIONS.DOCUMENT_EDIT),
+  appealUpload.single("file"),
+  verifyUploadSignature,
+  async (req, res) => {
+    let storedDocumentPath = null;
+    try {
+      const existing = await prisma.denialCase.findFirst({
+        where: {
+          id: req.params.id,
+          claim: {
+            organizationId: req.user.organizationId,
+            deletedAt: null
+          }
+        },
+        include: { claim: true }
+      });
+      if (!existing) {
+        if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(404).json({ error: "Denial case not found" });
+      }
+      if (APPEAL_LOCKED_STATUSES.has(existing.status)) {
+        if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(409).json({
+          error: "Submitted or closed appeals cannot accept new evidence"
+        });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: "File is required" });
+      }
+
+      const requestedType = req.body?.type
+        ? String(req.body.type).toUpperCase()
+        : null;
+      if (requestedType && !DOC_TYPES.includes(requestedType)) {
+        if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(400).json({
+          error: "Document type is not supported",
+          code: "INVALID_DOCUMENT_TYPE"
+        });
+      }
+
+      const { fileHash, intel } = await inspectUploadedDocument(req.file);
+      const duplicate = await findDuplicateDocument(
+        prisma,
+        existing.claimId,
+        fileHash
+      );
+      if (duplicate) {
+        if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(409).json({
+          error: "This document is already attached to the claim. Select the existing document instead.",
+          code: "DOCUMENT_DUPLICATE",
+          documentId: duplicate.id
+        });
+      }
+
+      const identityValidation = validateDocumentIdentityAgainstClaim(
+        existing.claim,
+        intel.extracted
+      );
+      if (identityValidation.status === "MISMATCH") {
+        if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(409).json({
+          error: "The uploaded evidence conflicts with this claim's patient identity.",
+          code: "DOCUMENT_PATIENT_MISMATCH"
+        });
+      }
+
+      storedDocumentPath = await persistUploadedDocument(req.file, {
+        organizationId: req.user.organizationId,
+        claimId: existing.claimId,
+        uploadDir: appealUploadDir
+      });
+      req.file.storagePath = storedDocumentPath;
+
+      const created = await prisma.$transaction(async (tx) => {
+        const document = await tx.document.create({
+          data: {
+            ...documentCreateData({
+              claimId: existing.claimId,
+              file: req.file,
+              fileHash,
+              intel,
+              type: requestedType,
+              identityValidation
+            }),
+            appealCaseId: existing.id
+          }
+        });
+
+        await tx.denialCase.update({
+          where: { id: existing.id },
+          data: {
+            appealEvidenceDocumentIds: {
+              push: document.id
+            }
+          }
+        });
+
+        return document;
+      });
+
+      await audit(req, {
+        claimId: existing.claimId,
+        action: "APPEAL_EVIDENCE_UPLOADED",
+        entityType: "Document",
+        entityId: created.id,
+        metadata: {
+          denialCaseId: existing.id,
+          documentType: created.type,
+          autoSelected: true
+        }
+      });
+
+      return res.status(201).json({
+        document: publicDocument(created),
+        autoSelected: true
+      });
+    } catch (error) {
+      if (storedDocumentPath) {
+        try {
+          await deleteStoredObject(storedDocumentPath, {
+            uploadDir: appealUploadDir
+          });
+        } catch {
+          // Best-effort rollback of stored bytes.
+        }
+      }
+      if (req.file?.path && fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch { /* best effort */ }
+      }
+      console.error("[appeal-workspace] evidence upload failed", {
+        denialId: req.params.id,
+        name: error?.name || "Error",
+        code: error?.code || null
+      });
+      return res.status(error?.status || 500).json({
+        error:
+          error?.status
+            ? error.message
+            : "Unable to upload appeal evidence",
+        code: error?.code || "APPEAL_EVIDENCE_UPLOAD_FAILED"
+      });
     }
   }
 );
@@ -410,7 +593,7 @@ router.patch(
       if (!existing) {
         return res.status(404).json({ error: "Denial case not found" });
       }
-      if (["APPEAL_SUBMITTED", "OVERTURNED", "CLOSED"].includes(existing.status)) {
+      if (APPEAL_LOCKED_STATUSES.has(existing.status)) {
         return res.status(409).json({
           error: "Submitted or closed appeals cannot be edited"
         });
@@ -575,13 +758,37 @@ router.post(
       );
       const reference =
         String(req.body.submissionReference || "").trim().slice(0, 200) || null;
+      const channel = String(req.body.submissionChannel || "")
+        .trim()
+        .toUpperCase();
+      if (!APPEAL_SUBMISSION_CHANNELS.has(channel)) {
+        return res.status(400).json({
+          error: "Choose how the appeal was submitted"
+        });
+      }
+      const externalSubmittedAt = parseOptionalDate(
+        req.body.submissionDate,
+        "Submission date"
+      );
+      if (!externalSubmittedAt) {
+        return res.status(400).json({
+          error: "Submission date is required"
+        });
+      }
+      if (externalSubmittedAt.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+        return res.status(400).json({
+          error: "Submission date cannot be in the future"
+        });
+      }
 
       const updated = await prisma.denialCase.update({
         where: { id: existing.id },
         data: {
           status,
           appealSubmittedAt: new Date(),
-          appealSubmissionReference: reference
+          appealSubmissionReference: reference,
+          appealSubmissionChannel: channel,
+          appealExternalSubmittedAt: externalSubmittedAt
         }
       });
 
@@ -592,6 +799,8 @@ router.post(
         entityId: existing.id,
         metadata: {
           submissionReferencePresent: Boolean(reference),
+          submissionChannel: channel,
+          externalSubmittedAt: externalSubmittedAt.toISOString(),
           externalTransmissionPerformed: false
         }
       });
