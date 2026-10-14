@@ -51,3 +51,14 @@ test("Appeal workspace UI requires confirmations for major state changes", () =>
   assert.match(ui, /View document/);
   assert.match(ui, /Download document/);
 });
+
+
+test("Material recovery and remittance updates require confirmation", () => {
+  const denialUi = read("frontend/src/modules/denials/DenialIntelligence.jsx");
+  const underpaymentUi = read("frontend/src/modules/payments/UnderpaymentIntelligence.jsx");
+  const journeyUi = read("frontend/src/modules/journey/ClaimJourney.jsx");
+
+  assert.match(denialUi, /title: "Confirm denial case update"/);
+  assert.match(underpaymentUi, /title: "Confirm recovery update"/);
+  assert.match(journeyUi, /title: "Confirm remittance posting"/);
+});
