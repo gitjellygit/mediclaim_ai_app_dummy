@@ -35,12 +35,17 @@ test("H8B-3.5A - documented JWT placeholder is rejected outside test", () => {
   assert.match(index, /process\.env\.NODE_ENV !== "test"/);
 });
 
-test("H8B-3.5A - reset-lockout is tenant-scoped", () => {
+test("H8B-3.5A - reset-lockout is local-only and production-disabled", () => {
   const auth = read("backend/src/routes/auth.js");
   const start = auth.indexOf('"/reset-lockout"');
-  const block = auth.slice(start, start + 2500);
-  assert.match(block, /findFirst/);
-  assert.match(block, /organizationId:\s*req\.user\.organizationId/);
+  const block = auth.slice(start, start + 3500);
+  assert.match(block, /process\.env\.NODE_ENV === "production"/);
+  assert.match(block, /isLoopbackRequest\(req\)/);
+  assert.match(block, /clearAuthRateLimit\(prisma, rateKeys\.emailKey\)/);
+  assert.match(block, /clearAuthRateLimit\(prisma, rateKeys\.ipKey\)/);
+  assert.match(block, /failedLoginAttempts:\s*0/);
+  assert.match(block, /lockedUntil:\s*null/);
+  assert.doesNotMatch(block, /organizationId:\s*req\.user\.organizationId/);
 });
 
 test("H8B-3.5A - refresh token reuse revokes the entire session", () => {

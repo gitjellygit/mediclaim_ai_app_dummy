@@ -1,32 +1,55 @@
 #!/usr/bin/env node
 /**
- * Development script to reset account lockout and rate limits
+ * Local development helper to reset account lockout and DB-backed login rate limits.
  * Usage: node scripts/reset-lockout.js <email>
  */
 
+import "dotenv/config";
+import crypto from "node:crypto";
 import { PrismaClient } from "@prisma/client";
-import { clearRateLimit } from "../src/utils/security.js";
 
 const prisma = new PrismaClient();
 
-async function resetLockout(email) {
+function isLocalDatabaseUrl(raw) {
   try {
-    console.log(`Resetting lockout for: ${email}`);
+    const url = new URL(raw);
+    return ["localhost", "127.0.0.1", "::1"].includes(String(url.hostname || "").toLowerCase());
+  } catch {
+    return false;
+  }
+}
 
-    // Clear rate limit
-    clearRateLimit(`login:${email}`);
-    console.log("✓ Rate limit cleared");
+function emailRateKey(email) {
+  const hash = crypto
+    .createHash("sha256")
+    .update(String(email).toLowerCase().trim())
+    .digest("hex");
+  return `login-email:${hash}`;
+}
 
-    // Unlock account in database
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() }
-    });
+async function resetLockout(email) {
+  if (!isLocalDatabaseUrl(process.env.DATABASE_URL || "")) {
+    throw new Error("Refusing to reset lockout against a non-local database.");
+  }
 
-    if (!user) {
-      console.log(`⚠ User not found: ${email}`);
-      return;
+  const normalizedEmail = String(email).toLowerCase().trim();
+  console.log(`Resetting local lockout for: ${normalizedEmail}`);
+
+  await prisma.authRateLimit.deleteMany({
+    where: {
+      OR: [
+        { key: emailRateKey(normalizedEmail) },
+        { key: { startsWith: "login-ip:" } }
+      ]
     }
+  });
+  console.log("✓ DB-backed login rate limits cleared");
 
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail }
+  });
+
+  if (user) {
     await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -34,13 +57,9 @@ async function resetLockout(email) {
         lockedUntil: null
       }
     });
-
-    console.log(`✓ Account unlocked for: ${email}`);
-    console.log("✓ You can now login");
-  } catch (error) {
-    console.error("Error:", error);
-  } finally {
-    await prisma.$disconnect();
+    console.log(`✓ Account unlocked for: ${normalizedEmail}`);
+  } else {
+    console.log("✓ Rate limit cleared (account was not present)");
   }
 }
 
@@ -51,4 +70,11 @@ if (!email) {
   process.exit(1);
 }
 
-resetLockout(email);
+resetLockout(email)
+  .catch((error) => {
+    console.error("Reset failed:", error?.message || error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

@@ -25,6 +25,7 @@ export default function Login() {
   const [lockoutError, setLockoutError] = React.useState(null);
   const [resetting, setResetting] = React.useState(false);
   const [pendingRedirect, setPendingRedirect] = React.useState(false);
+  const showLocalLockoutReset = import.meta.env.DEV;
 
   React.useEffect(() => {
     if (pendingRedirect && user && !authLoading) {
@@ -111,14 +112,16 @@ export default function Login() {
               <Alert 
                 severity="warning"
                 action={
-                  <Button
-                    size="small"
-                    onClick={handleResetLockout}
-                    disabled={resetting}
-                    color="inherit"
-                  >
-                    {resetting ? "Resetting..." : "Reset"}
-                  </Button>
+                  showLocalLockoutReset ? (
+                    <Button
+                      size="small"
+                      onClick={handleResetLockout}
+                      disabled={resetting}
+                      color="inherit"
+                    >
+                      {resetting ? "Resetting..." : "Reset"}
+                    </Button>
+                  ) : null
                 }
               >
                 {lockoutError}
@@ -160,17 +163,19 @@ export default function Login() {
               {loading ? "Signing in..." : "Sign In"}
             </Button>
 
-            <Button
-              variant="outlined"
-              onClick={(e) => { e.preventDefault(); handleResetLockout(); }}
-              disabled={resetting || loading}
-              fullWidth
-              size="small"
-              color="warning"
-              sx={{ mt: 1 }}
-            >
-              {resetting ? "Resetting Lockout..." : "Reset Account Lockout"}
-            </Button>
+            {showLocalLockoutReset && (
+              <Button
+                variant="outlined"
+                onClick={(e) => { e.preventDefault(); handleResetLockout(); }}
+                disabled={resetting || loading}
+                fullWidth
+                size="small"
+                color="warning"
+                sx={{ mt: 1 }}
+              >
+                {resetting ? "Resetting Lockout..." : "Reset Account Lockout"}
+              </Button>
+            )}
           </Stack>
         </CardContent>
       </Card>
