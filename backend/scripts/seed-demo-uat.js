@@ -1,7 +1,46 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
+import fs from "node:fs";
+import path from "node:path";
 
 const prisma = new PrismaClient();
+const uploadDir = process.env.UPLOAD_DIR || "uploads";
+fs.mkdirSync(uploadDir, { recursive: true });
+
+function buildDemoPdf(title) {
+  const safeTitle = String(title || "Synthetic Demo Document")
+    .replace(/[()\\]/g, " ")
+    .slice(0, 90);
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${52 + safeTitle.length} >>\nstream\nBT /F1 18 Tf 72 720 Td (${safeTitle}) Tj ET\nendstream`
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (let i = 0; i < objects.length; i += 1) {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let i = 1; i <= objects.length; i += 1) {
+    pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return pdf;
+}
+
+function ensureDemoPdf(index, suffix) {
+  const storedName = `demo-uat-${String(index).padStart(3, "0")}-${suffix}.pdf`;
+  fs.writeFileSync(
+    path.join(uploadDir, storedName),
+    buildDemoPdf(`Synthetic Demo UAT: ${suffix.replaceAll("-", " ")}`)
+  );
+  return storedName;
+}
 
 function isLocalDatabaseUrl(raw) {
   try {
@@ -69,7 +108,7 @@ function doc(type, index, suffix, verified = true) {
     fileName: `demo-uat-${String(index).padStart(3, "0")}-${suffix}.pdf`,
     mimeType: "application/pdf",
     sizeBytes: 2200 + index * 17,
-    path: `demo-uat://${String(index).padStart(3, "0")}/${suffix}.pdf`,
+    path: ensureDemoPdf(index, suffix),
     status: "PROCESSED",
     confidence: 96,
     verified,
