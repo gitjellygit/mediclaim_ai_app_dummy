@@ -89,7 +89,7 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   await runAnalysis.click();
 
   await expect(
-    appealPage.getByText("Recovery analysis completed")
+    appealPage.getByText("Recovery Rules", { exact: true })
   ).toBeVisible();
 
   const rationale = appealPage.getByPlaceholder(
