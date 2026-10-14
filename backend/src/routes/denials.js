@@ -798,6 +798,12 @@ router.patch("/:id", requirePermission(PERMISSIONS.DENIAL_EDIT), async (req, res
       ? String(req.body.status).toUpperCase()
       : existing.status;
 
+    if (["APPEAL_PREPARED", "APPEAL_SUBMITTED"].includes(nextStatus)) {
+      return res.status(409).json({
+        error: "Use the Appeal Workspace for appeal preparation and submission status"
+      });
+    }
+
     assertDenialTransition(existing.status, nextStatus);
 
     const requestedDenialDate =
@@ -842,14 +848,6 @@ router.patch("/:id", requirePermission(PERMISSIONS.DENIAL_EDIT), async (req, res
         reasonText:
           req.body.reasonText !== undefined
             ? String(req.body.reasonText || "").trim().slice(0, 2000) || null
-            : undefined,
-        correctable:
-          typeof req.body.correctable === "boolean"
-            ? req.body.correctable
-            : undefined,
-        appealEligible:
-          typeof req.body.appealEligible === "boolean"
-            ? req.body.appealEligible
             : undefined,
         denialDate:
           req.body.denialDate !== undefined ? requestedDenialDate : undefined,
