@@ -141,9 +141,23 @@ export default function RevenueRecovery() {
   }, [load]);
 
   React.useEffect(() => {
-    const refreshOnFocus = () => load();
-    window.addEventListener("focus", refreshOnFocus);
-    return () => window.removeEventListener("focus", refreshOnFocus);
+    const refresh = () => load();
+    const refreshOnVisibility = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    const refreshOnStorage = (event) => {
+      if (event.key === "revenueRecoveryUpdatedAt") load();
+    };
+
+    window.addEventListener("focus", refresh);
+    window.addEventListener("storage", refreshOnStorage);
+    document.addEventListener("visibilitychange", refreshOnVisibility);
+
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("storage", refreshOnStorage);
+      document.removeEventListener("visibilitychange", refreshOnVisibility);
+    };
   }, [load]);
 
   const metrics = data.metrics || {
