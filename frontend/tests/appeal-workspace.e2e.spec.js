@@ -8,6 +8,8 @@ let apiContext;
 let auth;
 let denial;
 
+test.describe.configure({ mode: "serial" });
+
 test.beforeAll(async () => {
   apiContext = await request.newContext({ baseURL: backendURL });
 
