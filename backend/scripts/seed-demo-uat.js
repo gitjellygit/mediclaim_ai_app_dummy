@@ -105,7 +105,19 @@ function baseClaim(index, name) {
     subscriberId: `SUB-${String(index).padStart(3, "0")}`,
     subscriberName: name,
     subscriberDob: new Date(`${dobYear}-${String((index % 12) + 1).padStart(2, "0")}-15T00:00:00.000Z`),
+    subscriberGender: index % 2 === 0 ? "FEMALE" : "MALE",
+    subscriberAddress1: `${120 + index} Market Street`,
+    subscriberCity: city,
+    subscriberState: state,
+    subscriberPostalCode: `${80000 + index}`,
     subscriberRelationship: "SELF",
+    coordinationOfBenefits: "PRIMARY",
+    planAdministratorName: payerName,
+    policyStartDate: daysFromNow(-300),
+    policyEndDate: daysFromNow(65),
+    productType: index % 2 === 0 ? "PPO" : "HMO",
+    coverageLimit: 250000,
+    remainingCoverageLimit: 225000 - index * 250,
     amount: billed,
     totalBilledAmount: billed,
     claimForm: institutional ? "INSTITUTIONAL" : "PROFESSIONAL",
@@ -115,12 +127,28 @@ function baseClaim(index, name) {
     renderingProviderNpi: institutional ? null : "1987654321",
     providerTin: "123456789",
     providerTaxonomyCode: institutional ? "282N00000X" : "207Q00000X",
+    hospitalName: "Demo Regional Medical Center",
+    hospitalAddress: "500 Provider Ave, Denver, CO 80203",
+    hospitalRegNo: "DEMO-HOSP-001",
+    doctorName: institutional ? "Dr. Rebecca Moore" : "Dr. Jonathan Miller",
+    doctorRegNo: institutional ? "CO-MD-45001" : "CO-MD-45002",
     diagnosisText: index % 3 === 0 ? "Low back pain" : index % 3 === 1 ? "Essential hypertension" : "Routine outpatient evaluation",
     icd10Codes: index % 3 === 0 ? ["M54.50"] : index % 3 === 1 ? ["I10"] : ["Z00.00"],
     procedureText: institutional ? "Hospital evaluation and management" : "Office or outpatient evaluation",
     dateOfService: dos,
+    admissionDate: institutional ? daysFromNow(-(15 + (index % 30))) : null,
+    dischargeDate: institutional ? daysFromNow(-(12 + (index % 30))) : null,
+    admissionType: institutional ? (index % 2 === 0 ? "PLANNED" : "EMERGENCY") : null,
+    roomCategory: institutional ? "PRIVATE" : null,
+    icuDays: institutional ? 0 : null,
+    typeOfBill: institutional ? "0111" : null,
+    drgCode: institutional ? "470" : null,
+    admissionTypeCode: institutional ? "1" : null,
+    admissionSourceCode: institutional ? "7" : null,
+    patientStatusCode: institutional ? "01" : null,
     timelyFilingDeadline: daysFromNow(60 + (index % 45)),
     claimFilingCode: "CI",
+    claimFrequencyCode: "ORIGINAL",
     status: "READY",
     eligibilityStatus: "VERIFIED",
     eligibilityCheckedAt: daysFromNow(-1),
@@ -170,6 +198,13 @@ function baseClaim(index, name) {
 
 function configureScenario(index, scenario, data) {
   const variant = (index - 1) % 5;
+  data.fieldProvenance = {
+    demoUat: {
+      synthetic: true,
+      scenarioIndex: index,
+      scenario
+    }
+  };
   const amount = Number(data.amount);
 
   if (scenario === "INCOMPLETE") {
