@@ -15,21 +15,27 @@ import {
   Divider,
   FormControl,
   FormControlLabel,
+  IconButton,
   InputLabel,
   MenuItem,
   Paper,
   Select,
   Stack,
   TextField,
+  Tooltip,
   Typography
 } from "@mui/material";
 import {
   CheckCircle,
   Close,
+  Description,
+  Download,
   Edit,
   FactCheck,
   Save,
-  Send
+  Send,
+  UploadFile,
+  Visibility
 } from "@mui/icons-material";
 import { useParams } from "react-router-dom";
 import { DenialsApi } from "../../api/denials.js";
@@ -38,10 +44,38 @@ import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import { formatUSD } from "../../utils/currency.js";
 
+const DOCUMENT_TYPES = [
+  "OTHER",
+  "FINAL_BILL",
+  "PROGRESS_NOTE",
+  "OPERATIVE_NOTE",
+  "PRIOR_AUTHORIZATION",
+  "DISCHARGE_SUMMARY",
+  "RADIOLOGY",
+  "LAB_REPORT",
+  "PRESCRIPTION",
+  "INSURANCE_CARD",
+  "EOB"
+];
+
+const SUBMISSION_CHANNELS = [
+  ["PAYER_PORTAL", "Payer Portal"],
+  ["CLEARINGHOUSE", "Clearinghouse"],
+  ["FAX", "Fax"],
+  ["MAIL", "Mail"],
+  ["OTHER", "Other"]
+];
+
 function formatDate(value) {
   if (!value) return "—";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleDateString("en-US");
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString("en-US");
 }
 
 function yesNo(value) {
@@ -58,10 +92,18 @@ function signalRevenueRecoveryUpdate() {
   }
 }
 
+function todayInputValue() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  return new Date(now.getTime() - offset * 60 * 1000).toISOString().slice(0, 10);
+}
+
 export default function AppealWorkspace() {
   const { id } = useParams();
   const user = AuthApi.getUser();
   const canEdit = hasPermission(user, PERMISSIONS.RECOVERY_EDIT);
+  const canUploadDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_EDIT);
+  const canDownloadDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_DOWNLOAD);
   const { showToast, showDialog, confirmDialog } = useToast();
 
   const [data, setData] = React.useState(null);
@@ -69,11 +111,26 @@ export default function AppealWorkspace() {
   const [action, setAction] = React.useState("");
   const [rationale, setRationale] = React.useState("");
   const [evidenceIds, setEvidenceIds] = React.useState([]);
+
   const [overrideOpen, setOverrideOpen] = React.useState(false);
   const [override, setOverride] = React.useState({
     appealEligible: "",
     correctable: "",
     reason: ""
+  });
+
+  const [uploadOpen, setUploadOpen] = React.useState(false);
+  const [uploadFile, setUploadFile] = React.useState(null);
+  const [uploadType, setUploadType] = React.useState("OTHER");
+
+  const [preview, setPreview] = React.useState(null);
+  const [packageOpen, setPackageOpen] = React.useState(false);
+
+  const [submissionOpen, setSubmissionOpen] = React.useState(false);
+  const [submission, setSubmission] = React.useState({
+    channel: "PAYER_PORTAL",
+    reference: "",
+    date: todayInputValue()
   });
 
   const load = React.useCallback(async () => {
@@ -83,6 +140,13 @@ export default function AppealWorkspace() {
       setData(result);
       setRationale(result.appealRationale || "");
       setEvidenceIds(result.appealEvidenceDocumentIds || []);
+      setSubmission({
+        channel: result.appealSubmissionChannel || "PAYER_PORTAL",
+        reference: result.appealSubmissionReference || "",
+        date: result.appealExternalSubmittedAt
+          ? new Date(result.appealExternalSubmittedAt).toISOString().slice(0, 10)
+          : todayInputValue()
+      });
     } catch (error) {
       showDialog(error?.message || "Unable to load the appeal workspace.", {
         title: "Appeal workspace unavailable",
@@ -96,6 +160,12 @@ export default function AppealWorkspace() {
   React.useEffect(() => {
     load();
   }, [load]);
+
+  React.useEffect(() => {
+    return () => {
+      if (preview?.url) URL.revokeObjectURL(preview.url);
+    };
+  }, [preview]);
 
   async function runAnalysis() {
     setAction("analysis");
@@ -141,6 +211,18 @@ export default function AppealWorkspace() {
   }
 
   async function prepareAppeal() {
+    const selectedCount = evidenceIds.length;
+    const ok = await confirmDialog(
+      `Prepare this appeal with ${selectedCount} selected evidence document${selectedCount === 1 ? "" : "s"}? This moves the case into Appeal Prepared and indicates the package has been reviewed.`,
+      {
+        title: "Prepare appeal?",
+        severity: "warning",
+        confirmLabel: "Prepare Appeal",
+        cancelLabel: "Cancel"
+      }
+    );
+    if (!ok) return;
+
     setAction("prepare");
     try {
       await DenialsApi.saveAppealDraft(id, {
@@ -161,22 +243,34 @@ export default function AppealWorkspace() {
     }
   }
 
-  async function markSubmitted() {
+  async function confirmSubmission() {
+    if (!submission.channel || !submission.date) {
+      showDialog("Submission channel and submission date are required.", {
+        title: "Submission details required",
+        severity: "warning"
+      });
+      return;
+    }
+
     const ok = await confirmDialog(
-      "This records the appeal as submitted in PRISM. It does not transmit anything to the payer. Continue only after the appeal has been submitted through the approved payer/clearinghouse channel.",
+      "Are you sure this appeal has already been submitted through the selected external channel? PRISM will record the submission and lock the appeal for editing. PRISM itself will not transmit anything to the payer.",
       {
-        title: "Mark appeal submitted?",
+        title: "Confirm appeal submission",
         severity: "warning",
-        confirmLabel: "Mark Submitted",
+        confirmLabel: "Yes, Record Submission",
         cancelLabel: "Cancel"
       }
     );
     if (!ok) return;
 
+    setSubmissionOpen(false);
     setAction("submit");
     try {
       const result = await DenialsApi.markAppealSubmitted(id, {
-        confirmed: true
+        confirmed: true,
+        submissionChannel: submission.channel,
+        submissionReference: submission.reference,
+        submissionDate: submission.date
       });
       await load();
       signalRevenueRecoveryUpdate();
@@ -199,15 +293,24 @@ export default function AppealWorkspace() {
   }
 
   async function saveOverride() {
-    const payload = {
-      reason: override.reason
-    };
+    const payload = { reason: override.reason };
     if (override.appealEligible !== "") {
       payload.appealEligible = override.appealEligible === "YES";
     }
     if (override.correctable !== "") {
       payload.correctable = override.correctable === "YES";
     }
+
+    const ok = await confirmDialog(
+      "Are you sure you want to override the system recovery assessment? This change is audited and may change whether the case can move into appeal preparation.",
+      {
+        title: "Confirm assessment override",
+        severity: "warning",
+        confirmLabel: "Confirm Override",
+        cancelLabel: "Cancel"
+      }
+    );
+    if (!ok) return;
 
     setAction("override");
     try {
@@ -220,6 +323,76 @@ export default function AppealWorkspace() {
     } catch (error) {
       showDialog(error?.message || "Assessment override could not be saved.", {
         title: "Override failed",
+        severity: "error"
+      });
+    } finally {
+      setAction("");
+    }
+  }
+
+  async function uploadEvidence() {
+    if (!uploadFile) {
+      showDialog("Choose a file to upload.", {
+        title: "File required",
+        severity: "warning"
+      });
+      return;
+    }
+
+    setAction("upload");
+    try {
+      await DenialsApi.uploadAppealEvidence(id, {
+        file: uploadFile,
+        type: uploadType
+      });
+      setUploadOpen(false);
+      setUploadFile(null);
+      setUploadType("OTHER");
+      await load();
+      signalRevenueRecoveryUpdate();
+      showToast("Supporting evidence uploaded and added to this appeal", "success");
+    } catch (error) {
+      showDialog(error?.message || "Supporting evidence could not be uploaded.", {
+        title: "Upload failed",
+        severity: "error"
+      });
+    } finally {
+      setAction("");
+    }
+  }
+
+  async function viewDocument(doc) {
+    setAction(`preview:${doc.id}`);
+    try {
+      const blob = await DenialsApi.previewDocument(doc.id);
+      const url = URL.createObjectURL(blob);
+      if (preview?.url) URL.revokeObjectURL(preview.url);
+      setPreview({ doc, url });
+    } catch (error) {
+      showDialog(error?.message || "Document preview could not be loaded.", {
+        title: "Preview unavailable",
+        severity: "error"
+      });
+    } finally {
+      setAction("");
+    }
+  }
+
+  async function downloadDocument(doc) {
+    setAction(`download:${doc.id}`);
+    try {
+      const blob = await DenialsApi.downloadDocument(doc.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = doc.fileName || "appeal-evidence";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      showDialog(error?.message || "Document could not be downloaded.", {
+        title: "Download failed",
         severity: "error"
       });
     } finally {
@@ -247,8 +420,14 @@ export default function AppealWorkspace() {
 
   const submitted = ["APPEAL_SUBMITTED", "OVERTURNED", "UPHELD", "CLOSED"].includes(data.status);
   const editable = canEdit && !submitted;
+  const canUpload = editable && canUploadDocuments;
   const documents = data.claim?.documents || [];
   const selectedDocs = new Set(evidenceIds);
+  const selectedDocumentRows = documents.filter((doc) => selectedDocs.has(doc.id));
+  const suggestedEvidenceMissing =
+    Array.isArray(data.requiredDocuments) &&
+    data.requiredDocuments.length > 0 &&
+    evidenceIds.length === 0;
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1320, mx: "auto" }}>
@@ -264,22 +443,18 @@ export default function AppealWorkspace() {
             Appeal Workspace
           </Typography>
           <Typography color="text.secondary">
-            Review the denial, supporting evidence and appeal rationale before recording submission.
+            Review the denial, inspect evidence, build the appeal package and record submission.
           </Typography>
         </Box>
-        <Button
-          variant="outlined"
-          startIcon={<Close />}
-          onClick={() => window.close()}
-        >
+        <Button variant="outlined" startIcon={<Close />} onClick={() => window.close()}>
           Close Appeal Tab
         </Button>
       </Stack>
 
-      {data.status === "APPEAL_SUBMITTED" && (
+      {submitted && (
         <Alert severity="success" sx={{ mb: 3 }}>
-          Appeal is recorded as submitted. You can close this tab and return to Revenue Recovery;
-          the original tab will refresh when it receives focus.
+          This appeal is recorded as submitted/finalized and is now read-only.
+          Return to Revenue Recovery to continue tracking payer outcome.
         </Alert>
       )}
 
@@ -315,9 +490,7 @@ export default function AppealWorkspace() {
                 ["Current Status", String(data.status || "").replaceAll("_", " ")]
               ].map(([label, value]) => (
                 <Box key={label}>
-                  <Typography variant="caption" color="text.secondary">
-                    {label}
-                  </Typography>
+                  <Typography variant="caption" color="text.secondary">{label}</Typography>
                   <Typography fontWeight={700}>{value}</Typography>
                 </Box>
               ))}
@@ -325,26 +498,15 @@ export default function AppealWorkspace() {
           </Paper>
 
           <Paper sx={{ p: 2.5 }}>
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              justifyContent="space-between"
-              spacing={2}
-              sx={{ mb: 2 }}
-            >
+            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
               <Box>
-                <Typography variant="h6" fontWeight={800}>
-                  Recovery Assessment
-                </Typography>
+                <Typography variant="h6" fontWeight={800}>Recovery Assessment</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  These values are derived from payer/claim facts and are read-only by default.
+                  System-derived values are read-only unless an authorized user records an audited override.
                 </Typography>
               </Box>
-              {canEdit && (
-                <Button
-                  size="small"
-                  startIcon={<Edit />}
-                  onClick={() => setOverrideOpen(true)}
-                >
+              {editable && (
+                <Button size="small" startIcon={<Edit />} onClick={() => setOverrideOpen(true)}>
                   Override Assessment
                 </Button>
               )}
@@ -355,16 +517,9 @@ export default function AppealWorkspace() {
                 label={"Appeal Eligible: " + yesNo(data.appealEligible)}
                 color={data.appealEligible === true ? "success" : data.appealEligible === false ? "error" : "default"}
               />
-              <Chip
-                label={"Correctable: " + yesNo(data.correctable)}
-                variant="outlined"
-              />
+              <Chip label={"Correctable: " + yesNo(data.correctable)} variant="outlined" />
               {data.assessmentOverriddenAt && (
-                <Chip
-                  label={"Overridden " + formatDate(data.assessmentOverriddenAt)}
-                  color="warning"
-                  variant="outlined"
-                />
+                <Chip label={"Overridden " + formatDate(data.assessmentOverriddenAt)} color="warning" variant="outlined" />
               )}
             </Stack>
 
@@ -376,27 +531,15 @@ export default function AppealWorkspace() {
           </Paper>
 
           <Paper sx={{ p: 2.5 }}>
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              justifyContent="space-between"
-              spacing={2}
-              sx={{ mb: 2 }}
-            >
+            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
               <Box>
-                <Typography variant="h6" fontWeight={800}>
-                  Recovery Analysis
-                </Typography>
+                <Typography variant="h6" fontWeight={800}>Recovery Analysis</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Analysis may use deterministic Recovery Rules or an explicitly approved external AI service.
+                  Analysis uses deterministic Recovery Rules unless an explicitly approved external AI configuration is enabled.
                 </Typography>
               </Box>
-              {canEdit && (
-                <Button
-                  variant="outlined"
-                  startIcon={<FactCheck />}
-                  onClick={runAnalysis}
-                  disabled={Boolean(action)}
-                >
+              {editable && (
+                <Button variant="outlined" startIcon={<FactCheck />} onClick={runAnalysis} disabled={Boolean(action)}>
                   {action === "analysis" ? "Analyzing..." : data.aiAnalyzedAt ? "Re-run Analysis" : "Run Analysis"}
                 </Button>
               )}
@@ -410,11 +553,7 @@ export default function AppealWorkspace() {
                     label={data.aiProvider === "OPENAI" ? "Approved External AI" : "Recovery Rules"}
                     color={data.aiProvider === "OPENAI" ? "secondary" : "info"}
                   />
-                  <Chip
-                    size="small"
-                    label={(data.aiConfidence ?? "—") + "% confidence"}
-                    variant="outlined"
-                  />
+                  <Chip size="small" label={(data.aiConfidence ?? "—") + "% confidence"} variant="outlined" />
                 </Stack>
                 <Box>
                   <Typography variant="subtitle2">Why this denial likely occurred</Typography>
@@ -426,19 +565,29 @@ export default function AppealWorkspace() {
                 </Box>
               </Stack>
             ) : (
-              <Alert severity="info">
-                Run recovery analysis before preparing an appeal.
-              </Alert>
+              <Alert severity="info">Run recovery analysis before preparing an appeal.</Alert>
             )}
           </Paper>
 
           <Paper sx={{ p: 2.5 }}>
-            <Typography variant="h6" fontWeight={800}>
-              Supporting Evidence
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Select only documents needed for this appeal. Claim documents are not modified here.
-            </Typography>
+            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
+              <Box>
+                <Typography variant="h6" fontWeight={800}>Supporting Evidence</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Existing claim documents are read-only. Review them, then select only the documents that should be included in this appeal package.
+                </Typography>
+              </Box>
+              {canUpload && (
+                <Button
+                  variant="outlined"
+                  startIcon={<UploadFile />}
+                  onClick={() => setUploadOpen(true)}
+                  disabled={Boolean(action)}
+                >
+                  Upload Supporting Evidence
+                </Button>
+              )}
+            </Stack>
 
             {Array.isArray(data.requiredDocuments) && data.requiredDocuments.length > 0 && (
               <Alert severity="info" sx={{ mb: 2 }}>
@@ -449,43 +598,81 @@ export default function AppealWorkspace() {
             {documents.length === 0 ? (
               <Alert severity="warning">No claim documents are available for this appeal.</Alert>
             ) : (
-              <Stack spacing={0.75}>
-                {documents.map((doc) => (
-                  <FormControlLabel
-                    key={doc.id}
-                    control={
-                      <Checkbox
-                        checked={selectedDocs.has(doc.id)}
-                        disabled={!editable}
-                        onChange={() => toggleEvidence(doc.id)}
-                      />
-                    }
-                    label={
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Typography variant="body2" fontWeight={600}>
-                          {doc.fileName}
-                        </Typography>
-                        <Chip size="small" label={String(doc.type).replaceAll("_", " ")} />
-                        <Chip
-                          size="small"
-                          label={doc.verified ? "Verified" : "Not verified"}
-                          color={doc.verified ? "success" : "default"}
-                          variant="outlined"
+              <Stack spacing={1}>
+                {documents.map((doc) => {
+                  const addedForThisAppeal = doc.appealCaseId === data.id;
+                  return (
+                    <Paper key={doc.id} variant="outlined" sx={{ p: 1.25 }}>
+                      <Stack direction={{ xs: "column", sm: "row" }} alignItems={{ xs: "stretch", sm: "center" }} justifyContent="space-between" spacing={1}>
+                        <FormControlLabel
+                          sx={{ m: 0, flex: 1 }}
+                          control={
+                            <Checkbox
+                              checked={selectedDocs.has(doc.id)}
+                              disabled={!editable}
+                              onChange={() => toggleEvidence(doc.id)}
+                            />
+                          }
+                          label={
+                            <Box>
+                              <Typography variant="body2" fontWeight={700}>{doc.fileName}</Typography>
+                              <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mt: 0.5 }}>
+                                <Chip size="small" label={String(doc.type).replaceAll("_", " ")} />
+                                <Chip
+                                  size="small"
+                                  label={doc.verified ? "Verified" : "Not verified"}
+                                  color={doc.verified ? "success" : "default"}
+                                  variant="outlined"
+                                />
+                                {addedForThisAppeal && (
+                                  <Chip size="small" label="Added for this appeal" color="info" variant="outlined" />
+                                )}
+                              </Stack>
+                            </Box>
+                          }
                         />
+                        <Stack direction="row" spacing={0.5}>
+                          <Tooltip title="View document">
+                            <span>
+                              <IconButton
+                                size="small"
+                                onClick={() => viewDocument(doc)}
+                                disabled={Boolean(action)}
+                              >
+                                <Visibility fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                          {canDownloadDocuments && (
+                            <Tooltip title="Download document">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => downloadDocument(doc)}
+                                  disabled={Boolean(action)}
+                                >
+                                  <Download fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          )}
+                        </Stack>
                       </Stack>
-                    }
-                  />
-                ))}
+                    </Paper>
+                  );
+                })}
               </Stack>
             )}
+
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
+              Checkbox = include this document in the appeal package. It does not modify the source document.
+            </Typography>
           </Paper>
 
           <Paper sx={{ p: 2.5 }}>
-            <Typography variant="h6" fontWeight={800}>
-              Appeal Rationale
-            </Typography>
+            <Typography variant="h6" fontWeight={800}>Appeal Rationale</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Editable by authorized recovery users. Payer facts and claim identifiers above remain read-only.
+              Editable by authorized recovery users. Original claim and payer facts remain read-only.
             </Typography>
             <TextField
               fullWidth
@@ -497,23 +684,31 @@ export default function AppealWorkspace() {
               placeholder="Explain the factual basis for the appeal using the payer denial reason, claim facts and supporting evidence."
               inputProps={{ maxLength: 5000 }}
             />
-            <Typography variant="caption" color="text.secondary">
-              {rationale.length}/5000
-            </Typography>
+            <Typography variant="caption" color="text.secondary">{rationale.length}/5000</Typography>
           </Paper>
         </Stack>
 
         <Stack spacing={2.5}>
           <Card>
             <CardContent>
-              <Typography variant="h6" fontWeight={800} sx={{ mb: 1.5 }}>
-                Appeal Workflow
-              </Typography>
+              <Typography variant="h6" fontWeight={800} sx={{ mb: 1.5 }}>Appeal Workflow</Typography>
               <Stack spacing={1.25}>
                 <Chip
                   icon={data.aiAnalyzedAt ? <CheckCircle /> : undefined}
                   label={data.aiAnalyzedAt ? "Analysis completed" : "Analysis required"}
                   color={data.aiAnalyzedAt ? "success" : "default"}
+                  variant="outlined"
+                />
+                <Chip
+                  icon={rationale.trim() ? <CheckCircle /> : undefined}
+                  label={rationale.trim() ? "Rationale complete" : "Rationale required"}
+                  color={rationale.trim() ? "success" : "default"}
+                  variant="outlined"
+                />
+                <Chip
+                  icon={evidenceIds.length > 0 ? <CheckCircle /> : undefined}
+                  label={`${evidenceIds.length} evidence document${evidenceIds.length === 1 ? "" : "s"} selected`}
+                  color={evidenceIds.length > 0 ? "success" : "default"}
                   variant="outlined"
                 />
                 <Chip
@@ -530,6 +725,12 @@ export default function AppealWorkspace() {
                 />
               </Stack>
 
+              {suggestedEvidenceMissing && (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  Recovery analysis recommends supporting evidence, but no documents are currently selected.
+                </Alert>
+              )}
+
               <Divider sx={{ my: 2 }} />
 
               <Stack spacing={1}>
@@ -543,6 +744,15 @@ export default function AppealWorkspace() {
                 </Button>
 
                 <Button
+                  variant="outlined"
+                  startIcon={<Description />}
+                  disabled={!rationale.trim()}
+                  onClick={() => setPackageOpen(true)}
+                >
+                  Preview Appeal Package
+                </Button>
+
+                <Button
                   variant="contained"
                   disabled={
                     !editable ||
@@ -553,37 +763,42 @@ export default function AppealWorkspace() {
                   }
                   onClick={prepareAppeal}
                 >
-                  {action === "prepare" ? "Preparing..." : "Prepare Appeal"}
+                  {action === "prepare" ? "Preparing..." : data.status === "APPEAL_PREPARED" ? "Re-prepare Appeal" : "Prepare Appeal"}
                 </Button>
 
                 <Button
                   color="success"
                   variant="contained"
                   startIcon={<Send />}
-                  disabled={
-                    !canEdit ||
-                    Boolean(action) ||
-                    data.status !== "APPEAL_PREPARED"
-                  }
-                  onClick={markSubmitted}
+                  disabled={!canEdit || Boolean(action) || data.status !== "APPEAL_PREPARED"}
+                  onClick={() => setSubmissionOpen(true)}
                 >
                   {action === "submit" ? "Updating..." : "Mark Appeal Submitted"}
                 </Button>
               </Stack>
 
               <Alert severity="warning" sx={{ mt: 2 }}>
-                “Mark Appeal Submitted” records workflow status only. PRISM does not transmit an appeal to a payer from this page yet.
+                Recording submission does not transmit anything to the payer. Use it only after submission through the approved external channel.
               </Alert>
             </CardContent>
           </Card>
 
+          {data.appealSubmittedAt && (
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="subtitle2" fontWeight={800}>Submission Record</Typography>
+              <Stack spacing={0.8} sx={{ mt: 1 }}>
+                <Typography variant="body2"><b>Channel:</b> {String(data.appealSubmissionChannel || "—").replaceAll("_", " ")}</Typography>
+                <Typography variant="body2"><b>External submission date:</b> {formatDate(data.appealExternalSubmittedAt)}</Typography>
+                <Typography variant="body2"><b>Reference:</b> {data.appealSubmissionReference || "—"}</Typography>
+                <Typography variant="body2"><b>Recorded in PRISM:</b> {formatDateTime(data.appealSubmittedAt)}</Typography>
+              </Stack>
+            </Paper>
+          )}
+
           <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" fontWeight={800}>
-              What is editable?
-            </Typography>
+            <Typography variant="subtitle2" fontWeight={800}>What is editable?</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Appeal rationale and evidence selection are editable for authorized recovery users.
-              Claim facts, payer denial data, calculated recovery amounts and system assessments are read-only.
+              Appeal rationale, evidence selection, and new appeal-supporting uploads are editable before submission. Claim facts, payer denial data, original documents, calculated recovery amounts, and system assessments remain read-only except through the audited assessment override.
             </Typography>
           </Paper>
         </Stack>
@@ -593,7 +808,7 @@ export default function AppealWorkspace() {
         <DialogTitle>Override Recovery Assessment</DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            Use an override only when the payer/contract evidence supports a different assessment. The change is audited.
+            Use an override only when payer/contract evidence supports a different assessment. This change is audited.
           </Alert>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <FormControl fullWidth size="small">
@@ -601,49 +816,33 @@ export default function AppealWorkspace() {
               <Select
                 label="Appeal Eligible"
                 value={override.appealEligible}
-                onChange={(event) =>
-                  setOverride((current) => ({
-                    ...current,
-                    appealEligible: event.target.value
-                  }))
-                }
+                onChange={(event) => setOverride((current) => ({ ...current, appealEligible: event.target.value }))}
               >
                 <MenuItem value="">No change</MenuItem>
                 <MenuItem value="YES">Yes</MenuItem>
                 <MenuItem value="NO">No</MenuItem>
               </Select>
             </FormControl>
-
             <FormControl fullWidth size="small">
               <InputLabel>Correctable</InputLabel>
               <Select
                 label="Correctable"
                 value={override.correctable}
-                onChange={(event) =>
-                  setOverride((current) => ({
-                    ...current,
-                    correctable: event.target.value
-                  }))
-                }
+                onChange={(event) => setOverride((current) => ({ ...current, correctable: event.target.value }))}
               >
                 <MenuItem value="">No change</MenuItem>
                 <MenuItem value="YES">Yes</MenuItem>
                 <MenuItem value="NO">No</MenuItem>
               </Select>
             </FormControl>
-
             <TextField
-              label="Override Reason"
+              label="Override reason"
               multiline
               minRows={3}
               value={override.reason}
-              onChange={(event) =>
-                setOverride((current) => ({
-                  ...current,
-                  reason: event.target.value
-                }))
-              }
-              helperText="Required. Explain the payer, contract, or claim evidence supporting the override."
+              onChange={(event) => setOverride((current) => ({ ...current, reason: event.target.value }))}
+              inputProps={{ maxLength: 1000 }}
+              helperText="Required, 10–1000 characters"
             />
           </Stack>
         </DialogContent>
@@ -651,6 +850,7 @@ export default function AppealWorkspace() {
           <Button onClick={() => setOverrideOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            color="warning"
             disabled={
               Boolean(action) ||
               override.reason.trim().length < 10 ||
@@ -658,7 +858,158 @@ export default function AppealWorkspace() {
             }
             onClick={saveOverride}
           >
-            {action === "override" ? "Saving..." : "Save Override"}
+            Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={uploadOpen} onClose={() => !action && setUploadOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Upload Supporting Evidence</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            This adds a new document to the appeal without changing the original submitted claim. The new document will be automatically selected for this appeal.
+          </Alert>
+          <Stack spacing={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Document Type</InputLabel>
+              <Select label="Document Type" value={uploadType} onChange={(event) => setUploadType(event.target.value)}>
+                {DOCUMENT_TYPES.map((type) => (
+                  <MenuItem key={type} value={type}>{type.replaceAll("_", " ")}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button variant="outlined" component="label" startIcon={<UploadFile />}>
+              {uploadFile ? uploadFile.name : "Choose PDF / Image"}
+              <input
+                hidden
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,application/pdf,image/png,image/jpeg,image/tiff"
+                onChange={(event) => setUploadFile(event.target.files?.[0] || null)}
+              />
+            </Button>
+            {uploadFile && (
+              <Typography variant="body2" color="text.secondary">
+                Selected: {uploadFile.name}
+              </Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUploadOpen(false)} disabled={Boolean(action)}>Cancel</Button>
+          <Button variant="contained" onClick={uploadEvidence} disabled={!uploadFile || action === "upload"}>
+            {action === "upload" ? "Uploading..." : "Upload & Add to Appeal"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(preview)} onClose={() => setPreview(null)} fullWidth maxWidth="lg">
+        <DialogTitle>
+          {preview?.doc?.fileName || "Document Preview"}
+        </DialogTitle>
+        <DialogContent dividers sx={{ p: 0, height: { xs: "70vh", md: "78vh" } }}>
+          {preview?.url && (
+            <Box
+              component="iframe"
+              title={preview.doc.fileName}
+              src={preview.url}
+              sx={{ border: 0, width: "100%", height: "100%" }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          {canDownloadDocuments && preview?.doc && (
+            <Button startIcon={<Download />} onClick={() => downloadDocument(preview.doc)}>
+              Download
+            </Button>
+          )}
+          <Button onClick={() => setPreview(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={packageOpen} onClose={() => setPackageOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>Appeal Package Preview</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Alert severity={evidenceIds.length > 0 ? "success" : "warning"}>
+              {evidenceIds.length > 0
+                ? `${evidenceIds.length} document${evidenceIds.length === 1 ? "" : "s"} will be included.`
+                : "No evidence documents are selected. You may continue only if the appeal does not require attachments."}
+            </Alert>
+            <Box>
+              <Typography variant="subtitle2">Patient / Claim</Typography>
+              <Typography variant="body2">
+                {data.claim?.patientName || "—"} · {data.claim?.payerName || "—"} · {data.claim?.insurerClaimNo || "No payer claim #"}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2">Appeal Rationale</Typography>
+              <Paper variant="outlined" sx={{ p: 1.5, mt: 0.75, whiteSpace: "pre-wrap" }}>
+                <Typography variant="body2">{rationale || "No rationale entered."}</Typography>
+              </Paper>
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 0.75 }}>Included Evidence</Typography>
+              {selectedDocumentRows.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">No documents selected.</Typography>
+              ) : (
+                <Stack spacing={0.75}>
+                  {selectedDocumentRows.map((doc, index) => (
+                    <Typography key={doc.id} variant="body2">
+                      {index + 1}. {doc.fileName} ({String(doc.type).replaceAll("_", " ")})
+                    </Typography>
+                  ))}
+                </Stack>
+              )}
+            </Box>
+            <Alert severity="info">
+              This preview shows what PRISM will treat as the appeal package. It does not transmit or merge the evidence files into a payer submission.
+            </Alert>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPackageOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={submissionOpen} onClose={() => setSubmissionOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Record Appeal Submission</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            PRISM does not submit the appeal from this screen. Enter how and when it was actually submitted through the approved external channel.
+          </Alert>
+          <Stack spacing={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Submission Channel</InputLabel>
+              <Select
+                label="Submission Channel"
+                value={submission.channel}
+                onChange={(event) => setSubmission((current) => ({ ...current, channel: event.target.value }))}
+              >
+                {SUBMISSION_CHANNELS.map(([value, label]) => (
+                  <MenuItem key={value} value={value}>{label}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Submission Reference"
+              value={submission.reference}
+              onChange={(event) => setSubmission((current) => ({ ...current, reference: event.target.value }))}
+              inputProps={{ maxLength: 200 }}
+              helperText="Optional payer portal confirmation, fax reference, tracking number, etc."
+            />
+            <TextField
+              label="Submission Date"
+              type="date"
+              value={submission.date}
+              onChange={(event) => setSubmission((current) => ({ ...current, date: event.target.value }))}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSubmissionOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="success" onClick={confirmSubmission}>
+            Continue to Confirmation
           </Button>
         </DialogActions>
       </Dialog>
