@@ -1,4 +1,4 @@
-import process from "node:process";
+import "dotenv/config";\nimport process from "node:process";
 
 function isLocalDatabaseUrl(raw) {
   try {
