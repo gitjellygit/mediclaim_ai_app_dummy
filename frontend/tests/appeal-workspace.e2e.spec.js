@@ -116,10 +116,7 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
     name: "Record Appeal Submission"
   });
   await expect(submissionDialog).toBeVisible();
-  await submissionDialog.getByRole("combobox", {
-    name: "Submission Channel"
-  }).click();
-  await appealPage.getByRole("option", { name: "Payer Portal" }).click();
+  await expect(submissionDialog.getByText("Payer Portal", { exact: true })).toBeVisible();
   await submissionDialog
     .getByRole("textbox", { name: "Submission Reference" })
     .fill("E2E-APPEAL-123");
