@@ -1,6 +1,7 @@
-import { createContext, useContext, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Box,
   Button,
   Dialog,
   DialogActions,
@@ -9,6 +10,7 @@ import {
   DialogTitle,
   Snackbar
 } from "@mui/material";
+import { CheckCircle } from "@mui/icons-material";
 
 const ToastContext = createContext();
 
@@ -30,6 +32,11 @@ export function ToastProvider({ children }) {
     severity: "success"
   });
 
+  const [successNotice, setSuccessNotice] = useState({
+    open: false,
+    message: ""
+  });
+
   const [dialog, setDialog] = useState({
     open: false,
     title: "",
@@ -42,7 +49,19 @@ export function ToastProvider({ children }) {
 
   const dialogResolverRef = useRef(null);
 
+  useEffect(() => {
+    if (!successNotice.open) return undefined;
+    const timer = window.setTimeout(() => {
+      setSuccessNotice((current) => ({ ...current, open: false }));
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [successNotice.open, successNotice.message]);
+
   const show = (message, severity = "success") => {
+    if (severity === "success") {
+      setSuccessNotice({ open: true, message });
+      return;
+    }
     setToast({ open: true, message, severity });
   };
 
@@ -148,6 +167,23 @@ export function ToastProvider({ children }) {
       }}
     >
       {children}
+
+      <Dialog
+        open={successNotice.open}
+        onClose={() => setSuccessNotice((current) => ({ ...current, open: false }))}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, textAlign: "center" } }}
+      >
+        <DialogContent sx={{ py: 4 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1.5 }}>
+            <CheckCircle color="success" sx={{ fontSize: 64 }} />
+            <DialogContentText sx={{ fontWeight: 700, color: "text.primary" }}>
+              {successNotice.message}
+            </DialogContentText>
+          </Box>
+        </DialogContent>
+      </Dialog>
 
       <Snackbar
         open={toast.open}
