@@ -45,7 +45,7 @@ test("Appeal workspace UI requires confirmations for major state changes", () =>
 
   assert.match(ui, /title: "Prepare appeal\?"/);
   assert.match(ui, /title: "Confirm assessment override"/);
-  assert.match(ui, /title: "Confirm appeal submission"/);
+  assert.match(ui, /title: "Submit appeal\?"/);
   assert.match(ui, /Upload Supporting Evidence/);
   assert.match(ui, /Preview Appeal Package/);
   assert.match(ui, /View document/);
@@ -79,4 +79,38 @@ test("Appeal rationale has an explicit minimum and must be saved before preparat
   assert.match(ui, /Rationale complete/);
   assert.match(ui, /load\(\{ preserveDraft: true \}\)/);
   assert.match(ui, /!draftSaved/);
+});
+
+
+test("Prepared appeal is invalidated when the saved package changes", () => {
+  const route = read("backend/src/routes/denials.js");
+  const ui = read("frontend/src/modules/recovery/AppealWorkspace.jsx");
+
+  assert.match(route, /packageChanged/);
+  assert.match(route, /preparationInvalidated/);
+  assert.match(route, /status: preparationInvalidated \? "ANALYZED" : undefined/);
+  assert.match(route, /appealPreparedAt: preparationInvalidated \? null : undefined/);
+
+  assert.match(ui, /async function toggleEvidence/);
+  assert.match(ui, /DenialsApi\.saveAppealDraft\(id/);
+  assert.match(ui, /evidenceDocumentIds: next/);
+  assert.match(ui, /Submit Appeal/);
+  assert.match(ui, /Yes, Submit Appeal/);
+});
+
+test("Shared success feedback uses a centered auto-dismiss green check", () => {
+  const feedback = read("frontend/src/context/ToastContext.jsx");
+
+  assert.match(feedback, /CheckCircle color="success"/);
+  assert.match(feedback, /setTimeout\(\(\) =>/);
+  assert.match(feedback, /1800/);
+  assert.match(feedback, /setSuccessNotice\(\{ open: true, message \}\)/);
+});
+
+test("Claim Detail submission requires explicit confirmation", () => {
+  const detail = read("frontend/src/modules/ai-claims/ClaimDetail.jsx");
+
+  assert.match(detail, /title: "Submit claim\?"/);
+  assert.match(detail, /confirmLabel: "Submit Claim"/);
+  assert.match(detail, /if \(!confirmed\) return/);
 });
