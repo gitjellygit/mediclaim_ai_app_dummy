@@ -128,12 +128,26 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
     appealPage.getByText("Appeal prepared", { exact: true }).first()
   ).toBeVisible();
 
+  await rationale.fill(
+    "The appeal is supported by the payer denial facts and the claim record. This revised rationale changes the prepared package and therefore requires a new preparation step before submission."
+  );
+  await appealPage.getByRole("button", { name: "Save Rationale" }).click();
+  await expect(
+    appealPage.getByText("Appeal not prepared", { exact: true }).first()
+  ).toBeVisible();
+
+  await appealPage.getByRole("button", { name: "Prepare Appeal" }).click();
+  await appealPage.getByRole("button", { name: "Prepare Appeal" }).last().click();
+  await expect(
+    appealPage.getByText("Appeal prepared", { exact: true }).first()
+  ).toBeVisible();
+
   await appealPage.getByRole("button", {
-    name: "Mark Appeal Submitted"
+    name: "Submit Appeal"
   }).click();
 
   const submissionDialog = appealPage.getByRole("dialog", {
-    name: "Record Appeal Submission"
+    name: "Submit Appeal"
   });
   await expect(submissionDialog).toBeVisible();
   await expect(submissionDialog.getByText("Payer Portal", { exact: true })).toBeVisible();
@@ -145,7 +159,7 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   }).click();
 
   await appealPage.getByRole("button", {
-    name: "Yes, Record Submission"
+    name: "Yes, Submit Appeal"
   }).click();
 
   await expect(
