@@ -301,9 +301,9 @@ export default function AppealWorkspace() {
     const ok = await confirmDialog(
       "Are you sure this appeal has already been submitted through the selected external channel? PRISM will record the submission and lock the appeal for editing. PRISM itself will not transmit anything to the payer.",
       {
-        title: "Confirm appeal submission",
+        title: "Submit appeal?",
         severity: "warning",
-        confirmLabel: "Yes, Record Submission",
+        confirmLabel: "Yes, Submit Appeal",
         cancelLabel: "Cancel"
       }
     );
@@ -322,13 +322,10 @@ export default function AppealWorkspace() {
       });
       await load();
       signalRevenueRecoveryUpdate();
-      showDialog(
+      showToast(
         result?.transmission?.note ||
-          "Appeal status was recorded as submitted.",
-        {
-          title: "Appeal submitted status recorded",
-          severity: "success"
-        }
+          "Appeal submission recorded successfully.",
+        "success"
       );
     } catch (error) {
       showDialog(error?.message || "Appeal could not be marked submitted.", {
@@ -451,12 +448,43 @@ export default function AppealWorkspace() {
     }
   }
 
-  function toggleEvidence(documentId) {
-    setEvidenceIds((current) =>
-      current.includes(documentId)
-        ? current.filter((idValue) => idValue !== documentId)
-        : [...current, documentId]
-    );
+  async function toggleEvidence(documentId) {
+    if (!editable || action) return;
+
+    const previous = [...evidenceIds];
+    const next = previous.includes(documentId)
+      ? previous.filter((idValue) => idValue !== documentId)
+      : [...previous, documentId];
+
+    setEvidenceIds(next);
+    setAction(`evidence:${documentId}`);
+
+    try {
+      const savedRationale = String(data?.appealRationale || "").trim();
+      const updated = await DenialsApi.saveAppealDraft(id, {
+        rationale: savedRationale,
+        evidenceDocumentIds: next
+      });
+
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              ...updated,
+              appealEvidenceDocumentIds: next
+            }
+          : current
+      );
+      signalRevenueRecoveryUpdate();
+    } catch (error) {
+      setEvidenceIds(previous);
+      showDialog(error?.message || "Evidence selection could not be saved.", {
+        title: "Evidence update failed",
+        severity: "error"
+      });
+    } finally {
+      setAction("");
+    }
   }
 
   if (loading) {
@@ -488,7 +516,7 @@ export default function AppealWorkspace() {
   const evidenceSaved =
     [...evidenceIds].sort().join("|") === [...savedEvidenceIds].sort().join("|");
   const draftSaved = rationaleSaved && evidenceSaved;
-  const hasDraftChanges = !draftSaved;
+  const hasDraftChanges = !rationaleSaved;
   const suggestedEvidenceMissing =
     Array.isArray(data.requiredDocuments) &&
     data.requiredDocuments.length > 0 &&
@@ -674,7 +702,7 @@ export default function AppealWorkspace() {
                           control={
                             <Checkbox
                               checked={selectedDocs.has(doc.id)}
-                              disabled={!editable}
+                              disabled={!editable || Boolean(action)}
                               onChange={() => toggleEvidence(doc.id)}
                             />
                           }
@@ -783,7 +811,7 @@ export default function AppealWorkspace() {
                     !editable ||
                     Boolean(action) ||
                     !rationaleLengthValid ||
-                    (rationaleSaved && evidenceSaved)
+                    rationaleSaved
                   }
                   onClick={saveRationale}
                 >
@@ -819,10 +847,7 @@ export default function AppealWorkspace() {
                 />
                 <Chip
                   icon={evidenceIds.length > 0 && evidenceSaved ? <CheckCircle /> : undefined}
-                  label={
-                    `${evidenceIds.length} evidence document${evidenceIds.length === 1 ? "" : "s"} selected` +
-                    (evidenceSaved ? "" : " — save required")
-                  }
+                  label={`${evidenceIds.length} evidence document${evidenceIds.length === 1 ? "" : "s"} selected`}
                   color={evidenceIds.length > 0 && evidenceSaved ? "success" : evidenceIds.length > 0 ? "warning" : "default"}
                   variant="outlined"
                 />
@@ -885,7 +910,7 @@ export default function AppealWorkspace() {
                   disabled={!canEdit || Boolean(action) || data.status !== "APPEAL_PREPARED"}
                   onClick={() => setSubmissionOpen(true)}
                 >
-                  {action === "submit" ? "Updating..." : "Mark Appeal Submitted"}
+                  {action === "submit" ? "Submitting..." : "Submit Appeal"}
                 </Button>
               </Stack>
 
@@ -1084,10 +1109,10 @@ export default function AppealWorkspace() {
       </Dialog>
 
       <Dialog open={submissionOpen} onClose={() => setSubmissionOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Record Appeal Submission</DialogTitle>
+        <DialogTitle>Submit Appeal</DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            PRISM does not submit the appeal from this screen. Enter how and when it was actually submitted through the approved external channel.
+            PRISM records the appeal submission from this screen but does not transmit the appeal to the payer. Enter how and when the appeal was actually submitted through the approved external channel.
           </Alert>
           <Stack spacing={2}>
             <FormControl fullWidth size="small">
