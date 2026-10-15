@@ -112,9 +112,17 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
     name: "Mark Appeal Submitted"
   }).click();
 
-  await appealPage.getByLabel("Submission Channel").click();
+  const submissionDialog = appealPage.getByRole("dialog", {
+    name: "Record Appeal Submission"
+  });
+  await expect(submissionDialog).toBeVisible();
+  await submissionDialog.getByRole("combobox", {
+    name: "Submission Channel"
+  }).click();
   await appealPage.getByRole("option", { name: "Payer Portal" }).click();
-  await appealPage.getByLabel("Submission Reference").fill("E2E-APPEAL-123");
+  await submissionDialog
+    .getByRole("textbox", { name: "Submission Reference" })
+    .fill("E2E-APPEAL-123");
   await appealPage.getByRole("button", {
     name: "Continue to Confirmation"
   }).click();
