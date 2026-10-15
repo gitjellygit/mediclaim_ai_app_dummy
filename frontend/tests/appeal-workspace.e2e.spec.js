@@ -102,6 +102,8 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   );
 
   await appealPage.getByRole("button", { name: "Prepare Appeal" }).click();
+  await appealPage.getByRole("button", { name: "Prepare Appeal" }).last().click();
+
   await expect(
     appealPage.getByText("Appeal prepared", { exact: true }).first()
   ).toBeVisible();
@@ -110,8 +112,15 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
     name: "Mark Appeal Submitted"
   }).click();
 
+  await appealPage.getByLabel("Submission Channel").click();
+  await appealPage.getByRole("option", { name: "Payer Portal" }).click();
+  await appealPage.getByLabel("Submission Reference").fill("E2E-APPEAL-123");
   await appealPage.getByRole("button", {
-    name: "Mark Submitted"
+    name: "Continue to Confirmation"
+  }).click();
+
+  await appealPage.getByRole("button", {
+    name: "Yes, Record Submission"
   }).click();
 
   await expect(
