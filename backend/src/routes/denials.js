@@ -32,6 +32,7 @@ import {
 const router = express.Router();
 const appealUploadDir = process.env.UPLOAD_DIR || "uploads";
 const appealUpload = createDocumentUpload(appealUploadDir);
+const APPEAL_RATIONALE_MIN_CHARS = 50;
 const APPEAL_SUBMISSION_CHANNELS = new Set([
   "PAYER_PORTAL",
   "CLEARINGHOUSE",
@@ -605,6 +606,11 @@ router.patch(
           error: "Appeal rationale must be 5000 characters or fewer"
         });
       }
+      if (rationale.length > 0 && rationale.length < APPEAL_RATIONALE_MIN_CHARS) {
+        return res.status(400).json({
+          error: `Appeal rationale must be at least ${APPEAL_RATIONALE_MIN_CHARS} characters, or empty to clear it`
+        });
+      }
 
       const evidenceIds = Array.isArray(req.body.evidenceDocumentIds)
         ? [...new Set(req.body.evidenceDocumentIds.map((id) => String(id)))]
@@ -688,9 +694,10 @@ router.post(
             "This case is not currently assessed as appeal eligible. Use an authorized assessment override with a reason if appropriate."
         });
       }
-      if (!String(existing.appealRationale || "").trim()) {
+      const savedRationale = String(existing.appealRationale || "").trim();
+      if (savedRationale.length < APPEAL_RATIONALE_MIN_CHARS) {
         return res.status(409).json({
-          error: "Add and save the appeal rationale before preparing the appeal"
+          error: `Add and save an appeal rationale of at least ${APPEAL_RATIONALE_MIN_CHARS} characters before preparing the appeal`
         });
       }
 

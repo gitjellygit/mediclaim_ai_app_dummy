@@ -44,6 +44,8 @@ import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import { formatUSD } from "../../utils/currency.js";
 
+const APPEAL_RATIONALE_MIN_CHARS = 50;
+
 const DOCUMENT_TYPES = [
   "OTHER",
   "FINAL_BILL",
@@ -133,13 +135,15 @@ export default function AppealWorkspace() {
     date: todayInputValue()
   });
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async ({ preserveDraft = false } = {}) => {
     setLoading(true);
     try {
       const result = await DenialsApi.getAppealWorkspace(id);
       setData(result);
-      setRationale(result.appealRationale || "");
-      setEvidenceIds(result.appealEvidenceDocumentIds || []);
+      if (!preserveDraft) {
+        setRationale(result.appealRationale || "");
+        setEvidenceIds(result.appealEvidenceDocumentIds || []);
+      }
       setSubmission({
         channel: result.appealSubmissionChannel || "PAYER_PORTAL",
         reference: result.appealSubmissionReference || "",
@@ -171,7 +175,7 @@ export default function AppealWorkspace() {
     setAction("analysis");
     try {
       const result = await DenialsApi.analyze(id);
-      await load();
+      await load({ preserveDraft: true });
       if (result?.ai?.llmUsed) {
         showToast("AI denial analysis completed.", "success");
       } else {
@@ -190,19 +194,59 @@ export default function AppealWorkspace() {
     }
   }
 
-  async function saveDraft() {
-    setAction("save");
+  async function saveRationale() {
+    const trimmed = rationale.trim();
+    if (trimmed.length < APPEAL_RATIONALE_MIN_CHARS) {
+      showDialog(
+        `Enter at least ${APPEAL_RATIONALE_MIN_CHARS} characters before saving the appeal rationale.`,
+        { title: "Rationale is too short", severity: "warning" }
+      );
+      return;
+    }
+
+    setAction("save-rationale");
     try {
       await DenialsApi.saveAppealDraft(id, {
-        rationale,
+        rationale: trimmed,
         evidenceDocumentIds: evidenceIds
       });
       await load();
       signalRevenueRecoveryUpdate();
-      showToast("Appeal draft saved", "success");
+      showToast("Appeal rationale and evidence selection saved", "success");
     } catch (error) {
-      showDialog(error?.message || "Appeal draft could not be saved.", {
+      showDialog(error?.message || "Appeal rationale could not be saved.", {
         title: "Save failed",
+        severity: "error"
+      });
+    } finally {
+      setAction("");
+    }
+  }
+
+  async function clearRationale() {
+    const ok = await confirmDialog(
+      "Clear the appeal rationale? This will remove the saved rationale and the case will no longer be ready to prepare until a new valid rationale is saved.",
+      {
+        title: "Clear appeal rationale?",
+        severity: "warning",
+        confirmLabel: "Clear Rationale",
+        cancelLabel: "Cancel"
+      }
+    );
+    if (!ok) return;
+
+    setAction("clear-rationale");
+    try {
+      await DenialsApi.saveAppealDraft(id, {
+        rationale: "",
+        evidenceDocumentIds: evidenceIds
+      });
+      await load();
+      signalRevenueRecoveryUpdate();
+      showToast("Appeal rationale cleared", "info");
+    } catch (error) {
+      showDialog(error?.message || "Appeal rationale could not be cleared.", {
+        title: "Clear failed",
         severity: "error"
       });
     } finally {
@@ -225,10 +269,6 @@ export default function AppealWorkspace() {
 
     setAction("prepare");
     try {
-      await DenialsApi.saveAppealDraft(id, {
-        rationale,
-        evidenceDocumentIds: evidenceIds
-      });
       await DenialsApi.prepareAppeal(id);
       await load();
       signalRevenueRecoveryUpdate();
@@ -349,14 +389,17 @@ export default function AppealWorkspace() {
 
     setAction("upload");
     try {
-      await DenialsApi.uploadAppealEvidence(id, {
+      const result = await DenialsApi.uploadAppealEvidence(id, {
         file: uploadFile,
         type: uploadType
       });
       setUploadOpen(false);
       setUploadFile(null);
       setUploadType("OTHER");
-      await load();
+      await load({ preserveDraft: true });
+      if (result?.document?.id) {
+        setEvidenceIds((current) => [...new Set([...current, result.document.id])]);
+      }
       signalRevenueRecoveryUpdate();
       showToast("Supporting evidence uploaded and added to this appeal", "success");
     } catch (error) {
@@ -432,6 +475,20 @@ export default function AppealWorkspace() {
   const documents = data.claim?.documents || [];
   const selectedDocs = new Set(evidenceIds);
   const selectedDocumentRows = documents.filter((doc) => selectedDocs.has(doc.id));
+  const rationaleTrimmed = rationale.trim();
+  const savedRationale = String(data.appealRationale || "").trim();
+  const rationaleLengthValid = rationaleTrimmed.length >= APPEAL_RATIONALE_MIN_CHARS;
+  const rationaleSaved =
+    rationaleLengthValid &&
+    savedRationale.length >= APPEAL_RATIONALE_MIN_CHARS &&
+    rationaleTrimmed === savedRationale;
+  const savedEvidenceIds = Array.isArray(data.appealEvidenceDocumentIds)
+    ? data.appealEvidenceDocumentIds
+    : [];
+  const evidenceSaved =
+    [...evidenceIds].sort().join("|") === [...savedEvidenceIds].sort().join("|");
+  const draftSaved = rationaleSaved && evidenceSaved;
+  const hasDraftChanges = !draftSaved;
   const suggestedEvidenceMissing =
     Array.isArray(data.requiredDocuments) &&
     data.requiredDocuments.length > 0 &&
@@ -680,7 +737,7 @@ export default function AppealWorkspace() {
           <Paper sx={{ p: 2.5 }}>
             <Typography variant="h6" fontWeight={800}>Appeal Rationale</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Editable by authorized recovery users. Original claim and payer facts remain read-only.
+              Enter at least {APPEAL_RATIONALE_MIN_CHARS} characters, then save. The workflow is not considered complete until the rationale is saved.
             </Typography>
             <TextField
               fullWidth
@@ -691,8 +748,49 @@ export default function AppealWorkspace() {
               onChange={(event) => setRationale(event.target.value)}
               placeholder="Explain the factual basis for the appeal using the payer denial reason, claim facts and supporting evidence."
               inputProps={{ maxLength: 5000 }}
+              error={Boolean(rationaleTrimmed) && !rationaleLengthValid}
+              helperText={
+                rationaleTrimmed.length < APPEAL_RATIONALE_MIN_CHARS
+                  ? `Minimum ${APPEAL_RATIONALE_MIN_CHARS} characters required. ${Math.max(0, APPEAL_RATIONALE_MIN_CHARS - rationaleTrimmed.length)} more needed.`
+                  : rationaleSaved
+                  ? "Saved and ready."
+                  : "Minimum met. Save the rationale to mark it complete."
+              }
             />
-            <Typography variant="caption" color="text.secondary">{rationale.length}/5000</Typography>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              justifyContent="space-between"
+              alignItems={{ xs: "stretch", sm: "center" }}
+              spacing={1}
+              sx={{ mt: 1.25 }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                {rationale.length}/5000 characters · minimum {APPEAL_RATIONALE_MIN_CHARS}
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  variant="text"
+                  color="inherit"
+                  disabled={!editable || Boolean(action) || (!rationale && !savedRationale)}
+                  onClick={clearRationale}
+                >
+                  {action === "clear-rationale" ? "Clearing..." : "Clear"}
+                </Button>
+                <Button
+                  variant="contained"
+                  startIcon={<Save />}
+                  disabled={
+                    !editable ||
+                    Boolean(action) ||
+                    !rationaleLengthValid ||
+                    (rationaleSaved && evidenceSaved)
+                  }
+                  onClick={saveRationale}
+                >
+                  {action === "save-rationale" ? "Saving..." : "Save Rationale"}
+                </Button>
+              </Stack>
+            </Stack>
           </Paper>
         </Stack>
 
@@ -708,15 +806,24 @@ export default function AppealWorkspace() {
                   variant="outlined"
                 />
                 <Chip
-                  icon={rationale.trim() ? <CheckCircle /> : undefined}
-                  label={rationale.trim() ? "Rationale complete" : "Rationale required"}
-                  color={rationale.trim() ? "success" : "default"}
+                  icon={rationaleSaved ? <CheckCircle /> : undefined}
+                  label={
+                    rationaleSaved
+                      ? "Rationale complete"
+                      : rationaleLengthValid
+                      ? "Rationale ready — save required"
+                      : `Rationale required (minimum ${APPEAL_RATIONALE_MIN_CHARS} characters)`
+                  }
+                  color={rationaleSaved ? "success" : rationaleLengthValid ? "warning" : "default"}
                   variant="outlined"
                 />
                 <Chip
-                  icon={evidenceIds.length > 0 ? <CheckCircle /> : undefined}
-                  label={`${evidenceIds.length} evidence document${evidenceIds.length === 1 ? "" : "s"} selected`}
-                  color={evidenceIds.length > 0 ? "success" : "default"}
+                  icon={evidenceIds.length > 0 && evidenceSaved ? <CheckCircle /> : undefined}
+                  label={
+                    `${evidenceIds.length} evidence document${evidenceIds.length === 1 ? "" : "s"} selected` +
+                    (evidenceSaved ? "" : " — save required")
+                  }
+                  color={evidenceIds.length > 0 && evidenceSaved ? "success" : evidenceIds.length > 0 ? "warning" : "default"}
                   variant="outlined"
                 />
                 <Chip
@@ -741,20 +848,17 @@ export default function AppealWorkspace() {
 
               <Divider sx={{ my: 2 }} />
 
+              {hasDraftChanges && editable && (
+                <Alert severity="warning" sx={{ mb: 1.5 }}>
+                  Save the rationale and evidence selection before preparing the appeal.
+                </Alert>
+              )}
+
               <Stack spacing={1}>
                 <Button
                   variant="outlined"
-                  startIcon={<Save />}
-                  disabled={!editable || Boolean(action)}
-                  onClick={saveDraft}
-                >
-                  {action === "save" ? "Saving..." : "Save Draft"}
-                </Button>
-
-                <Button
-                  variant="outlined"
                   startIcon={<Description />}
-                  disabled={!rationale.trim()}
+                  disabled={!rationaleLengthValid}
                   onClick={() => setPackageOpen(true)}
                 >
                   Preview Appeal Package
@@ -767,7 +871,7 @@ export default function AppealWorkspace() {
                     Boolean(action) ||
                     !data.aiAnalyzedAt ||
                     data.appealEligible !== true ||
-                    !rationale.trim()
+                    !draftSaved
                   }
                   onClick={prepareAppeal}
                 >
