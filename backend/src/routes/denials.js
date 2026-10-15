@@ -634,11 +634,21 @@ router.patch(
         }
       }
 
+      const normalizedExistingEvidence = [...(existing.appealEvidenceDocumentIds || [])].sort();
+      const normalizedNextEvidence = [...evidenceIds].sort();
+      const packageChanged =
+        String(existing.appealRationale || "").trim() !== rationale ||
+        normalizedExistingEvidence.join("|") !== normalizedNextEvidence.join("|");
+      const preparationInvalidated =
+        packageChanged && existing.status === "APPEAL_PREPARED";
+
       const updated = await prisma.denialCase.update({
         where: { id: existing.id },
         data: {
           appealRationale: rationale || null,
-          appealEvidenceDocumentIds: evidenceIds
+          appealEvidenceDocumentIds: evidenceIds,
+          status: preparationInvalidated ? "ANALYZED" : undefined,
+          appealPreparedAt: preparationInvalidated ? null : undefined
         }
       });
 
@@ -649,7 +659,8 @@ router.patch(
         entityId: existing.id,
         metadata: {
           rationalePresent: Boolean(rationale),
-          evidenceCount: evidenceIds.length
+          evidenceCount: evidenceIds.length,
+          preparationInvalidated
         }
       });
 
