@@ -97,9 +97,29 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   const rationale = appealPage.getByPlaceholder(
     /Explain the factual basis for the appeal/i
   );
+  await rationale.fill("Too short");
+  await expect(
+    appealPage.getByText(/Rationale required \(minimum 50 characters\)/)
+  ).toBeVisible();
+  await expect(
+    appealPage.getByRole("button", { name: "Save Rationale" })
+  ).toBeDisabled();
+
   await rationale.fill(
     "The appeal is supported by the payer denial facts and the claim record. Please reconsider the denied claim based on the documented eligibility, authorization, coding, and billing information available in the record."
   );
+
+  await expect(
+    appealPage.getByText("Rationale ready — save required", { exact: true })
+  ).toBeVisible();
+  await expect(
+    appealPage.getByRole("button", { name: "Prepare Appeal" })
+  ).toBeDisabled();
+
+  await appealPage.getByRole("button", { name: "Save Rationale" }).click();
+  await expect(
+    appealPage.getByText("Rationale complete", { exact: true })
+  ).toBeVisible();
 
   await appealPage.getByRole("button", { name: "Prepare Appeal" }).click();
   await appealPage.getByRole("button", { name: "Prepare Appeal" }).last().click();
