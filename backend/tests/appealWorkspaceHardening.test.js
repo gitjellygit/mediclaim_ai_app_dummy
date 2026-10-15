@@ -62,3 +62,21 @@ test("Material recovery and remittance updates require confirmation", () => {
   assert.match(underpaymentUi, /title: "Confirm recovery update"/);
   assert.match(journeyUi, /title: "Confirm remittance posting"/);
 });
+
+
+test("Appeal rationale has an explicit minimum and must be saved before preparation", () => {
+  const route = read("backend/src/routes/denials.js");
+  const ui = read("frontend/src/modules/recovery/AppealWorkspace.jsx");
+
+  assert.match(route, /APPEAL_RATIONALE_MIN_CHARS = 50/);
+  assert.match(route, /rationale\.length > 0 && rationale\.length < APPEAL_RATIONALE_MIN_CHARS/);
+  assert.match(route, /savedRationale\.length < APPEAL_RATIONALE_MIN_CHARS/);
+
+  assert.match(ui, /APPEAL_RATIONALE_MIN_CHARS = 50/);
+  assert.match(ui, /Save Rationale/);
+  assert.match(ui, /Clear appeal rationale\?/);
+  assert.match(ui, /Rationale ready — save required/);
+  assert.match(ui, /Rationale complete/);
+  assert.match(ui, /load\(\{ preserveDraft: true \}\)/);
+  assert.match(ui, /!draftSaved/);
+});
