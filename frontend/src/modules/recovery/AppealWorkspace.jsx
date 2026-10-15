@@ -252,6 +252,12 @@ export default function AppealWorkspace() {
       return;
     }
 
+    // Never stack the global confirmation dialog on top of the submission
+    // details modal. MUI traps focus in the first modal, which can make the
+    // confirmation inaccessible to keyboard users and automated browsers.
+    setSubmissionOpen(false);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
     const ok = await confirmDialog(
       "Are you sure this appeal has already been submitted through the selected external channel? PRISM will record the submission and lock the appeal for editing. PRISM itself will not transmit anything to the payer.",
       {
@@ -261,9 +267,11 @@ export default function AppealWorkspace() {
         cancelLabel: "Cancel"
       }
     );
-    if (!ok) return;
+    if (!ok) {
+      setSubmissionOpen(true);
+      return;
+    }
 
-    setSubmissionOpen(false);
     setAction("submit");
     try {
       const result = await DenialsApi.markAppealSubmitted(id, {
