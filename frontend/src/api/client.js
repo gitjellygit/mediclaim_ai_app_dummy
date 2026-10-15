@@ -148,3 +148,44 @@ export async function api(url, options = {}) {
   if (response.status === 204) return null;
   return response.json();
 }
+
+
+export async function apiBlob(url, options = {}) {
+  const fullUrl = url.startsWith("http") ? url : `${API_BASE_URL}${url}`;
+  const isAuth = authEndpoint(fullUrl);
+
+  if (!isAuth && (!getToken() || isTokenExpired(getToken()))) {
+    await refreshTokenIfNeeded().catch(() => null);
+  }
+
+  async function send(token) {
+    const headers = new Headers(options.headers || {});
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(fullUrl, { ...options, headers, credentials: "include" });
+  }
+
+  let response = await send(getToken());
+  if (response.status === 401 && !isAuth) {
+    try {
+      const nextToken = await refreshTokenIfNeeded(true);
+      if (nextToken) response = await send(nextToken);
+    } catch {
+      // Fall through to structured error handling.
+    }
+  }
+
+  if (!response.ok) {
+    let data;
+    try { data = await response.json(); }
+    catch { data = null; }
+    if (response.status === 401 && !isAuth) {
+      clearTokens();
+      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
+    throw asApiError(response, data);
+  }
+
+  return response.blob();
+}

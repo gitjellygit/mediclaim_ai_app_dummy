@@ -58,7 +58,7 @@ function statusColor(status) {
 export default function UnderpaymentIntelligence() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { showToast, showDialog } = useToast();
+  const { showToast, showDialog, confirmDialog } = useToast();
   const [rows, setRows] = React.useState([]);
   const [metrics, setMetrics] = React.useState({
     activeCases: 0,
@@ -139,6 +139,27 @@ export default function UnderpaymentIntelligence() {
 
   async function saveCase() {
     if (!detail) return;
+
+    const currentRecovered = Number(detail.recoveredAmount || 0);
+    const nextRecovered =
+      edit.recoveredAmount === "" ? currentRecovered : Number(edit.recoveredAmount);
+    const materialChange =
+      edit.status !== detail.status ||
+      (Number.isFinite(nextRecovered) && nextRecovered !== currentRecovered);
+
+    if (materialChange) {
+      const confirmed = await confirmDialog(
+        "Are you sure you want to change this recovery status or recovered amount? This affects payment-recovery reporting and case history.",
+        {
+          title: "Confirm recovery update",
+          severity: "warning",
+          confirmLabel: "Confirm Update",
+          cancelLabel: "Cancel"
+        }
+      );
+      if (!confirmed) return;
+    }
+
     setSaving(true);
     try {
       const updated = await UnderpaymentsApi.update(detail.id, {

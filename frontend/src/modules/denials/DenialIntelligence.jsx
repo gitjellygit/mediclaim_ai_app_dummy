@@ -73,7 +73,7 @@ const CASE_STATUSES = [
 export default function DenialIntelligence() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { showToast, showDialog } = useToast();
+  const { showToast, showDialog, confirmDialog } = useToast();
 
   const [rows, setRows] = React.useState([]);
   const [metrics, setMetrics] = React.useState({
@@ -200,6 +200,26 @@ export default function DenialIntelligence() {
 
   async function saveCase() {
     if (!detail) return;
+
+    const currentRecovered = Number(detail.recoveredAmount || 0);
+    const nextRecovered = edit.recoveredAmount === "" ? 0 : Number(edit.recoveredAmount);
+    const materialChange =
+      edit.status !== detail.status ||
+      (Number.isFinite(nextRecovered) && nextRecovered !== currentRecovered);
+
+    if (materialChange) {
+      const confirmed = await confirmDialog(
+        "Are you sure you want to change this denial case workflow or recovered amount? This affects revenue-recovery reporting and case history.",
+        {
+          title: "Confirm denial case update",
+          severity: "warning",
+          confirmLabel: "Confirm Update",
+          cancelLabel: "Cancel"
+        }
+      );
+      if (!confirmed) return;
+    }
+
     setAction("save");
 
     try {

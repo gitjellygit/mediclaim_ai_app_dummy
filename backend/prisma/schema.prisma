@@ -435,7 +435,13 @@ model Document {
 
   codingSuggestions CodingSuggestion[]
 
+  // Set only for documents uploaded specifically while working an appeal.
+  // Ordinary claim documents remain reusable evidence without an appeal owner.
+  appealCaseId String?
+  appealCase   DenialCase? @relation("AppealUploadedDocuments", fields: [appealCaseId], references: [id], onDelete: SetNull)
+
   @@unique([claimId, fileHash])
+  @@index([appealCaseId])
 }
 
 model CodingSuggestion {
@@ -622,6 +628,12 @@ model DenialCase {
   appealPreparedAt         DateTime?
   appealSubmittedAt        DateTime?
   appealSubmissionReference String?
+  appealSubmissionChannel   String?
+  appealExternalSubmittedAt DateTime?
+
+  // Documents newly uploaded from this appeal workspace. Existing claim
+  // documents selected as evidence continue to be tracked by ID above.
+  appealUploadedDocuments Document[] @relation("AppealUploadedDocuments")
 
   recommendedAction String?
   requiredDocuments Json?

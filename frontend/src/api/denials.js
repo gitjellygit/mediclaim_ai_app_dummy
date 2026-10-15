@@ -1,4 +1,4 @@
-import { api } from "./client.js";
+import { api, apiBlob } from "./client.js";
 
 const BASE = "/api/denials";
 
@@ -69,6 +69,24 @@ export const DenialsApi = {
       method: "POST",
       body: JSON.stringify(data)
     });
+  },
+
+  uploadAppealEvidence(id, { file, type = "OTHER" }) {
+    const body = new FormData();
+    body.append("file", file);
+    body.append("type", type);
+    return api(`${BASE}/${id}/appeal-evidence`, {
+      method: "POST",
+      body
+    });
+  },
+
+  previewDocument(documentId) {
+    return apiBlob(`/api/documents/${documentId}/preview`);
+  },
+
+  downloadDocument(documentId) {
+    return apiBlob(`/api/documents/${documentId}/download`);
   },
 
   lookupCodes({ carc = "", rarc = "" } = {}) {
