@@ -580,6 +580,49 @@ export default function AppealWorkspace() {
         </Alert>
       )}
 
+      {Number(data.recoveredAmount || 0) > 0 && (
+        <Paper
+          data-testid="recovery-achievement"
+          sx={{
+            mb: 3,
+            p: 2.5,
+            border: "1px solid",
+            borderColor: "success.light",
+            backgroundColor: "success.50"
+          }}
+        >
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            justifyContent="space-between"
+            alignItems={{ xs: "flex-start", sm: "center" }}
+            spacing={1.5}
+          >
+            <Box>
+              <Typography variant="overline" color="success.dark" fontWeight={800}>
+                Recovery achieved
+              </Typography>
+              <Typography variant="h3" color="success.main" fontWeight={900} lineHeight={1}>
+                {formatUSD(data.recoveredAmount)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                Confirmed recovered amount recorded for this denial case.
+              </Typography>
+            </Box>
+            {Number(data.revenueAtRisk || 0) > Number(data.recoveredAmount || 0) && (
+              <Alert severity="warning" sx={{ maxWidth: 430 }}>
+                Partial recovery. {formatUSD(
+                  Math.max(
+                    0,
+                    Number(data.revenueAtRisk || 0) - Number(data.recoveredAmount || 0)
+                  )
+                )} remains unresolved. A further payer challenge should be handled as a
+                new follow-up/appeal attempt so the original submitted appeal record stays intact.
+              </Alert>
+            )}
+          </Stack>
+        </Paper>
+      )}
+
       <Box
         sx={{
           display: "grid",
@@ -606,6 +649,16 @@ export default function AppealWorkspace() {
                 ["Claim Form", data.claim?.claimForm || "—"],
                 ["Date of Service", formatDate(data.claim?.dateOfService)],
                 ["Revenue at Risk", formatUSD(data.revenueAtRisk)],
+                ["Recovered", formatUSD(data.recoveredAmount)],
+                [
+                  "Remaining Recovery",
+                  formatUSD(
+                    Math.max(
+                      0,
+                      Number(data.revenueAtRisk || 0) - Number(data.recoveredAmount || 0)
+                    )
+                  )
+                ],
                 ["Denial Category", data.denialCategory || "UNCLASSIFIED"],
                 ["CARC / RARC", [data.carcCode, data.rarcCode].filter(Boolean).join(" / ") || "—"],
                 ["Appeal Deadline", formatDate(data.appealDeadline)],
@@ -677,12 +730,16 @@ export default function AppealWorkspace() {
                   />
                   <Chip size="small" label={(data.aiConfidence ?? "—") + "% confidence"} variant="outlined" />
                 </Stack>
-                <Box>
-                  <Typography variant="subtitle2">Why this denial likely occurred</Typography>
+                <Alert severity="error" variant="outlined">
+                  <Typography variant="subtitle2" fontWeight={800}>
+                    Why this denial likely occurred
+                  </Typography>
                   <Typography variant="body2">{data.aiExplanation || "—"}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="subtitle2">Recommended next action</Typography>
+                </Alert>
+                <Alert severity="warning" variant="outlined">
+                  <Typography variant="subtitle2" fontWeight={800}>
+                    Recommended next action
+                  </Typography>
                   <Typography variant="body2">{data.recommendedAction || "—"}</Typography>
                   {String(data.denialCategory || "").toUpperCase() === "ELIGIBILITY" && (
                     <Stack spacing={1} sx={{ mt: 1.25 }}>
@@ -700,7 +757,7 @@ export default function AppealWorkspace() {
                       </Typography>
                     </Stack>
                   )}
-                </Box>
+                </Alert>
               </Stack>
             ) : (
               <Alert severity="info">Run recovery analysis before preparing an appeal.</Alert>
