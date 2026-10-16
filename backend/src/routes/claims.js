@@ -42,7 +42,8 @@ import {
 import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
 import { buildApprovalIntelligenceItem } from "../services/approvalIntelligence.js";
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
-import { evaluateUsReadinessRules, usReadinessRuleCodes } from "../services/usReadinessRules.js";
+import { evaluateUsReadinessRules } from "../services/usReadinessRules.js";
+import { evaluateConfiguredRules } from "../services/configurableRuleEngine.js";
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
 import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
@@ -1503,13 +1504,12 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
       "Submitted or finalized claims are locked. Reopen or amend the claim before running a new AI check."
     );
 
-    // Only recognized rule codes alter live readiness. Mandatory gates remain mandatory.
+    // Load all active organization rules. System rules are evaluated by
+    // deterministic code; custom rules are interpreted by the controlled rule engine.
     const rules = await prisma.rule.findMany({
       where: {
         organizationId: orgId(req),
-        code: {
-          in: ["REQ_POLICY_NO", "RECOMMENDED_ICD", ...usReadinessRuleCodes()]
-        }
+        deletedAt: null
       }
     });
     const issues = [];
@@ -1615,6 +1615,7 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
     }
 
     issues.push(...evaluateUsReadinessRules(claim, rules));
+    issues.push(...evaluateConfiguredRules(claim, rules));
 
     const completeness = completenessReadinessIssues(claim);
     issues.push(...completeness.issues);
