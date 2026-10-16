@@ -588,7 +588,7 @@ export default function AppealWorkspace() {
             p: 2.5,
             border: "1px solid",
             borderColor: "success.light",
-            backgroundColor: "success.50"
+            backgroundColor: "rgba(46, 125, 50, 0.06)"
           }}
         >
           <Stack
