@@ -33,18 +33,11 @@ async function ensureRules() {
     "list rules"
   );
 
-  const byCode = new Map(listed.map((rule) => [rule.code, rule]));
-  for (const [code, name, severity] of U7_RULES) {
-    let rule = byCode.get(code);
-    if (!rule) {
-      rule = await apiJson(
-        await apiContext.post("/api/rules", {
-          headers: { Authorization: `Bearer ${auth.accessToken}` },
-          data: { code, name, severity }
-        }),
-        `create rule ${code}`
-      );
-    }
+  const rows = Array.isArray(listed?.items) ? listed.items : [];
+  const byCode = new Map(rows.map((rule) => [rule.code, rule]));
+  for (const [code] of U7_RULES) {
+    const rule = byCode.get(code);
+    expect(rule, "seeded system rule " + code).toBeTruthy();
     originalRules.set(code, { ...rule });
   }
 }
@@ -97,35 +90,12 @@ test.beforeAll(async () => {
   );
   await ensureRules();
 
-  for (const [code] of U7_RULES) {
-    const rule = originalRules.get(code);
-    if (rule.enabled !== true || rule.severity !== "BLOCK") {
-      await apiJson(
-        await apiContext.patch(`/api/rules/${rule.id}`, {
-          headers: { Authorization: `Bearer ${auth.accessToken}` },
-          data: { enabled: true, severity: "BLOCK" }
-        }),
-        `normalize rule ${code}`
-      );
-    }
-  }
 });
 
 test.afterAll(async () => {
   for (const id of claimIds) {
     await apiContext.delete(`/api/claims/${id}`, {
       headers: { Authorization: `Bearer ${auth.accessToken}` }
-    });
-  }
-
-  for (const [code, original] of originalRules.entries()) {
-    await apiContext.patch(`/api/rules/${original.id}`, {
-      headers: { Authorization: `Bearer ${auth.accessToken}` },
-      data: {
-        enabled: original.enabled,
-        severity: original.severity,
-        name: original.name
-      }
     });
   }
 
@@ -180,7 +150,7 @@ test("U7-2 - missing CPT/HCPCS is enforced through configured rule", async () =>
   expect(issues.get("US_CPT_PRESENT")?.severity).toBe("BLOCK");
 });
 
-test("U7-3 - disabling and downgrading a Rule changes live readiness output", async () => {
+test("U7-3 - mandatory system Rule cannot be disabled or downgraded", async () => {
   const claim = await createClaim({
     patientName: "E2E-U7-CONFIG",
     payerName: "U7 Health",
@@ -199,37 +169,23 @@ test("U7-3 - disabling and downgrading a Rule changes live readiness output", as
   });
 
   const memberRule = originalRules.get("US_MEMBER_ID");
-
   let issues = rulesFrom(await runCheck(claim.id));
   expect(issues.get("US_MEMBER_ID")?.severity).toBe("BLOCK");
 
-  await apiJson(
-    await apiContext.patch(`/api/rules/${memberRule.id}`, {
-      headers: { Authorization: `Bearer ${auth.accessToken}` },
-      data: { enabled: false }
-    }),
-    "disable member rule"
-  );
-  issues = rulesFrom(await runCheck(claim.id));
-  expect(issues.has("US_MEMBER_ID")).toBe(false);
+  const disable = await apiContext.patch(`/api/rules/${memberRule.id}`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: { enabled: false }
+  });
+  expect(disable.status()).toBe(409);
 
-  await apiJson(
-    await apiContext.patch(`/api/rules/${memberRule.id}`, {
-      headers: { Authorization: `Bearer ${auth.accessToken}` },
-      data: { enabled: true, severity: "WARN" }
-    }),
-    "downgrade member rule"
-  );
-  issues = rulesFrom(await runCheck(claim.id));
-  expect(issues.get("US_MEMBER_ID")?.severity).toBe("WARN");
+  const downgrade = await apiContext.patch(`/api/rules/${memberRule.id}`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: { severity: "WARN" }
+  });
+  expect(downgrade.status()).toBe(409);
 
-  await apiJson(
-    await apiContext.patch(`/api/rules/${memberRule.id}`, {
-      headers: { Authorization: `Bearer ${auth.accessToken}` },
-      data: { enabled: true, severity: "BLOCK" }
-    }),
-    "restore member rule"
-  );
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.get("US_MEMBER_ID")?.severity).toBe("BLOCK");
 });
 
 test("U7-4 - payer-required prior auth must be approved with authorization number", async () => {
@@ -363,4 +319,84 @@ test("U7-6 - every verified service line must use a current claim diagnosis", as
   // Persisted claim remains valid after the rejected service-line update.
   issues = rulesFrom(await runCheck(claim.id));
   expect(issues.has("US_DIAGNOSIS_CPT_LINK")).toBe(false);
+});
+
+
+test("U7-7 - custom admin rule affects readiness, can be disabled, and archive removes future effect", async () => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+  const customRule = await apiJson(
+    await apiContext.post("/api/rules", {
+      headers,
+      data: {
+        code: "U7_CUSTOM_GROUP_REQUIRED",
+        name: "U7 custom group number requirement",
+        description: "Group number is required by this organization rule.",
+        category: "PATIENT_COVERAGE",
+        severity: "WARN",
+        enabled: true,
+        scope: "ORGANIZATION",
+        definition: {
+          field: "groupNumber",
+          operator: "REQUIRED"
+        },
+        version: "1.0"
+      }
+    }),
+    "create custom rule"
+  );
+
+  const claim = await createClaim({
+    patientName: "E2E-U7-CUSTOM-RULE",
+    payerName: "U7 Health",
+    policyNo: "U7-POL-CUSTOM",
+    memberId: "U7-MEM-CUSTOM",
+    groupNumber: null,
+    amount: 100,
+    billingProviderNpi: "1234567890",
+    icd10Codes: ["M54.50"],
+    serviceLines: [
+      {
+        cptHcpcsCode: "99213",
+        units: 1,
+        charge: 100,
+        diagnosisPointers: ["M54.50"]
+      }
+    ]
+  });
+
+  let issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.get("U7_CUSTOM_GROUP_REQUIRED")?.severity).toBe("WARN");
+  expect(issues.get("U7_CUSTOM_GROUP_REQUIRED")?.source).toBe("ADMIN_RULE");
+
+  const disabled = await apiContext.patch(`/api/rules/${customRule.id}`, {
+    headers,
+    data: { enabled: false }
+  });
+  expect(disabled.ok()).toBeTruthy();
+
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.has("U7_CUSTOM_GROUP_REQUIRED")).toBe(false);
+
+  const reenabled = await apiContext.patch(`/api/rules/${customRule.id}`, {
+    headers,
+    data: { enabled: true }
+  });
+  expect(reenabled.ok()).toBeTruthy();
+
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.has("U7_CUSTOM_GROUP_REQUIRED")).toBe(true);
+
+  const archived = await apiContext.delete(`/api/rules/${customRule.id}`, {
+    headers
+  });
+  expect(archived.ok()).toBeTruthy();
+
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.has("U7_CUSTOM_GROUP_REQUIRED")).toBe(false);
+
+  const listed = await apiJson(
+    await apiContext.get("/api/rules", { headers }),
+    "list rules after archive"
+  );
+  expect(listed.items.some((item) => item.id === customRule.id)).toBe(false);
 });

@@ -1,3 +1,5 @@
+import { systemRule } from "./ruleCatalog.js";
+
 export const US_READINESS_RULE_DEFAULTS = Object.freeze([
   {
     code: "US_NPI_VALID",
@@ -56,12 +58,16 @@ function addIssue(issues, rules, defaults, code, message, extra = {}) {
   if (!fallback) return;
 
   const configured = rules.get(code);
-  const enabled = configured?.enabled ?? fallback.enabled;
+  const catalog = systemRule(code);
+  const mandatory = catalog?.mandatory === true;
+  const enabled = mandatory ? true : (configured?.enabled ?? fallback.enabled);
   if (!enabled) return;
 
   issues.push({
     rule: code,
-    severity: normalizeSeverity(configured?.severity, fallback.severity),
+    severity: mandatory
+      ? fallback.severity
+      : normalizeSeverity(configured?.severity, fallback.severity),
     message,
     source: "CONFIGURED_RULE",
     ...extra

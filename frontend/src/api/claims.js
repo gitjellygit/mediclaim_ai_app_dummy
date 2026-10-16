@@ -30,6 +30,38 @@ async function withReadRetry(operation, attempts = 3, baseDelayMs = 350) {
 }
 
 export const ClaimsApi = {
+  listRules() {
+    return withReadRetry(() => api("/api/rules"));
+  },
+
+  getRulesMeta() {
+    return withReadRetry(() => api("/api/rules/meta"));
+  },
+
+  getRule(id) {
+    return withReadRetry(() => api("/api/rules/" + id));
+  },
+
+  createRule(data) {
+    return api("/api/rules", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+  },
+
+  updateRule(id, data) {
+    return api("/api/rules/" + id, {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
+  },
+
+  deleteRule(id) {
+    return api("/api/rules/" + id, {
+      method: "DELETE"
+    });
+  },
+
   list({
     page = 1,
     pageSize = 50,
