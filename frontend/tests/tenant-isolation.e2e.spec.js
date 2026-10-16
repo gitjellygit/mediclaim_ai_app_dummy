@@ -206,7 +206,20 @@ test("H8B-1 - rules are scoped to organization", async () => {
   const createRule = await json(
     await apiContext.post("/api/rules", {
       headers,
-      data: { code: "H8B1_TEST_RULE", name: "H8B1 Test Rule", severity: "WARN" }
+      data: {
+        code: "H8B1_TEST_RULE",
+        name: "H8B1 Test Rule",
+        description: "Tenant-isolation test rule",
+        category: "PATIENT_COVERAGE",
+        severity: "WARN",
+        enabled: true,
+        scope: "ORGANIZATION",
+        definition: {
+          field: "groupNumber",
+          operator: "REQUIRED"
+        },
+        version: "1.0"
+      }
     }),
     "create rule"
   );
@@ -221,7 +234,8 @@ test("H8B-1 - rules are scoped to organization", async () => {
     "read rules"
   );
 
-  expect(rules.some((r) => r.code === "H8B1_TEST_RULE")).toBe(true);
+  expect(Array.isArray(rules.items)).toBe(true);
+  expect(rules.items.some((r) => r.code === "H8B1_TEST_RULE")).toBe(true);
 
   // Clean up
   await apiContext.delete(`/api/rules/${createRule.id}`, {
