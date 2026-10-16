@@ -1,6 +1,6 @@
 import express from "express";
 import { auditOnResponse } from "../services/auditLog.js";
-import { emptyMutationSchema, parseMutation, priorAuthEvaluationSchema, payerClaimStatusSchema, remittanceMutationSchema, payerConnectorConnectionSchema } from "../validation/claimMutations.js";
+import { emptyMutationSchema, eligibilityPrecheckSchema, parseMutation, priorAuthEvaluationSchema, payerClaimStatusSchema, remittanceMutationSchema, payerConnectorConnectionSchema } from "../validation/claimMutations.js";
 import { prisma } from "../db.js";
 import { validMoney, moneyCents, differenceMoney } from "../utils/money.js";
 import {
@@ -158,7 +158,8 @@ function buildJourneyState(claim) {
       deductibleRemaining: claim.deductibleRemaining,
       coinsurancePct: claim.coinsurancePct,
       networkStatus: claim.networkStatus,
-      actionable: !submitted
+      actionable: true,
+      blockedReason: null
     },
     priorAuth: {
       status: claim.priorAuthStatus,
@@ -362,8 +363,9 @@ router.post(
 
 router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
-    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    const parsedInput = parseMutation(eligibilityPrecheckSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
+    const force = parsedInput.data.force === true;
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
@@ -378,7 +380,7 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
 
     // Eligibility is idempotent when the payer/member inputs have not changed,
     // including stable negative results such as inactive/member-not-found.
-    if (claim.eligibilityStatus === "VERIFIED") {
+    if (!force && claim.eligibilityStatus === "VERIFIED") {
       return res.json({
         unchanged: true,
         message: "Eligibility is already verified",
@@ -403,6 +405,7 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
     });
 
     if (
+      !force &&
       latestEligibilityTransaction?.requestPayload?.inputFingerprint === eligibilityFingerprint &&
       ["ACTIVE", "INACTIVE", "MEMBER_NOT_FOUND", "FAILED", "NEEDS_REVIEW"].includes(
         latestEligibilityTransaction.status
@@ -539,6 +542,7 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
       coverageStatus,
       missingFields: missing,
       livePayerVerification: connector.connectorEnvironment === "PRODUCTION",
+      rechecked: force,
       connector: {
         id: connector.connectorId || "LOCAL",
         provider: connector.connectorProvider || "CLAIM_APP",
