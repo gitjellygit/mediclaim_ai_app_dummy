@@ -131,7 +131,9 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   await rationale.fill(
     "The appeal is supported by the payer denial facts and the claim record. This revised rationale changes the prepared package and therefore requires a new preparation step before submission."
   );
-  await appealPage.getByRole("button", { name: "Save Rationale" }).click();
+  const saveRevisedRationale = appealPage.getByRole("button", { name: "Save Rationale" });
+  await expect(saveRevisedRationale).toBeEnabled();
+  await saveRevisedRationale.click();
   await expect(
     appealPage.getByText("Appeal not prepared", { exact: true }).first()
   ).toBeVisible();
