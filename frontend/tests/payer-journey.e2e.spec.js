@@ -45,9 +45,15 @@ async function selectPayer(page, payerName) {
   }
 
   if (await page.getByTestId("payer-select").count()) {
-    await page.getByTestId("payer-select").click();
+    const payerSelect = page.getByTestId("payer-select");
+    await payerSelect.click();
     await page.getByRole("option", { name: payerName }).click();
-    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(payerSelect).toContainText(payerName);
+
+    const connect = page.getByRole("button", { name: "Connect", exact: true });
+    await expect(connect).toBeEnabled();
+    await connect.click();
+    await expect(page.getByTestId("payer-select")).toHaveCount(0);
   }
 
   await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
