@@ -1,7 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
-import { US_READINESS_RULE_DEFAULTS } from "../src/services/usReadinessRules.js";
 import { SYSTEM_RULE_CATALOG } from "../src/services/ruleCatalog.js";
 
 if (process.env.NODE_ENV === "production") {
