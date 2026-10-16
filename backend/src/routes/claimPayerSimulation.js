@@ -1,6 +1,6 @@
 import express from "express";
 import { auditOnResponse } from "../services/auditLog.js";
-import { emptyMutationSchema, parseMutation, payerConnectSchema, payerPriorAuthSchema } from "../validation/claimMutations.js";
+import { eligibilityPrecheckSchema, emptyMutationSchema, parseMutation, payerConnectSchema, payerPriorAuthSchema } from "../validation/claimMutations.js";
 import { prisma } from "../db.js";
 import { requirePermission } from "../middleware/auth.js";
 import { PERMISSIONS } from "../security/permissions.js";
@@ -202,8 +202,9 @@ router.post("/:id/payer-simulation/connect", requirePermission(PERMISSIONS.PAYER
 
 router.post("/:id/payer-simulation/eligibility", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
-    const parsedInput = parseMutation(emptyMutationSchema, req.body);
+    const parsedInput = parseMutation(eligibilityPrecheckSchema, req.body);
     if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
+    const force = parsedInput.data.force === true;
     const claim = await getSimulationClaim(req.params.id, orgId(req));
     if (!claim) return res.status(404).json({ error: "Claim not found" });
 
@@ -218,6 +219,7 @@ router.post("/:id/payer-simulation/eligibility", requirePermission(PERMISSIONS.P
     const inputFingerprint = payerInputFingerprint("ELIGIBILITY", payer, claim);
     const latestEligibility = eligibilityTransactions[0];
     if (
+      !force &&
       !postSubmissionRecheck &&
       latestEligibility?.requestPayload?.inputFingerprint === inputFingerprint &&
       ["ACTIVE", "MEMBER_NOT_FOUND"].includes(latestEligibility.status)
@@ -295,7 +297,8 @@ router.post("/:id/payer-simulation/eligibility", requirePermission(PERMISSIONS.P
       transaction,
       claim: updated,
       livePayerVerification: false,
-      recoveryRecheck: postSubmissionRecheck
+      recoveryRecheck: postSubmissionRecheck,
+      rechecked: force
     });
   } catch (error) {
     if (error?.status) throw error;
