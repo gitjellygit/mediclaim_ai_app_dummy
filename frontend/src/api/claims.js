@@ -239,8 +239,11 @@ export const ClaimsApi = {
     });
   },
 
-  simulatePayerEligibility(id) {
-    return api(`${BASE}/${id}/payer-simulation/eligibility`, { method: "POST" });
+  simulatePayerEligibility(id, options = {}) {
+    return api(`${BASE}/${id}/payer-simulation/eligibility`, {
+      method: "POST",
+      body: JSON.stringify(options)
+    });
   },
 
   simulatePayerPriorAuth(id, data = {}) {
@@ -262,9 +265,10 @@ export const ClaimsApi = {
     return api(`${BASE}/${id}/payer-simulation/remittance`, { method: "POST" });
   },
 
-  runEligibilityPrecheck(id) {
+  runEligibilityPrecheck(id, options = {}) {
     return api(`${BASE}/${id}/journey/eligibility/precheck`, {
-      method: "POST"
+      method: "POST",
+      body: JSON.stringify(options)
     });
   },
 
