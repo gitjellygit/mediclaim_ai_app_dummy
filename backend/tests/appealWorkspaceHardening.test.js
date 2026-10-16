@@ -114,3 +114,20 @@ test("Claim Detail submission requires explicit confirmation", () => {
   assert.match(detail, /confirmLabel: "Submit Claim"/);
   assert.match(detail, /if \(!confirmed\) return/);
 });
+
+
+test("Appeal Workspace exposes eligibility recheck and visible backend analysis progress", () => {
+  const ui = read("frontend/src/modules/recovery/AppealWorkspace.jsx");
+  const intelligence = read("backend/src/services/denialIntelligence.js");
+
+  assert.match(ui, /Re-check Eligibility/);
+  assert.match(ui, /stage=eligibility/);
+  assert.match(ui, /Re-checking coverage does not resubmit the claim/);
+  assert.match(ui, /Re-running Recovery Analysis/);
+  assert.match(ui, /This dialog reflects the active backend analysis request/);
+  assert.match(ui, /Recovery Analysis Complete/);
+
+  assert.match(intelligence, /Eligibility was verified in PRISM before claim submission/);
+  assert.match(intelligence, /payer denial now indicates an eligibility or coverage issue/);
+  assert.match(intelligence, /appeal or a corrected claim/);
+});
