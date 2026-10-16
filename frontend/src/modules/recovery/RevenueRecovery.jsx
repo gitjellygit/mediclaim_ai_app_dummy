@@ -75,7 +75,7 @@ function summaryCard(label, value, caption, tone = "text.primary", highlight = f
           ? {
               border: "1px solid",
               borderColor: "success.light",
-              backgroundColor: "success.50",
+              backgroundColor: "rgba(46, 125, 50, 0.06)",
               boxShadow: 2
             }
           : undefined
@@ -204,7 +204,7 @@ export default function RevenueRecovery() {
       return;
     }
     setSort(column);
-    setDirection(column === "patient" || column === "payer" ? "asc" : "desc");
+    setDirection(column === "patient" || column === "payer" || column === "deadline" ? "asc" : "desc");
   }
 
   function sortableHeader(label, column, align = "left") {
@@ -293,7 +293,7 @@ export default function RevenueRecovery() {
         {summaryCard(
           "Recovered",
           money(metrics.totalRecovered),
-          "Recovered within the current filters",
+          "Across all cases matching the current filters",
           "success.main",
           true
         )}
@@ -628,7 +628,6 @@ export default function RevenueRecovery() {
             page={Math.min(page, Math.max(0, Math.ceil(data.total / pageSize) - 1))}
             onPageChange={(_event, nextPage) => setPage(nextPage)}
             rowsPerPage={pageSize}
-            onRowsPerPageChange={() => {}}
             rowsPerPageOptions={[10]}
             labelRowsPerPage="Rows per page"
           />
