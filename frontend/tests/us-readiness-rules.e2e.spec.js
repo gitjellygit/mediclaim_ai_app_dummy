@@ -320,3 +320,83 @@ test("U7-6 - every verified service line must use a current claim diagnosis", as
   issues = rulesFrom(await runCheck(claim.id));
   expect(issues.has("US_DIAGNOSIS_CPT_LINK")).toBe(false);
 });
+
+
+test("U7-7 - custom admin rule affects readiness, can be disabled, and archive removes future effect", async () => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+  const customRule = await apiJson(
+    await apiContext.post("/api/rules", {
+      headers,
+      data: {
+        code: "U7_CUSTOM_GROUP_REQUIRED",
+        name: "U7 custom group number requirement",
+        description: "Group number is required by this organization rule.",
+        category: "PATIENT_COVERAGE",
+        severity: "WARN",
+        enabled: true,
+        scope: "ORGANIZATION",
+        definition: {
+          field: "groupNumber",
+          operator: "REQUIRED"
+        },
+        version: "1.0"
+      }
+    }),
+    "create custom rule"
+  );
+
+  const claim = await createClaim({
+    patientName: "E2E-U7-CUSTOM-RULE",
+    payerName: "U7 Health",
+    policyNo: "U7-POL-CUSTOM",
+    memberId: "U7-MEM-CUSTOM",
+    groupNumber: null,
+    amount: 100,
+    billingProviderNpi: "1234567890",
+    icd10Codes: ["M54.50"],
+    serviceLines: [
+      {
+        cptHcpcsCode: "99213",
+        units: 1,
+        charge: 100,
+        diagnosisPointers: ["M54.50"]
+      }
+    ]
+  });
+
+  let issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.get("U7_CUSTOM_GROUP_REQUIRED")?.severity).toBe("WARN");
+  expect(issues.get("U7_CUSTOM_GROUP_REQUIRED")?.source).toBe("ADMIN_RULE");
+
+  const disabled = await apiContext.patch(`/api/rules/${customRule.id}`, {
+    headers,
+    data: { enabled: false }
+  });
+  expect(disabled.ok()).toBeTruthy();
+
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.has("U7_CUSTOM_GROUP_REQUIRED")).toBe(false);
+
+  const reenabled = await apiContext.patch(`/api/rules/${customRule.id}`, {
+    headers,
+    data: { enabled: true }
+  });
+  expect(reenabled.ok()).toBeTruthy();
+
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.has("U7_CUSTOM_GROUP_REQUIRED")).toBe(true);
+
+  const archived = await apiContext.delete(`/api/rules/${customRule.id}`, {
+    headers
+  });
+  expect(archived.ok()).toBeTruthy();
+
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.has("U7_CUSTOM_GROUP_REQUIRED")).toBe(false);
+
+  const listed = await apiJson(
+    await apiContext.get("/api/rules", { headers }),
+    "list rules after archive"
+  );
+  expect(listed.items.some((item) => item.id === customRule.id)).toBe(false);
+});
