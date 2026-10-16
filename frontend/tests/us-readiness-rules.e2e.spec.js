@@ -33,18 +33,11 @@ async function ensureRules() {
     "list rules"
   );
 
-  const byCode = new Map(listed.map((rule) => [rule.code, rule]));
-  for (const [code, name, severity] of U7_RULES) {
-    let rule = byCode.get(code);
-    if (!rule) {
-      rule = await apiJson(
-        await apiContext.post("/api/rules", {
-          headers: { Authorization: `Bearer ${auth.accessToken}` },
-          data: { code, name, severity }
-        }),
-        `create rule ${code}`
-      );
-    }
+  const rows = Array.isArray(listed?.items) ? listed.items : [];
+  const byCode = new Map(rows.map((rule) => [rule.code, rule]));
+  for (const [code] of U7_RULES) {
+    const rule = byCode.get(code);
+    expect(rule, "seeded system rule " + code).toBeTruthy();
     originalRules.set(code, { ...rule });
   }
 }
@@ -97,35 +90,12 @@ test.beforeAll(async () => {
   );
   await ensureRules();
 
-  for (const [code] of U7_RULES) {
-    const rule = originalRules.get(code);
-    if (rule.enabled !== true || rule.severity !== "BLOCK") {
-      await apiJson(
-        await apiContext.patch(`/api/rules/${rule.id}`, {
-          headers: { Authorization: `Bearer ${auth.accessToken}` },
-          data: { enabled: true, severity: "BLOCK" }
-        }),
-        `normalize rule ${code}`
-      );
-    }
-  }
 });
 
 test.afterAll(async () => {
   for (const id of claimIds) {
     await apiContext.delete(`/api/claims/${id}`, {
       headers: { Authorization: `Bearer ${auth.accessToken}` }
-    });
-  }
-
-  for (const [code, original] of originalRules.entries()) {
-    await apiContext.patch(`/api/rules/${original.id}`, {
-      headers: { Authorization: `Bearer ${auth.accessToken}` },
-      data: {
-        enabled: original.enabled,
-        severity: original.severity,
-        name: original.name
-      }
     });
   }
 
@@ -180,7 +150,7 @@ test("U7-2 - missing CPT/HCPCS is enforced through configured rule", async () =>
   expect(issues.get("US_CPT_PRESENT")?.severity).toBe("BLOCK");
 });
 
-test("U7-3 - disabling and downgrading a Rule changes live readiness output", async () => {
+test("U7-3 - mandatory system Rule cannot be disabled or downgraded", async () => {
   const claim = await createClaim({
     patientName: "E2E-U7-CONFIG",
     payerName: "U7 Health",
@@ -199,37 +169,23 @@ test("U7-3 - disabling and downgrading a Rule changes live readiness output", as
   });
 
   const memberRule = originalRules.get("US_MEMBER_ID");
-
   let issues = rulesFrom(await runCheck(claim.id));
   expect(issues.get("US_MEMBER_ID")?.severity).toBe("BLOCK");
 
-  await apiJson(
-    await apiContext.patch(`/api/rules/${memberRule.id}`, {
-      headers: { Authorization: `Bearer ${auth.accessToken}` },
-      data: { enabled: false }
-    }),
-    "disable member rule"
-  );
-  issues = rulesFrom(await runCheck(claim.id));
-  expect(issues.has("US_MEMBER_ID")).toBe(false);
+  const disable = await apiContext.patch(`/api/rules/${memberRule.id}`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: { enabled: false }
+  });
+  expect(disable.status()).toBe(409);
 
-  await apiJson(
-    await apiContext.patch(`/api/rules/${memberRule.id}`, {
-      headers: { Authorization: `Bearer ${auth.accessToken}` },
-      data: { enabled: true, severity: "WARN" }
-    }),
-    "downgrade member rule"
-  );
-  issues = rulesFrom(await runCheck(claim.id));
-  expect(issues.get("US_MEMBER_ID")?.severity).toBe("WARN");
+  const downgrade = await apiContext.patch(`/api/rules/${memberRule.id}`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: { severity: "WARN" }
+  });
+  expect(downgrade.status()).toBe(409);
 
-  await apiJson(
-    await apiContext.patch(`/api/rules/${memberRule.id}`, {
-      headers: { Authorization: `Bearer ${auth.accessToken}` },
-      data: { enabled: true, severity: "BLOCK" }
-    }),
-    "restore member rule"
-  );
+  issues = rulesFrom(await runCheck(claim.id));
+  expect(issues.get("US_MEMBER_ID")?.severity).toBe("BLOCK");
 });
 
 test("U7-4 - payer-required prior auth must be approved with authorization number", async () => {
