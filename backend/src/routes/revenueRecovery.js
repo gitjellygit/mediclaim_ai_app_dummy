@@ -236,11 +236,15 @@ router.get("/", async (req, res) => {
     const q = String(req.query.q || "").trim().slice(0, 100);
     const type = String(req.query.type || "ALL").toUpperCase();
     const status = String(req.query.status || "ACTIVE").toUpperCase();
-    const requestedLimit = Number(req.query.limit || 100);
-    const limit = Math.max(
+    const requestedPage = Number(req.query.page || 1);
+    const requestedPageSize = Number(req.query.pageSize || req.query.limit || 10);
+    const page = Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1);
+    const pageSize = Math.max(
       1,
-      Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 100, 200)
+      Math.min(Number.isFinite(requestedPageSize) ? Math.floor(requestedPageSize) : 10, 100)
     );
+    const sort = String(req.query.sort || "priority").toLowerCase();
+    const direction = String(req.query.direction || "desc").toLowerCase() === "asc" ? "asc" : "desc";
 
     const claimSearch = q
       ? {
@@ -330,7 +334,6 @@ router.get("/", async (req, res) => {
       nextAction: nextActionFor(item)
     }));
 
-    const allItems = items;
     if (status === "ACTIVE") {
       items = items.filter((item) =>
         item.type === "DENIAL"
@@ -341,22 +344,50 @@ router.get("/", async (req, res) => {
       items = items.filter((item) => item.status === status);
     }
 
+    const filteredItems = items;
+    const sortValue = (item) => {
+      if (sort === "outstanding") return Number(item.outstandingAmount || 0);
+      if (sort === "recovered") return Number(item.recoveredAmount || 0);
+      if (sort === "deadline") {
+        return item.deadline ? new Date(item.deadline).getTime() : Number.POSITIVE_INFINITY;
+      }
+      if (sort === "patient") return String(item.patientName || "").toLowerCase();
+      if (sort === "payer") return String(item.payerName || "").toLowerCase();
+      if (sort === "updated") return new Date(item.updatedAt).getTime();
+      return Number(item.priorityScore || 0);
+    };
+
     items.sort((a, b) => {
-      if (b.priorityScore !== a.priorityScore) {
-        return b.priorityScore - a.priorityScore;
+      const left = sortValue(a);
+      const right = sortValue(b);
+      let comparison = 0;
+      if (typeof left === "string" || typeof right === "string") {
+        comparison = String(left).localeCompare(String(right));
+      } else {
+        comparison = Number(left) - Number(right);
       }
-      if (b.outstandingAmount !== a.outstandingAmount) {
-        return b.outstandingAmount - a.outstandingAmount;
+      if (comparison === 0) {
+        comparison = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
       }
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      return direction === "asc" ? comparison : -comparison;
     });
 
+    const total = items.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const safePage = Math.min(page, totalPages);
+    const offset = (safePage - 1) * pageSize;
+
     res.json({
-      items: items.slice(0, limit),
-      total: items.length,
-      metrics: summarize(allItems),
-      topPayers: aggregateBy(allItems, "payerName"),
-      topRootCauses: aggregateBy(allItems, "rootCause"),
+      items: items.slice(offset, offset + pageSize),
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
+      sort,
+      direction,
+      metrics: summarize(filteredItems),
+      topPayers: aggregateBy(filteredItems, "payerName"),
+      topRootCauses: aggregateBy(filteredItems, "rootCause"),
       methodology: {
         priority:
           "Deterministic operational priority based on outstanding dollars, appeal deadline urgency, workflow state and recovery type. It is not a probability of recovery."
