@@ -8,7 +8,9 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
-  Snackbar
+  Snackbar,
+  Paper,
+  Typography
 } from "@mui/material";
 import { CheckCircle } from "@mui/icons-material";
 
@@ -168,22 +170,37 @@ export function ToastProvider({ children }) {
     >
       {children}
 
-      <Dialog
-        open={successNotice.open}
-        onClose={() => setSuccessNotice((current) => ({ ...current, open: false }))}
-        maxWidth="xs"
-        fullWidth
-        PaperProps={{ sx: { borderRadius: 3, textAlign: "center" } }}
-      >
-        <DialogContent sx={{ py: 4 }}>
-          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1.5 }}>
+      {successNotice.open && (
+        <Box
+          role="status"
+          aria-live="polite"
+          sx={{
+            position: "fixed",
+            inset: 0,
+            zIndex: (theme) => theme.zIndex.modal + 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none"
+          }}
+        >
+          <Paper
+            elevation={8}
+            sx={{
+              px: 4,
+              py: 3,
+              borderRadius: 3,
+              textAlign: "center",
+              maxWidth: 420
+            }}
+          >
             <CheckCircle color="success" sx={{ fontSize: 64 }} />
-            <DialogContentText sx={{ fontWeight: 700, color: "text.primary" }}>
+            <Typography sx={{ mt: 1, fontWeight: 700 }}>
               {successNotice.message}
-            </DialogContentText>
-          </Box>
-        </DialogContent>
-      </Dialog>
+            </Typography>
+          </Paper>
+        </Box>
+      )}
 
       <Snackbar
         open={toast.open}
