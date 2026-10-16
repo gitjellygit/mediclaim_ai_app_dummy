@@ -597,7 +597,7 @@ export default function ClaimJourney() {
     if (claimId) loadJourney(claimId);
   }, [claimId, loadJourney]);
 
-  async function runAction(name, fn, successMessage) {
+  async function runAction(name, fn, successMessage, { showSuccess = false } = {}) {
     setAction(name);
     setPageError("");
     try {
@@ -606,7 +606,7 @@ export default function ClaimJourney() {
 
       // Idempotent backend responses deliberately produce no duplicate
       // "updated" toast when nothing changed.
-      if (!result?.unchanged) {
+      if (showSuccess && !result?.unchanged && successMessage) {
         showToast(successMessage, "success");
       }
 
@@ -789,6 +789,8 @@ export default function ClaimJourney() {
     connectedConnector?.capabilities?.includes("getStatus");
   const payerTransactions = claim?.payerTransactions || [];
   const activeDenialCase = claim?.denialCases?.[0] || null;
+  const denialRecoveryActive =
+    claim?.status === "DENIED" || Boolean(activeDenialCase);
   const underpaymentCase =
     claim?.underpaymentCase &&
     !["RECOVERED", "WRITTEN_OFF", "CLOSED"].includes(claim.underpaymentCase.status)
@@ -1028,10 +1030,6 @@ export default function ClaimJourney() {
         if (externalPayerConnected) {
           setSubmissionBlock(null);
           await loadJourney(claim.id);
-          showToast(
-            submitted?.message || "Claim transmitted to payer",
-            "success"
-          );
           return;
         }
       }
@@ -1040,7 +1038,8 @@ export default function ClaimJourney() {
         const result = await ClaimsApi.simulatePayerSubmission(claim.id);
         setSubmissionBlock(null);
         await loadJourney(claim.id);
-        if (!result?.unchanged) showToast("Claim sent to payer", "success");
+        // The Claim Submission card itself reflects the transmission result.
+        // Avoid a second large success overlay for this routine journey update.
       }
     } catch (error) {
       const message = error.message || "Unable to submit claim";
@@ -2066,7 +2065,24 @@ export default function ClaimJourney() {
                 </Typography>
                 {(simulatedPayerConnected || externalSubmissionSupported) && (
                   <>
-                    {submissionTransaction ? (
+                    {denialRecoveryActive ? (
+                      <Alert
+                        severity="warning"
+                        data-testid="denial-recovery-transmission-blocked"
+                        action={
+                          <Button
+                            color="inherit"
+                            size="small"
+                            onClick={() => navigate("/revenue-recovery")}
+                          >
+                            Work Denial
+                          </Button>
+                        }
+                      >
+                        This claim has an active denial. Do not retransmit the same claim unchanged.
+                        Re-check the denial prerequisite, then choose appeal or a corrected-claim/resubmission workflow.
+                      </Alert>
+                    ) : submissionTransaction ? (
                       <Button variant="contained" size="small" disabled>
                         Sent to Payer
                       </Button>
