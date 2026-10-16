@@ -18,3 +18,30 @@ ALTER TABLE "Rule"
 CREATE INDEX "Rule_organizationId_deletedAt_idx" ON "Rule"("organizationId", "deletedAt");
 CREATE INDEX "Rule_organizationId_category_idx" ON "Rule"("organizationId", "category");
 CREATE INDEX "Rule_organizationId_scope_payerEdiId_idx" ON "Rule"("organizationId", "scope", "payerEdiId");
+
+UPDATE "Rule"
+SET "ruleType" = 'SYSTEM',
+    "systemManaged" = true,
+    "source" = 'SYSTEM',
+    "mandatory" = CASE
+      WHEN "code" = 'RECOMMENDED_ICD' THEN false
+      ELSE true
+    END,
+    "category" = CASE
+      WHEN "code" IN ('REQ_POLICY_NO', 'US_MEMBER_ID') THEN 'PATIENT_COVERAGE'
+      WHEN "code" = 'US_NPI_VALID' THEN 'PROVIDER'
+      WHEN "code" IN ('US_CPT_PRESENT', 'US_DIAGNOSIS_CPT_LINK', 'RECOMMENDED_ICD') THEN 'CODING'
+      WHEN "code" = 'US_PRIOR_AUTH' THEN 'AUTHORIZATION'
+      ELSE 'CLAIM'
+    END
+WHERE "code" IN (
+  'REQ_POLICY_NO',
+  'RECOMMENDED_ICD',
+  'US_NPI_VALID',
+  'US_CPT_PRESENT',
+  'US_DIAGNOSIS_CPT_LINK',
+  'US_TIMELY_FILING',
+  'US_MEMBER_ID',
+  'US_PRIOR_AUTH',
+  'US_837_SUBMISSION_FIELDS'
+);
