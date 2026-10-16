@@ -522,17 +522,44 @@ model Check {
 model Rule {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  code     String
-  name     String
-  severity String  @default("WARN")
-  enabled  Boolean @default(true)
+  code        String
+  name        String
+  description String?
+  category    String @default("CLAIM")
+  severity    String @default("WARN")
+  enabled     Boolean @default(true)
+
+  // SYSTEM rules are implemented by deterministic server-side evaluators.
+  // CUSTOM rules use the controlled JSON definition interpreted by configurableRuleEngine.
+  ruleType      String @default("CUSTOM")
+  systemManaged Boolean @default(false)
+  mandatory     Boolean @default(false)
+
+  // Organization rules apply to every claim. PAYER rules additionally require
+  // a matching payer name and/or payer EDI identifier.
+  scope      String @default("ORGANIZATION")
+  payerName  String?
+  payerEdiId String?
+
+  // Safe condition document:
+  // { field, operator, value?, appliesWhen?: { field, operator, value? } }
+  definition Json?
+
+  source        String @default("ORGANIZATION")
+  version       String @default("1.0")
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  deletedAt     DateTime?
 
   @@unique([organizationId, code])
-  @@index([organizationId])
+  @@index([organizationId, deletedAt])
+  @@index([organizationId, category])
+  @@index([organizationId, scope, payerEdiId])
 }
 
 model User {
