@@ -25,12 +25,18 @@ export const RevenueRecoveryApi = {
     query = "",
     type = "ALL",
     status = "ACTIVE",
-    limit = 100
+    page = 1,
+    pageSize = 10,
+    sort = "priority",
+    direction = "desc"
   } = {}) {
     const params = new URLSearchParams({
       type,
       status,
-      limit: String(limit)
+      page: String(page),
+      pageSize: String(pageSize),
+      sort,
+      direction
     });
     if (query.trim()) params.set("q", query.trim());
     return withReadRetry(() => api(`${BASE}?${params.toString()}`));
