@@ -120,22 +120,20 @@ test("U7 - member ID and required prior auth are data-driven rules", () => {
   assert.equal(codes(approved).includes("US_PRIOR_AUTH"), false);
 });
 
-test("U7 - disabled rule produces no issue and configured severity is honored", () => {
-  const disabled = US_READINESS_RULE_DEFAULTS.map((rule) =>
-    rule.code === "US_MEMBER_ID" ? { ...rule, enabled: false } : rule
-  );
-  assert.equal(
-    codes(evaluateUsReadinessRules(claim({ memberId: null }), disabled))
-      .includes("US_MEMBER_ID"),
-    false
+test("U7 - mandatory system rule cannot be disabled or downgraded by stored configuration", () => {
+  const overridden = US_READINESS_RULE_DEFAULTS.map((rule) =>
+    rule.code === "US_MEMBER_ID"
+      ? { ...rule, enabled: false, severity: "WARN" }
+      : rule
   );
 
-  const warned = US_READINESS_RULE_DEFAULTS.map((rule) =>
-    rule.code === "US_MEMBER_ID" ? { ...rule, severity: "WARN" } : rule
-  );
-  const issue = evaluateUsReadinessRules(claim({ memberId: null }), warned)
-    .find((item) => item.rule === "US_MEMBER_ID");
-  assert.equal(issue.severity, "WARN");
+  const issue = evaluateUsReadinessRules(
+    claim({ memberId: null }),
+    overridden
+  ).find((item) => item.rule === "US_MEMBER_ID");
+
+  assert.ok(issue);
+  assert.equal(issue.severity, "BLOCK");
 });
 
 test("H3 - OCR-created unverified service lines do not satisfy CPT readiness", () => {
