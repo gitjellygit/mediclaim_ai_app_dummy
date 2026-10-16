@@ -69,12 +69,40 @@ function ruleBasedAnalysis(claim, denial) {
       "Authorization is the strongest detected denial driver based on the claim's prior-authorization state.";
     confidence = 88;
   } else if (category === "ELIGIBILITY") {
-    recommendedAction =
-      "Re-verify member eligibility and coverage for the date of service before correcting or appealing the claim.";
+    const normalizedCarc = String(denial.carcCode || "")
+      .trim()
+      .toUpperCase()
+      .replace(/^CARC[-\\s:]*/i, "");
+    const normalizedRarc = String(denial.rarcCode || "")
+      .trim()
+      .toUpperCase()
+      .replace(/^RARC[-\\s:]*/i, "");
+    const payerEligibilitySignal =
+      String(denial.denialCategory || "").toUpperCase() === "ELIGIBILITY" ||
+      normalizedCarc === "27" ||
+      normalizedRarc === "N130";
+
     requiredDocuments = ["ELIGIBILITY_RESPONSE", "INSURANCE_CARD"];
-    explanation =
-      "Eligibility is not verified for this claim, which is a strong administrative denial signal.";
-    confidence = 86;
+
+    if (claim.eligibilityStatus === "VERIFIED" && payerEligibilitySignal) {
+      recommendedAction =
+        "Re-check eligibility for the date of service and compare the result with the eligibility response used before submission. If coverage was active, include that eligibility evidence in the appeal. If member, plan, or service-date data was wrong, correct the claim and follow the appropriate resubmission workflow.";
+      explanation =
+        "Eligibility was verified in PRISM before claim submission. The payer denial now indicates an eligibility or coverage issue for the date of service, so the denial should be reconciled against the eligibility evidence rather than treated as a missing pre-submission check.";
+      confidence = 90;
+    } else if (payerEligibilitySignal) {
+      recommendedAction =
+        "Re-check member eligibility and coverage for the date of service, compare the result with the payer denial, and then decide whether the correct next step is an appeal or a corrected claim.";
+      explanation =
+        "The payer denial indicates an eligibility or coverage issue for the date of service. The current claim record is not verified for eligibility, so coverage should be re-checked before choosing appeal versus correction.";
+      confidence = 86;
+    } else {
+      recommendedAction =
+        "Verify eligibility for the date of service and confirm the payer denial reason before attributing the denial to eligibility.";
+      explanation =
+        "The current claim record is not verified for eligibility, but the available payer denial data does not independently prove that eligibility caused the denial.";
+      confidence = 68;
+    }
   } else if (category === "CODING") {
     recommendedAction =
       "Review diagnosis/procedure coding, modifiers, and documentation support before corrected claim submission.";
