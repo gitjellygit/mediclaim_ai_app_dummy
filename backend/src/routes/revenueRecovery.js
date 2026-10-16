@@ -360,6 +360,11 @@ router.get("/", async (req, res) => {
     items.sort((a, b) => {
       const left = sortValue(a);
       const right = sortValue(b);
+      if (sort === "deadline") {
+        const leftMissing = !a.deadline;
+        const rightMissing = !b.deadline;
+        if (leftMissing !== rightMissing) return leftMissing ? 1 : -1;
+      }
       let comparison = 0;
       if (typeof left === "string" || typeof right === "string") {
         comparison = String(left).localeCompare(String(right));
