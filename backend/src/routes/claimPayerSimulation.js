@@ -211,15 +211,14 @@ router.post("/:id/payer-simulation/eligibility", requirePermission(PERMISSIONS.P
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
       return res.status(409).json({ error: "Connect a mock payer first" });
     }
-    if (isClaimLocked(claim)) {
-      return res.status(409).json({ error: "Eligibility is locked after claim submission" });
-    }
+    const postSubmissionRecheck = isClaimSubmittedOrLater(claim);
 
     const eligibilityTransactions = claim.payerTransactions.filter((x) => x.transactionType === "ELIGIBILITY");
     const priorCount = eligibilityTransactions.length;
     const inputFingerprint = payerInputFingerprint("ELIGIBILITY", payer, claim);
     const latestEligibility = eligibilityTransactions[0];
     if (
+      !postSubmissionRecheck &&
       latestEligibility?.requestPayload?.inputFingerprint === inputFingerprint &&
       ["ACTIVE", "MEMBER_NOT_FOUND"].includes(latestEligibility.status)
     ) {
@@ -274,21 +273,30 @@ router.post("/:id/payer-simulation/eligibility", requirePermission(PERMISSIONS.P
           policyNo: claim.policyNo || null,
           memberIdPresent: Boolean(claim.memberId),
           policyNoPresent: Boolean(claim.policyNo),
-          inputFingerprint
+          inputFingerprint,
+          recoveryRecheck: postSubmissionRecheck
         },
         tx
       );
 
-      await markReadinessChecksStale(
-        tx,
-        claim.id,
-        "Eligibility information changed"
-      );
+      if (!postSubmissionRecheck) {
+        await markReadinessChecksStale(
+          tx,
+          claim.id,
+          "Eligibility information changed"
+        );
+      }
 
       return { updated: updatedClaim, transaction: payerTransaction };
     });
 
-    res.json({ result, transaction, claim: updated, livePayerVerification: false });
+    res.json({
+      result,
+      transaction,
+      claim: updated,
+      livePayerVerification: false,
+      recoveryRecheck: postSubmissionRecheck
+    });
   } catch (error) {
     if (error?.status) throw error;
     console.error("[payer-simulation] eligibility failed", {
@@ -419,6 +427,16 @@ router.post("/:id/payer-simulation/submission", requirePermission(PERMISSIONS.CL
       return res.status(409).json({ error: "Submit the claim in Claim Journey first" });
     }
 
+    const activeDenial = await findActiveDenialCase(prisma, claim.id);
+    if (claim.status === "DENIED" || activeDenial) {
+      return res.status(409).json({
+        error: "Resolve the active denial before retransmitting this claim",
+        message:
+          "Re-check the denial prerequisite, then either prepare an appeal or complete a corrected-claim/resubmission workflow. The same denied claim cannot be transmitted again unchanged.",
+        code: "DENIAL_RECOVERY_REQUIRED"
+      });
+    }
+
     const submissionTransactions = claim.payerTransactions.filter((x) => x.transactionType === "CLAIM_SUBMISSION");
     const priorCount = submissionTransactions.length;
     const inputFingerprint = payerInputFingerprint("CLAIM_SUBMISSION", payer, claim);
@@ -510,6 +528,31 @@ router.post("/:id/payer-simulation/status", requirePermission(PERMISSIONS.PAYER_
     if (claim.payerConnectionMode !== "SIMULATED" || !payer) {
       return res.status(409).json({ error: "Connect a payer first" });
     }
+
+    const recordedFinalStatuses = new Set([
+      "APPROVED",
+      "PARTIALLY_APPROVED",
+      "DENIED",
+      "PAID"
+    ]);
+    if (recordedFinalStatuses.has(claim.payerClaimStatus || "")) {
+      const recordedStatusTransaction = claim.payerTransactions.find(
+        (tx) =>
+          tx.transactionType === "CLAIM_STATUS" &&
+          tx.status === claim.payerClaimStatus
+      );
+      return res.json({
+        unchanged: true,
+        message: "Payer status is already final",
+        result:
+          recordedStatusTransaction?.responsePayload || {
+            status: claim.payerClaimStatus
+          },
+        transaction: recordedStatusTransaction || null,
+        claim
+      });
+    }
+
     const transmitted = claim.payerTransactions.find(
       (tx) => tx.transactionType === "CLAIM_SUBMISSION"
     );
