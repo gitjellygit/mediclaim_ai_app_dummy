@@ -172,6 +172,11 @@ router.post("/", async (req, res) => {
   }
 
   const input = parsed.data;
+  if (SYSTEM_RULE_CATALOG.some((item) => item.code === input.code)) {
+    return res.status(409).json({
+      error: "This rule code is reserved for a system-managed safeguard"
+    });
+  }
   const definitionCheck = validateDefinition(input.definition);
   if (!definitionCheck.ok) {
     return res.status(400).json({ error: definitionCheck.error });
