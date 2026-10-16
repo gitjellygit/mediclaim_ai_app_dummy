@@ -34,7 +34,6 @@ import {
 import {
   Add,
   AdminPanelSettings,
-  FilterAlt,
   Lock,
   Refresh,
   Search as SearchIcon,
