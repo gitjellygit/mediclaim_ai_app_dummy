@@ -20,6 +20,8 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
+  TablePagination,
   TextField,
   Tooltip,
   Typography
@@ -65,9 +67,20 @@ function deadlineLabel(item) {
   return `${item.deadlineDays}d remaining`;
 }
 
-function summaryCard(label, value, caption, tone = "text.primary") {
+function summaryCard(label, value, caption, tone = "text.primary", highlight = false) {
   return (
-    <Card>
+    <Card
+      sx={
+        highlight
+          ? {
+              border: "1px solid",
+              borderColor: "success.light",
+              backgroundColor: "rgba(46, 125, 50, 0.06)",
+              boxShadow: 2
+            }
+          : undefined
+      }
+    >
       <CardContent>
         <Typography variant="body2" color="text.secondary">
           {label}
@@ -92,17 +105,26 @@ export default function RevenueRecovery() {
     metrics: null,
     topPayers: [],
     topRootCauses: [],
-    methodology: null
+    methodology: null,
+    total: 0,
+    page: 1,
+    pageSize: 10,
+    totalPages: 1
   });
   const [search, setSearch] = React.useState("");
   const [query, setQuery] = React.useState("");
   const [type, setType] = React.useState("ALL");
   const [status, setStatus] = React.useState("ACTIVE");
+  const [page, setPage] = React.useState(0);
+  const [sort, setSort] = React.useState("priority");
+  const [direction, setDirection] = React.useState("desc");
+  const pageSize = 10;
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
+      setPage(0);
       setQuery(search.trim());
     }, 300);
     return () => window.clearTimeout(timer);
@@ -116,7 +138,10 @@ export default function RevenueRecovery() {
         query,
         type,
         status,
-        limit: 100
+        page: page + 1,
+        pageSize,
+        sort,
+        direction
       });
       setData({
         items: Array.isArray(result?.items) ? result.items : [],
@@ -125,7 +150,11 @@ export default function RevenueRecovery() {
         topRootCauses: Array.isArray(result?.topRootCauses)
           ? result.topRootCauses
           : [],
-        methodology: result?.methodology || null
+        methodology: result?.methodology || null,
+        total: Number(result?.total || 0),
+        page: Number(result?.page || page + 1),
+        pageSize: Number(result?.pageSize || pageSize),
+        totalPages: Number(result?.totalPages || 1)
       });
     } catch (loadError) {
       setError(
@@ -134,7 +163,7 @@ export default function RevenueRecovery() {
     } finally {
       setLoading(false);
     }
-  }, [query, type, status]);
+  }, [query, type, status, page, sort, direction]);
 
   React.useEffect(() => {
     load();
@@ -167,6 +196,30 @@ export default function RevenueRecovery() {
     deadlinesDue7: 0,
     criticalCount: 0
   };
+
+  function handleSort(column) {
+    setPage(0);
+    if (sort === column) {
+      setDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSort(column);
+    setDirection(column === "patient" || column === "payer" || column === "deadline" ? "asc" : "desc");
+  }
+
+  function sortableHeader(label, column, align = "left") {
+    return (
+      <TableCell align={align}>
+        <TableSortLabel
+          active={sort === column}
+          direction={sort === column ? direction : "asc"}
+          onClick={() => handleSort(column)}
+        >
+          <b>{label}</b>
+        </TableSortLabel>
+      </TableCell>
+    );
+  }
 
   function openRecovery(item) {
     if (item.type === "DENIAL") {
@@ -240,8 +293,9 @@ export default function RevenueRecovery() {
         {summaryCard(
           "Recovered",
           money(metrics.totalRecovered),
-          "Recorded recovery to date",
-          "success.main"
+          "Across all cases matching the current filters",
+          "success.main",
+          true
         )}
         {summaryCard(
           "Appeals Due ≤ 7 Days",
@@ -363,7 +417,10 @@ export default function RevenueRecovery() {
               data-testid="recovery-type-filter"
               label="Recovery Type"
               value={type}
-              onChange={(event) => setType(event.target.value)}
+              onChange={(event) => {
+                setPage(0);
+                setType(event.target.value);
+              }}
             >
               <MenuItem value="ALL">All recovery</MenuItem>
               <MenuItem value="DENIAL">Denials</MenuItem>
@@ -377,7 +434,10 @@ export default function RevenueRecovery() {
               data-testid="recovery-workflow-filter"
               label="Workflow"
               value={status}
-              onChange={(event) => setStatus(event.target.value)}
+              onChange={(event) => {
+                setPage(0);
+                setStatus(event.target.value);
+              }}
             >
               <MenuItem value="ACTIVE">Active work</MenuItem>
               <MenuItem value="ALL">All cases</MenuItem>
@@ -413,16 +473,18 @@ export default function RevenueRecovery() {
           No recovery opportunities match the current filters.
         </Alert>
       ) : (
-        <TableContainer component={Paper}>
-          <Table size="small" sx={{ minWidth: 1200 }}>
+        <Paper>
+          <TableContainer>
+          <Table size="small" sx={{ minWidth: 1280 }}>
             <TableHead>
               <TableRow>
-                <TableCell><b>Priority</b></TableCell>
-                <TableCell><b>Patient / Payer</b></TableCell>
+                {sortableHeader("Priority", "priority")}
+                {sortableHeader("Patient / Payer", "patient")}
                 <TableCell><b>Recovery Type</b></TableCell>
                 <TableCell><b>Root Cause</b></TableCell>
-                <TableCell><b>Outstanding</b></TableCell>
-                <TableCell><b>Deadline</b></TableCell>
+                {sortableHeader("Outstanding", "outstanding")}
+                {sortableHeader("Recovered", "recovered")}
+                {sortableHeader("Deadline", "deadline")}
                 <TableCell><b>Workflow</b></TableCell>
                 <TableCell><b>Next Action</b></TableCell>
                 <TableCell align="right"><b>Action</b></TableCell>
@@ -484,10 +546,25 @@ export default function RevenueRecovery() {
                     <Typography fontWeight={800}>
                       {money(item.outstandingAmount)}
                     </Typography>
-                    {item.recoveredAmount > 0 && (
-                      <Typography variant="caption" color="success.main">
-                        {money(item.recoveredAmount)} recovered
-                      </Typography>
+                  </TableCell>
+
+                  <TableCell sx={{ minWidth: 135 }}>
+                    {item.recoveredAmount > 0 ? (
+                      <Stack spacing={0.2}>
+                        <Typography
+                          variant="subtitle1"
+                          color="success.main"
+                          fontWeight={900}
+                          sx={{ lineHeight: 1.1 }}
+                        >
+                          {money(item.recoveredAmount)}
+                        </Typography>
+                        <Typography variant="caption" color="success.dark" fontWeight={700}>
+                          Recovered
+                        </Typography>
+                      </Stack>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">—</Typography>
                     )}
                   </TableCell>
 
@@ -544,7 +621,17 @@ export default function RevenueRecovery() {
               ))}
             </TableBody>
           </Table>
-        </TableContainer>
+          </TableContainer>
+          <TablePagination
+            component="div"
+            count={data.total}
+            page={Math.min(page, Math.max(0, Math.ceil(data.total / pageSize) - 1))}
+            onPageChange={(_event, nextPage) => setPage(nextPage)}
+            rowsPerPage={pageSize}
+            rowsPerPageOptions={[10]}
+            labelRowsPerPage="Rows per page"
+          />
+        </Paper>
       )}
 
       <Typography
