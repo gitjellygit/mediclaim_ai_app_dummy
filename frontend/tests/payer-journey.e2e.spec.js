@@ -782,3 +782,86 @@ test("submitted claim exposes status shortcut and separates payer transmission f
     "Claim Submission"
   );
 });
+
+
+test("submitted claim can re-check eligibility without reopening the claim", async ({ page }) => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+
+  const reseed = await apiContext.post("/api/claims/e2e/payer-journey/seed", {
+    headers
+  });
+  expect(reseed.ok()).toBeTruthy();
+  const seeded = await reseed.json();
+  const scenario = seeded.scenarios.find((item) => item.key === "BLUE");
+  expect(scenario).toBeTruthy();
+
+  const connect = await apiContext.post(
+    `/api/claims/${scenario.id}/payer-simulation/connect`,
+    {
+      headers,
+      data: { payerCode: "BLUE_HORIZON" }
+    }
+  );
+  expect(connect.ok()).toBeTruthy();
+
+  const initialEligibility = await apiContext.post(
+    `/api/claims/${scenario.id}/payer-simulation/eligibility`,
+    { headers, data: {} }
+  );
+  expect(initialEligibility.ok()).toBeTruthy();
+
+  const priorAuth = await apiContext.post(
+    `/api/claims/${scenario.id}/payer-simulation/prior-auth`,
+    { headers, data: {} }
+  );
+  expect(priorAuth.ok()).toBeTruthy();
+
+  const readiness = await apiContext.post(`/api/claims/${scenario.id}/check`, {
+    headers,
+    data: {}
+  });
+  expect(readiness.ok()).toBeTruthy();
+
+  const submit = await apiContext.post(`/api/claims/${scenario.id}/submit`, {
+    headers,
+    data: {}
+  });
+  expect(submit.ok()).toBeTruthy();
+
+  await page.goto(`/journey?claimId=${scenario.id}&stage=eligibility`);
+
+  const eligibilityStage = page.getByTestId("journey-stage-eligibility");
+  const recheck = eligibilityStage.getByRole("button", {
+    name: "Re-check Eligibility",
+    exact: true
+  });
+  await expect(recheck).toBeEnabled();
+
+  const before = await apiContext.get(
+    `/api/claims/${scenario.id}/journey`,
+    { headers }
+  );
+  const beforeBody = await before.json();
+  const beforeEligibilityTransactions = beforeBody.claim.payerTransactions.filter(
+    (tx) => tx.transactionType === "ELIGIBILITY"
+  ).length;
+
+  await recheck.click();
+  await expect(page.getByTestId("eligibility-progress")).toBeVisible();
+  await expect(eligibilityStage.getByRole("button", { name: "Checking..." })).toBeDisabled();
+
+  await expect(recheck).toBeEnabled();
+
+  const after = await apiContext.get(
+    `/api/claims/${scenario.id}/journey`,
+    { headers }
+  );
+  const afterBody = await after.json();
+  const afterEligibilityTransactions = afterBody.claim.payerTransactions.filter(
+    (tx) => tx.transactionType === "ELIGIBILITY"
+  ).length;
+
+  expect(afterEligibilityTransactions).toBe(beforeEligibilityTransactions + 1);
+  expect(afterBody.claim.status).toBe("SUBMITTED");
+  expect(afterBody.claim.claimSubmissionDate).toBeTruthy();
+});

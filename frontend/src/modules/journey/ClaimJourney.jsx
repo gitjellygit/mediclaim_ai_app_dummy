@@ -657,6 +657,7 @@ export default function ClaimJourney() {
       : undefined;
 
   const eligibilityComplete = stages?.eligibility?.status === "VERIFIED";
+  const eligibilityHasBeenChecked = Boolean(stages?.eligibility?.checkedAt);
 
   const authFormMatchesSaved = Boolean(claim) &&
     (claim.priorAuthRequired == null
@@ -1904,27 +1905,51 @@ export default function ClaimJourney() {
                     Review Insurance Details
                   </Button>
                 )}
+                {action === "eligibility" && (
+                  <Alert
+                    severity="info"
+                    icon={<CircularProgress size={18} color="inherit" />}
+                    data-testid="eligibility-progress"
+                  >
+                    Checking eligibility with the connected payer. This can take a few seconds.
+                  </Alert>
+                )}
                 <Button
                   variant="contained"
                   size="small"
-                  disabled={!payerConnected || action !== "" || eligibilityComplete}
+                  disabled={!payerConnected || action !== ""}
                   data-testid="eligibility-action"
                   sx={focusActionSx("eligibility-action")}
+                  startIcon={
+                    action === "eligibility" ? (
+                      <CircularProgress size={16} color="inherit" />
+                    ) : eligibilityHasBeenChecked ? (
+                      <Refresh />
+                    ) : (
+                      <Search />
+                    )
+                  }
                   onClick={() =>
                     runAction(
                       "eligibility",
                       () =>
                         externalPayerConnected
-                          ? ClaimsApi.runEligibilityPrecheck(claim.id)
-                          : ClaimsApi.simulatePayerEligibility(claim.id),
-                      "Eligibility updated"
+                          ? ClaimsApi.runEligibilityPrecheck(claim.id, {
+                              force: eligibilityHasBeenChecked
+                            })
+                          : ClaimsApi.simulatePayerEligibility(claim.id, {
+                              force: eligibilityHasBeenChecked
+                            }),
+                      eligibilityHasBeenChecked
+                        ? "Eligibility re-check completed"
+                        : "Eligibility updated"
                     )
                   }
                 >
                   {action === "eligibility"
                     ? "Checking..."
-                    : eligibilityComplete
-                    ? "Eligibility Current"
+                    : eligibilityHasBeenChecked
+                    ? "Re-check Eligibility"
                     : "Check Eligibility"}
                 </Button>
               </Stack>

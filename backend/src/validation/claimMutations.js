@@ -37,6 +37,10 @@ export const serviceLineInputSchema = z.object({
 
 export const emptyMutationSchema = z.object({}).strict();
 
+export const eligibilityPrecheckSchema = z.object({
+  force: z.boolean().optional()
+}).strict();
+
 export const claimSubmissionSchema = z.object({
   confirmProductionSubmission: z.boolean().optional()
 }).strict();
