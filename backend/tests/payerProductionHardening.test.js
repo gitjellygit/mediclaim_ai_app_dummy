@@ -412,3 +412,26 @@ test("production submission route requires explicit confirmation and records ret
   assert.match(journey, /Confirm production 837 submission/);
   assert.match(journey, /confirmProductionSubmission: true/);
 });
+
+
+test("eligibility recheck explicitly bypasses cached/current responses and keeps the recovery UI available", () => {
+  const validation = read("backend/src/validation/claimMutations.js");
+  const journey = read("backend/src/routes/claimJourney.js");
+  const simulator = read("backend/src/routes/claimPayerSimulation.js");
+  const api = read("frontend/src/api/claims.js");
+  const ui = read("frontend/src/modules/journey/ClaimJourney.jsx");
+
+  assert.match(validation, /eligibilityPrecheckSchema[\s\S]*force: z\.boolean\(\)\.optional\(\)/);
+  assert.match(journey, /parseMutation\(eligibilityPrecheckSchema, req\.body\)/);
+  assert.match(journey, /!force && claim\.eligibilityStatus === "VERIFIED"/);
+  assert.match(
+    journey,
+    /!force &&[\s\S]*latestEligibilityTransaction\?\.requestPayload\?\.inputFingerprint === eligibilityFingerprint/
+  );
+  assert.match(simulator, /parseMutation\(eligibilityPrecheckSchema, req\.body\)/);
+  assert.match(api, /runEligibilityPrecheck\(id, options = \{\}\)/);
+  assert.match(api, /simulatePayerEligibility\(id, options = \{\}\)/);
+  assert.match(ui, /Re-check Eligibility/);
+  assert.match(ui, /force: eligibilityHasBeenChecked/);
+  assert.match(ui, /data-testid="eligibility-progress"/);
+});
