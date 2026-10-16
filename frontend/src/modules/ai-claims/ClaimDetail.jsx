@@ -1108,6 +1108,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   async function submitClaim() {
+    const confirmed = await confirmDialog(
+      "Are you sure you want to submit this claim? Submission advances the claim workflow and may send it to the connected payer.",
+      {
+        title: "Submit claim?",
+        severity: "warning",
+        confirmLabel: "Submit Claim",
+        cancelLabel: "Cancel"
+      }
+    );
+    if (!confirmed) return;
+
     try {
       setSubmittingClaim(true);
       await ClaimsApi.submit(id);

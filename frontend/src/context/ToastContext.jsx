@@ -1,14 +1,18 @@
-import { createContext, useContext, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Box,
   Button,
   Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
   DialogTitle,
-  Snackbar
+  Snackbar,
+  Paper,
+  Typography
 } from "@mui/material";
+import { CheckCircle } from "@mui/icons-material";
 
 const ToastContext = createContext();
 
@@ -30,6 +34,11 @@ export function ToastProvider({ children }) {
     severity: "success"
   });
 
+  const [successNotice, setSuccessNotice] = useState({
+    open: false,
+    message: ""
+  });
+
   const [dialog, setDialog] = useState({
     open: false,
     title: "",
@@ -42,7 +51,19 @@ export function ToastProvider({ children }) {
 
   const dialogResolverRef = useRef(null);
 
+  useEffect(() => {
+    if (!successNotice.open) return undefined;
+    const timer = window.setTimeout(() => {
+      setSuccessNotice((current) => ({ ...current, open: false }));
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [successNotice.open, successNotice.message]);
+
   const show = (message, severity = "success") => {
+    if (severity === "success") {
+      setSuccessNotice({ open: true, message });
+      return;
+    }
     setToast({ open: true, message, severity });
   };
 
@@ -148,6 +169,38 @@ export function ToastProvider({ children }) {
       }}
     >
       {children}
+
+      {successNotice.open && (
+        <Box
+          role="status"
+          aria-live="polite"
+          sx={{
+            position: "fixed",
+            inset: 0,
+            zIndex: (theme) => theme.zIndex.modal + 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none"
+          }}
+        >
+          <Paper
+            elevation={8}
+            sx={{
+              px: 4,
+              py: 3,
+              borderRadius: 3,
+              textAlign: "center",
+              maxWidth: 420
+            }}
+          >
+            <CheckCircle color="success" sx={{ fontSize: 64 }} />
+            <Typography sx={{ mt: 1, fontWeight: 700 }}>
+              {successNotice.message}
+            </Typography>
+          </Paper>
+        </Box>
+      )}
 
       <Snackbar
         open={toast.open}

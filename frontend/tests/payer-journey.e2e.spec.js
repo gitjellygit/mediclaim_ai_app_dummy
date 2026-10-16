@@ -28,14 +28,32 @@ async function selectPayer(page, payerName) {
   }
 
   if ((await page.getByTestId("payer-select").count()) === 0) {
+    const connectedInput = page.getByTestId("connected-payer").locator("input");
+    if (await connectedInput.count()) {
+      const currentPayer = await connectedInput.inputValue();
+      if (currentPayer === payerName) {
+        await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
+        return;
+      }
+    }
+
     const change = page.getByRole("button", { name: "Change payer", exact: true });
-    if (await change.count()) await change.click();
+    if (await change.count()) {
+      await change.click();
+      await expect(page.getByTestId("payer-select")).toBeVisible();
+    }
   }
 
   if (await page.getByTestId("payer-select").count()) {
-    await page.getByTestId("payer-select").click();
+    const payerSelect = page.getByTestId("payer-select");
+    await payerSelect.click();
     await page.getByRole("option", { name: payerName }).click();
-    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(payerSelect).toContainText(payerName);
+
+    const connect = page.getByRole("button", { name: "Connect", exact: true });
+    await expect(connect).toBeEnabled();
+    await connect.click();
+    await expect(page.getByTestId("payer-select")).toHaveCount(0);
   }
 
   await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
