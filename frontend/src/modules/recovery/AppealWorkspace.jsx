@@ -32,6 +32,7 @@ import {
   Download,
   Edit,
   FactCheck,
+  OpenInNew,
   Save,
   Send,
   UploadFile,
@@ -128,6 +129,10 @@ export default function AppealWorkspace() {
   const [preview, setPreview] = React.useState(null);
   const [packageOpen, setPackageOpen] = React.useState(false);
 
+  const [analysisProgressOpen, setAnalysisProgressOpen] = React.useState(false);
+  const [analysisProgressState, setAnalysisProgressState] = React.useState("RUNNING");
+  const [analysisProgressMessage, setAnalysisProgressMessage] = React.useState("");
+
   const [submissionOpen, setSubmissionOpen] = React.useState(false);
   const [submission, setSubmission] = React.useState({
     channel: "PAYER_PORTAL",
@@ -172,19 +177,34 @@ export default function AppealWorkspace() {
   }, [preview]);
 
   async function runAnalysis() {
+    const startedAt = Date.now();
     setAction("analysis");
+    setAnalysisProgressState("RUNNING");
+    setAnalysisProgressMessage(
+      "Reviewing payer denial codes, claim facts, and the current recovery evidence."
+    );
+    setAnalysisProgressOpen(true);
+
     try {
       const result = await DenialsApi.analyze(id);
       await load({ preserveDraft: true });
-      if (result?.ai?.llmUsed) {
-        showToast("AI denial analysis completed.", "success");
-      } else {
-        showToast(
-          "Analysis completed using Recovery Rules. No claim information was sent to an external AI service.",
-          "info"
-        );
+
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 700) {
+        await new Promise((resolve) => window.setTimeout(resolve, 700 - elapsed));
       }
+
+      setAnalysisProgressState("COMPLETE");
+      setAnalysisProgressMessage(
+        result?.ai?.llmUsed
+          ? "Analysis completed using the approved external AI configuration."
+          : "Analysis completed using Recovery Rules. No claim information was sent to an external AI service."
+      );
+
+      await new Promise((resolve) => window.setTimeout(resolve, 900));
+      setAnalysisProgressOpen(false);
     } catch (error) {
+      setAnalysisProgressOpen(false);
       showDialog(error?.message || "Recovery analysis could not be completed.", {
         title: "Analysis failed",
         severity: "error"
@@ -192,6 +212,15 @@ export default function AppealWorkspace() {
     } finally {
       setAction("");
     }
+  }
+
+  function openEligibilityReview() {
+    if (!data?.claimId) return;
+    window.open(
+      `/journey?claimId=${encodeURIComponent(data.claimId)}&stage=eligibility`,
+      "_blank",
+      "noopener,noreferrer"
+    );
   }
 
   async function saveRationale() {
@@ -655,6 +684,22 @@ export default function AppealWorkspace() {
                 <Box>
                   <Typography variant="subtitle2">Recommended next action</Typography>
                   <Typography variant="body2">{data.recommendedAction || "—"}</Typography>
+                  {String(data.denialCategory || "").toUpperCase() === "ELIGIBILITY" && (
+                    <Stack spacing={1} sx={{ mt: 1.25 }}>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<OpenInNew />}
+                        onClick={openEligibilityReview}
+                        sx={{ alignSelf: "flex-start" }}
+                      >
+                        Re-check Eligibility
+                      </Button>
+                      <Typography variant="caption" color="text.secondary">
+                        Opens the same claim's Eligibility stage in a new tab. Re-checking coverage does not resubmit the claim.
+                      </Typography>
+                    </Stack>
+                  )}
                 </Box>
               </Stack>
             ) : (
@@ -940,6 +985,38 @@ export default function AppealWorkspace() {
           </Paper>
         </Stack>
       </Box>
+
+      <Dialog
+        open={analysisProgressOpen}
+        disableEscapeKeyDown
+        aria-labelledby="recovery-analysis-progress-title"
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle id="recovery-analysis-progress-title">
+          {analysisProgressState === "COMPLETE"
+            ? "Recovery Analysis Complete"
+            : data?.aiAnalyzedAt
+            ? "Re-running Recovery Analysis"
+            : "Running Recovery Analysis"}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2.25} alignItems="center" sx={{ py: 2, minWidth: { sm: 420 } }}>
+            {analysisProgressState === "COMPLETE" ? (
+              <CheckCircle color="success" sx={{ fontSize: 58 }} />
+            ) : (
+              <CircularProgress size={52} />
+            )}
+            <Typography variant="body2" align="center">
+              {analysisProgressMessage}
+            </Typography>
+            {analysisProgressState === "RUNNING" && (
+              <Typography variant="caption" color="text.secondary" align="center">
+                This dialog reflects the active backend analysis request. It will close when the analysis finishes.
+              </Typography>
+            )}
+          </Stack>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={overrideOpen} onClose={() => setOverrideOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Override Recovery Assessment</DialogTitle>

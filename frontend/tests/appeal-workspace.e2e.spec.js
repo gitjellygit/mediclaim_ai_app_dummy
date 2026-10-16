@@ -90,6 +90,17 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   });
   await runAnalysis.click();
 
+  const analysisProgress = appealPage.getByRole("dialog", {
+    name: /Running Recovery Analysis|Re-running Recovery Analysis/
+  });
+  await expect(analysisProgress).toBeVisible();
+  await expect(
+    appealPage.getByRole("dialog", { name: "Recovery Analysis Complete" })
+  ).toBeVisible();
+  await expect(
+    appealPage.getByRole("dialog", { name: "Recovery Analysis Complete" })
+  ).toBeHidden();
+
   await expect(
     appealPage.getByText("Recovery Rules", { exact: true })
   ).toBeVisible();
