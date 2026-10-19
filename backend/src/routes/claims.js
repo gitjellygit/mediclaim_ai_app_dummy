@@ -58,6 +58,7 @@ import {
   acquireSubmissionLock,
   completeSubmissionLock,
   isPrimaryClaim,
+  markSubmissionReconciliationRequired,
   releaseSubmissionLock,
   safeSubmissionClaim,
   submissionLockTimeoutMs
@@ -2320,6 +2321,18 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       );
     }
 
+    if (
+      claim.status === "SUBMITTING" &&
+      claim.submissionReconciliationRequired === true
+    ) {
+      return res.status(409).json({
+        error: "Claim submission requires reconciliation",
+        message:
+          "A prior payer submission may have been accepted or has an unknown outcome. An administrator must reconcile this claim before any retry.",
+        code: "CLAIM_SUBMISSION_RECONCILIATION_REQUIRED"
+      });
+    }
+
     if (!["READY", "SUBMITTING"].includes(claim.status)) {
       return res.status(409).json({
         error: "Claim is not ready for submission",
@@ -2431,6 +2444,12 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
         submissionProfile: claim.organization
       });
       payerResponseReceived = true;
+      await markSubmissionReconciliationRequired(
+        prisma,
+        claim.id,
+        submissionLock.attemptId,
+        "PAYER_RESPONSE_RECEIVED_PENDING_LOCAL_FINALIZATION"
+      );
 
       safeResult = {
         ...payerSubmission,
@@ -2612,6 +2631,12 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
     }
 
     if (submissionLock && payerResponseReceived) {
+      await markSubmissionReconciliationRequired(
+        prisma,
+        req.params.id,
+        submissionLock.attemptId,
+        "PAYER_RESPONSE_LOCAL_FINALIZATION_FAILED"
+      );
       console.error("[claim-submit] payer responded but local finalization failed", {
         claimId: req.params.id,
         code: e?.code || null
@@ -2638,6 +2663,14 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
     if (e?.status && e?.code !== "STEDI_API_ERROR") throw e;
 
     if (e?.code === "STEDI_SUBMISSION_OUTCOME_UNKNOWN") {
+      if (submissionLock) {
+        await markSubmissionReconciliationRequired(
+          prisma,
+          req.params.id,
+          submissionLock.attemptId,
+          "PAYER_SUBMISSION_OUTCOME_UNKNOWN"
+        );
+      }
       const existing = await prisma.claim.findFirst({
         where: {
           id: req.params.id,
