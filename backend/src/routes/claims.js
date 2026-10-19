@@ -471,6 +471,7 @@ router.get(
         "DRAFT",
         "NEEDS_REVIEW",
         "READY",
+        "SUBMITTING",
         "SUBMITTED",
         "DENIED",
         "PAID"
@@ -493,6 +494,9 @@ router.get(
       filing7.setUTCDate(filing7.getUTCDate() + 7);
       const filing30 = new Date(now);
       filing30.setUTCDate(filing30.getUTCDate() + 30);
+      const staleSubmissionCutoff = new Date(
+        now.getTime() - submissionLockTimeoutMs()
+      );
 
       const filters = [];
 
@@ -559,7 +563,9 @@ router.get(
         organizationTotal,
         needsReview,
         readyToSubmit,
+        submitting,
         submitted,
+        staleSubmitting,
         filingRisk,
         totalClaimed,
         readyAmount
@@ -615,7 +621,22 @@ router.get(
           where: {
             organizationId: orgId(req),
             deletedAt: null,
-            status: { in: ["SUBMITTED", "DENIED", "PAID"] }
+            status: "SUBMITTING"
+          }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: { in: ["SUBMITTING", "SUBMITTED", "DENIED", "PAID"] }
+          }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: "SUBMITTING",
+            submissionStartedAt: { lte: staleSubmissionCutoff }
           }
         }),
         prisma.claim.count({
@@ -649,9 +670,10 @@ router.get(
         DRAFT: 1,
         NEEDS_REVIEW: 2,
         READY: 3,
-        SUBMITTED: 4,
-        DENIED: 5,
-        PAID: 6
+        SUBMITTING: 4,
+        SUBMITTED: 5,
+        DENIED: 6,
+        PAID: 7
       };
       const eligibilityRank = {
         FAILED: 4,
@@ -742,11 +764,22 @@ router.get(
           totalClaims: organizationTotal,
           needsReview,
           readyToSubmit,
+          submitting,
           submitted,
+          staleSubmitting,
           filingRisk,
           totalClaimed: Number(totalClaimed._sum.amount || 0),
           readyAmount: Number(readyAmount._sum.amount || 0)
         },
+        submissionAlert:
+          staleSubmitting > 0
+            ? {
+                severity: "warning",
+                count: staleSubmitting,
+                message:
+                  "One or more claims have been SUBMITTING longer than the submission lock timeout and require admin reconciliation."
+              }
+            : null,
         methodology: {
           readinessThreshold: 80,
           submissionRisk:
