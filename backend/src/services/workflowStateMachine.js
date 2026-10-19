@@ -3,7 +3,8 @@ import { conflict } from "../errors/domainError.js";
 const CLAIM_TRANSITIONS = {
   DRAFT: new Set(["DRAFT", "NEEDS_REVIEW", "READY", "SUBMITTED"]),
   NEEDS_REVIEW: new Set(["NEEDS_REVIEW", "DRAFT", "READY", "SUBMITTED"]),
-  READY: new Set(["READY", "DRAFT", "NEEDS_REVIEW", "SUBMITTED"]),
+  READY: new Set(["READY", "DRAFT", "NEEDS_REVIEW", "SUBMITTING", "SUBMITTED"]),
+  SUBMITTING: new Set(["SUBMITTING", "READY", "SUBMITTED"]),
   SUBMITTED: new Set(["SUBMITTED", "DENIED", "PAID"]),
   DENIED: new Set(["DENIED", "PAID"]),
   PAID: new Set(["PAID"])
