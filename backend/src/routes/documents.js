@@ -33,6 +33,7 @@ import {
 } from "../services/documentProcessing.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
 import { isClaimLocked } from "../services/claimLock.js";
+import { assertExpectedClaimStatus, updateClaimFromExpectedStatus } from "../services/claimStateCas.js";
 import { writeRequestAudit } from "../services/auditLog.js";
 import {
   getExtractedPatientName,
