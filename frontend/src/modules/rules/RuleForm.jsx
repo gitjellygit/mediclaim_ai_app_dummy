@@ -32,23 +32,28 @@ function operatorsFor(field, operators) {
   if (!field) return operators;
   if (field.type === "number") {
     return operators.filter((item) =>
-      ["REQUIRED", "EQUALS", "NOT_EQUALS", "GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL"].includes(item.id)
+      ["REQUIRED", "EQUALS", "NOT_EQUALS", "IN", "NOT_IN", "GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL"].includes(item.id)
     );
   }
   if (field.type === "boolean") {
     return operators.filter((item) => ["REQUIRED", "EQUALS", "NOT_EQUALS"].includes(item.id));
   }
   if (field.type === "date") {
-    return operators.filter((item) => ["REQUIRED", "EQUALS", "NOT_EQUALS"].includes(item.id));
+    return operators.filter((item) =>
+      ["REQUIRED", "EQUALS", "NOT_EQUALS", "BEFORE", "ON_OR_BEFORE", "AFTER", "ON_OR_AFTER"].includes(item.id)
+    );
   }
   return operators.filter((item) =>
-    ["REQUIRED", "EQUALS", "NOT_EQUALS", "IN", "NOT_IN", "MATCHES"].includes(item.id)
+    ["REQUIRED", "EQUALS", "NOT_EQUALS", "IN", "NOT_IN", "STARTS_WITH", "ENDS_WITH", "CONTAINS", "LENGTH_EQUALS", "LENGTH_BETWEEN"].includes(item.id)
   );
 }
 
 function coerceValue(value, field) {
   if (!field) return value;
   if (field.type === "number") {
+    if (typeof value === "string" && value.includes(",")) {
+      return value.split(",").map((item) => Number(item.trim())).filter(Number.isFinite);
+    }
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : value;
   }
@@ -80,6 +85,8 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
     effectiveTo: ""
   });
   const [saving, setSaving] = React.useState(false);
+  const [simulating, setSimulating] = React.useState(false);
+  const [preview, setPreview] = React.useState(null);
   const [error, setError] = React.useState("");
 
   React.useEffect(() => {
@@ -137,6 +144,60 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
   const systemManaged = rule?.systemManaged === true;
   const mandatory = rule?.mandatory === true;
 
+  function buildPayload({ includeCode = false } = {}) {
+    const definition = {
+      field: form.field,
+      operator: form.operator,
+      ...(form.operator === "REQUIRED"
+        ? {}
+        : { value: coerceValue(form.value, fieldMeta) }),
+      ...(form.useAppliesWhen
+        ? {
+            appliesWhen: {
+              field: form.whenField,
+              operator: form.whenOperator,
+              ...(form.whenOperator === "REQUIRED"
+                ? {}
+                : { value: coerceValue(form.whenValue, whenFieldMeta) })
+            }
+          }
+        : {})
+    };
+
+    return {
+      ...((!rule || includeCode)
+        ? { code: form.code.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_") }
+        : {}),
+      name: form.name.trim(),
+      description: form.description.trim() || null,
+      category: form.category,
+      severity: form.severity,
+      enabled: form.enabled,
+      scope: form.scope,
+      payerName: form.scope === "PAYER" ? form.payerName.trim() || null : null,
+      payerEdiId: form.scope === "PAYER" ? form.payerEdiId.trim() || null : null,
+      definition,
+      version: form.version.trim() || "1.0",
+      effectiveFrom: isoDate(form.effectiveFrom),
+      effectiveTo: isoDate(form.effectiveTo)
+    };
+  }
+
+  async function simulate() {
+    if (systemManaged || !form.code.trim() || !form.name.trim()) return;
+    try {
+      setSimulating(true);
+      setError("");
+      const result = await ClaimsApi.simulateRule(buildPayload({ includeCode: true }));
+      setPreview(result);
+    } catch (e) {
+      setPreview(null);
+      setError(e?.message || "Rule impact could not be simulated.");
+    } finally {
+      setSimulating(false);
+    }
+  }
+
   async function submit() {
     if (systemManaged) {
       try {
@@ -167,40 +228,7 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
       return;
     }
 
-    const definition = {
-      field: form.field,
-      operator: form.operator,
-      ...(form.operator === "REQUIRED"
-        ? {}
-        : { value: coerceValue(form.value, fieldMeta) }),
-      ...(form.useAppliesWhen
-        ? {
-            appliesWhen: {
-              field: form.whenField,
-              operator: form.whenOperator,
-              ...(form.whenOperator === "REQUIRED"
-                ? {}
-                : { value: coerceValue(form.whenValue, whenFieldMeta) })
-            }
-          }
-        : {})
-    };
-
-    const payload = {
-      ...(!rule ? { code: form.code.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_") } : {}),
-      name: form.name.trim(),
-      description: form.description.trim() || null,
-      category: form.category,
-      severity: form.severity,
-      enabled: form.enabled,
-      scope: form.scope,
-      payerName: form.scope === "PAYER" ? form.payerName.trim() || null : null,
-      payerEdiId: form.scope === "PAYER" ? form.payerEdiId.trim() || null : null,
-      definition,
-      version: form.version.trim() || "1.0",
-      effectiveFrom: isoDate(form.effectiveFrom),
-      effectiveTo: isoDate(form.effectiveTo)
-    };
+    const payload = buildPayload();
 
     try {
       setSaving(true);
@@ -396,11 +424,25 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
             </>
           )}
 
+          {preview && !systemManaged && (
+            <Alert severity={preview.blockCount > 0 ? "warning" : "info"}>
+              Impact preview: tested {preview.testedClaims} in-process claims
+              {preview.truncated ? " (sample capped at 1,000)" : ""}. This rule would affect {preview.affectedClaims}
+              {" "}claim{preview.affectedClaims === 1 ? "" : "s"}: {preview.blockCount} BLOCK, {preview.warnCount} WARN, {preview.infoCount} INFO.
+              No claim data was changed by this preview.
+            </Alert>
+          )}
+
           {error && <Alert severity="error">{error}</Alert>}
 
           <Stack direction="row" spacing={1.5} justifyContent="flex-end">
-            <Button onClick={onCancel} disabled={saving}>Cancel</Button>
-            <Button variant="contained" onClick={submit} disabled={saving || mandatory}>
+            {!systemManaged && (
+              <Button variant="outlined" onClick={simulate} disabled={saving || simulating || !form.code.trim() || !form.name.trim()}>
+                {simulating ? "Testing…" : "Test Against Claims"}
+              </Button>
+            )}
+            <Button onClick={onCancel} disabled={saving || simulating}>Cancel</Button>
+            <Button variant="contained" onClick={submit} disabled={saving || simulating || mandatory}>
               {saving ? "Saving…" : "Save Rule"}
             </Button>
           </Stack>
