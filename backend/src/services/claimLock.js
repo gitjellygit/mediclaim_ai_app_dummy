@@ -1,6 +1,6 @@
 import { conflict } from "../errors/domainError.js";
 
-export const LOCKED_CLAIM_STATUSES = new Set(["SUBMITTED", "DENIED", "PAID"]);
+export const LOCKED_CLAIM_STATUSES = new Set(["SUBMITTING", "SUBMITTED", "DENIED", "PAID"]);
 
 export function isClaimLocked(claim) {
   return Boolean(
