@@ -1801,6 +1801,356 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
 
 
 
+router.post("/:id/submission/reconcile", requireRoles(["ADMIN"]), async (req, res) => {
+  try {
+    const parsed = z.object({
+      releaseIfNotFound: z.boolean().optional()
+    }).strict().safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid reconciliation request",
+        code: "INVALID_SUBMISSION_RECONCILIATION"
+      });
+    }
+
+    const claim = await prisma.claim.findFirst({
+      where: {
+        id: req.params.id,
+        organizationId: orgId(req),
+        deletedAt: null
+      },
+      include: {
+        organization: {
+          select: { stediBillingProviderName: true }
+        },
+        payerTransactions: {
+          where: {
+            transactionType: { in: ["CLAIM_SUBMISSION", "CLAIM_STATUS"] }
+          },
+          orderBy: { createdAt: "desc" },
+          take: 25
+        }
+      }
+    });
+
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    if (claim.status !== "SUBMITTING") {
+      return res.status(409).json({
+        error: "Claim is not awaiting submission reconciliation",
+        code: "CLAIM_NOT_SUBMITTING"
+      });
+    }
+
+    const now = new Date();
+    const staleBefore = new Date(now.getTime() - submissionLockTimeoutMs());
+    const stale =
+      !claim.submissionStartedAt ||
+      new Date(claim.submissionStartedAt).getTime() <= staleBefore.getTime();
+
+    const acceptedSubmission = claim.payerTransactions.find((transaction) =>
+      transaction.transactionType === "CLAIM_SUBMISSION" &&
+      ["ACKNOWLEDGED", "SUBMITTED", "ACCEPTED", "RECEIVED"].includes(
+        String(transaction.status || "").toUpperCase()
+      )
+    );
+
+    const finalize = async ({ payerStatus = "SUBMITTED", payerReferenceNo = null, sourceTransactionId = null } = {}) => {
+      const completed = await completeSubmissionLock(
+        prisma,
+        claim.id,
+        claim.submissionAttemptId,
+        {
+          claimSubmissionDate: claim.claimSubmissionDate || now,
+          patientControlNumber: claim.patientControlNumber,
+          payerClaimStatus: payerStatus,
+          payerReferenceNo: payerReferenceNo || claim.payerReferenceNo || null,
+          claimStatusCheckedAt: now,
+          remittanceStatus: claim.remittanceStatus === "NOT_AVAILABLE"
+            ? "AWAITING"
+            : claim.remittanceStatus
+        }
+      );
+
+      if (!completed) {
+        return null;
+      }
+
+      if (payerStatus === "DENIED") {
+        await prisma.$transaction(async (tx) => {
+          await tx.claim.update({
+            where: { id: claim.id },
+            data: { status: assertClaimTransition("SUBMITTED", "DENIED") }
+          });
+
+          const existingDenial = await tx.denialCase.findFirst({
+            where: {
+              claimId: claim.id,
+              status: {
+                in: [
+                  "OPEN",
+                  "ANALYZED",
+                  "CORRECTION_REQUIRED",
+                  "APPEAL_PREPARED",
+                  "APPEAL_SUBMITTED",
+                  "RESUBMITTED"
+                ]
+              }
+            }
+          });
+
+          if (!existingDenial) {
+            await tx.denialCase.create({
+              data: {
+                claimId: claim.id,
+                source: "PAYER_STATUS",
+                status: "OPEN",
+                denialDate: now,
+                revenueAtRisk: Number(claim.amount || 0),
+                sourceTransactionId: sourceTransactionId || null,
+                reasonText: "Payer reconciliation confirmed a denied claim"
+              }
+            });
+          }
+        });
+      }
+
+      return prisma.claim.findUnique({
+        where: { id: claim.id },
+        select: {
+          id: true,
+          status: true,
+          patientControlNumber: true,
+          claimSubmissionDate: true,
+          payerClaimStatus: true,
+          payerReferenceNo: true,
+          remittanceStatus: true,
+          claimForm: true,
+          claimFrequencyCode: true,
+          payerName: true,
+          payerEdiId: true
+        }
+      });
+    };
+
+    if (acceptedSubmission) {
+      const reconciled = await finalize({
+        payerStatus: String(acceptedSubmission.status || "SUBMITTED").toUpperCase(),
+        payerReferenceNo:
+          acceptedSubmission.responsePayload?.payerClaimNo ||
+          claim.payerReferenceNo ||
+          null,
+        sourceTransactionId: acceptedSubmission.transactionId
+      });
+
+      if (!reconciled) {
+        return res.status(409).json({
+          error: "Submission ownership changed during reconciliation",
+          code: "CLAIM_SUBMISSION_OWNERSHIP_LOST"
+        });
+      }
+
+      await auditClaim(req, {
+        claimId: claim.id,
+        action: "CLAIM_SUBMISSION_RECONCILED",
+        metadata: {
+          source: "PAYER_TRANSACTION",
+          staleSubmissionRecovered: stale
+        }
+      });
+
+      return res.json({
+        reconciled: true,
+        source: "PAYER_TRANSACTION",
+        claim: safeSubmissionClaim(reconciled)
+      });
+    }
+
+    if (claim.payerConnectionMode !== "LIVE") {
+      if (stale && parsed.data.releaseIfNotFound === true) {
+        const released = await releaseSubmissionLock(
+          prisma,
+          claim.id,
+          claim.submissionAttemptId
+        );
+        if (!released) {
+          return res.status(409).json({
+            error: "Submission ownership changed during reconciliation",
+            code: "CLAIM_SUBMISSION_OWNERSHIP_LOST"
+          });
+        }
+
+        await auditClaim(req, {
+          claimId: claim.id,
+          action: "CLAIM_SUBMISSION_RECONCILED",
+          metadata: {
+            source: "LOCAL_NO_EXTERNAL_TRANSMISSION",
+            releasedToReady: true
+          }
+        });
+
+        return res.json({
+          reconciled: true,
+          released: true,
+          status: "READY"
+        });
+      }
+
+      return res.status(409).json({
+        error: "No external payer transmission evidence is available",
+        message: stale
+          ? "This local-only submission is stale. Re-run reconciliation with releaseIfNotFound=true to release it."
+          : "The submission lock is still within its active timeout window.",
+        code: "SUBMISSION_RECONCILIATION_PENDING",
+        stale
+      });
+    }
+
+    const descriptor = payerConnectorStatusForClaim(claim);
+    if (
+      !descriptor.configured ||
+      !descriptor.capabilities?.includes("getStatus")
+    ) {
+      return res.status(409).json({
+        error: "Payer status reconciliation is not configured",
+        code: "SUBMISSION_RECONCILIATION_CONNECTOR_UNAVAILABLE",
+        stale
+      });
+    }
+
+    const connector = createPayerConnectorForClaim(claim);
+    const result = await connector.getStatus(claim, {
+      providerName: claim.organization?.stediBillingProviderName || null
+    });
+
+    const transaction = await prisma.payerTransaction.create({
+      data: {
+        claimId: claim.id,
+        transactionId:
+          result.transactionId ||
+          `${connector.connectorId}-RECONCILE-${claim.id}-${Date.now()}`,
+        mode: result.livePayerVerification === true
+          ? "PRODUCTION"
+          : connector.connectorEnvironment,
+        payerCode:
+          claim.connectedPayerCode ||
+          claim.payerEdiId ||
+          claim.payerName ||
+          connector.connectorProvider,
+        transactionType: "CLAIM_STATUS",
+        status: result.status || "NEEDS_REVIEW",
+        latencyMs: result.latencyMs || null,
+        requestPayload: {
+          transaction: "276",
+          responseTransaction: "277",
+          reconciliation: true,
+          patientControlNumber: claim.patientControlNumber || null
+        },
+        responsePayload: result
+      }
+    });
+
+    const finalStatuses = new Set([
+      "ACKNOWLEDGED",
+      "IN_REVIEW",
+      "APPROVED",
+      "PARTIALLY_APPROVED",
+      "DENIED",
+      "PAID"
+    ]);
+    const payerStatus = String(result.status || "").toUpperCase();
+
+    if (finalStatuses.has(payerStatus)) {
+      const reconciled = await finalize({
+        payerStatus,
+        payerReferenceNo: result.payerClaimNo || null,
+        sourceTransactionId: transaction.transactionId
+      });
+
+      if (!reconciled) {
+        return res.status(409).json({
+          error: "Submission ownership changed during reconciliation",
+          code: "CLAIM_SUBMISSION_OWNERSHIP_LOST"
+        });
+      }
+
+      await auditClaim(req, {
+        claimId: claim.id,
+        action: "CLAIM_SUBMISSION_RECONCILED",
+        metadata: {
+          source: "PAYER_277",
+          payerClaimStatus: payerStatus,
+          staleSubmissionRecovered: stale
+        }
+      });
+
+      return res.json({
+        reconciled: true,
+        source: "PAYER_277",
+        payerStatus,
+        claim: safeSubmissionClaim(reconciled)
+      });
+    }
+
+    if (
+      payerStatus === "NOT_FOUND" &&
+      stale &&
+      parsed.data.releaseIfNotFound === true
+    ) {
+      const released = await releaseSubmissionLock(
+        prisma,
+        claim.id,
+        claim.submissionAttemptId
+      );
+
+      if (!released) {
+        return res.status(409).json({
+          error: "Submission ownership changed during reconciliation",
+          code: "CLAIM_SUBMISSION_OWNERSHIP_LOST"
+        });
+      }
+
+      await auditClaim(req, {
+        claimId: claim.id,
+        action: "CLAIM_SUBMISSION_RECONCILED",
+        metadata: {
+          source: "PAYER_277",
+          releasedToReady: true,
+          payerStatus: "NOT_FOUND"
+        }
+      });
+
+      return res.json({
+        reconciled: true,
+        released: true,
+        payerStatus: "NOT_FOUND",
+        status: "READY"
+      });
+    }
+
+    return res.status(202).json({
+      reconciled: false,
+      stale,
+      payerStatus: payerStatus || "UNAVAILABLE",
+      message:
+        payerStatus === "NOT_FOUND"
+          ? "Payer did not find the claim. If the lock is stale, an administrator may explicitly release it after review."
+          : "Payer status is not conclusive yet. Keep the claim locked and reconcile again later.",
+      code: "SUBMISSION_RECONCILIATION_PENDING"
+    });
+  } catch (error) {
+    if (error?.status) throw error;
+    console.error("[submission-reconcile] failed", {
+      claimId: req.params.id,
+      code: error?.code || null
+    });
+    return res.status(500).json({
+      error: "Unable to reconcile claim submission",
+      code: "SUBMISSION_RECONCILIATION_FAILED"
+    });
+  }
+});
+
 router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (req, res) => {
   let submissionLock = null;
   let payerResponseReceived = false;
