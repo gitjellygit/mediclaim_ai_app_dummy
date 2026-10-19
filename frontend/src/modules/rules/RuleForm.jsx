@@ -135,6 +135,24 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
 
   function update(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
+    setPreview(null);
+    setError("");
+  }
+
+  function updateField(fieldId, { conditional = false } = {}) {
+    const nextMeta = meta?.fields?.find((item) => item.id === fieldId);
+    const nextOperators = operatorsFor(nextMeta, meta?.operators || []);
+    const operatorKey = conditional ? "whenOperator" : "operator";
+    const valueKey = conditional ? "whenValue" : "value";
+    setForm((current) => ({
+      ...current,
+      [conditional ? "whenField" : "field"]: fieldId,
+      [operatorKey]: nextOperators.some((item) => item.id === current[operatorKey])
+        ? current[operatorKey]
+        : nextOperators[0]?.id || "REQUIRED",
+      [valueKey]: ""
+    }));
+    setPreview(null);
     setError("");
   }
 
@@ -154,20 +172,6 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
   const allowedWhenOperators = operatorsFor(whenFieldMeta, meta.operators);
   const systemManaged = rule?.systemManaged === true;
   const mandatory = rule?.mandatory === true;
-
-  React.useEffect(() => {
-    if (!allowedOperators.some((item) => item.id === form.operator)) {
-      setForm((current) => ({ ...current, operator: allowedOperators[0]?.id || "REQUIRED", value: "" }));
-      setPreview(null);
-    }
-  }, [form.field, form.operator, allowedOperators]);
-
-  React.useEffect(() => {
-    if (!allowedWhenOperators.some((item) => item.id === form.whenOperator)) {
-      setForm((current) => ({ ...current, whenOperator: allowedWhenOperators[0]?.id || "REQUIRED", whenValue: "" }));
-      setPreview(null);
-    }
-  }, [form.whenField, form.whenOperator, allowedWhenOperators]);
 
   function buildPayload({ includeCode = false } = {}) {
     const definition = {
@@ -371,7 +375,7 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
               <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
                 <FormControl fullWidth>
                   <InputLabel>Field</InputLabel>
-                  <Select label="Field" value={form.field} onChange={(e) => update("field", e.target.value)}>
+                  <Select label="Field" value={form.field} onChange={(e) => updateField(e.target.value)}>
                     {meta.fields.map((item) => (
                       <MenuItem key={item.id} value={item.id}>
                         {item.label} · {item.category.replaceAll("_", " ")}
@@ -422,7 +426,7 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
                 <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
                   <FormControl fullWidth>
                     <InputLabel>When field</InputLabel>
-                    <Select label="When field" value={form.whenField} onChange={(e) => update("whenField", e.target.value)}>
+                    <Select label="When field" value={form.whenField} onChange={(e) => updateField(e.target.value, { conditional: true })}>
                       {meta.fields.map((item) => <MenuItem key={item.id} value={item.id}>{item.label}</MenuItem>)}
                     </Select>
                   </FormControl>
