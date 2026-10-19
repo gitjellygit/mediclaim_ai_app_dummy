@@ -1917,12 +1917,19 @@ router.post("/:id/submission/reconcile", requireRoles(["ADMIN"]), async (req, re
         return null;
       }
 
-      if (payerStatus === "DENIED") {
+      if (["DENIED", "PAID"].includes(payerStatus)) {
         await prisma.$transaction(async (tx) => {
           await tx.claim.update({
             where: { id: claim.id },
-            data: { status: assertClaimTransition("SUBMITTED", "DENIED") }
+            data: {
+              status: assertClaimTransition(
+                "SUBMITTED",
+                payerStatus === "DENIED" ? "DENIED" : "PAID"
+              )
+            }
           });
+
+          if (payerStatus !== "DENIED") return;
 
           const existingDenial = await tx.denialCase.findFirst({
             where: {
@@ -1975,8 +1982,16 @@ router.post("/:id/submission/reconcile", requireRoles(["ADMIN"]), async (req, re
     };
 
     if (acceptedSubmission) {
+      const acceptedStatus = String(
+        acceptedSubmission.status || "SUBMITTED"
+      ).toUpperCase();
       const reconciled = await finalize({
-        payerStatus: String(acceptedSubmission.status || "SUBMITTED").toUpperCase(),
+        payerStatus:
+          acceptedStatus === "ACCEPTED"
+            ? "ACKNOWLEDGED"
+            : ["ACKNOWLEDGED", "SUBMITTED", "RECEIVED"].includes(acceptedStatus)
+            ? acceptedStatus
+            : "SUBMITTED",
         payerReferenceNo:
           acceptedSubmission.responsePayload?.payerClaimNo ||
           claim.payerReferenceNo ||
