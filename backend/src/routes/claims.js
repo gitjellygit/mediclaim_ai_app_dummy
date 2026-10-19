@@ -1507,10 +1507,16 @@ router.delete("/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), async (req, r
       });
     }
 
-    await prisma.claim.update({
-      where: { id },
-      data: { deletedAt: new Date() }
-    });
+    await updateClaimFromExpectedStatus(
+      prisma,
+      id,
+      claim.status,
+      { deletedAt: new Date() },
+      {
+        organizationId: orgId(req),
+        message: "Claim entered submission while deletion was being requested. Refresh before retrying."
+      }
+    );
 
     await auditClaim(req, {
       claimId: id,
