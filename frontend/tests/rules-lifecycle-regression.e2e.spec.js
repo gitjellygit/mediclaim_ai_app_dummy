@@ -395,17 +395,84 @@ test("Rules lifecycle - configured payer EDI overrides matching display name", a
   expect((check.issues || []).some((issue) => issue.rule === wrongEdiRule.code)).toBe(false);
 });
 
-test("Rules lifecycle - future rule activation changes fingerprint and blocks stale submission", async () => {
+test("Rules lifecycle - disabled rule creation is draft-like and enabling it invalidates matching readiness", async () => {
   const fixture = await seedClaims();
+  const before = await ensureReady(fixture.aetnaClaimId);
+
+  const created = await createRule(rulePayload({
+    code: code("DISABLED_DRAFT"),
+    enabled: false,
+    definition: { field: "groupNumber", operator: "EQUALS", value: "NOPE" }
+  }));
+
+  expect(created.invalidation.affectedClaims).toBe(0);
+  const unchanged = await getClaim(fixture.aetnaClaimId);
+  expect(unchanged.status).toBe("READY");
+  expect(unchanged.checks[0].isStale).toBe(false);
+  expect(unchanged.checks[0].rulesetFingerprint).toBe(before.checks[0].rulesetFingerprint);
+
+  const enabled = await apiJson(
+    await api.patch(`/api/rules/${created.id}`, {
+      headers: headers(),
+      data: { enabled: true, version: "1.1" }
+    }),
+    "enable rule"
+  );
+  expect(enabled.enabled).toBe(true);
+  expect(enabled.invalidation.affectedClaims).toBeGreaterThanOrEqual(1);
+
+  const after = await getClaim(fixture.aetnaClaimId);
+  expect(after.status).toBe("NEEDS_REVIEW");
+  expect(after.checks[0].isStale).toBe(true);
+});
+
+test("Rules lifecycle - severity change WARN to BLOCK creates a revision and invalidates current readiness", async () => {
+  const fixture = await seedClaims();
+  const created = await createRule(rulePayload({
+    code: code("SEVERITY_CHANGE"),
+    severity: "WARN",
+    definition: { field: "groupNumber", operator: "EQUALS", value: "NOPE" }
+  }));
+
+  await checkClaim(fixture.aetnaClaimId);
+  const before = await getClaim(fixture.aetnaClaimId);
+  expect(before.checks[0].issues.some((issue) => issue.rule === created.code && issue.severity === "WARN")).toBe(true);
+
+  const updated = await apiJson(
+    await api.patch(`/api/rules/${created.id}`, {
+      headers: headers(),
+      data: { severity: "BLOCK", version: "1.1" }
+    }),
+    "raise severity"
+  );
+  expect(updated.revision).toBe(2);
+
+  const stale = await getClaim(fixture.aetnaClaimId);
+  expect(stale.checks[0].isStale).toBe(true);
+
+  const rechecked = await checkClaim(fixture.aetnaClaimId);
+  expect(rechecked.issues.some((issue) => issue.rule === created.code && issue.severity === "BLOCK")).toBe(true);
+});
+
+test("Rules lifecycle - future rule does not stale current readiness until activation, then blocks stale submission", async () => {
+  const fixture = await seedClaims();
+  const readyBefore = await ensureReady(fixture.aetnaClaimId);
   const activatesAt = new Date(Date.now() + 3000).toISOString();
 
-  await createRule(rulePayload({
+  const created = await createRule(rulePayload({
     code: code("FUTURE_BOUNDARY"),
     definition: { field: "groupNumber", operator: "REQUIRED" },
     effectiveFrom: activatesAt
   }));
 
-  await ensureReady(fixture.aetnaClaimId);
+  expect(created.invalidation.affectedClaims).toBe(0);
+  expect(created.invalidation.readyClaimsReopened).toBe(0);
+
+  const stillReady = await getClaim(fixture.aetnaClaimId);
+  expect(stillReady.status).toBe("READY");
+  expect(stillReady.checks[0].isStale).toBe(false);
+  expect(stillReady.checks[0].rulesetFingerprint).toBe(readyBefore.checks[0].rulesetFingerprint);
+
   await new Promise((resolve) => setTimeout(resolve, 3400));
 
   const response = await api.post(`/api/claims/${fixture.aetnaClaimId}/submit`, {
