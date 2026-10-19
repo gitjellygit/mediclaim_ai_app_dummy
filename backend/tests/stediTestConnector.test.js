@@ -306,6 +306,30 @@ test("R2B - Stedi builds trusted professional 837P payload from claim fields", (
   assert.equal(result.payload.claimInformation.serviceLines[0].professionalService.procedureCode, "99213");
 });
 
+test("Submission safety - Stedi mapper refuses incomplete secondary and tertiary 837 claims", () => {
+  for (const coordinationOfBenefits of ["SECONDARY", "TERTIARY"]) {
+    assert.throws(
+      () =>
+        buildStediClaimSubmissionRequest(
+          {
+            id: "claim-cob-block",
+            claimForm: "PROFESSIONAL",
+            coordinationOfBenefits
+          },
+          {
+            requestPayload: {
+              tradingPartnerServiceId: "60054",
+              claimInformation: { patientControlNumber: "PCN-COVERAGE" }
+            }
+          }
+        ),
+      (error) =>
+        error?.code === "STEDI_CLAIM_REQUEST_INVALID" &&
+        /other-payer adjudication\/COB data/i.test(error.message)
+    );
+  }
+});
+
 test("R2B - Stedi claim payload override is forced into test mode", () => {
   const result = buildStediClaimSubmissionRequest(
     { claimForm: "PROFESSIONAL" },
