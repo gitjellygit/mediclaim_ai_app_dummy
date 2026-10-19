@@ -8,8 +8,15 @@ import {
   EXTERNAL_RULE_SOURCE_CATALOG,
   RULE_CATEGORIES,
   SYSTEM_RULE_CATALOG,
-  customRuleField
+  customRuleField,
+  operatorsForField
 } from "../services/ruleCatalog.js";
+import { evaluateConfiguredRules } from "../services/configurableRuleEngine.js";
+import {
+  bumpRulesetAndInvalidate,
+  ruleSnapshot,
+  writeRuleVersion
+} from "../services/ruleLifecycle.js";
 
 const router = express.Router();
 
@@ -25,13 +32,23 @@ function orgId(req) {
 const predicateSchema = z.object({
   field: z.string().min(1).max(100),
   operator: z.enum(OPERATOR_IDS),
-  value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]).optional()
+  value: z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.array(z.union([z.string(), z.number(), z.boolean()]))
+  ]).optional()
 }).strict();
 
 const definitionSchema = z.object({
   field: z.string().min(1).max(100),
   operator: z.enum(OPERATOR_IDS),
-  value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]).optional(),
+  value: z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.array(z.union([z.string(), z.number(), z.boolean()]))
+  ]).optional(),
   appliesWhen: predicateSchema.optional()
 }).strict();
 
@@ -57,24 +74,52 @@ const updateRuleSchema = createRuleSchema.partial().omit({
   code: z.never().optional()
 }).strict();
 
+function validatePredicate(predicate, label = "Rule") {
+  const field = customRuleField(predicate.field);
+  if (!field) return { ok: false, error: `${label}: unsupported rule field` };
+
+  const allowed = operatorsForField(predicate.field);
+  if (!allowed.includes(predicate.operator)) {
+    return {
+      ok: false,
+      error: `${label}: operator ${predicate.operator} is not valid for ${field.type} field ${predicate.field}`
+    };
+  }
+
+  if (predicate.operator !== "REQUIRED" && predicate.value === undefined) {
+    return { ok: false, error: `${label}: this operator requires an expected value` };
+  }
+
+  const value = predicate.value;
+  if (["GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL", "LENGTH_EQUALS"].includes(predicate.operator)) {
+    if (!Number.isFinite(Number(value))) {
+      return { ok: false, error: `${label}: expected value must be numeric` };
+    }
+  }
+  if (predicate.operator === "LENGTH_BETWEEN") {
+    const parts = Array.isArray(value) ? value : String(value || "").split(",");
+    if (parts.length !== 2 || parts.some((part) => !Number.isFinite(Number(part)))) {
+      return { ok: false, error: `${label}: length range must contain minimum and maximum values` };
+    }
+  }
+  if (field.type === "boolean" && predicate.operator !== "REQUIRED" && typeof value !== "boolean") {
+    return { ok: false, error: `${label}: expected value must be true or false` };
+  }
+  if (field.type === "date" && predicate.operator !== "REQUIRED") {
+    const date = new Date(String(value));
+    if (Number.isNaN(date.getTime())) {
+      return { ok: false, error: `${label}: expected value must be a valid date` };
+    }
+  }
+  return { ok: true };
+}
+
 function validateDefinition(definition) {
-  const field = customRuleField(definition.field);
-  if (!field) {
-    return { ok: false, error: "Unsupported rule field" };
-  }
-  if (definition.operator !== "REQUIRED" && definition.value === undefined) {
-    return { ok: false, error: "This operator requires an expected value" };
-  }
+  const primary = validatePredicate(definition);
+  if (!primary.ok) return primary;
   if (definition.appliesWhen) {
-    if (!customRuleField(definition.appliesWhen.field)) {
-      return { ok: false, error: "Unsupported applies-when field" };
-    }
-    if (
-      definition.appliesWhen.operator !== "REQUIRED" &&
-      definition.appliesWhen.value === undefined
-    ) {
-      return { ok: false, error: "Applies-when operator requires a value" };
-    }
+    const condition = validatePredicate(definition.appliesWhen, "Applies-when condition");
+    if (!condition.ok) return condition;
   }
   return { ok: true };
 }
@@ -154,12 +199,96 @@ router.get("/", async (req, res) => {
   });
 });
 
+router.post("/simulate", async (req, res) => {
+  const parsed = createRuleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid rule configuration",
+      message: parsed.error.issues[0]?.message || "Rule input is invalid"
+    });
+  }
+  const input = parsed.data;
+  const validation = validateDefinition(input.definition);
+  if (!validation.ok) return res.status(400).json({ error: validation.error });
+  if (input.scope === "PAYER" && !String(input.payerName || "").trim() && !String(input.payerEdiId || "").trim()) {
+    return res.status(400).json({ error: "Payer-scoped rules require payer name or payer EDI ID" });
+  }
+
+  const rule = {
+    ...input,
+    systemManaged: false,
+    ruleType: "CUSTOM",
+    mandatory: false,
+    source: "ORGANIZATION",
+    revision: 1,
+    effectiveFrom: dateValue(input.effectiveFrom),
+    effectiveTo: dateValue(input.effectiveTo)
+  };
+
+  const where = {
+    organizationId: orgId(req),
+    deletedAt: null,
+    status: { in: ["DRAFT", "NEEDS_REVIEW", "READY"] }
+  };
+  const [totalClaims, claims] = await Promise.all([
+    prisma.claim.count({ where }),
+    prisma.claim.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 1000,
+      include: {
+        documents: { select: { id: true } },
+        serviceLines: { select: { cptHcpcsCode: true, units: true, charge: true, verified: true } }
+      }
+    })
+  ]);
+
+  const affected = [];
+  for (const claim of claims) {
+    const issues = evaluateConfiguredRules(claim, [rule]);
+    if (issues.length) {
+      affected.push({
+        claimId: claim.id,
+        status: claim.status,
+        payerName: claim.payerName,
+        payerEdiId: claim.payerEdiId,
+        severity: issues[0].severity,
+        message: issues[0].message
+      });
+    }
+  }
+
+  res.json({
+    testedClaims: claims.length,
+    totalInProcessClaims: totalClaims,
+    truncated: totalClaims > claims.length,
+    affectedClaims: affected.length,
+    blockCount: affected.filter((item) => item.severity === "BLOCK").length,
+    warnCount: affected.filter((item) => item.severity === "WARN").length,
+    infoCount: affected.filter((item) => item.severity === "INFO").length,
+    samples: affected.slice(0, 10)
+  });
+});
+
 router.get("/:id", async (req, res) => {
   const rule = await prisma.rule.findFirst({
     where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
   });
   if (!rule) return res.status(404).json({ error: "Rule not found" });
   res.json(publicRule(rule));
+});
+
+router.get("/:id/versions", async (req, res) => {
+  const rule = await prisma.rule.findFirst({
+    where: { id: req.params.id, organizationId: orgId(req) },
+    select: { id: true }
+  });
+  if (!rule) return res.status(404).json({ error: "Rule not found" });
+  const versions = await prisma.ruleVersion.findMany({
+    where: { ruleId: rule.id, organizationId: orgId(req) },
+    orderBy: { revision: "desc" }
+  });
+  res.json({ items: versions });
 });
 
 router.post("/", async (req, res) => {
@@ -201,32 +330,44 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    const rule = await prisma.rule.create({
-      data: {
-        organizationId: orgId(req),
-        code: input.code,
-        name: input.name,
-        description: input.description || null,
-        category: input.category,
-        severity: input.severity,
-        enabled: input.enabled,
-        ruleType: "CUSTOM",
-        systemManaged: false,
-        mandatory: false,
-        scope: input.scope,
-        payerName: input.scope === "PAYER" ? (input.payerName || null) : null,
-        payerEdiId: input.scope === "PAYER" ? (input.payerEdiId || null) : null,
-        definition: input.definition,
-        source: "ORGANIZATION",
-        version: input.version,
-        effectiveFrom,
-        effectiveTo
-      }
+    const result = await prisma.$transaction(async (tx) => {
+      const rule = await tx.rule.create({
+        data: {
+          organizationId: orgId(req),
+          code: input.code,
+          name: input.name,
+          description: input.description || null,
+          category: input.category,
+          severity: input.severity,
+          enabled: input.enabled,
+          ruleType: "CUSTOM",
+          systemManaged: false,
+          mandatory: false,
+          scope: input.scope,
+          payerName: input.scope === "PAYER" ? (input.payerName || null) : null,
+          payerEdiId: input.scope === "PAYER" ? (input.payerEdiId || null) : null,
+          definition: input.definition,
+          source: "ORGANIZATION",
+          version: input.version,
+          revision: 1,
+          effectiveFrom,
+          effectiveTo
+        }
+      });
+      await writeRuleVersion(tx, rule, "CREATED", req.user?.id || null);
+      const invalidation = await bumpRulesetAndInvalidate(
+        tx,
+        orgId(req),
+        rule,
+        `Readiness rules changed: ${rule.code} created`
+      );
+      return { rule, invalidation };
     });
-    await auditRule(req, rule, "RULE_CREATED", {
-      changedFields: ["code", "definition", "scope", "severity"]
+    await auditRule(req, result.rule, "RULE_CREATED", {
+      changedFields: ["code", "definition", "scope", "severity"],
+      ...result.invalidation
     });
-    res.status(201).json(publicRule(rule));
+    res.status(201).json({ ...publicRule(result.rule), invalidation: result.invalidation });
   } catch (error) {
     if (error?.code === "P2002") {
       return res.status(409).json({
@@ -260,18 +401,30 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json({ error: "Invalid severity" });
     }
 
-    const updated = await prisma.rule.update({
-      where: { id: existing.id },
-      data: {
-        enabled:
-          typeof req.body?.enabled === "boolean" ? req.body.enabled : undefined,
-        severity: severity || undefined
-      }
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.rule.update({
+        where: { id: existing.id },
+        data: {
+          enabled:
+            typeof req.body?.enabled === "boolean" ? req.body.enabled : undefined,
+          severity: severity || undefined,
+          revision: { increment: 1 }
+        }
+      });
+      await writeRuleVersion(tx, updated, "UPDATED", req.user?.id || null);
+      const invalidation = await bumpRulesetAndInvalidate(
+        tx,
+        orgId(req),
+        updated,
+        `Readiness rules changed: ${updated.code} updated`
+      );
+      return { updated, invalidation };
     });
-    await auditRule(req, updated, "RULE_UPDATED", {
-      changedFields: requestedKeys
+    await auditRule(req, result.updated, "RULE_UPDATED", {
+      changedFields: requestedKeys,
+      ...result.invalidation
     });
-    return res.json(publicRule(updated));
+    return res.json({ ...publicRule(result.updated), invalidation: result.invalidation });
   }
 
   const parsed = updateRuleSchema.safeParse(req.body);
@@ -347,12 +500,25 @@ router.patch("/:id", async (req, res) => {
     (key) => data[key] !== undefined
   );
 
-  const updated = await prisma.rule.update({
-    where: { id: existing.id },
-    data
+  const result = await prisma.$transaction(async (tx) => {
+    const updated = await tx.rule.update({
+      where: { id: existing.id },
+      data: { ...data, revision: { increment: 1 } }
+    });
+    await writeRuleVersion(tx, updated, "UPDATED", req.user?.id || null);
+    const invalidation = await bumpRulesetAndInvalidate(
+      tx,
+      orgId(req),
+      updated,
+      `Readiness rules changed: ${updated.code} updated`
+    );
+    return { updated, invalidation };
   });
-  await auditRule(req, updated, "RULE_UPDATED", { changedFields });
-  res.json(publicRule(updated));
+  await auditRule(req, result.updated, "RULE_UPDATED", {
+    changedFields,
+    ...result.invalidation
+  });
+  res.json({ ...publicRule(result.updated), invalidation: result.invalidation });
 });
 
 router.delete("/:id", async (req, res) => {
@@ -366,14 +532,25 @@ router.delete("/:id", async (req, res) => {
     });
   }
 
-  const deleted = await prisma.rule.update({
-    where: { id: existing.id },
-    data: { deletedAt: new Date(), enabled: false }
+  const result = await prisma.$transaction(async (tx) => {
+    const deleted = await tx.rule.update({
+      where: { id: existing.id },
+      data: { deletedAt: new Date(), enabled: false, revision: { increment: 1 } }
+    });
+    await writeRuleVersion(tx, deleted, "ARCHIVED", req.user?.id || null);
+    const invalidation = await bumpRulesetAndInvalidate(
+      tx,
+      orgId(req),
+      existing,
+      `Readiness rules changed: ${existing.code} archived`
+    );
+    return { deleted, invalidation };
   });
-  await auditRule(req, deleted, "RULE_DELETED", {
-    changedFields: ["deletedAt", "enabled"]
+  await auditRule(req, result.deleted, "RULE_DELETED", {
+    changedFields: ["deletedAt", "enabled"],
+    ...result.invalidation
   });
-  res.json({ success: true });
+  res.json({ success: true, invalidation: result.invalidation });
 });
 
 export default router;
