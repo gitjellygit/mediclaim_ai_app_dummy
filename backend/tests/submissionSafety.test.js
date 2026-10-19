@@ -6,6 +6,7 @@ import {
   claimPaymentResponsibility,
   completeSubmissionLock,
   isPrimaryClaim,
+  markSubmissionReconciliationRequired,
   releaseSubmissionLock,
   safeSubmissionClaim,
   stablePatientControlNumber
@@ -156,6 +157,73 @@ test("submission safety - owner can release a failed preflight back to READY", a
   const stored = await prisma.claim.findUnique({ where: { id: claim.id } });
   assert.equal(stored.status, "READY");
   assert.equal(stored.submissionAttemptId, null);
+});
+
+
+
+test("submission safety - reconciliation-required stale lock cannot be auto-reclaimed", async () => {
+  const claim = await createClaim("SUBMITTING", {
+    submissionAttemptId: "reconcile-owner",
+    submissionStartedAt: new Date("2026-10-19T18:00:00.000Z"),
+    submissionReconciliationRequired: true,
+    submissionReconciliationReason: "PAYER_RESPONSE_RECEIVED_PENDING_LOCAL_FINALIZATION"
+  });
+
+  const acquired = await acquireSubmissionLock(prisma, claim, {
+    organizationId: ORG_ID,
+    now: new Date("2026-10-19T20:00:00.000Z"),
+    env: { CLAIM_SUBMISSION_LOCK_TIMEOUT_MS: "60000" },
+    attemptId: "should-not-acquire"
+  });
+
+  assert.equal(acquired, null);
+
+  const stored = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(stored.status, "SUBMITTING");
+  assert.equal(stored.submissionAttemptId, "reconcile-owner");
+  assert.equal(stored.submissionReconciliationRequired, true);
+});
+
+test("submission safety - marking reconciliation required is owner-scoped and release clears it", async () => {
+  const claim = await createClaim("READY");
+  const acquired = await acquireSubmissionLock(prisma, claim, {
+    organizationId: ORG_ID,
+    attemptId: "payer-owner"
+  });
+  assert.ok(acquired);
+
+  assert.equal(
+    await markSubmissionReconciliationRequired(
+      prisma,
+      claim.id,
+      "wrong-owner",
+      "SHOULD_NOT_APPLY"
+    ),
+    false
+  );
+
+  assert.equal(
+    await markSubmissionReconciliationRequired(
+      prisma,
+      claim.id,
+      "payer-owner",
+      "PAYER_RESPONSE_RECEIVED_PENDING_LOCAL_FINALIZATION"
+    ),
+    true
+  );
+
+  let stored = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(stored.submissionReconciliationRequired, true);
+
+  assert.equal(
+    await releaseSubmissionLock(prisma, claim.id, "payer-owner"),
+    true
+  );
+
+  stored = await prisma.claim.findUnique({ where: { id: claim.id } });
+  assert.equal(stored.status, "READY");
+  assert.equal(stored.submissionReconciliationRequired, false);
+  assert.equal(stored.submissionReconciliationReason, null);
 });
 
 test("submission safety - response DTO cannot expose storage or OCR fields", () => {
