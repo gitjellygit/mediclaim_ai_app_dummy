@@ -1614,6 +1614,7 @@ export function documentsRouter(prisma, uploadDir) {
       where: { id: { in: claimIds }, organizationId: req.user.organizationId, deletedAt: null },
       select: {
         id: true,
+        status: true,
         documentDerivedFields: true,
         fieldProvenance: true
       }
@@ -1645,27 +1646,40 @@ export function documentsRouter(prisma, uploadDir) {
       });
     }
 
-    await prisma.$transaction([
-      prisma.document.deleteMany({ where: { id: { in: authorizedDocumentIds } } }),
-      prisma.check.updateMany({
+    await prisma.$transaction(async (tx) => {
+      for (const claim of claims) {
+        await assertExpectedClaimStatus(
+          tx,
+          claim.id,
+          claim.status,
+          {
+            organizationId: req.user.organizationId,
+            message: "One or more claims entered submission while documents were being deleted. Refresh before retrying."
+          }
+        );
+      }
+
+      await tx.document.deleteMany({ where: { id: { in: authorizedDocumentIds } } });
+      await tx.check.updateMany({
         where: { claimId: { in: claimIds }, isStale: false },
         data: {
           isStale: true,
           staleAt: new Date(),
           staleReason: "Supporting documents deleted"
         }
-      }),
-      ...claimUpdates.map(({ claimId, patch, fieldProvenance }) =>
-        prisma.claim.update({
+      });
+
+      for (const { claimId, patch, fieldProvenance } of claimUpdates) {
+        await tx.claim.update({
           where: { id: claimId },
           data: {
             ...patch,
             fieldProvenance,
             status: "DRAFT"
           }
-        })
-      )
-    ]);
+        });
+      }
+    });
 
     for (const doc of docs) {
       await auditDocumentEvent(prisma, req, {
