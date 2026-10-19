@@ -1802,6 +1802,7 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
 
 router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (req, res) => {
   let submissionLock = null;
+  let payerResponseReceived = false;
 
   try {
     const parsedInput = parseMutation(claimSubmissionSchema, req.body);
@@ -2038,6 +2039,7 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       payerSubmission = await connector.submitClaim(submissionClaim, {
         submissionProfile: claim.organization
       });
+      payerResponseReceived = true;
 
       safeResult = {
         ...payerSubmission,
@@ -2106,6 +2108,7 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
           submissionLock.attemptId
         );
         submissionLock = null;
+        payerResponseReceived = false;
 
         await auditClaim(req, {
           claimId: claim.id,
@@ -2197,7 +2200,11 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       claim: safeSubmissionClaim(updated)
     });
   } catch (e) {
-    if (submissionLock && e?.code !== "STEDI_SUBMISSION_OUTCOME_UNKNOWN") {
+    if (
+      submissionLock &&
+      !payerResponseReceived &&
+      e?.code !== "STEDI_SUBMISSION_OUTCOME_UNKNOWN"
+    ) {
       try {
         await releaseSubmissionLock(
           prisma,
@@ -2211,6 +2218,30 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
         });
       }
       submissionLock = null;
+    }
+
+    if (submissionLock && payerResponseReceived) {
+      console.error("[claim-submit] payer responded but local finalization failed", {
+        claimId: req.params.id,
+        code: e?.code || null
+      });
+      await auditClaim(req, {
+        claimId: req.params.id,
+        action: "CLAIM_SUBMISSION_RECONCILIATION_REQUIRED",
+        outcome: "DENIED",
+        metadata: {
+          payerResponded: true,
+          submissionLocked: true
+        }
+      });
+      return res.status(202).json({
+        success: false,
+        reconciliationRequired: true,
+        error: "Payer responded but local submission finalization is incomplete",
+        message:
+          "The claim remains locked in SUBMITTING. Do not resend or edit it; an administrator must reconcile payer status.",
+        code: "PAYER_SUBMISSION_RECONCILIATION_REQUIRED"
+      });
     }
 
     if (e?.status && e?.code !== "STEDI_API_ERROR") throw e;
