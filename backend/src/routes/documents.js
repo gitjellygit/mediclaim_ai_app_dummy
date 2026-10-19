@@ -1081,6 +1081,12 @@ export function documentsRouter(prisma, uploadDir) {
 
       res.json(publicDocument(updated));
     } catch (error) {
+      if (error?.status) {
+        return res.status(error.status).json({
+          error: error.message,
+          code: error.code || "CLAIM_STATE_CHANGED"
+        });
+      }
       return res.status(500).json({
         error: "Failed to process document"
       });
@@ -1348,6 +1354,12 @@ export function documentsRouter(prisma, uploadDir) {
         message: `Document type changed to ${nextType.replaceAll("_", " ")}`
       });
     } catch (error) {
+      if (error?.status) {
+        return res.status(error.status).json({
+          error: error.message,
+          code: error.code || "CLAIM_STATE_CHANGED"
+        });
+      }
       console.error("[claim-document] manual type update failed", {
         documentId: req.params.id,
         code: error?.code || null
@@ -1470,6 +1482,12 @@ export function documentsRouter(prisma, uploadDir) {
         message: "Document identity review completed"
       });
     } catch (error) {
+      if (error?.status) {
+        return res.status(error.status).json({
+          error: error.message,
+          code: error.code || "CLAIM_STATE_CHANGED"
+        });
+      }
       console.error("[claim-document] identity review update failed", {
         documentId: req.params.id,
         code: error?.code || null
@@ -1563,6 +1581,12 @@ export function documentsRouter(prisma, uploadDir) {
       message: `Document type changed to ${updated.type.replaceAll("_", " ")}`
     });
   } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({
+        error: error.message,
+        code: error.code || "CLAIM_STATE_CHANGED"
+      });
+    }
     console.error("[claim-document] apply suggestion failed", {
       documentId: req.params.id,
       code: error?.code || null,
@@ -1704,6 +1728,12 @@ export function documentsRouter(prisma, uploadDir) {
 
     res.json({ success: true, deleted: docs.length });
   } catch (e) {
+    if (e?.status) {
+      return res.status(e.status).json({
+        error: e.message,
+        code: e.code || "CLAIM_STATE_CHANGED"
+      });
+    }
     console.error("Bulk delete error:", e);
     res.status(500).json({ error: "Bulk deletion failed", code: "DOCUMENT_BULK_DELETE_FAILED" });
   }
