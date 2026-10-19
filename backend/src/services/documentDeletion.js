@@ -102,6 +102,12 @@ export async function deleteStoredDocument(prisma, req, res, {
       recomputedFields
     });
   } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({
+        error: error.message,
+        code: error.code || "CLAIM_STATE_CHANGED"
+      });
+    }
     console.error("[documents] deletion failed", {
       documentId: req.params.id,
       code: error?.code || null,
