@@ -519,6 +519,7 @@ model Check {
 
   // Organization ruleset revision used for this readiness result.
   rulesetRevision Int @default(1)
+  rulesetFingerprint String?
 
   // ✅ Rejection Risk Prediction (AI)
   riskScore   Float?
