@@ -201,6 +201,56 @@ test("Rules lifecycle - modifying a rule preserves immutable old snapshot and in
   expect((rechecked.issues || []).some((issue) => issue.rule === created.code)).toBe(true);
 });
 
+test("Rules lifecycle - saving an unchanged rule is idempotent and does not stale claims", async () => {
+  const fixture = await seedClaims();
+  const created = await createRule(rulePayload({
+    code: code("NOOP_SAVE"),
+    definition: { field: "groupNumber", operator: "REQUIRED" }
+  }));
+
+  const ready = await ensureReady(fixture.aetnaClaimId);
+  const versionsBefore = await apiJson(
+    await api.get(`/api/rules/${created.id}/versions`, { headers: headers() }),
+    "get versions before no-op"
+  );
+
+  const unchanged = await apiJson(
+    await api.patch(`/api/rules/${created.id}`, {
+      headers: headers(),
+      data: {
+        name: created.name,
+        description: created.description,
+        category: created.category,
+        severity: created.severity,
+        enabled: created.enabled,
+        scope: created.scope,
+        payerName: created.payerName,
+        payerEdiId: created.payerEdiId,
+        definition: created.definition,
+        version: created.version,
+        effectiveFrom: created.effectiveFrom,
+        effectiveTo: created.effectiveTo
+      }
+    }),
+    "save unchanged rule"
+  );
+
+  expect(unchanged.unchanged).toBe(true);
+  expect(unchanged.invalidation.affectedClaims).toBe(0);
+
+  const claim = await getClaim(fixture.aetnaClaimId);
+  expect(claim.status).toBe("READY");
+  expect(claim.checks[0].isStale).toBe(false);
+  expect(claim.checks[0].rulesetFingerprint).toBe(ready.checks[0].rulesetFingerprint);
+
+  const versionsAfter = await apiJson(
+    await api.get(`/api/rules/${created.id}/versions`, { headers: headers() }),
+    "get versions after no-op"
+  );
+  expect(versionsAfter.items.length).toBe(versionsBefore.items.length);
+  expect(versionsAfter.items[0].revision).toBe(1);
+});
+
 test("Rules lifecycle - disabling a failing custom rule stales the old result and removes issue after recheck", async () => {
   const fixture = await seedClaims();
   const created = await createRule(rulePayload({
