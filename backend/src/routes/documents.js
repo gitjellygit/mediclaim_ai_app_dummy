@@ -403,6 +403,18 @@ export function documentsRouter(prisma, uploadDir) {
       req.file.storagePath = storedDocumentPath;
 
       const doc = await prisma.$transaction(async (tx) => {
+        if (!pendingNewClaimData) {
+          await assertExpectedClaimStatus(
+            tx,
+            claim.id,
+            claim.status,
+            {
+              organizationId: req.user.organizationId,
+              message: "Claim entered submission while the smart upload was being saved. Refresh before retrying."
+            }
+          );
+        }
+
         if (pendingNewClaimData) {
           claim = await tx.claim.create({
             data: {
@@ -666,6 +678,16 @@ export function documentsRouter(prisma, uploadDir) {
     req.file.storagePath = storedDocumentPath;
 
     const { doc, updatedClaim } = await prisma.$transaction(async (tx) => {
+      await assertExpectedClaimStatus(
+        tx,
+        claimId,
+        claim.status,
+        {
+          organizationId: req.user.organizationId,
+          message: "Claim entered submission while the document upload was being saved. Refresh before retrying."
+        }
+      );
+
       const created = await tx.document.create({
         data: documentCreateData({
           claimId,
