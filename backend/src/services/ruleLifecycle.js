@@ -48,7 +48,12 @@ function payerClaimWhere(rule) {
     return {
       OR: [
         { payerEdiId: { equals: edi, mode: "insensitive" } },
-        { connectedPayerCode: { equals: edi, mode: "insensitive" } }
+        {
+          AND: [
+            { OR: [{ payerEdiId: null }, { payerEdiId: "" }] },
+            { connectedPayerCode: { equals: edi, mode: "insensitive" } }
+          ]
+        }
       ]
     };
   }
@@ -58,7 +63,12 @@ function payerClaimWhere(rule) {
   return {
     OR: [
       { payerName: { equals: name, mode: "insensitive" } },
-      { connectedPayerName: { equals: name, mode: "insensitive" } }
+      {
+        AND: [
+          { OR: [{ payerName: null }, { payerName: "" }] },
+          { connectedPayerName: { equals: name, mode: "insensitive" } }
+        ]
+      }
     ]
   };
 }
