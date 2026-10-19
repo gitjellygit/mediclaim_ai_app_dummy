@@ -21,7 +21,15 @@ export const CUSTOM_RULE_OPERATORS = Object.freeze([
   { id: "GREATER_OR_EQUAL", label: "is at least" },
   { id: "LESS_THAN", label: "is less than" },
   { id: "LESS_OR_EQUAL", label: "is at most" },
-  { id: "MATCHES", label: "matches pattern" }
+  { id: "STARTS_WITH", label: "starts with" },
+  { id: "ENDS_WITH", label: "ends with" },
+  { id: "CONTAINS", label: "contains" },
+  { id: "LENGTH_EQUALS", label: "length equals" },
+  { id: "LENGTH_BETWEEN", label: "length is between" },
+  { id: "BEFORE", label: "is before" },
+  { id: "ON_OR_BEFORE", label: "is on or before" },
+  { id: "AFTER", label: "is after" },
+  { id: "ON_OR_AFTER", label: "is on or after" }
 ]);
 
 export const CUSTOM_RULE_FIELDS = Object.freeze([
@@ -49,6 +57,15 @@ export const CUSTOM_RULE_FIELDS = Object.freeze([
   { id: "diagnosisCount", label: "Diagnosis count", type: "number", category: "CODING", fixTarget: "claim" },
   { id: "verifiedServiceLineCount", label: "Verified service-line count", type: "number", category: "CODING", fixTarget: "serviceLines" },
   { id: "documentCount", label: "Supporting document count", type: "number", category: "DOCUMENTATION", fixTarget: "documents" },
+  { id: "serviceLineCount", label: "Service-line count", type: "number", category: "CODING", fixTarget: "serviceLines" },
+  { id: "totalUnits", label: "Total service units", type: "number", category: "CODING", fixTarget: "serviceLines" },
+  { id: "totalServiceLineCharges", label: "Total service-line charges", type: "number", category: "FINANCIAL", fixTarget: "serviceLines" },
+  { id: "claimVsLineChargeDifference", label: "Claim vs service-line charge difference", type: "number", category: "FINANCIAL", fixTarget: "serviceLines" },
+  { id: "claimAgeDays", label: "Claim age in days", type: "number", category: "WORKFLOW", fixTarget: "claim" },
+  { id: "daysSinceService", label: "Days since service", type: "number", category: "CLAIM", fixTarget: "claim" },
+  { id: "daysUntilFilingDeadline", label: "Days until filing deadline", type: "number", category: "CLAIM", fixTarget: "claim" },
+  { id: "eligibilityAgeHours", label: "Eligibility verification age in hours", type: "number", category: "PATIENT_COVERAGE", fixTarget: "eligibility" },
+  { id: "authorizationAgeDays", label: "Prior authorization age in days", type: "number", category: "AUTHORIZATION", fixTarget: "prior-auth" },
   { id: "amount", label: "Claimed amount", type: "number", category: "FINANCIAL", fixTarget: "claim" },
   { id: "totalBilledAmount", label: "Total billed amount", type: "number", category: "FINANCIAL", fixTarget: "claim" },
   { id: "priorAuthRequired", label: "Prior authorization required", type: "boolean", category: "AUTHORIZATION", fixTarget: "prior-auth" },
@@ -80,4 +97,17 @@ export function systemRule(code) {
 
 export function customRuleField(field) {
   return CUSTOM_RULE_FIELDS.find((item) => item.id === field) || null;
+}
+
+
+export const OPERATORS_BY_FIELD_TYPE = Object.freeze({
+  string: Object.freeze(["REQUIRED", "EQUALS", "NOT_EQUALS", "IN", "NOT_IN", "STARTS_WITH", "ENDS_WITH", "CONTAINS", "LENGTH_EQUALS", "LENGTH_BETWEEN"]),
+  number: Object.freeze(["REQUIRED", "EQUALS", "NOT_EQUALS", "IN", "NOT_IN", "GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL"]),
+  boolean: Object.freeze(["REQUIRED", "EQUALS", "NOT_EQUALS"]),
+  date: Object.freeze(["REQUIRED", "EQUALS", "NOT_EQUALS", "BEFORE", "ON_OR_BEFORE", "AFTER", "ON_OR_AFTER"])
+});
+
+export function operatorsForField(field) {
+  const meta = customRuleField(field);
+  return meta ? (OPERATORS_BY_FIELD_TYPE[meta.type] || []) : [];
 }
