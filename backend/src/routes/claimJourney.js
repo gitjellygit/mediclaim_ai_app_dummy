@@ -14,6 +14,7 @@ import { buildClaimCompleteness } from "../services/claimCompleteness.js";
 import { getMockPayer, payerInputFingerprint } from "../services/payerSimulator.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
+import { assertExpectedClaimStatus } from "../services/claimStateCas.js";
 import { createPayerConnector, createPayerConnectorForClaim, payerConnectorStatusForClaim } from "../services/payerGateway.js";
 import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
 import { requirePermission } from "../middleware/auth.js";
@@ -320,6 +321,16 @@ router.post(
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      await assertExpectedClaimStatus(
+        tx,
+        claim.id,
+        claim.status,
+        {
+          organizationId: orgId(req),
+          message: "Claim entered submission while payer connection was being changed. Refresh before retrying."
+        }
+      );
+
       const updatedClaim = await tx.claim.update({
         where: { id: claim.id },
         data: {
@@ -439,6 +450,16 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
     const coverageStatus = eligibility.coverageStatus || "UNKNOWN";
 
     const { updated, payerTransaction } = await prisma.$transaction(async (tx) => {
+      await assertExpectedClaimStatus(
+        tx,
+        claim.id,
+        claim.status,
+        {
+          organizationId: orgId(req),
+          message: "Claim entered submission while eligibility was being refreshed. Refresh before retrying."
+        }
+      );
+
       const updatedClaim = await tx.claim.update({
         where: { id: claim.id },
         data: {
@@ -624,6 +645,16 @@ router.post("/:id/journey/prior-auth/evaluate", requirePermission(PERMISSIONS.PA
     if (expiry) priorAuthFields.push("priorAuthExpiry");
 
     const updated = await prisma.$transaction(async (tx) => {
+      await assertExpectedClaimStatus(
+        tx,
+        claim.id,
+        claim.status,
+        {
+          organizationId: orgId(req),
+          message: "Claim entered submission while prior authorization was being updated. Refresh before retrying."
+        }
+      );
+
       const updatedClaim = await tx.claim.update({
         where: { id: claim.id },
         data: {
