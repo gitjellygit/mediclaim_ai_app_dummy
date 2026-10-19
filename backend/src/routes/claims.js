@@ -1283,9 +1283,11 @@ router.patch("/:id", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res)
     if (anyClaimDataChanged) {
       await prisma.$transaction(async (tx) => {
         if (patchChangedFields.length > 0) {
-          await tx.claim.update({
-            where: { id: req.params.id },
-            data: {
+          await updateClaimFromExpectedStatus(
+            tx,
+            req.params.id,
+            existing.status,
+            {
               ...payload,
               ...(payerIdentityChanged
                 ? {
@@ -1305,13 +1307,23 @@ router.patch("/:id", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res)
               documentDerivedFields,
               fieldProvenance,
               status: nextStatus
+            },
+            {
+              organizationId: orgId(req),
+              message: "Claim entered submission while this edit was being saved. Refresh before editing."
             }
-          });
+          );
         } else if (serviceLinesChanged && existing.status !== nextStatus) {
-          await tx.claim.update({
-            where: { id: req.params.id },
-            data: { status: nextStatus }
-          });
+          await updateClaimFromExpectedStatus(
+            tx,
+            req.params.id,
+            existing.status,
+            { status: nextStatus },
+            {
+              organizationId: orgId(req),
+              message: "Claim entered submission while service-line changes were being saved. Refresh before editing."
+            }
+          );
         }
 
         if (serviceLinesChanged) {
