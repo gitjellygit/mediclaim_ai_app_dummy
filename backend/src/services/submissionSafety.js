@@ -51,7 +51,8 @@ export async function acquireSubmissionLock(
         { status: "READY" },
         {
           status: "SUBMITTING",
-          submissionStartedAt: { lte: staleBefore }
+          submissionStartedAt: { lte: staleBefore },
+          submissionReconciliationRequired: false
         }
       ]
     },
@@ -59,7 +60,9 @@ export async function acquireSubmissionLock(
       status: "SUBMITTING",
       patientControlNumber,
       submissionAttemptId: attemptId,
-      submissionStartedAt: now
+      submissionStartedAt: now,
+      submissionReconciliationRequired: false,
+      submissionReconciliationReason: null
     }
   });
 
@@ -88,7 +91,9 @@ export async function releaseSubmissionLock(
     data: {
       status,
       submissionAttemptId: null,
-      submissionStartedAt: null
+      submissionStartedAt: null,
+      submissionReconciliationRequired: false,
+      submissionReconciliationReason: null
     }
   });
   return released.count === 1;
@@ -110,7 +115,9 @@ export async function completeSubmissionLock(
       ...data,
       status: "SUBMITTED",
       submissionAttemptId: null,
-      submissionStartedAt: null
+      submissionStartedAt: null,
+      submissionReconciliationRequired: false,
+      submissionReconciliationReason: null
     }
   });
   return completed.count === 1;
@@ -131,4 +138,25 @@ export function safeSubmissionClaim(claim) {
     payerName: claim.payerName || null,
     payerEdiId: claim.payerEdiId || null
   };
+}
+
+
+export async function markSubmissionReconciliationRequired(
+  prisma,
+  claimId,
+  attemptId,
+  reason
+) {
+  const result = await prisma.claim.updateMany({
+    where: {
+      id: claimId,
+      status: "SUBMITTING",
+      submissionAttemptId: attemptId
+    },
+    data: {
+      submissionReconciliationRequired: true,
+      submissionReconciliationReason: String(reason || "PAYER_RESPONSE_REQUIRES_RECONCILIATION").slice(0, 200)
+    }
+  });
+  return result.count === 1;
 }
