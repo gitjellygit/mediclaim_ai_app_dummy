@@ -974,45 +974,77 @@ export function documentsRouter(prisma, uploadDir) {
       }
 
       if (analysis.ocrStatus === "FAILED") {
-        await prisma.document.update({ where: { id: doc.id }, data: { status: "FAILED" } });
+        await prisma.$transaction(async (tx) => {
+          await assertExpectedClaimStatus(
+            tx,
+            doc.claimId,
+            doc.claim.status,
+            {
+              organizationId: req.user.organizationId,
+              message: "Claim entered submission while document processing was running. Refresh before retrying."
+            }
+          );
+          await tx.document.update({
+            where: { id: doc.id },
+            data: { status: "FAILED" }
+          });
+        });
         return res.status(503).json({ error: "OCR unavailable", message: "Text extraction failed. Retry document processing later.", code: "OCR_UNAVAILABLE" });
       }
 
-      // Update document with AI results
-      const updated = await prisma.document.update({
-        where: { id: doc.id },
-        data: {
-          suggestedType: analysis.suggestedType,
-          confidence: analysis.confidence,
-          extracted: analysis.extracted,
-          rawText: analysis.rawExtractedText || null,
-          ocrProvider: analysis.ocrProvider || analysis.extractionSource || null,
-          status: "PROCESSED"
-        }
-      });
+      const updated = await prisma.$transaction(async (tx) => {
+        await assertExpectedClaimStatus(
+          tx,
+          doc.claimId,
+          doc.claim.status,
+          {
+            organizationId: req.user.organizationId,
+            message: "Claim entered submission while document processing was running. Refresh before retrying."
+          }
+        );
 
-      await syncDocumentCodingSuggestions(prisma, {
-        claimId: doc.claimId,
-        documentId: doc.id,
-        extracted: analysis.extracted || {},
-        rawText: analysis.rawExtractedText || "",
-        confidence: analysis.confidence
-      });
+        const changed = await tx.document.update({
+          where: { id: doc.id },
+          data: {
+            suggestedType: analysis.suggestedType,
+            confidence: analysis.confidence,
+            extracted: analysis.extracted,
+            rawText: analysis.rawExtractedText || null,
+            ocrProvider: analysis.ocrProvider || analysis.extractionSource || null,
+            status: "PROCESSED"
+          }
+        });
 
-      await prisma.$transaction([
-        prisma.check.updateMany({
+        await syncDocumentCodingSuggestions(tx, {
+          claimId: doc.claimId,
+          documentId: doc.id,
+          extracted: analysis.extracted || {},
+          rawText: analysis.rawExtractedText || "",
+          confidence: analysis.confidence
+        });
+
+        await tx.check.updateMany({
           where: { claimId: doc.claimId, isStale: false },
           data: {
             isStale: true,
             staleAt: new Date(),
             staleReason: "Supporting document reprocessed"
           }
-        }),
-        prisma.claim.update({
-          where: { id: doc.claimId },
-          data: { status: "DRAFT" }
-        })
-      ]);
+        });
+
+        await updateClaimFromExpectedStatus(
+          tx,
+          doc.claimId,
+          doc.claim.status,
+          { status: "DRAFT" },
+          {
+            organizationId: req.user.organizationId,
+            message: "Claim entered submission while document processing was running. Refresh before retrying."
+          }
+        );
+
+        return changed;
+      });
 
       await auditDocumentEvent(prisma, req, {
         claimId: doc.claimId,
