@@ -1384,13 +1384,21 @@ router.post("/e2e/submission-safety/seed", async (req, res) => {
       submissionAttemptId: "e2e-stale-lock",
       submissionStartedAt: staleStartedAt
     });
+    const reconciliationRequired = await createReady("RECONCILE-LOCK", {
+      status: "SUBMITTING",
+      submissionAttemptId: "e2e-reconcile-lock",
+      submissionStartedAt: staleStartedAt,
+      submissionReconciliationRequired: true,
+      submissionReconciliationReason: "PAYER_RESPONSE_LOCAL_FINALIZATION_FAILED"
+    });
 
     res.json({
       primaryClaimId: primary.id,
       secondaryClaimId: secondary.id,
       tertiaryClaimId: tertiary.id,
       activeSubmittingClaimId: active.id,
-      staleSubmittingClaimId: stale.id
+      staleSubmittingClaimId: stale.id,
+      reconciliationRequiredClaimId: reconciliationRequired.id
     });
   } catch (error) {
     console.error("[e2e-submission-safety] seed failed", {
