@@ -127,6 +127,20 @@ function dateValue(value) {
   return value ? new Date(value) : null;
 }
 
+function comparableValue(value) {
+  if (value instanceof Date) return value.toISOString();
+  if (value && typeof value === "object") return JSON.stringify(value);
+  return value ?? null;
+}
+
+function actualChangedFields(existing, patch) {
+  return Object.keys(patch).filter(
+    (key) =>
+      patch[key] !== undefined &&
+      comparableValue(existing?.[key]) !== comparableValue(patch[key])
+  );
+}
+
 function publicRule(rule) {
   return {
     ...rule,
@@ -417,13 +431,25 @@ router.patch("/:id", async (req, res) => {
       return res.status(400).json({ error: "Invalid severity" });
     }
 
+    const systemPatch = {
+      enabled:
+        typeof req.body?.enabled === "boolean" ? req.body.enabled : undefined,
+      severity: severity || undefined
+    };
+    const changedSystemFields = actualChangedFields(existing, systemPatch);
+    if (changedSystemFields.length === 0) {
+      return res.json({
+        ...publicRule(existing),
+        unchanged: true,
+        invalidation: { affectedClaims: 0, readyClaimsReopened: 0 }
+      });
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.rule.update({
         where: { id: existing.id },
         data: {
-          enabled:
-            typeof req.body?.enabled === "boolean" ? req.body.enabled : undefined,
-          severity: severity || undefined,
+          ...systemPatch,
           revision: { increment: 1 }
         }
       });
@@ -438,7 +464,7 @@ router.patch("/:id", async (req, res) => {
       return { updated, invalidation };
     });
     await auditRule(req, result.updated, "RULE_UPDATED", {
-      changedFields: requestedKeys,
+      changedFields: changedSystemFields,
       ruleCode: result.updated.code,
       ruleRevision: result.updated.revision,
       previousVersion: existing.version,
@@ -523,9 +549,14 @@ router.patch("/:id", async (req, res) => {
   };
   delete data.code;
 
-  const changedFields = Object.keys(data).filter(
-    (key) => data[key] !== undefined
-  );
+  const changedFields = actualChangedFields(existing, data);
+  if (changedFields.length === 0) {
+    return res.json({
+      ...publicRule(existing),
+      unchanged: true,
+      invalidation: { affectedClaims: 0, readyClaimsReopened: 0 }
+    });
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     const updated = await tx.rule.update({
