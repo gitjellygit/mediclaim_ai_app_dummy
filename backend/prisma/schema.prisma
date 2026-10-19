@@ -194,6 +194,10 @@ model Organization {
   name      String
   slug      String   @unique
 
+  // Monotonically increases whenever an active readiness rule changes.
+  // Readiness checks store the revision they were evaluated against.
+  rulesetRevision Int @default(1)
+
   // Organization-owned 837 submitter/billing/legal configuration.
   // Nullable by design: production submission fails preflight until configured.
   stediSubmitterName                         String?
@@ -217,6 +221,7 @@ model Organization {
   claims      Claim[]
   auditEvents AuditEvent[]
   rules       Rule[]
+  ruleVersions RuleVersion[]
 }
 
 model Claim {
@@ -512,6 +517,10 @@ model Check {
   staleAt     DateTime?
   staleReason String?
 
+  // Organization ruleset revision used for this readiness result.
+  rulesetRevision Int @default(1)
+  rulesetFingerprint String?
+
   // ✅ Rejection Risk Prediction (AI)
   riskScore   Float?
   riskLevel   String? // LOW | MED | HIGH
@@ -552,14 +561,38 @@ model Rule {
 
   source        String @default("ORGANIZATION")
   version       String @default("1.0")
+  revision      Int @default(1)
   effectiveFrom DateTime?
   effectiveTo   DateTime?
   deletedAt     DateTime?
+
+  versions RuleVersion[]
 
   @@unique([organizationId, code])
   @@index([organizationId, deletedAt])
   @@index([organizationId, category])
   @@index([organizationId, scope, payerEdiId])
+}
+
+model RuleVersion {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  ruleId String
+  rule   Rule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  revision      Int
+  versionLabel  String
+  changeType    String
+  changedByUserId String?
+  snapshot      Json
+
+  @@unique([ruleId, revision])
+  @@index([organizationId, createdAt])
+  @@index([ruleId, createdAt])
 }
 
 model User {

@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { SYSTEM_RULE_CATALOG } from "../src/services/ruleCatalog.js";
+import { ruleSnapshot } from "../src/services/ruleLifecycle.js";
 
 if (process.env.NODE_ENV === "production") {
   throw new Error("Demo seed is disabled in production");
@@ -63,7 +64,7 @@ async function main() {
       source: "SYSTEM",
       version: "built-in"
     };
-    await prisma.rule.upsert({
+    const seededRule = await prisma.rule.upsert({
       where: {
         organizationId_code: {
           organizationId: organization.id,
@@ -86,6 +87,27 @@ async function main() {
       create: {
         ...rule,
         organizationId: organization.id
+      }
+    });
+
+    await prisma.ruleVersion.upsert({
+      where: {
+        ruleId_revision: {
+          ruleId: seededRule.id,
+          revision: seededRule.revision || 1
+        }
+      },
+      update: {
+        versionLabel: seededRule.version || "built-in",
+        snapshot: ruleSnapshot(seededRule)
+      },
+      create: {
+        organizationId: organization.id,
+        ruleId: seededRule.id,
+        revision: seededRule.revision || 1,
+        versionLabel: seededRule.version || "built-in",
+        changeType: "SEED_BASELINE",
+        snapshot: ruleSnapshot(seededRule)
       }
     });
   }

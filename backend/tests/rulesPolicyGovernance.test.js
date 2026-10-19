@@ -55,3 +55,57 @@ test("Rules admin UI uses the governed rule builder and external-source catalog"
   assert.match(form, /Payer EDI ID/);
   assert.match(form, /Effective From/);
 });
+
+
+test("Rules v1 hardening stores immutable history and ruleset fingerprints", () => {
+  const schema = read("backend/prisma/schema.prisma");
+  const migration = read("backend/prisma/migrations/20261019190000_rules_v1_hardening/migration.sql");
+  const lifecycle = read("backend/src/services/ruleLifecycle.js");
+
+  assert.match(schema, /rulesetRevision\s+Int/);
+  assert.match(schema, /rulesetFingerprint\s+String\?/);
+  assert.match(schema, /model RuleVersion/);
+  assert.match(schema, /revision\s+Int/);
+  assert.match(migration, /CREATE TABLE "RuleVersion"/);
+  assert.match(lifecycle, /rulesetFingerprint/);
+  assert.match(lifecycle, /createHash\("sha256"\)/);
+  assert.match(lifecycle, /READY/);
+  assert.match(lifecycle, /NEEDS_REVIEW/);
+});
+
+test("Rules v1 hardening provides typed validation simulation and history APIs", () => {
+  const route = read("backend/src/routes/rules.js");
+  const catalog = read("backend/src/services/ruleCatalog.js");
+
+  assert.match(route, /router\.post\("\/simulate"/);
+  assert.match(route, /router\.get\("\/:id\/versions"/);
+  assert.match(route, /operatorsForField/);
+  assert.match(route, /writeRuleVersion/);
+  assert.match(route, /bumpRulesetAndInvalidate/);
+  assert.match(route, /immutable identities/i);
+  assert.match(catalog, /OPERATORS_BY_FIELD_TYPE/);
+  assert.doesNotMatch(catalog, /\{ id: "MATCHES", label:/);
+  assert.match(catalog, /ON_OR_AFTER/);
+  assert.match(catalog, /daysUntilFilingDeadline/);
+});
+
+test("Rules v1 hardening blocks stale rulesets at submission", () => {
+  const claims = read("backend/src/routes/claims.js");
+
+  assert.match(claims, /rulesetFingerprint\(rules, claim/);
+  assert.match(claims, /rulesetFingerprint: evaluatedRulesetFingerprint/);
+  assert.match(claims, /rulesetFreshness/);
+  assert.match(claims, /READINESS_RULESET_STALE/);
+});
+
+test("Rules admin UI exposes impact preview and immutable revision history", () => {
+  const api = read("frontend/src/api/claims.js");
+  const form = read("frontend/src/modules/rules/RuleForm.jsx");
+
+  assert.match(api, /simulateRule\(data\)/);
+  assert.match(api, /getRuleVersions\(id\)/);
+  assert.match(form, /Test Against Claims/);
+  assert.match(form, /Impact preview/);
+  assert.match(form, /Version History/);
+  assert.match(form, /Length range \(min,max\)/);
+});

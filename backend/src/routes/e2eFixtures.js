@@ -1,5 +1,6 @@
 import express from "express";
 import { buildFinalUatScenarios, finalUatLocalSafety } from "../services/finalUatFixtures.js";
+import { rulesetFingerprint } from "../services/ruleLifecycle.js";
 
 /** Synthetic test fixtures only. Never mount this router in normal environments. */
 export function e2eFixturesRouter(prisma) {
@@ -1131,6 +1132,146 @@ router.delete("/e2e/approval-intelligence/cleanup", async (req, res) => {
   }
 });
 
+
+
+router.post("/e2e/rules-lifecycle/seed", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const prefix = "E2E-RULES-LIFECYCLE-";
+  const organizationId = req.user.organizationId;
+  const now = new Date();
+  const dateOfService = new Date(now);
+  dateOfService.setUTCDate(dateOfService.getUTCDate() - 7);
+  const filingDeadline = new Date(now);
+  filingDeadline.setUTCDate(filingDeadline.getUTCDate() + 90);
+
+  const baseData = (suffix, payerName, payerEdiId) => ({
+    organizationId,
+    createdById: req.user.id,
+    patientName: prefix + suffix,
+    payerName,
+    payerEdiId,
+    policyNo: "POL-" + suffix,
+    memberId: "MEM-" + suffix,
+    groupNumber: "GRP-" + suffix,
+    amount: 100,
+    totalBilledAmount: 100,
+    claimForm: "PROFESSIONAL",
+    claimType: "PROVIDER_BILLED",
+    billingProviderNpi: "1234567890",
+    renderingProviderNpi: "1987654321",
+    providerTin: "123456789",
+    providerTaxonomyCode: "207Q00000X",
+    icd10Codes: ["M54.50"],
+    dateOfService,
+    timelyFilingDeadline: filingDeadline,
+    eligibilityStatus: "VERIFIED",
+    eligibilityCheckedAt: now,
+    coverageStatus: "ACTIVE",
+    priorAuthRequired: false,
+    priorAuthStatus: "NOT_REQUIRED",
+    priorAuthCheckedAt: now,
+    status: "DRAFT",
+    documents: {
+      create: [{
+        type: "OTHER",
+        fileName: suffix.toLowerCase() + ".pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 64,
+        path: "e2e-fixture://" + suffix.toLowerCase() + ".pdf",
+        status: "PROCESSED",
+        verified: true
+      }]
+    },
+    serviceLines: {
+      create: [{
+        cptHcpcsCode: "99213",
+        units: 1,
+        charge: 100,
+        diagnosisPointers: ["M54.50"],
+        placeOfService: "11",
+        serviceDateFrom: dateOfService,
+        serviceDateTo: dateOfService,
+        verified: true,
+        source: "USER"
+      }]
+    }
+  });
+
+  try {
+    await prisma.claim.deleteMany({
+      where: { organizationId, patientName: { startsWith: prefix } }
+    });
+
+    const [aetna, cigna, submitted] = await Promise.all([
+      prisma.claim.create({
+        data: baseData("AETNA", "Aetna", "60054"),
+        include: { documents: true, serviceLines: true }
+      }),
+      prisma.claim.create({
+        data: baseData("CIGNA", "Cigna", "62308"),
+        include: { documents: true, serviceLines: true }
+      }),
+      prisma.claim.create({
+        data: { ...baseData("SUBMITTED", "Aetna", "60054"), status: "SUBMITTED", claimSubmissionDate: now },
+        include: { documents: true, serviceLines: true }
+      })
+    ]);
+
+    const rules = await prisma.rule.findMany({
+      where: { organizationId, deletedAt: null }
+    });
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { rulesetRevision: true }
+    });
+
+    await prisma.check.create({
+      data: {
+        claimId: submitted.id,
+        score: 96,
+        issues: [],
+        riskScore: 0.04,
+        riskLevel: "LOW",
+        riskFactors: [],
+        rulesetRevision: organization?.rulesetRevision || 1,
+        rulesetFingerprint: rulesetFingerprint(rules, submitted, now)
+      }
+    });
+
+    res.json({
+      aetnaClaimId: aetna.id,
+      cignaClaimId: cigna.id,
+      submittedClaimId: submitted.id
+    });
+  } catch (error) {
+    console.error("[e2e-rules-lifecycle] seed failed", {
+      name: error?.name || "Error",
+      code: error?.code || null,
+      message: error?.message || null
+    });
+    res.status(500).json({ error: "Unable to seed rules lifecycle scenarios" });
+  }
+});
+
+router.delete("/e2e/rules-lifecycle/cleanup", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+  try {
+    const result = await prisma.claim.deleteMany({
+      where: {
+        organizationId: req.user.organizationId,
+        patientName: { startsWith: "E2E-RULES-LIFECYCLE-" }
+      }
+    });
+    res.json({ deleted: result.count });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to clean rules lifecycle scenarios" });
+  }
+});
 
 function finalUatGuard(req, res) {
   const safety = finalUatLocalSafety();

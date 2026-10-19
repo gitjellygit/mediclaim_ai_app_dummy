@@ -42,6 +42,17 @@ export const ClaimsApi = {
     return withReadRetry(() => api("/api/rules/" + id));
   },
 
+  getRuleVersions(id) {
+    return withReadRetry(() => api("/api/rules/" + id + "/versions"));
+  },
+
+  simulateRule(data) {
+    return api("/api/rules/simulate", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+  },
+
   createRule(data) {
     return api("/api/rules", {
       method: "POST",

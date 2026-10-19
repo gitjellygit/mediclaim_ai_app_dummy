@@ -44,6 +44,7 @@ import { buildApprovalIntelligenceItem } from "../services/approvalIntelligence.
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
 import { evaluateUsReadinessRules } from "../services/usReadinessRules.js";
 import { evaluateConfiguredRules } from "../services/configurableRuleEngine.js";
+import { rulesetFingerprint, rulesetFreshness } from "../services/ruleLifecycle.js";
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
 import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
@@ -1491,7 +1492,8 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
         documents: true,
-        serviceLines: { orderBy: { createdAt: "asc" } }
+        serviceLines: { orderBy: { createdAt: "asc" } },
+        organization: { select: { rulesetRevision: true } }
       }
     });
 
@@ -1616,6 +1618,7 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
 
     issues.push(...evaluateUsReadinessRules(claim, rules));
     issues.push(...evaluateConfiguredRules(claim, rules));
+    const evaluatedRulesetFingerprint = rulesetFingerprint(rules, claim, new Date());
 
     const completeness = completenessReadinessIssues(claim);
     issues.push(...completeness.issues);
@@ -1730,7 +1733,9 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
           issues,
           isStale: false,
           staleAt: null,
-          staleReason: null
+          staleReason: null,
+          rulesetRevision: claim.organization?.rulesetRevision || 1,
+          rulesetFingerprint: evaluatedRulesetFingerprint
         }
       });
 
@@ -1785,6 +1790,7 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
         serviceLines: { orderBy: { createdAt: "asc" } },
         organization: {
           select: {
+            rulesetRevision: true,
             stediSubmitterName: true,
             stediSubmitterId: true,
             stediSubmitterPhone: true,
@@ -1837,6 +1843,20 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       return res.status(400).json({
         error:
           "Claim changed after the last AI Check. Refresh AI readiness before submitting."
+      });
+    }
+
+    const rulesFreshness = await rulesetFreshness(
+      prisma,
+      orgId(req),
+      latestCheck,
+      claim,
+      new Date()
+    );
+    if (!rulesFreshness.fresh) {
+      return res.status(400).json({
+        error: rulesFreshness.reason || "Readiness rules changed after the last AI Check. Refresh AI readiness before submitting.",
+        code: "READINESS_RULESET_STALE"
       });
     }
 
