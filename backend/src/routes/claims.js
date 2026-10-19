@@ -1526,6 +1526,7 @@ router.delete("/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), async (req, r
 
     res.json({ success: true, softDeleted: true });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("Delete claim error:", error);
     res.status(400).json({ error: "Unable to delete claim" });
   }
