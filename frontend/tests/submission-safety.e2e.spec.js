@@ -157,6 +157,86 @@ test("Submission safety - abandoned SUBMITTING lock is reclaimed safely", async 
   expect(claim.submissionAttemptId).toBeUndefined();
 });
 
+test("Submission safety - reconciliation-required stale lock cannot be retried normally", async () => {
+  const response = await api.post(
+    `/api/claims/${fixture.reconciliationRequiredClaimId}/submit`,
+    {
+      headers: headers(),
+      data: {}
+    }
+  );
+
+  expect(response.status()).toBe(409);
+  const body = await response.json();
+  expect(body.code).toBe("CLAIM_SUBMISSION_RECONCILIATION_REQUIRED");
+
+  const claim = await json(
+    await api.get(`/api/claims/${fixture.reconciliationRequiredClaimId}`, {
+      headers: headers()
+    }),
+    "load reconciliation-required claim"
+  );
+  expect(claim.status).toBe("SUBMITTING");
+});
+
+test("Submission safety - admin can explicitly reconcile a stale local submission back to READY", async () => {
+  const response = await api.post(
+    `/api/claims/${fixture.reconciliationRequiredClaimId}/submission/reconcile`,
+    {
+      headers: headers(),
+      data: { releaseIfNotFound: true }
+    }
+  );
+
+  expect(response.status()).toBe(200);
+  const body = await response.json();
+  expect(body.reconciled).toBe(true);
+  expect(body.released).toBe(true);
+  expect(body.status).toBe("READY");
+
+  const claim = await json(
+    await api.get(`/api/claims/${fixture.reconciliationRequiredClaimId}`, {
+      headers: headers()
+    }),
+    "load released claim"
+  );
+  expect(claim.status).toBe("READY");
+});
+
+test("Submission safety - non-admin users cannot reconcile submissions", async () => {
+  const cashier = await json(
+    await api.post("/api/auth/login", {
+      data: { email: "cashier@hospital.com", password: "cashier123" }
+    }),
+    "cashier login"
+  );
+
+  const response = await api.post(
+    `/api/claims/${fixture.reconciliationRequiredClaimId}/submission/reconcile`,
+    {
+      headers: { Authorization: `Bearer ${cashier.accessToken}` },
+      data: { releaseIfNotFound: true }
+    }
+  );
+
+  expect(response.status()).toBe(403);
+});
+
+test("Submission safety - approval intelligence includes in-flight and stale submissions", async () => {
+  const response = await api.get("/api/claims/approval-intelligence?status=SUBMITTING", {
+    headers: headers()
+  });
+  expect(response.status()).toBe(200);
+  const body = await response.json();
+
+  expect(body.metrics.submitting).toBeGreaterThanOrEqual(3);
+  expect(body.metrics.staleSubmitting).toBeGreaterThanOrEqual(2);
+  expect(body.metrics.submitted).toBeGreaterThanOrEqual(body.metrics.submitting);
+  expect(body.submissionAlert).toBeTruthy();
+  expect(body.submissionAlert.count).toBeGreaterThanOrEqual(2);
+  expect(body.items.every((item) => item.status === "SUBMITTING")).toBe(true);
+});
+
 test("Submission safety - retry after successful submission cannot create a second submission", async () => {
   const path = `/api/claims/${fixture.primaryClaimId}/submit`;
   const first = await api.post(path, { headers: headers(), data: {} });
