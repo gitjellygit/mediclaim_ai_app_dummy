@@ -1742,7 +1742,18 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
     );
 
     const check = await prisma.$transaction(async (tx) => {
-      const created = await tx.check.create({
+      await updateClaimFromExpectedStatus(
+        tx,
+        claim.id,
+        claim.status,
+        { status: readinessStatus },
+        {
+          organizationId: orgId(req),
+          message: "Claim entered submission while readiness was being calculated. Refresh before running AI Check again."
+        }
+      );
+
+      return tx.check.create({
         data: {
           claimId: claim.id,
           score: readinessScore,
@@ -1757,13 +1768,6 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
           rulesetFingerprint: evaluatedRulesetFingerprint
         }
       });
-
-      await tx.claim.update({
-        where: { id: claim.id },
-        data: { status: readinessStatus }
-      });
-
-      return created;
     });
 
     await auditClaim(req, {
