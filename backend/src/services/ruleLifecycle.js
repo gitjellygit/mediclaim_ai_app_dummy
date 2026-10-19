@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { ruleScopeMatches } from "./configurableRuleEngine.js";
 
 const IN_PROCESS_STATUSES = ["DRAFT", "NEEDS_REVIEW", "READY"];
@@ -41,7 +42,7 @@ export async function writeRuleVersion(tx, rule, changeType, changedByUserId = n
 }
 
 function payerClaimWhere(rule) {
-  if (rule.scope !== "PAYER") return {};
+  if (!rule || rule.scope !== "PAYER") return null;
   const edi = String(rule.payerEdiId || "").trim();
   if (edi) {
     return {
@@ -62,7 +63,26 @@ function payerClaimWhere(rule) {
   };
 }
 
-export async function bumpRulesetAndInvalidate(tx, organizationId, rule, reason) {
+function affectedClaimScope(rule, previousRule) {
+  if (
+    rule?.scope !== "PAYER" ||
+    (previousRule && previousRule.scope !== "PAYER")
+  ) {
+    return {};
+  }
+
+  const scopes = [payerClaimWhere(rule), payerClaimWhere(previousRule)].filter(Boolean);
+  if (!scopes.length) return { id: "__NO_MATCH__" };
+  return scopes.length === 1 ? scopes[0] : { OR: scopes };
+}
+
+export async function bumpRulesetAndInvalidate(
+  tx,
+  organizationId,
+  rule,
+  reason,
+  previousRule = null
+) {
   const organization = await tx.organization.update({
     where: { id: organizationId },
     data: { rulesetRevision: { increment: 1 } },
@@ -74,7 +94,7 @@ export async function bumpRulesetAndInvalidate(tx, organizationId, rule, reason)
       organizationId,
       deletedAt: null,
       status: { in: IN_PROCESS_STATUSES },
-      ...payerClaimWhere(rule)
+      ...affectedClaimScope(rule, previousRule)
     },
     select: { id: true, status: true }
   });
@@ -103,48 +123,61 @@ export async function bumpRulesetAndInvalidate(tx, organizationId, rule, reason)
   };
 }
 
-export async function rulesetFreshness(prisma, organizationId, check, now = new Date()) {
+function effectiveAt(rule, now) {
+  if (!rule || rule.enabled === false || rule.deletedAt) return false;
+  if (rule.effectiveFrom && new Date(rule.effectiveFrom).getTime() > now.getTime()) return false;
+  if (rule.effectiveTo && new Date(rule.effectiveTo).getTime() < now.getTime()) return false;
+  return true;
+}
+
+export function applicableRules(rules, claim, now = new Date()) {
+  return (rules || [])
+    .filter((rule) => effectiveAt(rule, now))
+    .filter((rule) => rule.scope !== "PAYER" || ruleScopeMatches(rule, claim))
+    .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+}
+
+export function rulesetFingerprint(rules, claim, now = new Date()) {
+  const normalized = applicableRules(rules, claim, now).map((rule) => ({
+    code: rule.code,
+    revision: Number(rule.revision || 1),
+    version: rule.version || "1.0",
+    severity: rule.severity,
+    enabled: Boolean(rule.enabled),
+    mandatory: Boolean(rule.mandatory),
+    scope: rule.scope,
+    payerName: rule.payerName || null,
+    payerEdiId: rule.payerEdiId || null,
+    definition: rule.definition || null,
+    effectiveFrom: rule.effectiveFrom ? new Date(rule.effectiveFrom).toISOString() : null,
+    effectiveTo: rule.effectiveTo ? new Date(rule.effectiveTo).toISOString() : null
+  }));
+
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(normalized))
+    .digest("hex");
+}
+
+export async function rulesetFreshness(prisma, organizationId, check, claim, now = new Date()) {
   if (!check) return { fresh: false, reason: "No readiness check" };
-
-  const organization = await prisma.organization.findUnique({
-    where: { id: organizationId },
-    select: { rulesetRevision: true }
-  });
-  if (!organization) return { fresh: false, reason: "Organization not found" };
-
-  if (Number(check.rulesetRevision || 1) !== Number(organization.rulesetRevision || 1)) {
-    return { fresh: false, reason: "Readiness rules changed after the last AI Check" };
+  if (!check.rulesetFingerprint) {
+    return {
+      fresh: false,
+      reason: "The last AI Check predates ruleset fingerprinting. Refresh AI readiness before submitting."
+    };
   }
 
-  // A future-dated rule can cross its activation/expiration boundary without an
-  // admin mutation. Detect that at submission time so a pre-boundary check
-  // cannot be reused after policy applicability changes.
-  const temporalChange = await prisma.rule.findFirst({
-    where: {
-      organizationId,
-      enabled: true,
-      deletedAt: null,
-      OR: [
-        {
-          effectiveFrom: {
-            gt: check.createdAt,
-            lte: now
-          }
-        },
-        {
-          effectiveTo: {
-            gt: check.createdAt,
-            lt: now
-          }
-        }
-      ]
-    },
-    select: { id: true }
+  const rules = await prisma.rule.findMany({
+    where: { organizationId, deletedAt: null }
   });
-
-  return temporalChange
-    ? { fresh: false, reason: "A rule effective-date boundary changed after the last AI Check" }
-    : { fresh: true, reason: null };
+  const current = rulesetFingerprint(rules, claim, now);
+  return current === check.rulesetFingerprint
+    ? { fresh: true, reason: null }
+    : {
+        fresh: false,
+        reason: "Applicable readiness rules changed after the last AI Check. Refresh AI readiness before submitting."
+      };
 }
 
 export function ruleMatchesClaim(rule, claim) {
