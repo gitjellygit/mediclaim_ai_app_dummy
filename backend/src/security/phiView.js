@@ -138,6 +138,8 @@ export function minimumNecessaryClaim(claim, user) {
 
   const safe = { ...claim };
   delete safe.documentDerivedFields;
+  delete safe.submissionAttemptId;
+  delete safe.submissionStartedAt;
   if (!hasPermission(user, PERMISSIONS.CLINICAL_VIEW)) {
     delete safe.fieldProvenance;
   }
