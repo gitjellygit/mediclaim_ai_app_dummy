@@ -2,6 +2,7 @@ import { recomputeDerivedClaimPatch } from "./claimDocumentProvenance.js";
 import { removeProvenanceFields } from "./claimFieldProvenance.js";
 import { deleteStoredObject } from "./documentStorage.js";
 import { isClaimLocked } from "./claimLock.js";
+import { assertExpectedClaimStatus } from "./claimStateCas.js";
 
 /** One deletion implementation shared by the current and legacy document APIs. */
 export async function deleteStoredDocument(prisma, req, res, {
@@ -35,21 +36,31 @@ export async function deleteStoredDocument(prisma, req, res, {
       recomputedFields
     );
 
-    await prisma.$transaction([
-      prisma.document.delete({ where: { id: doc.id } }),
-      prisma.check.updateMany({
+    await prisma.$transaction(async (tx) => {
+      await assertExpectedClaimStatus(
+        tx,
+        doc.claimId,
+        doc.claim.status,
+        {
+          organizationId: req.user.organizationId,
+          message: "Claim entered submission while the document was being deleted. Refresh before retrying."
+        }
+      );
+
+      await tx.document.delete({ where: { id: doc.id } });
+      await tx.check.updateMany({
         where: { claimId: doc.claimId, isStale: false },
         data: {
           isStale: true,
           staleAt: new Date(),
           staleReason: "Supporting document deleted"
         }
-      }),
-      prisma.claim.update({
+      });
+      await tx.claim.update({
         where: { id: doc.claimId },
         data: { ...derivedPatch, fieldProvenance, status: "DRAFT" }
-      })
-    ]);
+      });
+    });
 
     try {
       await prisma.auditEvent.create({
