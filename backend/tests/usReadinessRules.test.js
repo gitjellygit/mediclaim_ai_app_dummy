@@ -169,3 +169,23 @@ test("H3 - user-confirmed service lines can satisfy CPT and diagnosis linkage", 
   assert.equal(codes(issues).includes("US_CPT_PRESENT"), false);
   assert.equal(codes(issues).includes("US_DIAGNOSIS_CPT_LINK"), false);
 });
+
+
+test("Submission safety - secondary and tertiary claims are mandatory readiness blockers", () => {
+  for (const coordinationOfBenefits of ["SECONDARY", "TERTIARY"]) {
+    const issue = evaluateUsReadinessRules(
+      claim({ coordinationOfBenefits }),
+      US_READINESS_RULE_DEFAULTS
+    ).find((item) => item.rule === "US_COB_PRIMARY_ONLY");
+
+    assert.ok(issue);
+    assert.equal(issue.severity, "BLOCK");
+    assert.equal(issue.field, "coordinationOfBenefits");
+  }
+
+  const primary = evaluateUsReadinessRules(
+    claim({ coordinationOfBenefits: "PRIMARY" }),
+    US_READINESS_RULE_DEFAULTS
+  );
+  assert.equal(codes(primary).includes("US_COB_PRIMARY_ONLY"), false);
+});
