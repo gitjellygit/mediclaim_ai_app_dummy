@@ -2,7 +2,8 @@ ALTER TABLE "Organization"
   ADD COLUMN "rulesetRevision" INTEGER NOT NULL DEFAULT 1;
 
 ALTER TABLE "Check"
-  ADD COLUMN "rulesetRevision" INTEGER NOT NULL DEFAULT 1;
+  ADD COLUMN "rulesetRevision" INTEGER NOT NULL DEFAULT 1,
+  ADD COLUMN "rulesetFingerprint" TEXT;
 
 ALTER TABLE "Rule"
   ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 1;
