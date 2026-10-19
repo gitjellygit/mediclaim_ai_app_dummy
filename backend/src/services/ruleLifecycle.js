@@ -63,15 +63,30 @@ function payerClaimWhere(rule) {
   };
 }
 
-function affectedClaimScope(rule, previousRule) {
+function effectiveAt(rule, now) {
+  if (!rule || rule.enabled === false || rule.deletedAt) return false;
+  if (rule.effectiveFrom && new Date(rule.effectiveFrom).getTime() > now.getTime()) return false;
+  if (rule.effectiveTo && new Date(rule.effectiveTo).getTime() < now.getTime()) return false;
+  return true;
+}
+
+function affectedClaimScope(rule, previousRule, now = new Date()) {
+  const currentActive = effectiveAt(rule, now);
+  const previousActive = effectiveAt(previousRule, now);
+
+  if (!currentActive && !previousActive) return { id: "__NO_MATCH__" };
+
   if (
-    rule?.scope !== "PAYER" ||
-    (previousRule && previousRule.scope !== "PAYER")
+    (currentActive && rule?.scope !== "PAYER") ||
+    (previousActive && previousRule?.scope !== "PAYER")
   ) {
     return {};
   }
 
-  const scopes = [payerClaimWhere(rule), payerClaimWhere(previousRule)].filter(Boolean);
+  const scopes = [
+    currentActive ? payerClaimWhere(rule) : null,
+    previousActive ? payerClaimWhere(previousRule) : null
+  ].filter(Boolean);
   if (!scopes.length) return { id: "__NO_MATCH__" };
   return scopes.length === 1 ? scopes[0] : { OR: scopes };
 }
@@ -81,7 +96,8 @@ export async function bumpRulesetAndInvalidate(
   organizationId,
   rule,
   reason,
-  previousRule = null
+  previousRule = null,
+  now = new Date()
 ) {
   const organization = await tx.organization.update({
     where: { id: organizationId },
@@ -94,7 +110,7 @@ export async function bumpRulesetAndInvalidate(
       organizationId,
       deletedAt: null,
       status: { in: IN_PROCESS_STATUSES },
-      ...affectedClaimScope(rule, previousRule)
+      ...affectedClaimScope(rule, previousRule, now)
     },
     select: { id: true, status: true }
   });
@@ -121,13 +137,6 @@ export async function bumpRulesetAndInvalidate(
     affectedClaims: claimIds.length,
     readyClaimsReopened: claims.filter((claim) => claim.status === "READY").length
   };
-}
-
-function effectiveAt(rule, now) {
-  if (!rule || rule.enabled === false || rule.deletedAt) return false;
-  if (rule.effectiveFrom && new Date(rule.effectiveFrom).getTime() > now.getTime()) return false;
-  if (rule.effectiveTo && new Date(rule.effectiveTo).getTime() < now.getTime()) return false;
-  return true;
 }
 
 export function applicableRules(rules, claim, now = new Date()) {
