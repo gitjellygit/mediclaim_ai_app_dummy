@@ -537,7 +537,8 @@ router.patch("/:id", async (req, res) => {
       tx,
       orgId(req),
       updated,
-      `Readiness rules changed: ${updated.code} updated`
+      `Readiness rules changed: ${updated.code} updated`,
+      existing
     );
     return { updated, invalidation };
   });
