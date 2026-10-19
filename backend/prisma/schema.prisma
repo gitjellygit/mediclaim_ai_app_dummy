@@ -325,6 +325,8 @@ model Claim {
   // outbound 837 and can only be reclaimed after the configured stale timeout.
   submissionAttemptId  String?
   submissionStartedAt  DateTime?
+  submissionReconciliationRequired Boolean @default(false)
+  submissionReconciliationReason   String?
   payerReferenceNo     String?
   insurerClaimNo       String?
   authorizationNo     String?
