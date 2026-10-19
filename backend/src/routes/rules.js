@@ -144,7 +144,8 @@ async function auditRule(req, rule, action, metadata = {}) {
       operation: action.toLowerCase(),
       category: rule?.category || null,
       source: rule?.source || null,
-      changedFields: metadata.changedFields || []
+      changedFields: metadata.changedFields || [],
+      ...metadata
     }
   });
 }
@@ -305,6 +306,16 @@ router.post("/", async (req, res) => {
       error: "This rule code is reserved for a system-managed safeguard"
     });
   }
+  const priorIdentity = await prisma.rule.findFirst({
+    where: { organizationId: orgId(req), code: input.code }
+  });
+  if (priorIdentity) {
+    return res.status(409).json({
+      error: priorIdentity.deletedAt
+        ? "This rule code belongs to an archived rule. Rule codes are immutable identities; use the archived rule history rather than reusing the code."
+        : "Rule code already exists in your organization"
+    });
+  }
   const definitionCheck = validateDefinition(input.definition);
   if (!definitionCheck.ok) {
     return res.status(400).json({ error: definitionCheck.error });
@@ -364,6 +375,12 @@ router.post("/", async (req, res) => {
     });
     await auditRule(req, result.rule, "RULE_CREATED", {
       changedFields: ["code", "definition", "scope", "severity"],
+      ruleCode: result.rule.code,
+      ruleRevision: result.rule.revision,
+      newVersion: result.rule.version,
+      newSeverity: result.rule.severity,
+      newEnabled: result.rule.enabled,
+      newScope: result.rule.scope,
       ...result.invalidation
     });
     res.status(201).json({ ...publicRule(result.rule), invalidation: result.invalidation });
@@ -415,12 +432,23 @@ router.patch("/:id", async (req, res) => {
         tx,
         orgId(req),
         updated,
-        `Readiness rules changed: ${updated.code} updated`
+        `Readiness rules changed: ${updated.code} updated`,
+        existing
       );
       return { updated, invalidation };
     });
     await auditRule(req, result.updated, "RULE_UPDATED", {
       changedFields: requestedKeys,
+      ruleCode: result.updated.code,
+      ruleRevision: result.updated.revision,
+      previousVersion: existing.version,
+      newVersion: result.updated.version,
+      previousSeverity: existing.severity,
+      newSeverity: result.updated.severity,
+      previousEnabled: existing.enabled,
+      newEnabled: result.updated.enabled,
+      previousScope: existing.scope,
+      newScope: result.updated.scope,
       ...result.invalidation
     });
     return res.json({ ...publicRule(result.updated), invalidation: result.invalidation });
@@ -515,6 +543,16 @@ router.patch("/:id", async (req, res) => {
   });
   await auditRule(req, result.updated, "RULE_UPDATED", {
     changedFields,
+    ruleCode: result.updated.code,
+    ruleRevision: result.updated.revision,
+    previousVersion: existing.version,
+    newVersion: result.updated.version,
+    previousSeverity: existing.severity,
+    newSeverity: result.updated.severity,
+    previousEnabled: existing.enabled,
+    newEnabled: result.updated.enabled,
+    previousScope: existing.scope,
+    newScope: result.updated.scope,
     ...result.invalidation
   });
   res.json({ ...publicRule(result.updated), invalidation: result.invalidation });
@@ -547,6 +585,14 @@ router.delete("/:id", async (req, res) => {
   });
   await auditRule(req, result.deleted, "RULE_DELETED", {
     changedFields: ["deletedAt", "enabled"],
+    ruleCode: result.deleted.code,
+    ruleRevision: result.deleted.revision,
+    previousVersion: existing.version,
+    newVersion: result.deleted.version,
+    previousEnabled: existing.enabled,
+    newEnabled: result.deleted.enabled,
+    previousScope: existing.scope,
+    newScope: result.deleted.scope,
     ...result.invalidation
   });
   res.json({ success: true, invalidation: result.invalidation });
