@@ -155,6 +155,20 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
   const systemManaged = rule?.systemManaged === true;
   const mandatory = rule?.mandatory === true;
 
+  React.useEffect(() => {
+    if (!allowedOperators.some((item) => item.id === form.operator)) {
+      setForm((current) => ({ ...current, operator: allowedOperators[0]?.id || "REQUIRED", value: "" }));
+      setPreview(null);
+    }
+  }, [form.field, form.operator, allowedOperators]);
+
+  React.useEffect(() => {
+    if (!allowedWhenOperators.some((item) => item.id === form.whenOperator)) {
+      setForm((current) => ({ ...current, whenOperator: allowedWhenOperators[0]?.id || "REQUIRED", whenValue: "" }));
+      setPreview(null);
+    }
+  }, [form.whenField, form.whenOperator, allowedWhenOperators]);
+
   function buildPayload({ includeCode = false } = {}) {
     const definition = {
       field: form.field,
@@ -383,8 +397,15 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
                   ) : (
                     <TextField
                       fullWidth
-                      label={["IN", "NOT_IN"].includes(form.operator) ? "Values (comma separated)" : "Expected value"}
-                      type={fieldMeta?.type === "number" ? "number" : "text"}
+                      label={
+                        ["IN", "NOT_IN"].includes(form.operator)
+                          ? "Values (comma separated)"
+                          : form.operator === "LENGTH_BETWEEN"
+                            ? "Length range (min,max)"
+                            : "Expected value"
+                      }
+                      type={fieldMeta?.type === "number" && !["IN", "NOT_IN"].includes(form.operator) ? "number" : fieldMeta?.type === "date" ? "date" : "text"}
+                      InputLabelProps={fieldMeta?.type === "date" ? { shrink: true } : undefined}
                       value={form.value}
                       onChange={(e) => update("value", e.target.value)}
                     />
