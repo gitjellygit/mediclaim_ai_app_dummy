@@ -1,111 +1,168 @@
 import React from "react";
 import {
+  Alert,
   Box,
+  Button,
   Card,
   CardContent,
-  Typography,
-  Stack,
-  Button,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  TableSortLabel,
-  Switch,
-  FormControl,
-  Select,
-  MenuItem,
   Chip,
   CircularProgress,
   Dialog,
-  DialogTitle,
+  DialogActions,
   DialogContent,
   DialogContentText,
-  DialogActions
+  DialogTitle,
+  FormControl,
+  InputAdornment,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TableSortLabel,
+  TextField,
+  Tooltip,
+  Typography
 } from "@mui/material";
-import RefreshIcon from "@mui/icons-material/Refresh";
+import {
+  Add,
+  AdminPanelSettings,
+  Lock,
+  Refresh,
+  Search as SearchIcon,
+  Shield,
+  Tune
+} from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
 import { useToast } from "../../context/ToastContext.jsx";
 
-
 const severityColor = {
-  INFO: "default",
+  INFO: "info",
   WARN: "warning",
   BLOCK: "error"
 };
 
+function effectiveLabel(rule) {
+  if (!rule.effectiveFrom && !rule.effectiveTo) return "Always";
+  const from = rule.effectiveFrom
+    ? new Date(rule.effectiveFrom).toLocaleDateString("en-US")
+    : "Now";
+  const to = rule.effectiveTo
+    ? new Date(rule.effectiveTo).toLocaleDateString("en-US")
+    : "No end";
+  return from + " → " + to;
+}
+
+function summaryCard(label, value, caption) {
+  return (
+    <Card>
+      <CardContent>
+        <Typography variant="body2" color="text.secondary">{label}</Typography>
+        <Typography variant="h4" fontWeight={900}>{value}</Typography>
+        <Typography variant="caption" color="text.secondary">{caption}</Typography>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Rules() {
-  const [rules, setRules] = React.useState([]);
-  const [loading, setLoading] = React.useState(false);
-  const [sort, setSort] = React.useState("code");
+  const [data, setData] = React.useState({
+    items: [],
+    unconfiguredSystemRules: []
+  });
+  const [meta, setMeta] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [search, setSearch] = React.useState("");
+  const [category, setCategory] = React.useState("ALL");
+  const [kind, setKind] = React.useState("ALL");
+  const [sort, setSort] = React.useState("name");
   const [direction, setDirection] = React.useState("asc");
-  const [deleteTarget, setDeleteTarget] = React.useState(null); // { id, name }
+  const [deleteTarget, setDeleteTarget] = React.useState(null);
   const [deleting, setDeleting] = React.useState(false);
   const navigate = useNavigate();
   const { showDialog, showToast } = useToast();
 
-  async function load() {
+  const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const data = await ClaimsApi.listRules();
-      setRules(data);
+      const [rules, metadata] = await Promise.all([
+        ClaimsApi.listRules(),
+        ClaimsApi.getRulesMeta()
+      ]);
+      setData({
+        items: Array.isArray(rules?.items) ? rules.items : [],
+        unconfiguredSystemRules: Array.isArray(rules?.unconfiguredSystemRules)
+          ? rules.unconfiguredSystemRules
+          : []
+      });
+      setMeta(metadata);
     } catch (error) {
-      console.error("Failed to load rules:", error);
-      showDialog(
-        error?.message || "Rules could not be loaded. Please try again.",
-        { title: "Unable to load rules", severity: "error" }
-      );
+      showDialog(error?.message || "Rules could not be loaded.", {
+        title: "Unable to load rules",
+        severity: "error"
+      });
     } finally {
       setLoading(false);
     }
-  }
+  }, [showDialog]);
 
   React.useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
-  async function deleteRule(id) {
-    try {
-      setDeleting(true);
-      await ClaimsApi.deleteRule(id);
-      await load();
-      showToast("Rule deleted successfully", "success");
-    } catch (e) {
-      console.error("Delete rule failed:", e);
-      showDialog(
-        e?.message || "The rule could not be deleted.",
-        { title: "Rule could not be deleted", severity: "error" }
-      );
-    } finally {
-      setDeleting(false);
-      setDeleteTarget(null);
-    }
-  }
+  const categoryMap = React.useMemo(
+    () => new Map((meta?.categories || []).map((item) => [item.id, item.label])),
+    [meta]
+  );
 
-  const sortedRules = React.useMemo(() => {
+  const filteredRules = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const rows = data.items.filter((rule) => {
+      if (category !== "ALL" && rule.category !== category) return false;
+      if (kind === "SYSTEM" && !rule.systemManaged) return false;
+      if (kind === "CUSTOM" && rule.systemManaged) return false;
+      if (kind === "PAYER" && rule.scope !== "PAYER") return false;
+      if (!q) return true;
+      return [
+        rule.code,
+        rule.name,
+        rule.description,
+        rule.payerName,
+        rule.payerEdiId,
+        rule.category
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(q));
+    });
+
     const severityRank = { BLOCK: 3, WARN: 2, INFO: 1 };
-    const copy = [...rules];
     const value = (rule) => {
-      switch (sort) {
-        case "code": return String(rule.code || "").toLowerCase();
-        case "name": return String(rule.name || "").toLowerCase();
-        case "severity": return severityRank[rule.severity] || 0;
-        case "enabled": return rule.enabled ? 1 : 0;
-        default: return "";
-      }
+      if (sort === "code") return String(rule.code || "").toLowerCase();
+      if (sort === "category") return String(rule.category || "").toLowerCase();
+      if (sort === "severity") return severityRank[rule.severity] || 0;
+      if (sort === "scope") return String(rule.scope || "").toLowerCase();
+      if (sort === "enabled") return rule.enabled ? 1 : 0;
+      return String(rule.name || "").toLowerCase();
     };
-    copy.sort((a, b) => {
+
+    return [...rows].sort((a, b) => {
       const left = value(a);
       const right = value(b);
-      const result = typeof left === "string"
-        ? left.localeCompare(String(right))
-        : Number(left) - Number(right);
-      return direction === "desc" ? -result : result;
+      const comparison =
+        typeof left === "string"
+          ? left.localeCompare(String(right))
+          : Number(left) - Number(right);
+      return direction === "desc" ? -comparison : comparison;
     });
-    return copy;
-  }, [rules, sort, direction]);
+  }, [data.items, search, category, kind, sort, direction]);
 
   function handleSort(field) {
     if (sort === field) {
@@ -116,135 +173,349 @@ export default function Rules() {
     setDirection(["severity", "enabled"].includes(field) ? "desc" : "asc");
   }
 
+  async function toggleRule(rule) {
+    if (rule.mandatory) return;
+    try {
+      await ClaimsApi.updateRule(rule.id, { enabled: !rule.enabled });
+      await load();
+      showToast(rule.enabled ? "Rule disabled" : "Rule enabled", "success");
+    } catch (error) {
+      showDialog(error?.message || "Rule status could not be changed.", {
+        title: "Rule update failed",
+        severity: "error"
+      });
+    }
+  }
+
+  async function deleteRule() {
+    if (!deleteTarget) return;
+    try {
+      setDeleting(true);
+      await ClaimsApi.deleteRule(deleteTarget.id);
+      await load();
+      showToast("Rule archived", "success");
+    } catch (error) {
+      showDialog(error?.message || "Rule could not be archived.", {
+        title: "Rule archive failed",
+        severity: "error"
+      });
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  }
+
+  const activeCount = data.items.filter((rule) => rule.enabled).length;
+  const blockCount = data.items.filter(
+    (rule) => rule.enabled && rule.severity === "BLOCK"
+  ).length;
+  const payerCount = data.items.filter(
+    (rule) => rule.enabled && rule.scope === "PAYER"
+  ).length;
+  const customCount = data.items.filter((rule) => !rule.systemManaged).length;
+
   return (
-    <Box sx={{ maxWidth: 1200, mx: "auto", p: 3 }}>
-      <Card>
-        <CardContent>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-            <div>
-              <Typography variant="h5">Rules</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Configure validation rules that affect claim readiness score.
-              </Typography>
-            </div>
+    <Box sx={{ maxWidth: 1500, mx: "auto", p: { xs: 2, md: 3 } }}>
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        justifyContent="space-between"
+        alignItems={{ xs: "stretch", md: "center" }}
+        spacing={2}
+        sx={{ mb: 3 }}
+      >
+        <Box>
+          <Typography variant="h4" fontWeight={900}>Rules</Typography>
+          <Typography color="text.secondary">
+            Govern deterministic claim-readiness rules by category, payer, severity and effective period.
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={1}>
+          <Button variant="outlined" startIcon={<Refresh />} onClick={load} disabled={loading}>
+            Refresh
+          </Button>
+          <Button variant="contained" startIcon={<Add />} onClick={() => navigate("/rules/new")}>
+            Add Rule
+          </Button>
+        </Stack>
+      </Stack>
 
-            <Stack direction="row" spacing={1}>
-              <Button
-                variant="outlined"
-                startIcon={<RefreshIcon />}
-                onClick={load}
-                disabled={loading}
-              >
-                Refresh
-              </Button>
-              <Button
-                variant="contained"
-                onClick={() => navigate("/rules/new")}
-              >
-                Add Rule
-              </Button>
-            </Stack>
+      <Alert severity="info" icon={<Shield />} sx={{ mb: 3 }}>
+        Mandatory system safeguards cannot be disabled or downgraded. Admin-created rules use a controlled field/operator model and can be scoped to one payer without executing arbitrary code.
+      </Alert>
+
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "repeat(4, 1fr)" },
+          gap: 2,
+          mb: 3
+        }}
+      >
+        {summaryCard("Active Rules", activeCount, "System + custom")}
+        {summaryCard("Blocking Rules", blockCount, "Prevent readiness when violated")}
+        {summaryCard("Payer-Specific", payerCount, "Scoped by payer name / EDI ID")}
+        {summaryCard("Custom Rules", customCount, "Organization-managed expectations")}
+      </Box>
+
+      {meta && (
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1.5 }}>
+            Rule Coverage
+          </Typography>
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            {meta.categories.map((item) => (
+              <Tooltip key={item.id} title={item.description}>
+                <Chip
+                  label={item.label}
+                  variant={category === item.id ? "filled" : "outlined"}
+                  color={category === item.id ? "primary" : "default"}
+                  onClick={() =>
+                    setCategory((current) => (current === item.id ? "ALL" : item.id))
+                  }
+                />
+              </Tooltip>
+            ))}
           </Stack>
+        </Paper>
+      )}
 
-          {loading ? (
-            <Stack alignItems="center" sx={{ py: 6 }}>
-              <CircularProgress />
-              <Typography sx={{ mt: 2 }} color="text.secondary">
-                Loading rules…
-              </Typography>
-            </Stack>
-          ) : (
-            <>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sort === "code"} direction={sort === "code" ? direction : "asc"} onClick={() => handleSort("code")}>Code</TableSortLabel></TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sort === "name"} direction={sort === "name" ? direction : "asc"} onClick={() => handleSort("name")}>Name</TableSortLabel></TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sort === "severity"} direction={sort === "severity" ? direction : "desc"} onClick={() => handleSort("severity")}>Severity</TableSortLabel></TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sort === "enabled"} direction={sort === "enabled" ? direction : "desc"} onClick={() => handleSort("enabled")}>Enabled</TableSortLabel></TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Action</TableCell>
-                  </TableRow>
-                </TableHead>
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Search rule code, name, payer or description…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>
+              )
+            }}
+          />
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel>Category</InputLabel>
+            <Select label="Category" value={category} onChange={(event) => setCategory(event.target.value)}>
+              <MenuItem value="ALL">All categories</MenuItem>
+              {(meta?.categories || []).map((item) => (
+                <MenuItem key={item.id} value={item.id}>{item.label}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel>Rule Type</InputLabel>
+            <Select label="Rule Type" value={kind} onChange={(event) => setKind(event.target.value)}>
+              <MenuItem value="ALL">All rules</MenuItem>
+              <MenuItem value="SYSTEM">System-managed</MenuItem>
+              <MenuItem value="CUSTOM">Custom</MenuItem>
+              <MenuItem value="PAYER">Payer-specific</MenuItem>
+            </Select>
+          </FormControl>
+        </Stack>
+      </Paper>
 
-                <TableBody>
-                  {sortedRules.map((r) => (
-                    <TableRow key={r.id} hover>
-                      <TableCell sx={{ fontFamily: "monospace" }}>
-                        {r.code}
-                      </TableCell>
-
-                      <TableCell>{r.name}</TableCell>
-
-                      <TableCell>
-                        <Chip
-                          label={r.severity}
-                          color={severityColor[r.severity] || "default"}
-                          size="small"
+      {loading ? (
+        <Paper sx={{ p: 7, textAlign: "center" }}>
+          <CircularProgress />
+          <Typography sx={{ mt: 2 }} color="text.secondary">Loading rules…</Typography>
+        </Paper>
+      ) : (
+        <TableContainer component={Paper}>
+          <Table sx={{ minWidth: 1250 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell>
+                  <TableSortLabel active={sort === "enabled"} direction={sort === "enabled" ? direction : "desc"} onClick={() => handleSort("enabled")}>
+                    <b>Status</b>
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell>
+                  <TableSortLabel active={sort === "code"} direction={sort === "code" ? direction : "asc"} onClick={() => handleSort("code")}>
+                    <b>Rule</b>
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell>
+                  <TableSortLabel active={sort === "category"} direction={sort === "category" ? direction : "asc"} onClick={() => handleSort("category")}>
+                    <b>Category</b>
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell>
+                  <TableSortLabel active={sort === "scope"} direction={sort === "scope" ? direction : "asc"} onClick={() => handleSort("scope")}>
+                    <b>Scope</b>
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell>
+                  <TableSortLabel active={sort === "severity"} direction={sort === "severity" ? direction : "desc"} onClick={() => handleSort("severity")}>
+                    <b>Severity</b>
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell><b>Governance</b></TableCell>
+                <TableCell><b>Effective</b></TableCell>
+                <TableCell align="right"><b>Action</b></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filteredRules.map((rule) => (
+                <TableRow key={rule.id} hover>
+                  <TableCell>
+                    <Tooltip title={rule.mandatory ? "Mandatory system rule is always enabled" : rule.enabled ? "Disable rule" : "Enable rule"}>
+                      <span>
+                        <Switch
+                          checked={Boolean(rule.enabled)}
+                          disabled={Boolean(rule.mandatory)}
+                          onChange={() => toggleRule(rule)}
                         />
-                      </TableCell>
+                      </span>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell sx={{ minWidth: 280 }}>
+                    <Typography fontWeight={800}>{rule.name}</Typography>
+                    <Typography variant="caption" fontFamily="monospace" color="text.secondary">
+                      {rule.code}
+                    </Typography>
+                    {rule.description && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        {rule.description}
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Chip size="small" label={categoryMap.get(rule.category) || rule.category} />
+                  </TableCell>
+                  <TableCell sx={{ minWidth: 170 }}>
+                    {rule.scope === "PAYER" ? (
+                      <Stack spacing={0.35}>
+                        <Chip size="small" color="secondary" variant="outlined" label="Payer" />
+                        <Typography variant="caption">
+                          {rule.payerName || rule.payerEdiId || "Unspecified"}
+                        </Typography>
+                      </Stack>
+                    ) : (
+                      <Chip size="small" variant="outlined" label="Organization" />
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Chip size="small" color={severityColor[rule.severity] || "default"} label={rule.severity} />
+                  </TableCell>
+                  <TableCell sx={{ minWidth: 190 }}>
+                    {rule.systemManaged ? (
+                      <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+                        <Chip size="small" icon={<AdminPanelSettings />} label="System" color="info" variant="outlined" />
+                        {rule.mandatory && <Chip size="small" icon={<Lock />} label="Mandatory" color="warning" />}
+                      </Stack>
+                    ) : (
+                      <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+                        <Chip size="small" icon={<Tune />} label="Admin rule" variant="outlined" />
+                        <Chip size="small" label={"v" + (rule.version || "1.0")} variant="outlined" />
+                      </Stack>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">{effectiveLabel(rule)}</Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Stack direction="row" spacing={0.75} justifyContent="flex-end">
+                      {!rule.mandatory && (
+                        <Button size="small" variant="outlined" onClick={() => navigate("/rules/" + rule.id + "/edit")}>
+                          Edit
+                        </Button>
+                      )}
+                      {!rule.systemManaged && (
+                        <Button size="small" color="error" onClick={() => setDeleteTarget(rule)}>
+                          Archive
+                        </Button>
+                      )}
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {filteredRules.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
+                    <Typography color="text.secondary">No rules match the current filters.</Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
 
-                      <TableCell>
-                        <Switch checked={!!r.enabled} disabled />
-                      </TableCell>
+      {meta && (
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" },
+            gap: 2,
+            mt: 3
+          }}
+        >
+          <Card>
+            <CardContent>
+              <Typography variant="h6" fontWeight={800}>Built-in Rule Library</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Deterministic rules implemented by the application. Mandatory safeguards stay locked.
+              </Typography>
+              <Stack spacing={1}>
+                {meta.systemCatalog.map((rule) => (
+                  <Paper key={rule.code} variant="outlined" sx={{ p: 1.25 }}>
+                    <Stack direction="row" justifyContent="space-between" spacing={1}>
+                      <Box>
+                        <Typography fontWeight={700}>{rule.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">{rule.code}</Typography>
+                      </Box>
+                      <Stack direction="row" spacing={0.5}>
+                        <Chip size="small" label={rule.severity} color={severityColor[rule.severity]} />
+                        {rule.mandatory && <Chip size="small" label="Locked" icon={<Lock />} />}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            </CardContent>
+          </Card>
 
-                      <TableCell>
-                        <Stack direction="row" spacing={1}>
-                          <Button
-                            size="small"
-                            variant="contained"
-                            onClick={() => navigate(`/rules/${r.id}/edit`)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            size="small"
-                            color="error"
-                            onClick={() => setDeleteTarget({ id: r.id, name: r.code })}
-                          >
-                            Delete
-                          </Button>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+          <Card>
+            <CardContent>
+              <Typography variant="h6" fontWeight={800}>External Rule Sources</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Plug-in points for authoritative rule datasets. The app does not invent or bundle confidential payer/CPT policy content.
+              </Typography>
+              <Stack spacing={1.25}>
+                {meta.externalSources.map((source) => (
+                  <Paper key={source.id} variant="outlined" sx={{ p: 1.5 }}>
+                    <Stack direction="row" justifyContent="space-between" spacing={1}>
+                      <Box>
+                        <Typography fontWeight={700}>{source.name}</Typography>
+                        <Typography variant="body2" color="text.secondary">{source.description}</Typography>
+                      </Box>
+                      <Chip size="small" label={source.status.replaceAll("_", " ")} color={source.status === "CONFIGURABLE" ? "success" : "info"} />
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                NCCI/MUE data must be versioned by effective date. Private-payer policy and proprietary code-set content require the appropriate license/contract source before activation.
+              </Alert>
+            </CardContent>
+          </Card>
+        </Box>
+      )}
 
-                  {rules.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} sx={{ textAlign: "center", color: "text.secondary", py: 4 }}>
-                        No rules found.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-              <Dialog
-                open={!!deleteTarget}
-                onClose={() => (deleting ? null : setDeleteTarget(null))}
-              >
-                <DialogTitle>Delete rule?</DialogTitle>
-                <DialogContent>
-                  <DialogContentText>
-                    {`Are you sure you want to delete rule "${deleteTarget?.name}"? This cannot be undone.`}
-                  </DialogContentText>
-                </DialogContent>
-                <DialogActions>
-                  <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>
-                    Cancel
-                  </Button>
-                  <Button
-                    color="error"
-                    variant="contained"
-                    onClick={() => deleteRule(deleteTarget.id)}
-                    disabled={deleting}
-                  >
-                    {deleting ? "Deleting…" : "Delete"}
-                  </Button>
-                </DialogActions>
-              </Dialog>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      <Dialog open={Boolean(deleteTarget)} onClose={() => !deleting && setDeleteTarget(null)}>
+        <DialogTitle>Archive rule?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Archiving “{deleteTarget?.name}” removes it from future readiness checks while preserving its history and audit record.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={deleteRule} disabled={deleting}>
+            {deleting ? "Archiving…" : "Archive Rule"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
