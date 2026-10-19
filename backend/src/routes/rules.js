@@ -14,7 +14,6 @@ import {
 import { evaluateConfiguredRules } from "../services/configurableRuleEngine.js";
 import {
   bumpRulesetAndInvalidate,
-  ruleSnapshot,
   writeRuleVersion
 } from "../services/ruleLifecycle.js";
 
