@@ -814,15 +814,6 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
     context.claimType || claim?.claimForm || "PROFESSIONAL"
   ).toUpperCase();
   const usageIndicator = context.usageIndicator === "P" ? "P" : "T";
-
-  if (context.requestPayload) {
-    return {
-      payload: { ...context.requestPayload, usageIndicator },
-      claimType
-    };
-  }
-
-  const submissionProfile = context.submissionProfile || claim.organization || {};
   const paymentResponsibility = String(claim.coordinationOfBenefits || "PRIMARY").toUpperCase();
   if (paymentResponsibility !== "PRIMARY") {
     const error = new Error(
@@ -832,6 +823,14 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
     throw error;
   }
 
+  if (context.requestPayload) {
+    return {
+      payload: { ...context.requestPayload, usageIndicator },
+      claimType
+    };
+  }
+
+  const submissionProfile = context.submissionProfile || claim.organization || {};
   const payerId = context.payerId || claim.connectedPayerCode || claim.payerEdiId;
   const payerName =
     context.payerName || claim.connectedPayerName || claim.payerName;
