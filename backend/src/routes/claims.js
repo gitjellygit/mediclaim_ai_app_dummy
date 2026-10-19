@@ -53,7 +53,13 @@ import {
   createPayerConnectorForClaim,
   payerConnectorStatusForClaim
 } from "../services/payerGateway.js";
-import { randomBytes } from "node:crypto";
+import {
+  acquireSubmissionLock,
+  completeSubmissionLock,
+  isPrimaryClaim,
+  releaseSubmissionLock,
+  safeSubmissionClaim
+} from "../services/submissionSafety.js";
 
 const router = express.Router();
 
@@ -1778,11 +1784,14 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
 
 
 router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (req, res) => {
+  let submissionLock = null;
+
   try {
     const parsedInput = parseMutation(claimSubmissionSchema, req.body);
     if (!parsedInput.ok) {
       return res.status(400).json(parsedInput.response);
     }
+
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
@@ -1816,6 +1825,15 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       return res.status(404).json({ error: "Claim not found" });
     }
 
+    if (!isPrimaryClaim(claim)) {
+      return res.status(409).json({
+        error: "Secondary and tertiary claim submission is not enabled",
+        message:
+          "This release does not yet build the other-payer adjudication/COB loops required for secondary or tertiary 837 claims.",
+        code: "SECONDARY_TERTIARY_SUBMISSION_NOT_SUPPORTED"
+      });
+    }
+
     const latestCheck = claim.checks?.[0];
 
     if (claim.eligibilityStatus !== "VERIFIED") {
@@ -1830,6 +1848,14 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
     ) {
       return res.status(400).json({
         error: "Resolve prior authorization before submitting the claim"
+      });
+    }
+
+    if (claim.priorAuthRequired === true && !String(claim.authorizationNo || "").trim()) {
+      return res.status(400).json({
+        error: "Authorization number is required before submission",
+        message: "The payer-approved prior authorization number must be present on the outbound 837.",
+        code: "PRIOR_AUTHORIZATION_NUMBER_REQUIRED"
       });
     }
 
@@ -1855,16 +1881,15 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
     );
     if (!rulesFreshness.fresh) {
       return res.status(400).json({
-        error: rulesFreshness.reason || "Readiness rules changed after the last AI Check. Refresh AI readiness before submitting.",
+        error:
+          rulesFreshness.reason ||
+          "Readiness rules changed after the last AI Check. Refresh AI readiness before submitting.",
         code: "READINESS_RULESET_STALE"
       });
     }
 
-    const issues = Array.isArray(latestCheck.issues)
-      ? latestCheck.issues
-      : [];
-
-    if (issues.some((i) => i.severity === "BLOCK")) {
+    const issues = Array.isArray(latestCheck.issues) ? latestCheck.issues : [];
+    if (issues.some((issue) => issue.severity === "BLOCK")) {
       return res.status(400).json({
         error: "Claim has blocking issues. Fix them before submission"
       });
@@ -1876,34 +1901,28 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       });
     }
 
-    if (isClaimLocked(claim)) {
+    if (
+      claim.claimSubmissionDate ||
+      ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
+    ) {
       assertClaimEditable(
         claim,
         "Submitted or finalized claims cannot be submitted again."
       );
     }
 
-    // Validate the local workflow transition before any external payer call.
-    // The value is reused after transmission so we never discover an invalid
-    // transition only after an irreversible 837 has already left the system.
-    const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED");
-
-    let patientControlNumber = claim.patientControlNumber;
-    if (!patientControlNumber) {
-      patientControlNumber = randomBytes(9)
-        .toString("hex")
-        .slice(0, 17)
-        .toUpperCase();
-
-      // Persist the correlation key before any external transmission. If the
-      // payer accepts the request but a later local write fails, a retry must
-      // reuse the same Patient Control Number together with the same
-      // idempotency key.
-      await prisma.claim.update({
-        where: { id: claim.id },
-        data: { patientControlNumber }
+    if (!["READY", "SUBMITTING"].includes(claim.status)) {
+      return res.status(409).json({
+        error: "Claim is not ready for submission",
+        message: "Run readiness and resolve blockers before submitting.",
+        code: "CLAIM_NOT_READY_FOR_SUBMISSION"
       });
     }
+
+    if (claim.status === "READY") {
+      assertClaimTransition("READY", "SUBMITTING");
+    }
+    const submittedStatus = assertClaimTransition("SUBMITTING", "SUBMITTED");
 
     let payerSubmission = null;
     let connectorDescriptor = null;
@@ -1959,19 +1978,51 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
           code: "PAYER_SUBMISSION_NOT_SUPPORTED"
         });
       }
+    }
 
+    submissionLock = await acquireSubmissionLock(prisma, claim, {
+      organizationId: orgId(req)
+    });
+
+    if (!submissionLock) {
+      return res.status(409).json({
+        error: "Claim submission is already in progress",
+        message:
+          "Another request owns this claim submission. Do not resend the claim; refresh status instead.",
+        code: "CLAIM_SUBMISSION_IN_PROGRESS"
+      });
+    }
+
+    if (submissionLock.reclaimed) {
+      await auditClaim(req, {
+        claimId: claim.id,
+        action: "CLAIM_SUBMISSION_LOCK_RECLAIMED",
+        metadata: {
+          staleSubmissionRecovered: true
+        }
+      });
+    }
+
+    const patientControlNumber = submissionLock.patientControlNumber;
+    const submissionClaim = {
+      ...claim,
+      status: "SUBMITTING",
+      patientControlNumber
+    };
+
+    let safeResult = null;
+
+    if (claim.payerConnectionMode === "LIVE") {
       const connector = createPayerConnectorForClaim(
-        { ...claim, patientControlNumber },
+        submissionClaim,
         claim.connectedPayerCode || claim.payerEdiId
       );
-      payerSubmission = await connector.submitClaim(
-        { ...claim, patientControlNumber },
-        {
-          submissionProfile: claim.organization
-        }
-      );
 
-      const safeResult = {
+      payerSubmission = await connector.submitClaim(submissionClaim, {
+        submissionProfile: claim.organization
+      });
+
+      safeResult = {
         ...payerSubmission,
         raw: undefined,
         x12: undefined
@@ -1994,13 +2045,17 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
           claimId: claim.id,
           transactionId,
           mode: connectorDescriptor.environment,
-          payerCode: claim.connectedPayerCode || claim.payerEdiId || connectorDescriptor.provider,
+          payerCode:
+            claim.connectedPayerCode ||
+            claim.payerEdiId ||
+            connectorDescriptor.provider,
           transactionType: "CLAIM_SUBMISSION",
           status: payerSubmission.status,
           latencyMs: payerSubmission.latencyMs || null,
           requestHash: payerSubmission.payloadHash || null,
           requestPayload: {
-            transaction: claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
+            transaction:
+              claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
             patientControlNumber,
             payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
             claimForm: claim.claimForm || null,
@@ -2013,11 +2068,28 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
         update: {
           status: payerSubmission.status,
           latencyMs: payerSubmission.latencyMs || null,
+          requestPayload: {
+            transaction:
+              claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
+            patientControlNumber,
+            payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
+            claimForm: claim.claimForm || null,
+            claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
+            idempotencyKey: payerSubmission.idempotencyKey || null,
+            payloadHash: payerSubmission.payloadHash || null
+          },
           responsePayload: safeResult
         }
       });
 
       if (payerSubmission.status === "REJECTED") {
+        await releaseSubmissionLock(
+          prisma,
+          claim.id,
+          submissionLock.attemptId
+        );
+        submissionLock = null;
+
         await auditClaim(req, {
           claimId: claim.id,
           action: "CLAIM_SUBMISSION_REJECTED",
@@ -2027,6 +2099,7 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
             payerCode: claim.connectedPayerCode || claim.payerEdiId || null
           }
         });
+
         return res.status(422).json({
           success: false,
           error: "Payer rejected the claim submission",
@@ -2039,23 +2112,52 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       }
     }
 
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
+    const completed = await completeSubmissionLock(
+      prisma,
+      claim.id,
+      submissionLock.attemptId,
+      {
         status: submittedStatus,
         claimSubmissionDate: new Date(),
         patientControlNumber,
         payerClaimStatus:
-          payerSubmission?.status === "ACKNOWLEDGED" ? "ACKNOWLEDGED" : "SUBMITTED",
+          payerSubmission?.status === "ACKNOWLEDGED"
+            ? "ACKNOWLEDGED"
+            : "SUBMITTED",
         payerReferenceNo:
           payerSubmission?.payerClaimNo || claim.payerReferenceNo || null,
         claimStatusCheckedAt: payerSubmission ? new Date() : null,
         remittanceStatus: "AWAITING"
-      },
-      include: {
-        documents: true,
-        checks: { orderBy: { createdAt: "desc" } },
-        payerTransactions: { orderBy: { createdAt: "desc" } }
+      }
+    );
+
+    if (!completed) {
+      submissionLock = null;
+      return res.status(409).json({
+        success: false,
+        error: "Submission ownership changed before completion",
+        message:
+          "The claim submission was not finalized by this request. Refresh the claim and payer status before taking further action.",
+        code: "CLAIM_SUBMISSION_OWNERSHIP_LOST"
+      });
+    }
+
+    submissionLock = null;
+
+    const updated = await prisma.claim.findUnique({
+      where: { id: claim.id },
+      select: {
+        id: true,
+        status: true,
+        patientControlNumber: true,
+        claimSubmissionDate: true,
+        payerClaimStatus: true,
+        payerReferenceNo: true,
+        remittanceStatus: true,
+        claimForm: true,
+        claimFrequencyCode: true,
+        payerName: true,
+        payerEdiId: true
       }
     });
 
@@ -2063,36 +2165,51 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       claimId: claim.id,
       action: "CLAIM_SUBMITTED",
       metadata: {
-        payerClaimStatus: updated.payerClaimStatus,
+        payerClaimStatus: updated?.payerClaimStatus || null,
         connectorId: connectorDescriptor?.id || null,
         transmittedToPayer: Boolean(payerSubmission)
       }
     });
 
-    res.json({
+    return res.json({
       success: true,
       message: payerSubmission
         ? "Claim submitted and transmitted to payer"
         : "Claim submitted successfully",
-      submission: payerSubmission
-        ? {
-            ...payerSubmission,
-            raw: undefined,
-            x12: undefined
-          }
-        : null,
-      claim: updated
+      submission: safeResult,
+      claim: safeSubmissionClaim(updated)
     });
   } catch (e) {
+    if (submissionLock && e?.code !== "STEDI_SUBMISSION_OUTCOME_UNKNOWN") {
+      try {
+        await releaseSubmissionLock(
+          prisma,
+          req.params.id,
+          submissionLock.attemptId
+        );
+      } catch (releaseError) {
+        console.error("[claim-submit] failed to release submission lock", {
+          claimId: req.params.id,
+          code: releaseError?.code || null
+        });
+      }
+      submissionLock = null;
+    }
+
     if (e?.status && e?.code !== "STEDI_API_ERROR") throw e;
 
     if (e?.code === "STEDI_SUBMISSION_OUTCOME_UNKNOWN") {
       const existing = await prisma.claim.findFirst({
-        where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
+        where: {
+          id: req.params.id,
+          organizationId: orgId(req),
+          deletedAt: null
+        }
       });
 
       if (existing) {
-        const unknownTransactionId = `837-unknown-${String(e.payloadHash || "unknown").slice(0, 32)}`;
+        const unknownTransactionId =
+          `837-unknown-${String(e.payloadHash || "unknown").slice(0, 32)}`;
         await prisma.payerTransaction.upsert({
           where: {
             transactionId_claimId: {
@@ -2104,7 +2221,10 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
             claimId: existing.id,
             transactionId: unknownTransactionId,
             mode: "PRODUCTION",
-            payerCode: existing.connectedPayerCode || existing.payerEdiId || "STEDI",
+            payerCode:
+              existing.connectedPayerCode ||
+              existing.payerEdiId ||
+              "STEDI",
             transactionType: "CLAIM_SUBMISSION",
             status: "OUTCOME_UNKNOWN",
             latencyMs: e.latencyMs || null,
@@ -2142,7 +2262,10 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       });
     }
 
-    if (e?.code === "STEDI_REQUEST_INVALID" || e?.code === "STEDI_CLAIM_REQUEST_INVALID") {
+    if (
+      e?.code === "STEDI_REQUEST_INVALID" ||
+      e?.code === "STEDI_CLAIM_REQUEST_INVALID"
+    ) {
       return res.status(400).json({
         error: "Claim is missing information required for payer submission",
         message: e.message,
@@ -2153,7 +2276,8 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
     if (e?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
       return res.status(503).json({
         error: "Payer connector is unavailable",
-        message: "The selected payer service is not available for claim submission.",
+        message:
+          "The selected payer service is not available for claim submission.",
         code: "PAYER_CONNECTOR_UNAVAILABLE"
       });
     }
@@ -2173,8 +2297,14 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       });
     }
 
-    console.error("[claim-submit] failed", { name: e?.name, code: e?.code || null });
-    res.status(500).json({ error: "Unable to submit claim", code: "CLAIM_SUBMISSION_FAILED" });
+    console.error("[claim-submit] failed", {
+      name: e?.name,
+      code: e?.code || null
+    });
+    return res.status(500).json({
+      error: "Unable to submit claim",
+      code: "CLAIM_SUBMISSION_FAILED"
+    });
   }
 });
 
