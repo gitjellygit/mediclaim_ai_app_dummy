@@ -140,6 +140,8 @@ export function minimumNecessaryClaim(claim, user) {
   delete safe.documentDerivedFields;
   delete safe.submissionAttemptId;
   delete safe.submissionStartedAt;
+  delete safe.submissionReconciliationRequired;
+  delete safe.submissionReconciliationReason;
   if (!hasPermission(user, PERMISSIONS.CLINICAL_VIEW)) {
     delete safe.fieldProvenance;
   }
