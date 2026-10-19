@@ -44,7 +44,7 @@ import { buildApprovalIntelligenceItem } from "../services/approvalIntelligence.
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
 import { evaluateUsReadinessRules } from "../services/usReadinessRules.js";
 import { evaluateConfiguredRules } from "../services/configurableRuleEngine.js";
-import { rulesetFreshness } from "../services/ruleLifecycle.js";
+import { rulesetFingerprint, rulesetFreshness } from "../services/ruleLifecycle.js";
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
 import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
@@ -1618,6 +1618,7 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
 
     issues.push(...evaluateUsReadinessRules(claim, rules));
     issues.push(...evaluateConfiguredRules(claim, rules));
+    const evaluatedRulesetFingerprint = rulesetFingerprint(rules, claim, new Date());
 
     const completeness = completenessReadinessIssues(claim);
     issues.push(...completeness.issues);
@@ -1733,7 +1734,8 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
           isStale: false,
           staleAt: null,
           staleReason: null,
-          rulesetRevision: claim.organization?.rulesetRevision || 1
+          rulesetRevision: claim.organization?.rulesetRevision || 1,
+          rulesetFingerprint: evaluatedRulesetFingerprint
         }
       });
 
@@ -1848,6 +1850,7 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       prisma,
       orgId(req),
       latestCheck,
+      claim,
       new Date()
     );
     if (!rulesFreshness.fresh) {
