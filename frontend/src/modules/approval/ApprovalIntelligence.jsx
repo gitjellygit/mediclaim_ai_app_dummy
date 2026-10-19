@@ -107,7 +107,7 @@ function priorAuthLabel(auth) {
 }
 
 function isPostSubmission(claim) {
-  return ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status);
+  return ["SUBMITTING", "SUBMITTED", "DENIED", "PAID"].includes(claim?.status);
 }
 
 function sortableHeader(label, field, sort, direction, onSort, help = "") {
@@ -156,6 +156,14 @@ function codingReviewPresentation(claim) {
         : verified > 0
         ? `${verified} verified line${verified === 1 ? "" : "s"} at submission`
         : "Coding snapshot retained in claim history"
+    };
+  }
+
+  if (claim?.status === "SUBMITTING") {
+    return {
+      label: "Submission locked",
+      color: "warning",
+      detail: "Coding is frozen while payer submission is in progress or awaiting reconciliation"
     };
   }
 
@@ -651,6 +659,7 @@ export default function ApprovalIntelligence() {
             ["DRAFT", "Draft"],
             ["NEEDS_REVIEW", "Needs review"],
             ["READY", "Ready"],
+            ["SUBMITTING", "Submitting"],
             ["SUBMITTED", "Submitted"],
             ["DENIED", "Denied"],
             ["PAID", "Paid"]
