@@ -1159,6 +1159,16 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      await assertExpectedClaimStatus(
+        tx,
+        suggestion.claimId,
+        suggestion.claim.status,
+        {
+          organizationId: req.user.organizationId,
+          message: "Claim entered submission while coding review was being saved. Refresh before retrying."
+        }
+      );
+
       if (action !== "REJECT") {
         await applyCodingSuggestionToClaim(tx, suggestion, finalCode);
       }
@@ -1266,6 +1276,16 @@ export function documentsRouter(prisma, uploadDir) {
       }
 
       const updated = await prisma.$transaction(async (tx) => {
+        await assertExpectedClaimStatus(
+          tx,
+          doc.claimId,
+          doc.claim.status,
+          {
+            organizationId: req.user.organizationId,
+            message: "Claim entered submission while document type was being changed. Refresh before retrying."
+          }
+        );
+
         const changed = await tx.document.update({
           where: { id: doc.id },
           data: { type: nextType }
@@ -1378,6 +1398,16 @@ export function documentsRouter(prisma, uploadDir) {
       };
 
       const updated = await prisma.$transaction(async (tx) => {
+        await assertExpectedClaimStatus(
+          tx,
+          doc.claimId,
+          doc.claim.status,
+          {
+            organizationId: req.user.organizationId,
+            message: "Claim entered submission while identity review was being saved. Refresh before retrying."
+          }
+        );
+
         const changed = await tx.document.update({
           where: { id: doc.id },
           data: { extracted: nextExtracted }
@@ -1461,6 +1491,16 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      await assertExpectedClaimStatus(
+        tx,
+        doc.claimId,
+        doc.claim.status,
+        {
+          organizationId: req.user.organizationId,
+          message: "Claim entered submission while the document suggestion was being applied. Refresh before retrying."
+        }
+      );
+
       const changed = await tx.document.update({
         where: { id: doc.id },
         data: { type: doc.suggestedType }
