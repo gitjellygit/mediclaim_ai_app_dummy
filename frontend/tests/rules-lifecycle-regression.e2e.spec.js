@@ -457,3 +457,29 @@ test("Rules lifecycle - archived rule code is reserved and cannot be silently re
   expect(recreate.status()).toBe(409);
   expect((await recreate.json()).error).toMatch(/archived rule|immutable identities/i);
 });
+
+
+test("Rules UI - admin can preview impact before saving a custom rule", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel("Email").fill(adminEmail);
+  await page.getByLabel("Password").fill(adminPassword);
+  await page.getByRole("button", { name: "Sign In" }).click();
+  await expect(page).toHaveURL(/\/claims/);
+
+  await page.goto("/rules/new");
+  await expect(page.getByRole("heading", { name: "Add Rule" })).toBeVisible();
+
+  await page.getByLabel("Rule Code").fill(code("UI_PREVIEW"));
+  await page.getByLabel("Name").fill("UI preview regression rule");
+
+  await page.getByRole("button", { name: "Test Against Claims" }).click();
+  await expect(page.getByText(/Impact preview: tested/i)).toBeVisible();
+  await expect(page.getByText(/No claim data was changed by this preview/i)).toBeVisible();
+
+  // Preview must not persist the rule.
+  const listed = await apiJson(
+    await api.get("/api/rules", { headers: headers() }),
+    "list rules after UI preview"
+  );
+  expect(listed.items.some((item) => item.name === "UI preview regression rule")).toBe(false);
+});
