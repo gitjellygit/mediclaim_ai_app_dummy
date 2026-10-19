@@ -38,6 +38,12 @@ export const US_READINESS_RULE_DEFAULTS = Object.freeze([
     enabled: true
   },
   {
+    code: "US_COB_PRIMARY_ONLY",
+    name: "Secondary and tertiary billing disabled",
+    severity: "BLOCK",
+    enabled: true
+  },
+  {
     code: "US_837_SUBMISSION_FIELDS",
     name: "External 837 submission fields are complete",
     severity: "BLOCK",
@@ -186,6 +192,17 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
       "US_MEMBER_ID",
       "Member ID is required",
       { field: "memberId", fixTarget: "claim" }
+    );
+  }
+
+  if (["SECONDARY", "TERTIARY"].includes(String(claim.coordinationOfBenefits || "PRIMARY").toUpperCase())) {
+    addIssue(
+      issues,
+      configured,
+      defaults,
+      "US_COB_PRIMARY_ONLY",
+      "Secondary and tertiary claim submission is not enabled until other-payer adjudication/COB data is supported",
+      { field: "coordinationOfBenefits", fixTarget: "claim" }
     );
   }
 
