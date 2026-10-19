@@ -57,7 +57,7 @@ function stageColor(status) {
     ["VERIFIED", "APPROVED", "NOT_REQUIRED", "READY", "SUBMITTED", "PAID", "RECEIVED", "POSTED", "ACKNOWLEDGED"].includes(status)
   ) return "success";
   if (["FAILED", "DENIED", "REJECTED"].includes(status)) return "error";
-  if (["NEEDS_REVIEW", "REQUIRED", "IN_REVIEW", "PARTIALLY_APPROVED", "PENDED"].includes(status)) return "warning";
+  if (["NEEDS_REVIEW", "REQUIRED", "IN_REVIEW", "PARTIALLY_APPROVED", "PENDED", "SUBMITTING"].includes(status)) return "warning";
   return "default";
 }
 
@@ -134,6 +134,7 @@ function journeyStepState(key, stages) {
 
   if (key === "claim") {
     if (["SUBMITTED", "PAID"].includes(stages.claim?.status)) return "complete";
+    if (stages.claim?.status === "SUBMITTING") return "active";
     return ["APPROVED", "NOT_REQUIRED"].includes(stages.priorAuth?.status)
       ? "active"
       : "pending";
