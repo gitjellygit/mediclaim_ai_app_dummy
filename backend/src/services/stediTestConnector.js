@@ -923,6 +923,13 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
             submissionProfile.stediReleaseInformationCode,
             "organization.stediReleaseInformationCode"
           ),
+          ...(claim.authorizationNo
+            ? {
+                claimSupplementalInformation: {
+                  priorAuthorizationNumber: String(claim.authorizationNo).slice(0, 50)
+                }
+              }
+            : {}),
           principalDiagnosis: {
             qualifierCode: "ABK",
             principalDiagnosisCode: diagnoses[0]
@@ -1017,6 +1024,13 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
           submissionProfile.stediReleaseInformationCode,
           "organization.stediReleaseInformationCode"
         ),
+        ...(claim.authorizationNo
+          ? {
+              claimSupplementalInformation: {
+                priorAuthorizationNumber: String(claim.authorizationNo).slice(0, 50)
+              }
+            }
+          : {}),
         healthCareCodeInformation: diagnoses.map((code, index) => ({
           diagnosisTypeCode: index === 0 ? "ABK" : "ABF",
           diagnosisCode: code
