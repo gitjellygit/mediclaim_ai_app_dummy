@@ -59,7 +59,8 @@ import {
   completeSubmissionLock,
   isPrimaryClaim,
   releaseSubmissionLock,
-  safeSubmissionClaim
+  safeSubmissionClaim,
+  submissionLockTimeoutMs
 } from "../services/submissionSafety.js";
 
 const router = express.Router();
