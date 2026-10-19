@@ -823,6 +823,15 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
   }
 
   const submissionProfile = context.submissionProfile || claim.organization || {};
+  const paymentResponsibility = String(claim.coordinationOfBenefits || "PRIMARY").toUpperCase();
+  if (paymentResponsibility !== "PRIMARY") {
+    const error = new Error(
+      "Secondary and tertiary 837 submission requires other-payer adjudication/COB data and is not enabled"
+    );
+    error.code = "STEDI_CLAIM_REQUEST_INVALID";
+    throw error;
+  }
+
   const payerId = context.payerId || claim.connectedPayerCode || claim.payerEdiId;
   const payerName =
     context.payerName || claim.connectedPayerName || claim.payerName;
