@@ -87,6 +87,7 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
   const [saving, setSaving] = React.useState(false);
   const [simulating, setSimulating] = React.useState(false);
   const [preview, setPreview] = React.useState(null);
+  const [versions, setVersions] = React.useState([]);
   const [error, setError] = React.useState("");
 
   React.useEffect(() => {
@@ -94,6 +95,16 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
       .then(setMeta)
       .catch((e) => setError(e?.message || "Rule metadata could not be loaded."));
   }, []);
+
+  React.useEffect(() => {
+    if (!rule?.id) {
+      setVersions([]);
+      return;
+    }
+    ClaimsApi.getRuleVersions(rule.id)
+      .then((data) => setVersions(Array.isArray(data?.items) ? data.items : []))
+      .catch(() => setVersions([]));
+  }, [rule?.id]);
 
   React.useEffect(() => {
     if (!rule) return;
@@ -422,6 +433,23 @@ export default function RuleForm({ rule = null, onSaved, onCancel }) {
                 <TextField fullWidth label="Effective To" type="date" InputLabelProps={{ shrink: true }} value={form.effectiveTo} onChange={(e) => update("effectiveTo", e.target.value)} />
               </Stack>
             </>
+          )}
+
+          {rule && versions.length > 0 && (
+            <Box>
+              <Typography variant="subtitle2" fontWeight={800}>Version History</Typography>
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>
+                {versions.slice(0, 6).map((item) => (
+                  <Chip
+                    key={item.id}
+                    size="small"
+                    variant="outlined"
+                    label={`r${item.revision} · ${item.versionLabel} · ${item.changeType}`}
+                    title={new Date(item.createdAt).toLocaleString()}
+                  />
+                ))}
+              </Stack>
+            </Box>
           )}
 
           {preview && !systemManaged && (
