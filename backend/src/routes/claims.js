@@ -47,6 +47,7 @@ import { evaluateConfiguredRules } from "../services/configurableRuleEngine.js";
 import { rulesetFingerprint, rulesetFreshness } from "../services/ruleLifecycle.js";
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
 import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
+import { updateClaimFromExpectedStatus } from "../services/claimStateCas.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
 import { writeRequestAudit } from "../services/auditLog.js";
 import {
