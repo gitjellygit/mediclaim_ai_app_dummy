@@ -131,3 +131,31 @@ test("Appeal Workspace exposes eligibility recheck and visible backend analysis 
   assert.match(intelligence, /payer denial now indicates an eligibility or coverage issue/);
   assert.match(intelligence, /appeal or a corrected claim/);
 });
+
+
+test("Revenue Recovery paginates sorts and aligns recovered metrics with filters", () => {
+  const route = read("backend/src/routes/revenueRecovery.js");
+  const ui = read("frontend/src/modules/recovery/RevenueRecovery.jsx");
+  const appeal = read("frontend/src/modules/recovery/AppealWorkspace.jsx");
+
+  assert.match(route, /req\.query\.pageSize/);
+  assert.match(route, /const sort = String\(req\.query\.sort/);
+  assert.match(route, /metrics: summarize\(filteredItems\)/);
+  assert.match(route, /items: items\.slice\(offset, offset \+ pageSize\)/);
+
+  assert.match(ui, /TablePagination/);
+  assert.match(ui, /rowsPerPageOptions=\{\[10\]\}/);
+  assert.match(ui, /TableSortLabel/);
+  assert.match(ui, /sortableHeader\("Outstanding", "outstanding"\)/);
+  assert.match(ui, /sortableHeader\("Recovered", "recovered"\)/);
+  assert.match(ui, /sortableHeader\("Deadline", "deadline"\)/);
+  assert.match(ui, /Across all cases matching the current filters/);
+
+  assert.match(appeal, /data-testid="recovery-achievement"/);
+  assert.match(appeal, /Recovery achieved/);
+  assert.match(appeal, /Partial recovery/);
+  assert.match(appeal, /Why this denial likely occurred/);
+  assert.match(appeal, /severity="error" variant="outlined"/);
+  assert.match(appeal, /Recommended next action/);
+  assert.match(appeal, /severity="warning" variant="outlined"/);
+});

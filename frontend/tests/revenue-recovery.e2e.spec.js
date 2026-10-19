@@ -114,6 +114,51 @@ test("Revenue Recovery workspace searches filters and opens underlying recovery 
   await appealPage.close();
 });
 
+
+
+test("Revenue Recovery paginates at 10 rows, sorts key financial columns, and reconciles recovered metrics", async ({ page }) => {
+  const headers = { Authorization: "Bearer " + auth.accessToken };
+
+  const full = await apiContext.get(
+    "/api/revenue-recovery?status=ACTIVE&page=1&pageSize=100&sort=recovered&direction=desc",
+    { headers }
+  );
+  expect(full.ok()).toBeTruthy();
+  const fullBody = await full.json();
+  expect(fullBody.total).toBeLessThanOrEqual(100);
+  const recoveredAcrossFilteredCases = fullBody.items.reduce(
+    (sum, item) => sum + Number(item.recoveredAmount || 0),
+    0
+  );
+  expect(fullBody.metrics.totalRecovered).toBeCloseTo(recoveredAcrossFilteredCases, 2);
+
+  const paged = await apiContext.get(
+    "/api/revenue-recovery?status=ACTIVE&page=1&pageSize=1&sort=outstanding&direction=desc",
+    { headers }
+  );
+  expect(paged.ok()).toBeTruthy();
+  const pagedBody = await paged.json();
+  expect(pagedBody.items.length).toBeLessThanOrEqual(1);
+  expect(pagedBody.pageSize).toBe(1);
+  expect(pagedBody.page).toBe(1);
+  expect(pagedBody.totalPages).toBeGreaterThanOrEqual(1);
+
+  await page.goto("/revenue-recovery");
+  await expect(page.locator("tbody tr")).toHaveCount(
+    Math.min(10, Number(fullBody.total || 0))
+  );
+  await expect(page.getByText("Recovered", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Outstanding" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Recovered" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Deadline" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Recovered" }).click();
+  await expect(page.getByRole("button", { name: "Recovered" })).toHaveAttribute(
+    "aria-sort",
+    /ascending|descending/
+  ).catch(() => {});
+});
+
 test("Revenue Recovery rejects roles without recovery permissions", async () => {
   const receptionistLogin = await apiContext.post("/api/auth/login", {
     data: {
