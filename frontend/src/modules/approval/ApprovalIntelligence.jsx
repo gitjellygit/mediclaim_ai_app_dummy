@@ -279,7 +279,8 @@ export default function ApprovalIntelligence() {
     items: [],
     total: 0,
     metrics: null,
-    methodology: null
+    methodology: null,
+    submissionAlert: null
   });
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
@@ -322,7 +323,8 @@ export default function ApprovalIntelligence() {
         items: Array.isArray(result?.items) ? result.items : [],
         total: Number(result?.total || 0),
         metrics: result?.metrics || null,
-        methodology: result?.methodology || null
+        methodology: result?.methodology || null,
+        submissionAlert: result?.submissionAlert || null
       });
     } catch (e) {
       setData((current) => ({ ...current, items: [], total: 0 }));
@@ -354,7 +356,9 @@ export default function ApprovalIntelligence() {
     totalClaims: 0,
     needsReview: 0,
     readyToSubmit: 0,
+    submitting: 0,
     submitted: 0,
+    staleSubmitting: 0,
     filingRisk: 0,
     totalClaimed: 0,
     readyAmount: 0
@@ -411,6 +415,13 @@ export default function ApprovalIntelligence() {
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {error}
+        </Alert>
+      )}
+
+      {data.submissionAlert && (
+        <Alert severity="warning" sx={{ mb: 3 }} data-testid="stale-submission-alert">
+          {data.submissionAlert.message} Stale submissions: {data.submissionAlert.count}.
+          Use the admin submission reconciliation action before retrying or editing those claims.
         </Alert>
       )}
 
@@ -494,13 +505,13 @@ export default function ApprovalIntelligence() {
         <Card>
           <CardContent>
             <Typography variant="body2" color="text.secondary">
-              Submitted / Finalized
+              Submitting / Submitted / Finalized
             </Typography>
             <Typography variant="h4" fontWeight={800}>
               {metrics.submitted}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Total billed {money(metrics.totalClaimed)}
+              {metrics.submitting} currently in flight · Total billed {money(metrics.totalClaimed)}
             </Typography>
           </CardContent>
         </Card>
