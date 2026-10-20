@@ -1377,7 +1377,9 @@ router.post("/e2e/submission-safety/seed", async (req, res) => {
     const active = await createReady("ACTIVE-LOCK", {
       status: "SUBMITTING",
       submissionAttemptId: "e2e-active-lock",
-      submissionStartedAt: now
+      submissionStartedAt: now,
+      eligibilityStatus: "NOT_CHECKED",
+      eligibilityCheckedAt: null
     });
     const stale = await createReady("STALE-LOCK", {
       status: "SUBMITTING",
