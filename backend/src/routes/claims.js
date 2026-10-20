@@ -47,13 +47,22 @@ import { evaluateConfiguredRules } from "../services/configurableRuleEngine.js";
 import { rulesetFingerprint, rulesetFreshness } from "../services/ruleLifecycle.js";
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
 import { assertClaimEditable, isClaimLocked } from "../services/claimLock.js";
+import { updateClaimFromExpectedStatus } from "../services/claimStateCas.js";
 import { deletePurgedClaimFiles, resolveClaimDocumentFiles } from "../services/claimPurge.js";
 import { writeRequestAudit } from "../services/auditLog.js";
 import {
   createPayerConnectorForClaim,
   payerConnectorStatusForClaim
 } from "../services/payerGateway.js";
-import { randomBytes } from "node:crypto";
+import {
+  acquireSubmissionLock,
+  completeSubmissionLock,
+  isPrimaryClaim,
+  markSubmissionReconciliationRequired,
+  releaseSubmissionLock,
+  safeSubmissionClaim,
+  submissionLockTimeoutMs
+} from "../services/submissionSafety.js";
 
 const router = express.Router();
 
@@ -463,6 +472,7 @@ router.get(
         "DRAFT",
         "NEEDS_REVIEW",
         "READY",
+        "SUBMITTING",
         "SUBMITTED",
         "DENIED",
         "PAID"
@@ -485,6 +495,9 @@ router.get(
       filing7.setUTCDate(filing7.getUTCDate() + 7);
       const filing30 = new Date(now);
       filing30.setUTCDate(filing30.getUTCDate() + 30);
+      const staleSubmissionCutoff = new Date(
+        now.getTime() - submissionLockTimeoutMs()
+      );
 
       const filters = [];
 
@@ -551,7 +564,9 @@ router.get(
         organizationTotal,
         needsReview,
         readyToSubmit,
+        submitting,
         submitted,
+        staleSubmitting,
         filingRisk,
         totalClaimed,
         readyAmount
@@ -607,7 +622,22 @@ router.get(
           where: {
             organizationId: orgId(req),
             deletedAt: null,
-            status: { in: ["SUBMITTED", "DENIED", "PAID"] }
+            status: "SUBMITTING"
+          }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: { in: ["SUBMITTING", "SUBMITTED", "DENIED", "PAID"] }
+          }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: "SUBMITTING",
+            submissionStartedAt: { lte: staleSubmissionCutoff }
           }
         }),
         prisma.claim.count({
@@ -641,9 +671,10 @@ router.get(
         DRAFT: 1,
         NEEDS_REVIEW: 2,
         READY: 3,
-        SUBMITTED: 4,
-        DENIED: 5,
-        PAID: 6
+        SUBMITTING: 4,
+        SUBMITTED: 5,
+        DENIED: 6,
+        PAID: 7
       };
       const eligibilityRank = {
         FAILED: 4,
@@ -734,11 +765,22 @@ router.get(
           totalClaims: organizationTotal,
           needsReview,
           readyToSubmit,
+          submitting,
           submitted,
+          staleSubmitting,
           filingRisk,
           totalClaimed: Number(totalClaimed._sum.amount || 0),
           readyAmount: Number(readyAmount._sum.amount || 0)
         },
+        submissionAlert:
+          staleSubmitting > 0
+            ? {
+                severity: "warning",
+                count: staleSubmitting,
+                message:
+                  "One or more claims have been SUBMITTING longer than the submission lock timeout and require admin reconciliation."
+              }
+            : null,
         methodology: {
           readinessThreshold: 80,
           submissionRisk:
@@ -1276,9 +1318,11 @@ router.patch("/:id", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res)
     if (anyClaimDataChanged) {
       await prisma.$transaction(async (tx) => {
         if (patchChangedFields.length > 0) {
-          await tx.claim.update({
-            where: { id: req.params.id },
-            data: {
+          await updateClaimFromExpectedStatus(
+            tx,
+            req.params.id,
+            existing.status,
+            {
               ...payload,
               ...(payerIdentityChanged
                 ? {
@@ -1298,13 +1342,23 @@ router.patch("/:id", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res)
               documentDerivedFields,
               fieldProvenance,
               status: nextStatus
+            },
+            {
+              organizationId: orgId(req),
+              message: "Claim entered submission while this edit was being saved. Refresh before editing."
             }
-          });
+          );
         } else if (serviceLinesChanged && existing.status !== nextStatus) {
-          await tx.claim.update({
-            where: { id: req.params.id },
-            data: { status: nextStatus }
-          });
+          await updateClaimFromExpectedStatus(
+            tx,
+            req.params.id,
+            existing.status,
+            { status: nextStatus },
+            {
+              organizationId: orgId(req),
+              message: "Claim entered submission while service-line changes were being saved. Refresh before editing."
+            }
+          );
         }
 
         if (serviceLinesChanged) {
@@ -1454,10 +1508,16 @@ router.delete("/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), async (req, r
       });
     }
 
-    await prisma.claim.update({
-      where: { id },
-      data: { deletedAt: new Date() }
-    });
+    await updateClaimFromExpectedStatus(
+      prisma,
+      id,
+      claim.status,
+      { deletedAt: new Date() },
+      {
+        organizationId: orgId(req),
+        message: "Claim entered submission while deletion was being requested. Refresh before retrying."
+      }
+    );
 
     await auditClaim(req, {
       claimId: id,
@@ -1467,6 +1527,7 @@ router.delete("/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), async (req, r
 
     res.json({ success: true, softDeleted: true });
   } catch (error) {
+    if (error?.status) throw error;
     console.error("Delete claim error:", error);
     res.status(400).json({ error: "Unable to delete claim" });
   }
@@ -1723,7 +1784,18 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
     );
 
     const check = await prisma.$transaction(async (tx) => {
-      const created = await tx.check.create({
+      await updateClaimFromExpectedStatus(
+        tx,
+        claim.id,
+        claim.status,
+        { status: readinessStatus },
+        {
+          organizationId: orgId(req),
+          message: "Claim entered submission while readiness was being calculated. Refresh before running AI Check again."
+        }
+      );
+
+      return tx.check.create({
         data: {
           claimId: claim.id,
           score: readinessScore,
@@ -1738,13 +1810,6 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
           rulesetFingerprint: evaluatedRulesetFingerprint
         }
       });
-
-      await tx.claim.update({
-        where: { id: claim.id },
-        data: { status: readinessStatus }
-      });
-
-      return created;
     });
 
     await auditClaim(req, {
@@ -1777,12 +1842,381 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
 
 
 
+router.post("/:id/submission/reconcile", requireRoles(["ADMIN"]), async (req, res) => {
+  try {
+    const parsed = z.object({
+      releaseIfNotFound: z.boolean().optional()
+    }).strict().safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid reconciliation request",
+        code: "INVALID_SUBMISSION_RECONCILIATION"
+      });
+    }
+
+    const claim = await prisma.claim.findFirst({
+      where: {
+        id: req.params.id,
+        organizationId: orgId(req),
+        deletedAt: null
+      },
+      include: {
+        organization: {
+          select: { stediBillingProviderName: true }
+        },
+        payerTransactions: {
+          where: {
+            transactionType: { in: ["CLAIM_SUBMISSION", "CLAIM_STATUS"] }
+          },
+          orderBy: { createdAt: "desc" },
+          take: 25
+        }
+      }
+    });
+
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    if (claim.status !== "SUBMITTING") {
+      return res.status(409).json({
+        error: "Claim is not awaiting submission reconciliation",
+        code: "CLAIM_NOT_SUBMITTING"
+      });
+    }
+
+    const now = new Date();
+    const staleBefore = new Date(now.getTime() - submissionLockTimeoutMs());
+    const stale =
+      !claim.submissionStartedAt ||
+      new Date(claim.submissionStartedAt).getTime() <= staleBefore.getTime();
+
+    const acceptedSubmission = claim.payerTransactions.find((transaction) =>
+      transaction.transactionType === "CLAIM_SUBMISSION" &&
+      ["ACKNOWLEDGED", "SUBMITTED", "ACCEPTED", "RECEIVED"].includes(
+        String(transaction.status || "").toUpperCase()
+      )
+    );
+
+    const finalize = async ({ payerStatus = "SUBMITTED", payerReferenceNo = null, sourceTransactionId = null } = {}) => {
+      const completed = await completeSubmissionLock(
+        prisma,
+        claim.id,
+        claim.submissionAttemptId,
+        {
+          claimSubmissionDate: claim.claimSubmissionDate || now,
+          patientControlNumber: claim.patientControlNumber,
+          payerClaimStatus: payerStatus,
+          payerReferenceNo: payerReferenceNo || claim.payerReferenceNo || null,
+          claimStatusCheckedAt: now,
+          remittanceStatus: claim.remittanceStatus === "NOT_AVAILABLE"
+            ? "AWAITING"
+            : claim.remittanceStatus
+        }
+      );
+
+      if (!completed) {
+        return null;
+      }
+
+      if (["DENIED", "PAID"].includes(payerStatus)) {
+        await prisma.$transaction(async (tx) => {
+          await tx.claim.update({
+            where: { id: claim.id },
+            data: {
+              status: assertClaimTransition(
+                "SUBMITTED",
+                payerStatus === "DENIED" ? "DENIED" : "PAID"
+              )
+            }
+          });
+
+          if (payerStatus !== "DENIED") return;
+
+          const existingDenial = await tx.denialCase.findFirst({
+            where: {
+              claimId: claim.id,
+              status: {
+                in: [
+                  "OPEN",
+                  "ANALYZED",
+                  "CORRECTION_REQUIRED",
+                  "APPEAL_PREPARED",
+                  "APPEAL_SUBMITTED",
+                  "RESUBMITTED"
+                ]
+              }
+            }
+          });
+
+          if (!existingDenial) {
+            await tx.denialCase.create({
+              data: {
+                claimId: claim.id,
+                source: "PAYER_STATUS",
+                status: "OPEN",
+                denialDate: now,
+                revenueAtRisk: Number(claim.amount || 0),
+                sourceTransactionId: sourceTransactionId || null,
+                reasonText: "Payer reconciliation confirmed a denied claim"
+              }
+            });
+          }
+        });
+      }
+
+      return prisma.claim.findUnique({
+        where: { id: claim.id },
+        select: {
+          id: true,
+          status: true,
+          patientControlNumber: true,
+          claimSubmissionDate: true,
+          payerClaimStatus: true,
+          payerReferenceNo: true,
+          remittanceStatus: true,
+          claimForm: true,
+          claimFrequencyCode: true,
+          payerName: true,
+          payerEdiId: true
+        }
+      });
+    };
+
+    if (acceptedSubmission) {
+      const acceptedStatus = String(
+        acceptedSubmission.status || "SUBMITTED"
+      ).toUpperCase();
+      const reconciled = await finalize({
+        payerStatus:
+          acceptedStatus === "ACCEPTED"
+            ? "ACKNOWLEDGED"
+            : ["ACKNOWLEDGED", "SUBMITTED", "RECEIVED"].includes(acceptedStatus)
+            ? acceptedStatus
+            : "SUBMITTED",
+        payerReferenceNo:
+          acceptedSubmission.responsePayload?.payerClaimNo ||
+          claim.payerReferenceNo ||
+          null,
+        sourceTransactionId: acceptedSubmission.transactionId
+      });
+
+      if (!reconciled) {
+        return res.status(409).json({
+          error: "Submission ownership changed during reconciliation",
+          code: "CLAIM_SUBMISSION_OWNERSHIP_LOST"
+        });
+      }
+
+      await auditClaim(req, {
+        claimId: claim.id,
+        action: "CLAIM_SUBMISSION_RECONCILED",
+        metadata: {
+          source: "PAYER_TRANSACTION",
+          staleSubmissionRecovered: stale
+        }
+      });
+
+      return res.json({
+        reconciled: true,
+        source: "PAYER_TRANSACTION",
+        claim: safeSubmissionClaim(reconciled)
+      });
+    }
+
+    if (claim.payerConnectionMode !== "LIVE") {
+      if (stale && parsed.data.releaseIfNotFound === true) {
+        const released = await releaseSubmissionLock(
+          prisma,
+          claim.id,
+          claim.submissionAttemptId
+        );
+        if (!released) {
+          return res.status(409).json({
+            error: "Submission ownership changed during reconciliation",
+            code: "CLAIM_SUBMISSION_OWNERSHIP_LOST"
+          });
+        }
+
+        await auditClaim(req, {
+          claimId: claim.id,
+          action: "CLAIM_SUBMISSION_RECONCILED",
+          metadata: {
+            source: "LOCAL_NO_EXTERNAL_TRANSMISSION",
+            releasedToReady: true
+          }
+        });
+
+        return res.json({
+          reconciled: true,
+          released: true,
+          status: "READY"
+        });
+      }
+
+      return res.status(409).json({
+        error: "No external payer transmission evidence is available",
+        message: stale
+          ? "This local-only submission is stale. Re-run reconciliation with releaseIfNotFound=true to release it."
+          : "The submission lock is still within its active timeout window.",
+        code: "SUBMISSION_RECONCILIATION_PENDING",
+        stale
+      });
+    }
+
+    const descriptor = payerConnectorStatusForClaim(claim);
+    if (
+      !descriptor.configured ||
+      !descriptor.capabilities?.includes("getStatus")
+    ) {
+      return res.status(409).json({
+        error: "Payer status reconciliation is not configured",
+        code: "SUBMISSION_RECONCILIATION_CONNECTOR_UNAVAILABLE",
+        stale
+      });
+    }
+
+    const connector = createPayerConnectorForClaim(claim);
+    const result = await connector.getStatus(claim, {
+      providerName: claim.organization?.stediBillingProviderName || null
+    });
+
+    const transaction = await prisma.payerTransaction.create({
+      data: {
+        claimId: claim.id,
+        transactionId:
+          result.transactionId ||
+          `${connector.connectorId}-RECONCILE-${claim.id}-${Date.now()}`,
+        mode: result.livePayerVerification === true
+          ? "PRODUCTION"
+          : connector.connectorEnvironment,
+        payerCode:
+          claim.connectedPayerCode ||
+          claim.payerEdiId ||
+          claim.payerName ||
+          connector.connectorProvider,
+        transactionType: "CLAIM_STATUS",
+        status: result.status || "NEEDS_REVIEW",
+        latencyMs: result.latencyMs || null,
+        requestPayload: {
+          transaction: "276",
+          responseTransaction: "277",
+          reconciliation: true,
+          patientControlNumber: claim.patientControlNumber || null
+        },
+        responsePayload: result
+      }
+    });
+
+    const finalStatuses = new Set([
+      "ACKNOWLEDGED",
+      "IN_REVIEW",
+      "APPROVED",
+      "PARTIALLY_APPROVED",
+      "DENIED",
+      "PAID"
+    ]);
+    const payerStatus = String(result.status || "").toUpperCase();
+
+    if (finalStatuses.has(payerStatus)) {
+      const reconciled = await finalize({
+        payerStatus,
+        payerReferenceNo: result.payerClaimNo || null,
+        sourceTransactionId: transaction.transactionId
+      });
+
+      if (!reconciled) {
+        return res.status(409).json({
+          error: "Submission ownership changed during reconciliation",
+          code: "CLAIM_SUBMISSION_OWNERSHIP_LOST"
+        });
+      }
+
+      await auditClaim(req, {
+        claimId: claim.id,
+        action: "CLAIM_SUBMISSION_RECONCILED",
+        metadata: {
+          source: "PAYER_277",
+          payerClaimStatus: payerStatus,
+          staleSubmissionRecovered: stale
+        }
+      });
+
+      return res.json({
+        reconciled: true,
+        source: "PAYER_277",
+        payerStatus,
+        claim: safeSubmissionClaim(reconciled)
+      });
+    }
+
+    if (
+      payerStatus === "NOT_FOUND" &&
+      stale &&
+      parsed.data.releaseIfNotFound === true
+    ) {
+      const released = await releaseSubmissionLock(
+        prisma,
+        claim.id,
+        claim.submissionAttemptId
+      );
+
+      if (!released) {
+        return res.status(409).json({
+          error: "Submission ownership changed during reconciliation",
+          code: "CLAIM_SUBMISSION_OWNERSHIP_LOST"
+        });
+      }
+
+      await auditClaim(req, {
+        claimId: claim.id,
+        action: "CLAIM_SUBMISSION_RECONCILED",
+        metadata: {
+          source: "PAYER_277",
+          releasedToReady: true,
+          payerStatus: "NOT_FOUND"
+        }
+      });
+
+      return res.json({
+        reconciled: true,
+        released: true,
+        payerStatus: "NOT_FOUND",
+        status: "READY"
+      });
+    }
+
+    return res.status(202).json({
+      reconciled: false,
+      stale,
+      payerStatus: payerStatus || "UNAVAILABLE",
+      message:
+        payerStatus === "NOT_FOUND"
+          ? "Payer did not find the claim. If the lock is stale, an administrator may explicitly release it after review."
+          : "Payer status is not conclusive yet. Keep the claim locked and reconcile again later.",
+      code: "SUBMISSION_RECONCILIATION_PENDING"
+    });
+  } catch (error) {
+    if (error?.status) throw error;
+    console.error("[submission-reconcile] failed", {
+      claimId: req.params.id,
+      code: error?.code || null
+    });
+    return res.status(500).json({
+      error: "Unable to reconcile claim submission",
+      code: "SUBMISSION_RECONCILIATION_FAILED"
+    });
+  }
+});
+
 router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (req, res) => {
+  let submissionLock = null;
+  let payerResponseReceived = false;
+
   try {
     const parsedInput = parseMutation(claimSubmissionSchema, req.body);
     if (!parsedInput.ok) {
       return res.status(400).json(parsedInput.response);
     }
+
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
       include: {
@@ -1816,6 +2250,15 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       return res.status(404).json({ error: "Claim not found" });
     }
 
+    if (!isPrimaryClaim(claim)) {
+      return res.status(409).json({
+        error: "Secondary and tertiary claim submission is not enabled",
+        message:
+          "This release does not yet build the other-payer adjudication/COB loops required for secondary or tertiary 837 claims.",
+        code: "SECONDARY_TERTIARY_SUBMISSION_NOT_SUPPORTED"
+      });
+    }
+
     const latestCheck = claim.checks?.[0];
 
     if (claim.eligibilityStatus !== "VERIFIED") {
@@ -1830,6 +2273,14 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
     ) {
       return res.status(400).json({
         error: "Resolve prior authorization before submitting the claim"
+      });
+    }
+
+    if (claim.priorAuthRequired === true && !String(claim.authorizationNo || "").trim()) {
+      return res.status(400).json({
+        error: "Authorization number is required before submission",
+        message: "The payer-approved prior authorization number must be present on the outbound 837.",
+        code: "PRIOR_AUTHORIZATION_NUMBER_REQUIRED"
       });
     }
 
@@ -1855,16 +2306,15 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
     );
     if (!rulesFreshness.fresh) {
       return res.status(400).json({
-        error: rulesFreshness.reason || "Readiness rules changed after the last AI Check. Refresh AI readiness before submitting.",
+        error:
+          rulesFreshness.reason ||
+          "Readiness rules changed after the last AI Check. Refresh AI readiness before submitting.",
         code: "READINESS_RULESET_STALE"
       });
     }
 
-    const issues = Array.isArray(latestCheck.issues)
-      ? latestCheck.issues
-      : [];
-
-    if (issues.some((i) => i.severity === "BLOCK")) {
+    const issues = Array.isArray(latestCheck.issues) ? latestCheck.issues : [];
+    if (issues.some((issue) => issue.severity === "BLOCK")) {
       return res.status(400).json({
         error: "Claim has blocking issues. Fix them before submission"
       });
@@ -1876,34 +2326,40 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       });
     }
 
-    if (isClaimLocked(claim)) {
+    if (
+      claim.claimSubmissionDate ||
+      ["SUBMITTED", "DENIED", "PAID"].includes(claim.status)
+    ) {
       assertClaimEditable(
         claim,
         "Submitted or finalized claims cannot be submitted again."
       );
     }
 
-    // Validate the local workflow transition before any external payer call.
-    // The value is reused after transmission so we never discover an invalid
-    // transition only after an irreversible 837 has already left the system.
-    const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED");
-
-    let patientControlNumber = claim.patientControlNumber;
-    if (!patientControlNumber) {
-      patientControlNumber = randomBytes(9)
-        .toString("hex")
-        .slice(0, 17)
-        .toUpperCase();
-
-      // Persist the correlation key before any external transmission. If the
-      // payer accepts the request but a later local write fails, a retry must
-      // reuse the same Patient Control Number together with the same
-      // idempotency key.
-      await prisma.claim.update({
-        where: { id: claim.id },
-        data: { patientControlNumber }
+    if (
+      claim.status === "SUBMITTING" &&
+      claim.submissionReconciliationRequired === true
+    ) {
+      return res.status(409).json({
+        error: "Claim submission requires reconciliation",
+        message:
+          "A prior payer submission may have been accepted or has an unknown outcome. An administrator must reconcile this claim before any retry.",
+        code: "CLAIM_SUBMISSION_RECONCILIATION_REQUIRED"
       });
     }
+
+    if (!["READY", "SUBMITTING"].includes(claim.status)) {
+      return res.status(409).json({
+        error: "Claim is not ready for submission",
+        message: "Run readiness and resolve blockers before submitting.",
+        code: "CLAIM_NOT_READY_FOR_SUBMISSION"
+      });
+    }
+
+    if (claim.status === "READY") {
+      assertClaimTransition("READY", "SUBMITTING");
+    }
+    const submittedStatus = assertClaimTransition("SUBMITTING", "SUBMITTED");
 
     let payerSubmission = null;
     let connectorDescriptor = null;
@@ -1959,19 +2415,58 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
           code: "PAYER_SUBMISSION_NOT_SUPPORTED"
         });
       }
+    }
 
+    submissionLock = await acquireSubmissionLock(prisma, claim, {
+      organizationId: orgId(req)
+    });
+
+    if (!submissionLock) {
+      return res.status(409).json({
+        error: "Claim submission is already in progress",
+        message:
+          "Another request owns this claim submission. Do not resend the claim; refresh status instead.",
+        code: "CLAIM_SUBMISSION_IN_PROGRESS"
+      });
+    }
+
+    if (submissionLock.reclaimed) {
+      await auditClaim(req, {
+        claimId: claim.id,
+        action: "CLAIM_SUBMISSION_LOCK_RECLAIMED",
+        metadata: {
+          staleSubmissionRecovered: true
+        }
+      });
+    }
+
+    const patientControlNumber = submissionLock.patientControlNumber;
+    const submissionClaim = {
+      ...claim,
+      status: "SUBMITTING",
+      patientControlNumber
+    };
+
+    let safeResult = null;
+
+    if (claim.payerConnectionMode === "LIVE") {
       const connector = createPayerConnectorForClaim(
-        { ...claim, patientControlNumber },
+        submissionClaim,
         claim.connectedPayerCode || claim.payerEdiId
       );
-      payerSubmission = await connector.submitClaim(
-        { ...claim, patientControlNumber },
-        {
-          submissionProfile: claim.organization
-        }
+
+      payerSubmission = await connector.submitClaim(submissionClaim, {
+        submissionProfile: claim.organization
+      });
+      payerResponseReceived = true;
+      await markSubmissionReconciliationRequired(
+        prisma,
+        claim.id,
+        submissionLock.attemptId,
+        "PAYER_RESPONSE_RECEIVED_PENDING_LOCAL_FINALIZATION"
       );
 
-      const safeResult = {
+      safeResult = {
         ...payerSubmission,
         raw: undefined,
         x12: undefined
@@ -1994,13 +2489,17 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
           claimId: claim.id,
           transactionId,
           mode: connectorDescriptor.environment,
-          payerCode: claim.connectedPayerCode || claim.payerEdiId || connectorDescriptor.provider,
+          payerCode:
+            claim.connectedPayerCode ||
+            claim.payerEdiId ||
+            connectorDescriptor.provider,
           transactionType: "CLAIM_SUBMISSION",
           status: payerSubmission.status,
           latencyMs: payerSubmission.latencyMs || null,
           requestHash: payerSubmission.payloadHash || null,
           requestPayload: {
-            transaction: claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
+            transaction:
+              claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
             patientControlNumber,
             payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
             claimForm: claim.claimForm || null,
@@ -2013,11 +2512,29 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
         update: {
           status: payerSubmission.status,
           latencyMs: payerSubmission.latencyMs || null,
+          requestPayload: {
+            transaction:
+              claim.claimForm === "INSTITUTIONAL" ? "837I" : "837P",
+            patientControlNumber,
+            payerCode: claim.connectedPayerCode || claim.payerEdiId || null,
+            claimForm: claim.claimForm || null,
+            claimFrequencyCode: claim.claimFrequencyCode || "ORIGINAL",
+            idempotencyKey: payerSubmission.idempotencyKey || null,
+            payloadHash: payerSubmission.payloadHash || null
+          },
           responsePayload: safeResult
         }
       });
 
       if (payerSubmission.status === "REJECTED") {
+        await releaseSubmissionLock(
+          prisma,
+          claim.id,
+          submissionLock.attemptId
+        );
+        submissionLock = null;
+        payerResponseReceived = false;
+
         await auditClaim(req, {
           claimId: claim.id,
           action: "CLAIM_SUBMISSION_REJECTED",
@@ -2027,6 +2544,7 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
             payerCode: claim.connectedPayerCode || claim.payerEdiId || null
           }
         });
+
         return res.status(422).json({
           success: false,
           error: "Payer rejected the claim submission",
@@ -2039,23 +2557,52 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       }
     }
 
-    const updated = await prisma.claim.update({
-      where: { id: claim.id },
-      data: {
+    const completed = await completeSubmissionLock(
+      prisma,
+      claim.id,
+      submissionLock.attemptId,
+      {
         status: submittedStatus,
         claimSubmissionDate: new Date(),
         patientControlNumber,
         payerClaimStatus:
-          payerSubmission?.status === "ACKNOWLEDGED" ? "ACKNOWLEDGED" : "SUBMITTED",
+          payerSubmission?.status === "ACKNOWLEDGED"
+            ? "ACKNOWLEDGED"
+            : "SUBMITTED",
         payerReferenceNo:
           payerSubmission?.payerClaimNo || claim.payerReferenceNo || null,
         claimStatusCheckedAt: payerSubmission ? new Date() : null,
         remittanceStatus: "AWAITING"
-      },
-      include: {
-        documents: true,
-        checks: { orderBy: { createdAt: "desc" } },
-        payerTransactions: { orderBy: { createdAt: "desc" } }
+      }
+    );
+
+    if (!completed) {
+      submissionLock = null;
+      return res.status(409).json({
+        success: false,
+        error: "Submission ownership changed before completion",
+        message:
+          "The claim submission was not finalized by this request. Refresh the claim and payer status before taking further action.",
+        code: "CLAIM_SUBMISSION_OWNERSHIP_LOST"
+      });
+    }
+
+    submissionLock = null;
+
+    const updated = await prisma.claim.findUnique({
+      where: { id: claim.id },
+      select: {
+        id: true,
+        status: true,
+        patientControlNumber: true,
+        claimSubmissionDate: true,
+        payerClaimStatus: true,
+        payerReferenceNo: true,
+        remittanceStatus: true,
+        claimForm: true,
+        claimFrequencyCode: true,
+        payerName: true,
+        payerEdiId: true
       }
     });
 
@@ -2063,36 +2610,93 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       claimId: claim.id,
       action: "CLAIM_SUBMITTED",
       metadata: {
-        payerClaimStatus: updated.payerClaimStatus,
+        payerClaimStatus: updated?.payerClaimStatus || null,
         connectorId: connectorDescriptor?.id || null,
         transmittedToPayer: Boolean(payerSubmission)
       }
     });
 
-    res.json({
+    return res.json({
       success: true,
       message: payerSubmission
         ? "Claim submitted and transmitted to payer"
         : "Claim submitted successfully",
-      submission: payerSubmission
-        ? {
-            ...payerSubmission,
-            raw: undefined,
-            x12: undefined
-          }
-        : null,
-      claim: updated
+      submission: safeResult,
+      claim: safeSubmissionClaim(updated)
     });
   } catch (e) {
+    if (
+      submissionLock &&
+      !payerResponseReceived &&
+      e?.code !== "STEDI_SUBMISSION_OUTCOME_UNKNOWN"
+    ) {
+      try {
+        await releaseSubmissionLock(
+          prisma,
+          req.params.id,
+          submissionLock.attemptId
+        );
+      } catch (releaseError) {
+        console.error("[claim-submit] failed to release submission lock", {
+          claimId: req.params.id,
+          code: releaseError?.code || null
+        });
+      }
+      submissionLock = null;
+    }
+
+    if (submissionLock && payerResponseReceived) {
+      await markSubmissionReconciliationRequired(
+        prisma,
+        req.params.id,
+        submissionLock.attemptId,
+        "PAYER_RESPONSE_LOCAL_FINALIZATION_FAILED"
+      );
+      console.error("[claim-submit] payer responded but local finalization failed", {
+        claimId: req.params.id,
+        code: e?.code || null
+      });
+      await auditClaim(req, {
+        claimId: req.params.id,
+        action: "CLAIM_SUBMISSION_RECONCILIATION_REQUIRED",
+        outcome: "DENIED",
+        metadata: {
+          payerResponded: true,
+          submissionLocked: true
+        }
+      });
+      return res.status(202).json({
+        success: false,
+        reconciliationRequired: true,
+        error: "Payer responded but local submission finalization is incomplete",
+        message:
+          "The claim remains locked in SUBMITTING. Do not resend or edit it; an administrator must reconcile payer status.",
+        code: "PAYER_SUBMISSION_RECONCILIATION_REQUIRED"
+      });
+    }
+
     if (e?.status && e?.code !== "STEDI_API_ERROR") throw e;
 
     if (e?.code === "STEDI_SUBMISSION_OUTCOME_UNKNOWN") {
+      if (submissionLock) {
+        await markSubmissionReconciliationRequired(
+          prisma,
+          req.params.id,
+          submissionLock.attemptId,
+          "PAYER_SUBMISSION_OUTCOME_UNKNOWN"
+        );
+      }
       const existing = await prisma.claim.findFirst({
-        where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
+        where: {
+          id: req.params.id,
+          organizationId: orgId(req),
+          deletedAt: null
+        }
       });
 
       if (existing) {
-        const unknownTransactionId = `837-unknown-${String(e.payloadHash || "unknown").slice(0, 32)}`;
+        const unknownTransactionId =
+          `837-unknown-${String(e.payloadHash || "unknown").slice(0, 32)}`;
         await prisma.payerTransaction.upsert({
           where: {
             transactionId_claimId: {
@@ -2104,7 +2708,10 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
             claimId: existing.id,
             transactionId: unknownTransactionId,
             mode: "PRODUCTION",
-            payerCode: existing.connectedPayerCode || existing.payerEdiId || "STEDI",
+            payerCode:
+              existing.connectedPayerCode ||
+              existing.payerEdiId ||
+              "STEDI",
             transactionType: "CLAIM_SUBMISSION",
             status: "OUTCOME_UNKNOWN",
             latencyMs: e.latencyMs || null,
@@ -2142,7 +2749,10 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       });
     }
 
-    if (e?.code === "STEDI_REQUEST_INVALID" || e?.code === "STEDI_CLAIM_REQUEST_INVALID") {
+    if (
+      e?.code === "STEDI_REQUEST_INVALID" ||
+      e?.code === "STEDI_CLAIM_REQUEST_INVALID"
+    ) {
       return res.status(400).json({
         error: "Claim is missing information required for payer submission",
         message: e.message,
@@ -2153,7 +2763,8 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
     if (e?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
       return res.status(503).json({
         error: "Payer connector is unavailable",
-        message: "The selected payer service is not available for claim submission.",
+        message:
+          "The selected payer service is not available for claim submission.",
         code: "PAYER_CONNECTOR_UNAVAILABLE"
       });
     }
@@ -2173,8 +2784,14 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
       });
     }
 
-    console.error("[claim-submit] failed", { name: e?.name, code: e?.code || null });
-    res.status(500).json({ error: "Unable to submit claim", code: "CLAIM_SUBMISSION_FAILED" });
+    console.error("[claim-submit] failed", {
+      name: e?.name,
+      code: e?.code || null
+    });
+    return res.status(500).json({
+      error: "Unable to submit claim",
+      code: "CLAIM_SUBMISSION_FAILED"
+    });
   }
 });
 

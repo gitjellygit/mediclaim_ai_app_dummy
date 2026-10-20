@@ -249,6 +249,7 @@ test("R2B - Stedi builds trusted professional 837P payload from claim fields", (
       memberId: "MEMBER123",
       subscriberRelationship: "SELF",
       coordinationOfBenefits: "PRIMARY",
+      authorizationNo: "AUTH-PA-123",
       billingProviderNpi: "1999999984",
       renderingProviderNpi: "1888888873",
       doctorName: "Jane Smith",
@@ -297,8 +298,36 @@ test("R2B - Stedi builds trusted professional 837P payload from claim fields", (
   assert.equal(result.payload.tradingPartnerServiceId, "60054");
   assert.equal(result.payload.subscriber.memberId, "MEMBER123");
   assert.equal(result.payload.claimInformation.patientControlNumber.length, 17);
+  assert.equal(
+    result.payload.claimInformation.claimSupplementalInformation.priorAuthorizationNumber,
+    "AUTH-PA-123"
+  );
   assert.equal(result.payload.claimInformation.healthCareCodeInformation[0].diagnosisCode, "M5416");
   assert.equal(result.payload.claimInformation.serviceLines[0].professionalService.procedureCode, "99213");
+});
+
+test("Submission safety - Stedi mapper refuses incomplete secondary and tertiary 837 claims", () => {
+  for (const coordinationOfBenefits of ["SECONDARY", "TERTIARY"]) {
+    assert.throws(
+      () =>
+        buildStediClaimSubmissionRequest(
+          {
+            id: "claim-cob-block",
+            claimForm: "PROFESSIONAL",
+            coordinationOfBenefits
+          },
+          {
+            requestPayload: {
+              tradingPartnerServiceId: "60054",
+              claimInformation: { patientControlNumber: "PCN-COVERAGE" }
+            }
+          }
+        ),
+      (error) =>
+        error?.code === "STEDI_CLAIM_REQUEST_INVALID" &&
+        /other-payer adjudication\/COB data/i.test(error.message)
+    );
+  }
 });
 
 test("R2B - Stedi claim payload override is forced into test mode", () => {
@@ -1057,4 +1086,57 @@ test("R3 - production timeout becomes outcome unknown with safe-retry metadata",
       /^[a-f0-9]{64}$/.test(error.payloadHash || "") &&
       Boolean(error.idempotencyKey)
   );
+});
+
+
+test("Submission safety - unchanged Stedi claim retries reuse payload hash and idempotency key", async () => {
+  const captured = [];
+  const fetchImpl = async (url, options) => {
+    captured.push({ url: String(url), options });
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      async text() {
+        return JSON.stringify({
+          claimReference: {
+            correlationId: "corr-stable-retry",
+            claimType: "PROF",
+            patientControlNumber: "ABC12345678901234",
+            payerId: "60054"
+          }
+        });
+      }
+    };
+  };
+
+  const connector = createStediTestConnector({
+    env: {
+      STEDI_TEST_API_KEY: "test-key",
+      STEDI_CLAIMS_API_BASE_URL: "https://claims.example.test/2024-04-01"
+    },
+    fetchImpl
+  });
+
+  const stableClaim = {
+    id: "claim-stable-retry",
+    claimForm: "PROFESSIONAL"
+  };
+  const requestPayload = {
+    tradingPartnerServiceId: "60054",
+    claimInformation: {
+      patientControlNumber: "ABC12345678901234"
+    }
+  };
+
+  const first = await connector.submitClaim(stableClaim, { requestPayload });
+  const second = await connector.submitClaim(stableClaim, { requestPayload });
+
+  assert.equal(first.payloadHash, second.payloadHash);
+  assert.equal(first.idempotencyKey, second.idempotencyKey);
+  assert.equal(
+    captured[0].options.headers["Idempotency-Key"],
+    captured[1].options.headers["Idempotency-Key"]
+  );
+  assert.equal(captured[0].options.body, captured[1].options.body);
 });

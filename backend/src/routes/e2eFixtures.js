@@ -1273,6 +1273,161 @@ router.delete("/e2e/rules-lifecycle/cleanup", async (req, res) => {
   }
 });
 
+router.post("/e2e/submission-safety/seed", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const organizationId = req.user.organizationId;
+  const prefix = "E2E-SUBMISSION-SAFETY-";
+  const now = new Date();
+  const staleStartedAt = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+
+  try {
+    await prisma.claim.deleteMany({
+      where: {
+        organizationId,
+        patientName: { startsWith: prefix }
+      }
+    });
+
+    const rules = await prisma.rule.findMany({
+      where: { organizationId, deletedAt: null }
+    });
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { rulesetRevision: true }
+    });
+
+    const createReady = async (suffix, overrides = {}) => {
+      const claim = await prisma.claim.create({
+        data: {
+          organizationId,
+          createdById: req.user.id,
+          patientName: prefix + suffix,
+          payerName: "Submission Safety Payer",
+          payerEdiId: "60054",
+          policyNo: "POL-" + suffix,
+          memberId: "MEM-" + suffix,
+          coordinationOfBenefits: "PRIMARY",
+          amount: 100,
+          totalBilledAmount: 100,
+          claimForm: "PROFESSIONAL",
+          claimType: "PROVIDER_BILLED",
+          claimFilingCode: "CI",
+          billingProviderNpi: "1234567890",
+          renderingProviderNpi: "1987654321",
+          providerTin: "123456789",
+          providerTaxonomyCode: "207Q00000X",
+          diagnosisText: "Synthetic submission safety diagnosis",
+          icd10Codes: ["M54.50"],
+          dateOfService: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+          timelyFilingDeadline: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000),
+          eligibilityStatus: "VERIFIED",
+          eligibilityCheckedAt: now,
+          priorAuthRequired: false,
+          priorAuthStatus: "NOT_REQUIRED",
+          priorAuthCheckedAt: now,
+          remittanceStatus: "NOT_AVAILABLE",
+          payerConnectionMode: "LOCAL",
+          status: "READY",
+          serviceLines: {
+            create: [{
+              cptHcpcsCode: "99213",
+              units: 1,
+              charge: 100,
+              diagnosisPointers: ["M54.50"],
+              placeOfService: "11",
+              serviceDateFrom: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+              serviceDateTo: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+              verified: true,
+              source: "USER"
+            }]
+          },
+          ...overrides
+        },
+        include: {
+          serviceLines: true
+        }
+      });
+
+      await prisma.check.create({
+        data: {
+          claimId: claim.id,
+          score: 100,
+          issues: [],
+          riskScore: 0,
+          riskLevel: "LOW",
+          riskFactors: [],
+          rulesetRevision: organization?.rulesetRevision || 1,
+          rulesetFingerprint: rulesetFingerprint(rules, claim, now)
+        }
+      });
+
+      return claim;
+    };
+
+    const primary = await createReady("PRIMARY");
+    const secondary = await createReady("SECONDARY", {
+      coordinationOfBenefits: "SECONDARY"
+    });
+    const tertiary = await createReady("TERTIARY", {
+      coordinationOfBenefits: "TERTIARY"
+    });
+    const active = await createReady("ACTIVE-LOCK", {
+      status: "SUBMITTING",
+      submissionAttemptId: "e2e-active-lock",
+      submissionStartedAt: now
+    });
+    const stale = await createReady("STALE-LOCK", {
+      status: "SUBMITTING",
+      submissionAttemptId: "e2e-stale-lock",
+      submissionStartedAt: staleStartedAt
+    });
+    const reconciliationRequired = await createReady("RECONCILE-LOCK", {
+      status: "SUBMITTING",
+      submissionAttemptId: "e2e-reconcile-lock",
+      submissionStartedAt: staleStartedAt,
+      submissionReconciliationRequired: true,
+      submissionReconciliationReason: "PAYER_RESPONSE_LOCAL_FINALIZATION_FAILED"
+    });
+
+    res.json({
+      primaryClaimId: primary.id,
+      secondaryClaimId: secondary.id,
+      tertiaryClaimId: tertiary.id,
+      activeSubmittingClaimId: active.id,
+      staleSubmittingClaimId: stale.id,
+      reconciliationRequiredClaimId: reconciliationRequired.id
+    });
+  } catch (error) {
+    console.error("[e2e-submission-safety] seed failed", {
+      name: error?.name || "Error",
+      code: error?.code || null,
+      message: error?.message || null
+    });
+    res.status(500).json({ error: "Unable to seed submission safety scenarios" });
+  }
+});
+
+router.delete("/e2e/submission-safety/cleanup", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  try {
+    const result = await prisma.claim.deleteMany({
+      where: {
+        organizationId: req.user.organizationId,
+        patientName: { startsWith: "E2E-SUBMISSION-SAFETY-" }
+      }
+    });
+    res.json({ deleted: result.count });
+  } catch {
+    res.status(500).json({ error: "Unable to clean submission safety scenarios" });
+  }
+});
+
 function finalUatGuard(req, res) {
   const safety = finalUatLocalSafety();
   if (!safety.ok || req.user?.role !== "ADMIN") {

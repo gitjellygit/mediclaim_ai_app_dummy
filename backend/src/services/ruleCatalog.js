@@ -40,6 +40,7 @@ export const CUSTOM_RULE_FIELDS = Object.freeze([
   { id: "groupNumber", label: "Group number", type: "string", category: "PATIENT_COVERAGE", fixTarget: "claim" },
   { id: "subscriberId", label: "Subscriber ID", type: "string", category: "PATIENT_COVERAGE", fixTarget: "claim" },
   { id: "subscriberRelationship", label: "Subscriber relationship", type: "string", category: "PATIENT_COVERAGE", fixTarget: "claim" },
+  { id: "coordinationOfBenefits", label: "Payment responsibility", type: "string", category: "PATIENT_COVERAGE", fixTarget: "claim" },
   { id: "eligibilityStatus", label: "Eligibility status", type: "string", category: "PATIENT_COVERAGE", fixTarget: "eligibility" },
   { id: "billingProviderNpi", label: "Billing provider NPI", type: "string", category: "PROVIDER", fixTarget: "claim" },
   { id: "renderingProviderNpi", label: "Rendering provider NPI", type: "string", category: "PROVIDER", fixTarget: "claim" },
@@ -82,6 +83,7 @@ export const SYSTEM_RULE_CATALOG = Object.freeze([
   { code: "US_TIMELY_FILING", name: "Claim is within recorded timely-filing deadline", description: "Blocks submission after the claim's recorded payer/contract filing deadline.", category: "CLAIM", severity: "BLOCK", mandatory: true, source: "SYSTEM" },
   { code: "US_MEMBER_ID", name: "Member ID present", description: "Requires a member identifier for the configured U.S. payer workflow.", category: "PATIENT_COVERAGE", severity: "BLOCK", mandatory: true, source: "SYSTEM" },
   { code: "US_PRIOR_AUTH", name: "Required prior authorization resolved", description: "When prior authorization is required, requires approval and an authorization number.", category: "AUTHORIZATION", severity: "BLOCK", mandatory: true, source: "SYSTEM" },
+  { code: "US_COB_PRIMARY_ONLY", name: "Secondary and tertiary billing disabled", description: "Blocks secondary and tertiary claim submission until other-payer adjudication/COB loops are implemented.", category: "CLAIM", severity: "BLOCK", mandatory: true, source: "SYSTEM" },
   { code: "US_837_SUBMISSION_FIELDS", name: "External 837 submission fields complete", description: "Checks additional patient, subscriber, provider and form data required by the configured external 837 connector.", category: "CLAIM", severity: "BLOCK", mandatory: true, source: "SYSTEM" }
 ]);
 

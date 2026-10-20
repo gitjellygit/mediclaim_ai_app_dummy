@@ -11,5 +11,8 @@ test("B7 - readiness and submission exceptions cannot return raw error messages"
   );
   assert.doesNotMatch(source, /res\.status\(400\)\.json\(\{ error: e\.message \}\)/);
   assert.match(source, /error: "Unable to check claim readiness", code: "CLAIM_READINESS_FAILED"/);
-  assert.match(source, /error: "Unable to submit claim", code: "CLAIM_SUBMISSION_FAILED"/);
+  assert.match(
+    source,
+    /error:\s*"Unable to submit claim"[\s\S]{0,120}code:\s*"CLAIM_SUBMISSION_FAILED"/
+  );
 });

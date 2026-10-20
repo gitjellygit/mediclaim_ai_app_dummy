@@ -6,8 +6,8 @@ import {
   isClaimSubmittedOrLater
 } from "../src/services/claimLock.js";
 
-test("P2 - submitted, denied and paid claims share one lock policy", () => {
-  for (const status of ["SUBMITTED", "DENIED", "PAID"]) {
+test("P2 - in-flight submitted, denied and paid claims share one lock policy", () => {
+  for (const status of ["SUBMITTING", "SUBMITTED", "DENIED", "PAID"]) {
     assert.equal(isClaimLocked({ status }), true);
     assert.equal(isClaimSubmittedOrLater({ status }), true);
   }

@@ -74,6 +74,7 @@ enum ClaimStatus {
   DRAFT
   NEEDS_REVIEW
   READY
+  SUBMITTING
   SUBMITTED
   DENIED
   PAID
@@ -320,6 +321,12 @@ model Claim {
   // Provider-assigned claim control number (837 CLM01 / CMS-1500 Box 26).
   // This is the primary correlation key for 277CA and 835 responses.
   patientControlNumber String?
+  // Durable submission ownership. SUBMITTING is acquired atomically before any
+  // outbound 837 and can only be reclaimed after the configured stale timeout.
+  submissionAttemptId  String?
+  submissionStartedAt  DateTime?
+  submissionReconciliationRequired Boolean @default(false)
+  submissionReconciliationReason   String?
   payerReferenceNo     String?
   insurerClaimNo       String?
   authorizationNo     String?
@@ -382,6 +389,7 @@ model Claim {
   @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
   @@index([payerConnectorId])
+  @@index([organizationId, status, submissionStartedAt])
 }
 
 model ServiceLine {

@@ -317,26 +317,24 @@ test("production payer capabilities are truthful and do not advertise prior auth
   assert.equal(production?.capabilities.includes("requestPriorAuth"), false);
 });
 
-test("claim submission transmits LIVE claims before local submitted state is committed", () => {
+test("claim submission acquires one durable owner before LIVE transmission and completes after payer persistence", () => {
   const claims = read("backend/src/routes/claims.js");
   const submitStart = claims.indexOf('router.post("/:id/submit"');
   const submitSource = claims.slice(submitStart);
 
-  const transitionValidation = submitSource.indexOf(
-    'const submittedStatus = assertClaimTransition(claim.status, "SUBMITTED")'
-  );
+  const acquireLock = submitSource.indexOf("acquireSubmissionLock");
   const connectorCall = submitSource.indexOf("connector.submitClaim");
   const transactionWrite = submitSource.indexOf("payerTransaction.upsert");
-  const claimSubmittedWrite = submitSource.indexOf('status: submittedStatus');
+  const completeLock = submitSource.indexOf("completeSubmissionLock");
 
-  assert.ok(transitionValidation >= 0);
-  assert.ok(connectorCall > transitionValidation);
+  assert.ok(acquireLock >= 0);
+  assert.ok(connectorCall > acquireLock);
   assert.ok(transactionWrite > connectorCall);
-  assert.ok(claimSubmittedWrite > transactionWrite);
-  assert.match(submitSource, /PAYER_SUBMISSION_NOT_SUPPORTED/);
-  assert.match(submitSource, /PAYER_SUBMISSION_PREFLIGHT_FAILED/);
-  assert.match(submitSource, /PAYER_SUBMISSION_REJECTED/);
-  assert.match(submitSource, /Persist the correlation key before any external transmission/);
+  assert.ok(completeLock > transactionWrite);
+  assert.match(submitSource, /CLAIM_SUBMISSION_IN_PROGRESS/);
+  assert.match(submitSource, /SECONDARY_TERTIARY_SUBMISSION_NOT_SUPPORTED/);
+  assert.match(submitSource, /CLAIM_SUBMISSION_OWNERSHIP_LOST/);
+  assert.match(submitSource, /safeSubmissionClaim/);
   assert.doesNotMatch(
     submitSource,
     /responsePayload:\s*body|requestPayload:\s*payload/

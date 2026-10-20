@@ -33,6 +33,7 @@ import {
 } from "../services/documentProcessing.js";
 import { deleteStoredDocument } from "../services/documentDeletion.js";
 import { isClaimLocked } from "../services/claimLock.js";
+import { assertExpectedClaimStatus, updateClaimFromExpectedStatus } from "../services/claimStateCas.js";
 import { writeRequestAudit } from "../services/auditLog.js";
 import {
   getExtractedPatientName,
@@ -402,6 +403,18 @@ export function documentsRouter(prisma, uploadDir) {
       req.file.storagePath = storedDocumentPath;
 
       const doc = await prisma.$transaction(async (tx) => {
+        if (!pendingNewClaimData) {
+          await assertExpectedClaimStatus(
+            tx,
+            claim.id,
+            claim.status,
+            {
+              organizationId: req.user.organizationId,
+              message: "Claim entered submission while the smart upload was being saved. Refresh before retrying."
+            }
+          );
+        }
+
         if (pendingNewClaimData) {
           claim = await tx.claim.create({
             data: {
@@ -665,6 +678,16 @@ export function documentsRouter(prisma, uploadDir) {
     req.file.storagePath = storedDocumentPath;
 
     const { doc, updatedClaim } = await prisma.$transaction(async (tx) => {
+      await assertExpectedClaimStatus(
+        tx,
+        claimId,
+        claim.status,
+        {
+          organizationId: req.user.organizationId,
+          message: "Claim entered submission while the document upload was being saved. Refresh before retrying."
+        }
+      );
+
       const created = await tx.document.create({
         data: documentCreateData({
           claimId,
@@ -973,45 +996,77 @@ export function documentsRouter(prisma, uploadDir) {
       }
 
       if (analysis.ocrStatus === "FAILED") {
-        await prisma.document.update({ where: { id: doc.id }, data: { status: "FAILED" } });
+        await prisma.$transaction(async (tx) => {
+          await assertExpectedClaimStatus(
+            tx,
+            doc.claimId,
+            doc.claim.status,
+            {
+              organizationId: req.user.organizationId,
+              message: "Claim entered submission while document processing was running. Refresh before retrying."
+            }
+          );
+          await tx.document.update({
+            where: { id: doc.id },
+            data: { status: "FAILED" }
+          });
+        });
         return res.status(503).json({ error: "OCR unavailable", message: "Text extraction failed. Retry document processing later.", code: "OCR_UNAVAILABLE" });
       }
 
-      // Update document with AI results
-      const updated = await prisma.document.update({
-        where: { id: doc.id },
-        data: {
-          suggestedType: analysis.suggestedType,
-          confidence: analysis.confidence,
-          extracted: analysis.extracted,
-          rawText: analysis.rawExtractedText || null,
-          ocrProvider: analysis.ocrProvider || analysis.extractionSource || null,
-          status: "PROCESSED"
-        }
-      });
+      const updated = await prisma.$transaction(async (tx) => {
+        await assertExpectedClaimStatus(
+          tx,
+          doc.claimId,
+          doc.claim.status,
+          {
+            organizationId: req.user.organizationId,
+            message: "Claim entered submission while document processing was running. Refresh before retrying."
+          }
+        );
 
-      await syncDocumentCodingSuggestions(prisma, {
-        claimId: doc.claimId,
-        documentId: doc.id,
-        extracted: analysis.extracted || {},
-        rawText: analysis.rawExtractedText || "",
-        confidence: analysis.confidence
-      });
+        const changed = await tx.document.update({
+          where: { id: doc.id },
+          data: {
+            suggestedType: analysis.suggestedType,
+            confidence: analysis.confidence,
+            extracted: analysis.extracted,
+            rawText: analysis.rawExtractedText || null,
+            ocrProvider: analysis.ocrProvider || analysis.extractionSource || null,
+            status: "PROCESSED"
+          }
+        });
 
-      await prisma.$transaction([
-        prisma.check.updateMany({
+        await syncDocumentCodingSuggestions(tx, {
+          claimId: doc.claimId,
+          documentId: doc.id,
+          extracted: analysis.extracted || {},
+          rawText: analysis.rawExtractedText || "",
+          confidence: analysis.confidence
+        });
+
+        await tx.check.updateMany({
           where: { claimId: doc.claimId, isStale: false },
           data: {
             isStale: true,
             staleAt: new Date(),
             staleReason: "Supporting document reprocessed"
           }
-        }),
-        prisma.claim.update({
-          where: { id: doc.claimId },
-          data: { status: "DRAFT" }
-        })
-      ]);
+        });
+
+        await updateClaimFromExpectedStatus(
+          tx,
+          doc.claimId,
+          doc.claim.status,
+          { status: "DRAFT" },
+          {
+            organizationId: req.user.organizationId,
+            message: "Claim entered submission while document processing was running. Refresh before retrying."
+          }
+        );
+
+        return changed;
+      });
 
       await auditDocumentEvent(prisma, req, {
         claimId: doc.claimId,
@@ -1026,6 +1081,12 @@ export function documentsRouter(prisma, uploadDir) {
 
       res.json(publicDocument(updated));
     } catch (error) {
+      if (error?.status) {
+        return res.status(error.status).json({
+          error: error.message,
+          code: error.code || "CLAIM_STATE_CHANGED"
+        });
+      }
       return res.status(500).json({
         error: "Failed to process document"
       });
@@ -1126,6 +1187,16 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      await assertExpectedClaimStatus(
+        tx,
+        suggestion.claimId,
+        suggestion.claim.status,
+        {
+          organizationId: req.user.organizationId,
+          message: "Claim entered submission while coding review was being saved. Refresh before retrying."
+        }
+      );
+
       if (action !== "REJECT") {
         await applyCodingSuggestionToClaim(tx, suggestion, finalCode);
       }
@@ -1233,6 +1304,16 @@ export function documentsRouter(prisma, uploadDir) {
       }
 
       const updated = await prisma.$transaction(async (tx) => {
+        await assertExpectedClaimStatus(
+          tx,
+          doc.claimId,
+          doc.claim.status,
+          {
+            organizationId: req.user.organizationId,
+            message: "Claim entered submission while document type was being changed. Refresh before retrying."
+          }
+        );
+
         const changed = await tx.document.update({
           where: { id: doc.id },
           data: { type: nextType }
@@ -1273,6 +1354,12 @@ export function documentsRouter(prisma, uploadDir) {
         message: `Document type changed to ${nextType.replaceAll("_", " ")}`
       });
     } catch (error) {
+      if (error?.status) {
+        return res.status(error.status).json({
+          error: error.message,
+          code: error.code || "CLAIM_STATE_CHANGED"
+        });
+      }
       console.error("[claim-document] manual type update failed", {
         documentId: req.params.id,
         code: error?.code || null
@@ -1345,6 +1432,16 @@ export function documentsRouter(prisma, uploadDir) {
       };
 
       const updated = await prisma.$transaction(async (tx) => {
+        await assertExpectedClaimStatus(
+          tx,
+          doc.claimId,
+          doc.claim.status,
+          {
+            organizationId: req.user.organizationId,
+            message: "Claim entered submission while identity review was being saved. Refresh before retrying."
+          }
+        );
+
         const changed = await tx.document.update({
           where: { id: doc.id },
           data: { extracted: nextExtracted }
@@ -1385,6 +1482,12 @@ export function documentsRouter(prisma, uploadDir) {
         message: "Document identity review completed"
       });
     } catch (error) {
+      if (error?.status) {
+        return res.status(error.status).json({
+          error: error.message,
+          code: error.code || "CLAIM_STATE_CHANGED"
+        });
+      }
       console.error("[claim-document] identity review update failed", {
         documentId: req.params.id,
         code: error?.code || null
@@ -1428,6 +1531,16 @@ export function documentsRouter(prisma, uploadDir) {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      await assertExpectedClaimStatus(
+        tx,
+        doc.claimId,
+        doc.claim.status,
+        {
+          organizationId: req.user.organizationId,
+          message: "Claim entered submission while the document suggestion was being applied. Refresh before retrying."
+        }
+      );
+
       const changed = await tx.document.update({
         where: { id: doc.id },
         data: { type: doc.suggestedType }
@@ -1468,6 +1581,12 @@ export function documentsRouter(prisma, uploadDir) {
       message: `Document type changed to ${updated.type.replaceAll("_", " ")}`
     });
   } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({
+        error: error.message,
+        code: error.code || "CLAIM_STATE_CHANGED"
+      });
+    }
     console.error("[claim-document] apply suggestion failed", {
       documentId: req.params.id,
       code: error?.code || null,
@@ -1519,6 +1638,7 @@ export function documentsRouter(prisma, uploadDir) {
       where: { id: { in: claimIds }, organizationId: req.user.organizationId, deletedAt: null },
       select: {
         id: true,
+        status: true,
         documentDerivedFields: true,
         fieldProvenance: true
       }
@@ -1550,27 +1670,40 @@ export function documentsRouter(prisma, uploadDir) {
       });
     }
 
-    await prisma.$transaction([
-      prisma.document.deleteMany({ where: { id: { in: authorizedDocumentIds } } }),
-      prisma.check.updateMany({
+    await prisma.$transaction(async (tx) => {
+      for (const claim of claims) {
+        await assertExpectedClaimStatus(
+          tx,
+          claim.id,
+          claim.status,
+          {
+            organizationId: req.user.organizationId,
+            message: "One or more claims entered submission while documents were being deleted. Refresh before retrying."
+          }
+        );
+      }
+
+      await tx.document.deleteMany({ where: { id: { in: authorizedDocumentIds } } });
+      await tx.check.updateMany({
         where: { claimId: { in: claimIds }, isStale: false },
         data: {
           isStale: true,
           staleAt: new Date(),
           staleReason: "Supporting documents deleted"
         }
-      }),
-      ...claimUpdates.map(({ claimId, patch, fieldProvenance }) =>
-        prisma.claim.update({
+      });
+
+      for (const { claimId, patch, fieldProvenance } of claimUpdates) {
+        await tx.claim.update({
           where: { id: claimId },
           data: {
             ...patch,
             fieldProvenance,
             status: "DRAFT"
           }
-        })
-      )
-    ]);
+        });
+      }
+    });
 
     for (const doc of docs) {
       await auditDocumentEvent(prisma, req, {
@@ -1595,6 +1728,12 @@ export function documentsRouter(prisma, uploadDir) {
 
     res.json({ success: true, deleted: docs.length });
   } catch (e) {
+    if (e?.status) {
+      return res.status(e.status).json({
+        error: e.message,
+        code: e.code || "CLAIM_STATE_CHANGED"
+      });
+    }
     console.error("Bulk delete error:", e);
     res.status(500).json({ error: "Bulk deletion failed", code: "DOCUMENT_BULK_DELETE_FAILED" });
   }

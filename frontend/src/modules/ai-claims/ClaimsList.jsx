@@ -45,6 +45,7 @@ import { formatUSD } from "../../utils/currency.js";
 const statusColor = {
   DRAFT: "default",
   READY: "info",
+  SUBMITTING: "warning",
   SUBMITTED: "warning",
   PAID: "success",
   REJECTED: "error"

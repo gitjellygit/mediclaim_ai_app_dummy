@@ -88,6 +88,33 @@ function professionalClaim(overrides = {}) {
   };
 }
 
+test("submission safety - professional 837 emits approved prior authorization number", () => {
+  const result = buildStediClaimSubmissionRequest(
+    professionalClaim({ authorizationNo: "AUTH-REVIEW-123" }),
+    {
+      submissionProfile: profile,
+      usageIndicator: "T"
+    }
+  );
+
+  assert.equal(
+    result.payload.claimInformation.claimSupplementalInformation.priorAuthorizationNumber,
+    "AUTH-REVIEW-123"
+  );
+});
+
+test("submission safety - readiness blocks secondary and tertiary claims until COB loops exist", () => {
+  for (const coordinationOfBenefits of ["SECONDARY", "TERTIARY"]) {
+    const issues = evaluateUsReadinessRules(
+      professionalClaim({ coordinationOfBenefits })
+    );
+    const cob = issues.find((issue) => issue.rule === "US_COB_PRIMARY_ONLY");
+    assert.ok(cob);
+    assert.equal(cob.severity, "BLOCK");
+    assert.match(cob.message, /Secondary and tertiary claim submission is not enabled/i);
+  }
+});
+
 test("review follow-up - professional 837 includes rendering provider and line-level POS overrides", () => {
   const result = buildStediClaimSubmissionRequest(professionalClaim(), {
     submissionProfile: profile,

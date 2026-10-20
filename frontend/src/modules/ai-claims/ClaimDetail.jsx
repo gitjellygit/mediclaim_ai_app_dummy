@@ -108,12 +108,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const canViewDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_VIEW);
   const canDownloadDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_DOWNLOAD);
   const aiCheckLocked =
-    ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status) ||
+    ["SUBMITTING", "SUBMITTED", "DENIED", "PAID"].includes(claim?.status) ||
     Boolean(claim?.claimSubmissionDate);
 
   const [docType, setDocType] = React.useState("AUTO");
   const [aiRunning, setAiRunning] = React.useState(false);
   const [submittingClaim, setSubmittingClaim] = React.useState(false);
+  const [reconcilingSubmission, setReconcilingSubmission] = React.useState(false);
   const [editMode, setEditMode] = React.useState(false);
   const [savingEdit, setSavingEdit] = React.useState(false);
   const [editForm, setEditForm] = React.useState(null);
@@ -1107,6 +1108,30 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     }
   }
 
+  async function reconcileSubmission() {
+    if (!isAdmin || claim?.status !== "SUBMITTING") return;
+    try {
+      setReconcilingSubmission(true);
+      const result = await ClaimsApi.reconcileSubmission(id);
+      await load();
+      if (result?.reconciled) {
+        showToast("Submission reconciled successfully", "success");
+      } else {
+        showDialog(
+          result?.message || "Payer status is not conclusive yet. The claim remains locked.",
+          { title: "Submission reconciliation pending", severity: "warning" }
+        );
+      }
+    } catch (e) {
+      showDialog(
+        e?.message || "Submission reconciliation could not be completed.",
+        { title: "Reconciliation failed", severity: "error" }
+      );
+    } finally {
+      setReconcilingSubmission(false);
+    }
+  }
+
   async function submitClaim() {
     const confirmed = await confirmDialog(
       "Are you sure you want to submit this claim? Submission advances the claim workflow and may send it to the connected payer.",
@@ -1484,7 +1509,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   const claimFinalized =
-    ["SUBMITTED", "DENIED", "PAID"].includes(claim.status) ||
+    ["SUBMITTING", "SUBMITTED", "DENIED", "PAID"].includes(claim.status) ||
     Boolean(claim.claimSubmissionDate);
 
   const canSubmit =
@@ -1508,6 +1533,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         <Button onClick={onBack}>← {backLabel}</Button>
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {isAdmin && claim.status === "SUBMITTING" && (
+            <Button
+              variant="contained"
+              color="warning"
+              onClick={reconcileSubmission}
+              disabled={reconcilingSubmission}
+              data-testid="reconcile-submission"
+            >
+              {reconcilingSubmission ? "Reconciling…" : "Reconcile Submission"}
+            </Button>
+          )}
           {claimFinalized && (
             <Button
               variant="contained"
@@ -1536,6 +1572,13 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           )}
         </Stack>
       </Stack>
+
+      {claim.status === "SUBMITTING" && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Submission is in progress or requires reconciliation. This claim is locked from edits,
+          document changes, readiness checks, and resubmission until the submission is resolved.
+        </Alert>
+      )}
 
       <ClaimSummaryCard claim={claim} />
 

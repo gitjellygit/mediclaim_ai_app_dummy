@@ -154,6 +154,13 @@ export const ClaimsApi = {
     });
   },
 
+  reconcileSubmission(id, options = {}) {
+    return api(`${BASE}/${id}/submission/reconcile`, {
+      method: "POST",
+      body: JSON.stringify(options)
+    });
+  },
+
   uploadDoc({ claimId, type, file }) {
     const fd = new FormData();
     fd.append("claimId", claimId);

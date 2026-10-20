@@ -814,6 +814,14 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
     context.claimType || claim?.claimForm || "PROFESSIONAL"
   ).toUpperCase();
   const usageIndicator = context.usageIndicator === "P" ? "P" : "T";
+  const paymentResponsibility = String(claim.coordinationOfBenefits || "PRIMARY").toUpperCase();
+  if (paymentResponsibility !== "PRIMARY") {
+    const error = new Error(
+      "Secondary and tertiary 837 submission requires other-payer adjudication/COB data and is not enabled"
+    );
+    error.code = "STEDI_CLAIM_REQUEST_INVALID";
+    throw error;
+  }
 
   if (context.requestPayload) {
     return {
@@ -923,6 +931,13 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
             submissionProfile.stediReleaseInformationCode,
             "organization.stediReleaseInformationCode"
           ),
+          ...(claim.authorizationNo
+            ? {
+                claimSupplementalInformation: {
+                  priorAuthorizationNumber: String(claim.authorizationNo).slice(0, 50)
+                }
+              }
+            : {}),
           principalDiagnosis: {
             qualifierCode: "ABK",
             principalDiagnosisCode: diagnoses[0]
@@ -1017,6 +1032,13 @@ export function buildStediClaimSubmissionRequest(claim, context = {}) {
           submissionProfile.stediReleaseInformationCode,
           "organization.stediReleaseInformationCode"
         ),
+        ...(claim.authorizationNo
+          ? {
+              claimSupplementalInformation: {
+                priorAuthorizationNumber: String(claim.authorizationNo).slice(0, 50)
+              }
+            }
+          : {}),
         healthCareCodeInformation: diagnoses.map((code, index) => ({
           diagnosisTypeCode: index === 0 ? "ABK" : "ABF",
           diagnosisCode: code

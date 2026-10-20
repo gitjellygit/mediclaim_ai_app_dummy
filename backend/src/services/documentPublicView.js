@@ -5,6 +5,7 @@ export function publicDocument(document) {
   delete safe.path;
   delete safe.rawText;
   delete safe.fileHash;
+  delete safe.claim;
   return safe;
 }
 
