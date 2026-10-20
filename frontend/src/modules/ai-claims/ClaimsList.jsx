@@ -10,6 +10,7 @@ import {
   TableHead,
   TableRow,
   TableSortLabel,
+  TablePagination,
   TableContainer,
   Paper,
   Checkbox,
@@ -23,7 +24,8 @@ import {
   DialogActions,
   LinearProgress,
   Alert,
-  Divider
+  Divider,
+  Tooltip
 } from "@mui/material";
 import {
   Search as SearchIcon,
@@ -33,7 +35,8 @@ import {
   AutoAwesome,
   CloudUpload,
   CheckCircle,
-  ErrorOutline
+  ErrorOutline,
+  ContentCopy
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
@@ -61,7 +64,8 @@ export default function ClaimsList() {
   const canViewFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_VIEW);
   const [claims, setClaims] = useState([]);
   const [totalClaims, setTotalClaims] = useState(0);
-  const [claimsPage, setClaimsPage] = useState(1);
+  const [claimsPage, setClaimsPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
   const [loadingClaims, setLoadingClaims] = useState(false);
   const [selected, setSelected] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -79,20 +83,21 @@ export default function ClaimsList() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setQuery(searchTerm.trim());
+      setClaimsPage(0);
     }, 300);
     return () => window.clearTimeout(timer);
   }, [searchTerm]);
 
   useEffect(() => {
-    loadClaims({ page: 1 });
-  }, [sort, direction, query]);
+    loadClaims({ page: claimsPage + 1 });
+  }, [sort, direction, query, claimsPage, rowsPerPage]);
 
-  async function loadClaims({ page = 1, append = false } = {}) {
+  async function loadClaims({ page = claimsPage + 1 } = {}) {
     try {
       setLoadingClaims(true);
       const data = await ClaimsApi.list({
         page,
-        pageSize: 50,
+        pageSize: rowsPerPage,
         paginated: true,
         sort,
         direction,
@@ -103,24 +108,19 @@ export default function ClaimsList() {
         : Array.isArray(data)
         ? data
         : [];
-      setClaims((current) => {
-        if (!append) return items;
-        const merged = new Map(current.map((claim) => [claim.id, claim]));
-        for (const claim of items) merged.set(claim.id, claim);
-        return [...merged.values()];
-      });
+      setClaims(items);
       setTotalClaims(Number(data?.total ?? items.length));
-      setClaimsPage(page);
       setSelected([]);
     } catch (e) {
       console.error("Failed to load claims:", e);
-      if (!append) setClaims([]);
+      setClaims([]);
     } finally {
       setLoadingClaims(false);
     }
   }
 
   function handleSort(field) {
+    setClaimsPage(0);
     if (sort === field) {
       setDirection((value) => (value === "asc" ? "desc" : "asc"));
       return;
@@ -434,7 +434,7 @@ export default function ClaimsList() {
   return (
     <Box sx={{ p: { xs: 1, sm: 2, lg: 3 } }}>
       <Typography variant="h4" fontWeight={700} mb={3}>
-        AI Claims ({filteredClaims.length}{totalClaims > claims.length ? ` of ${totalClaims}` : ""})
+        Claims ({totalClaims})
       </Typography>
 
       <Stack
@@ -445,7 +445,7 @@ export default function ClaimsList() {
         sx={{ flexWrap: "wrap", rowGap: 1.5 }}
       >
         <TextField
-          placeholder="Search claims..."
+          placeholder="Search by Claim ID, patient, payer, member ID, policy number, or amount..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           sx={{ width: { xs: "100%", sm: 320 } }}
@@ -511,11 +511,12 @@ export default function ClaimsList() {
                 </TableCell>
               )}
 
-              <TableCell><TableSortLabel active={sort === "patientName"} direction={sort === "patientName" ? direction : "asc"} onClick={() => handleSort("patientName")}><strong>Patient Name</strong></TableSortLabel></TableCell>
-              <TableCell><TableSortLabel active={sort === "payerName"} direction={sort === "payerName" ? direction : "asc"} onClick={() => handleSort("payerName")}><strong>Insurance Company</strong></TableSortLabel></TableCell>
-              {canViewFinancial && <TableCell><TableSortLabel active={sort === "amount"} direction={sort === "amount" ? direction : "desc"} onClick={() => handleSort("amount")}><strong>Amount</strong></TableSortLabel></TableCell>}
-              <TableCell><TableSortLabel active={sort === "status"} direction={sort === "status" ? direction : "asc"} onClick={() => handleSort("status")}><strong>Status</strong></TableSortLabel></TableCell>
-              <TableCell><TableSortLabel active={sort === "createdAt"} direction={sort === "createdAt" ? direction : "desc"} onClick={() => handleSort("createdAt")}><strong>Created Date</strong></TableSortLabel></TableCell>
+              <TableCell><strong>Claim ID</strong></TableCell>
+              <TableCell><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "patientName"} direction={sort === "patientName" ? direction : "asc"} onClick={() => handleSort("patientName")}><strong>Patient Name</strong></TableSortLabel></TableCell>
+              <TableCell><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "payerName"} direction={sort === "payerName" ? direction : "asc"} onClick={() => handleSort("payerName")}><strong>Insurance Company</strong></TableSortLabel></TableCell>
+              {canViewFinancial && <TableCell><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "amount"} direction={sort === "amount" ? direction : "desc"} onClick={() => handleSort("amount")}><strong>Amount</strong></TableSortLabel></TableCell>}
+              <TableCell><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "status"} direction={sort === "status" ? direction : "asc"} onClick={() => handleSort("status")}><strong>Status</strong></TableSortLabel></TableCell>
+              <TableCell><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "createdAt"} direction={sort === "createdAt" ? direction : "desc"} onClick={() => handleSort("createdAt")}><strong>Created Date</strong></TableSortLabel></TableCell>
               <TableCell><strong>Actions</strong></TableCell>
             </TableRow>
           </TableHead>
@@ -531,6 +532,38 @@ export default function ClaimsList() {
                     />
                   </TableCell>
                 )}
+
+                <TableCell>
+                  <Stack direction="row" spacing={0.5} alignItems="center">
+                    <Tooltip title={claim.id}>
+                      <Typography
+                        variant="body2"
+                        sx={{ fontFamily: "monospace", fontWeight: 700 }}
+                      >
+                        {claim.id?.length > 12 ? `…${claim.id.slice(-10)}` : claim.id}
+                      </Typography>
+                    </Tooltip>
+                    <Tooltip title="Copy Claim ID">
+                      <IconButton
+                        size="small"
+                        aria-label={`Copy Claim ID ${claim.id}`}
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(claim.id);
+                            showToast("Claim ID copied", "success");
+                          } catch {
+                            showDialog("Unable to copy Claim ID.", {
+                              title: "Copy failed",
+                              severity: "warning"
+                            });
+                          }
+                        }}
+                      >
+                        <ContentCopy fontSize="inherit" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                </TableCell>
 
                 <TableCell>
                   {claim.patientName || "Unknown Patient"}
@@ -579,7 +612,7 @@ export default function ClaimsList() {
 
             {filteredClaims.length === 0 && (
               <TableRow>
-                <TableCell colSpan={(canDeleteClaims ? 1 : 0) + 5 + (canViewFinancial ? 1 : 0)} align="center">
+                <TableCell colSpan={(canDeleteClaims ? 1 : 0) + 6 + (canViewFinancial ? 1 : 0)} align="center">
                   No claims found
                 </TableCell>
               </TableRow>
@@ -588,19 +621,22 @@ export default function ClaimsList() {
         </Table>
       </Paper>
 
-      {claims.length < totalClaims && !searchTerm.trim() && (
-        <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
-          <Button
-            variant="outlined"
-            disabled={loadingClaims}
-            onClick={() =>
-              loadClaims({ page: claimsPage + 1, append: true })
-            }
-          >
-            {loadingClaims ? "Loading..." : "Load More Claims"}
-          </Button>
-        </Box>
-      )}
+      <TablePagination
+        component="div"
+        count={totalClaims}
+        page={claimsPage}
+        onPageChange={(_, newPage) => setClaimsPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(event) => {
+          setRowsPerPage(Number(event.target.value));
+          setClaimsPage(0);
+        }}
+        rowsPerPageOptions={[10, 25, 50, 100]}
+        labelRowsPerPage="Claims per page"
+        showFirstButton
+        showLastButton
+        sx={{ mt: 1 }}
+      />
 
       <Dialog
         open={aiCreateOpen}
