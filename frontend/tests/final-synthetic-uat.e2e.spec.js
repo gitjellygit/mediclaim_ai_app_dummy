@@ -144,9 +144,9 @@ test("Final UAT contains the intended lifecycle and human-error scenario familie
 
 test("Claims list can search and sort the fresh 100-claim dataset", async ({ page }) => {
   await page.goto("/claims");
-  await expect(page.getByRole("heading", { name: /AI Claims/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Claims/ })).toBeVisible();
 
-  const search = page.getByPlaceholder("Search claims...");
+  const search = page.getByPlaceholder("Search by Claim ID, patient, payer, member ID, policy number, or amount...");
   await search.fill("UAT-FINAL-001");
   await expect(page.getByText(scenario(1).patientName, { exact: true })).toBeVisible();
 
