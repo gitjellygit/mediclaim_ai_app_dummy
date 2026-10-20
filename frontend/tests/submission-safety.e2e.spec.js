@@ -50,6 +50,172 @@ test.afterAll(async () => {
   await api?.dispose();
 });
 
+test("Submission safety - 20 concurrent API submits still produce exactly one committed submission", async () => {
+  const path = `/api/claims/${fixture.primaryClaimId}/submit`;
+  const responses = await Promise.all(
+    Array.from({ length: 20 }, () =>
+      api.post(path, { headers: headers(), data: {} })
+    )
+  );
+
+  const statuses = responses.map((response) => response.status());
+  expect(statuses.filter((status) => status === 200)).toHaveLength(1);
+  expect(statuses.filter((status) => status === 409)).toHaveLength(19);
+
+  const claim = await json(
+    await api.get(`/api/claims/${fixture.primaryClaimId}`, {
+      headers: headers()
+    }),
+    "load high-concurrency submitted claim"
+  );
+  expect(claim.status).toBe("SUBMITTED");
+  expect(claim.patientControlNumber).toMatch(/^[A-F0-9]{17}$/);
+});
+
+test("Submission safety - every key mutation surface is locked while SUBMITTING", async () => {
+  const claimId = fixture.activeSubmittingClaimId;
+
+  const edit = await api.patch(`/api/claims/${claimId}`, {
+    headers: headers(),
+    data: { patientName: "SHOULD-NOT-CHANGE" }
+  });
+  expect(edit.status()).toBe(409);
+
+  const check = await api.post(`/api/claims/${claimId}/check`, {
+    headers: headers(),
+    data: {}
+  });
+  expect(check.status()).toBe(409);
+
+  const deletion = await api.delete(`/api/claims/${claimId}`, {
+    headers: headers()
+  });
+  expect(deletion.status()).toBe(409);
+
+  const documentType = await api.patch(
+    `/api/documents/${fixture.activeLockedDocumentId}/type`,
+    {
+      headers: headers(),
+      data: { type: "EOB" }
+    }
+  );
+  expect(documentType.status()).toBe(409);
+
+  const coding = await api.patch(
+    `/api/documents/coding-suggestions/${fixture.activeLockedCodingSuggestionId}`,
+    {
+      headers: headers(),
+      data: { action: "ACCEPT" }
+    }
+  );
+  expect(coding.status()).toBe(409);
+
+  const eligibility = await api.post(
+    `/api/claims/${claimId}/journey/eligibility/precheck`,
+    {
+      headers: headers(),
+      data: {}
+    }
+  );
+  expect(eligibility.status()).toBe(409);
+
+  const priorAuth = await api.post(
+    `/api/claims/${claimId}/journey/prior-auth/evaluate`,
+    {
+      headers: headers(),
+      data: { required: false }
+    }
+  );
+  expect(priorAuth.status()).toBe(409);
+
+  const claim = await json(
+    await api.get(`/api/claims/${claimId}`, { headers: headers() }),
+    "load locked claim after mutation attempts"
+  );
+  expect(claim.status).toBe("SUBMITTING");
+  expect(claim.patientName).not.toBe("SHOULD-NOT-CHANGE");
+
+  const documentsResponse = await api.get(
+    `/api/documents?claimId=${claimId}&paginated=1`,
+    { headers: headers() }
+  );
+  expect(documentsResponse.status()).toBe(200);
+  const documentsBody = await documentsResponse.json();
+  const docs = Array.isArray(documentsBody)
+    ? documentsBody
+    : documentsBody.items || documentsBody.documents || [];
+  const lockedDoc = docs.find((doc) => doc.id === fixture.activeLockedDocumentId);
+  expect(lockedDoc).toBeTruthy();
+  expect(lockedDoc.type).toBe("FINAL_BILL");
+  expect(lockedDoc.claim).toBeUndefined();
+  expect(lockedDoc.rawText).toBeUndefined();
+  expect(lockedDoc.fileHash).toBeUndefined();
+  expect(lockedDoc.path).toBeUndefined();
+
+  const suggestions = await json(
+    await api.get(
+      `/api/documents/${fixture.activeLockedDocumentId}/coding-suggestions`,
+      { headers: headers() }
+    ),
+    "load locked coding suggestions"
+  );
+  const lockedSuggestion = suggestions.find(
+    (suggestion) => suggestion.id === fixture.activeLockedCodingSuggestionId
+  );
+  expect(lockedSuggestion.status).toBe("PENDING");
+});
+
+test("Submission safety - reconciliation completes from durable payer evidence without retransmission", async () => {
+  const claimId = fixture.acceptedEvidenceClaimId;
+
+  const response = await api.post(
+    `/api/claims/${claimId}/submission/reconcile`,
+    {
+      headers: headers(),
+      data: {}
+    }
+  );
+
+  expect(response.status()).toBe(200);
+  const body = await response.json();
+  expect(body.reconciled).toBe(true);
+  expect(body.source).toBe("PAYER_TRANSACTION");
+  expect(body.claim.status).toBe("SUBMITTED");
+  expect(body.claim.payerClaimStatus).toBe("ACKNOWLEDGED");
+  expect(body.claim.payerReferenceNo).toBe("PAYER-ACK-1001");
+  expect(body.claim.claimSubmissionDate).toBeTruthy();
+
+  const second = await api.post(
+    `/api/claims/${claimId}/submission/reconcile`,
+    {
+      headers: headers(),
+      data: {}
+    }
+  );
+  expect(second.status()).toBe(409);
+  const secondBody = await second.json();
+  expect(secondBody.code).toBe("CLAIM_NOT_SUBMITTING");
+
+  const stored = await json(
+    await api.get(`/api/claims/${claimId}`, { headers: headers() }),
+    "load reconciled claim"
+  );
+  expect(stored.status).toBe("SUBMITTED");
+  expect(stored.payerClaimStatus).toBe("ACKNOWLEDGED");
+  expect(stored.payerReferenceNo).toBe("PAYER-ACK-1001");
+});
+
+test("Submission safety - reconciliation is tenant scoped even for ADMIN", async () => {
+  const response = await api.post(
+    `/api/claims/${fixture.foreignSubmittingClaimId}/submission/reconcile`,
+    {
+      headers: headers(),
+      data: { releaseIfNotFound: true }
+    }
+  );
+  expect(response.status()).toBe(404);
+});
+
 test("Submission safety - concurrent submits produce exactly one committed submission", async () => {
   const path = `/api/claims/${fixture.primaryClaimId}/submit`;
 
