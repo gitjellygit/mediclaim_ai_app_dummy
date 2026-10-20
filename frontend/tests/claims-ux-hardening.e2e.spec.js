@@ -100,7 +100,7 @@ test("Claims UX - list shows real pagination and rows-per-page controls", async 
   await expect(page.locator("tbody tr")).toHaveCount(7);
 
   await page.getByLabel("Claims per page").click();
-  await page.getByRole("option", { name: "10" }).click();
+  await page.getByRole("option", { name: "10", exact: true }).click();
   await expect(page.getByText("1–10 of 32")).toBeVisible();
   await expect(page.locator("tbody tr")).toHaveCount(10);
 });
