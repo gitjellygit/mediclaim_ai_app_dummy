@@ -549,7 +549,7 @@ export default function ClaimsList() {
                         aria-label={`Copy Claim ID ${claim.id}`}
                         onClick={async () => {
                           try {
-                            await navigator.clipboard.writeText(claim.id);
+                            await window.navigator.clipboard.writeText(claim.id);
                             showToast("Claim ID copied", "success");
                           } catch {
                             showDialog("Unable to copy Claim ID.", {
