@@ -73,7 +73,7 @@ test("Submission safety - 20 concurrent API submits still produce exactly one co
 });
 
 test("Submission safety - every key mutation surface is locked while SUBMITTING", async () => {
-  const claimId = fixture.activeSubmittingClaimId;
+  const claimId = fixture.mutationLockedClaimId;
 
   const edit = await api.patch(`/api/claims/${claimId}`, {
     headers: headers(),
