@@ -1392,13 +1392,92 @@ router.post("/e2e/submission-safety/seed", async (req, res) => {
       submissionReconciliationReason: "PAYER_RESPONSE_LOCAL_FINALIZATION_FAILED"
     });
 
+    const lockedDocument = await prisma.document.create({
+      data: {
+        claimId: active.id,
+        type: "FINAL_BILL",
+        suggestedType: "EOB",
+        fileName: "submission-lock-final-bill.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 512,
+        path: "e2e-fixture://submission-lock-final-bill.pdf",
+        rawText: "synthetic OCR text",
+        fileHash: "synthetic-lock-hash",
+        status: "PROCESSED",
+        confidence: 99
+      }
+    });
+    const lockedCodingSuggestion = await prisma.codingSuggestion.create({
+      data: {
+        claimId: active.id,
+        documentId: lockedDocument.id,
+        system: "ICD10_CM",
+        suggestedCode: "Z00.01",
+        confidence: 98,
+        evidenceText: "Synthetic coding evidence",
+        status: "PENDING"
+      }
+    });
+
+    const acceptedEvidence = await createReady("ACCEPTED-EVIDENCE", {
+      status: "SUBMITTING",
+      submissionAttemptId: "e2e-accepted-evidence",
+      submissionStartedAt: staleStartedAt,
+      submissionReconciliationRequired: true,
+      submissionReconciliationReason: "PAYER_RESPONSE_LOCAL_FINALIZATION_FAILED",
+      patientControlNumber: "E2EACCEPTED000001"
+    });
+    await prisma.payerTransaction.create({
+      data: {
+        claimId: acceptedEvidence.id,
+        transactionId: "e2e-accepted-submission",
+        mode: "PRODUCTION",
+        payerCode: "60054",
+        transactionType: "CLAIM_SUBMISSION",
+        status: "ACKNOWLEDGED",
+        requestHash: "e2e-accepted-hash",
+        requestPayload: {
+          transaction: "837P",
+          patientControlNumber: "E2EACCEPTED000001"
+        },
+        responsePayload: {
+          payerClaimNo: "PAYER-ACK-1001"
+        }
+      }
+    });
+
+    const foreignOrg = await prisma.organization.upsert({
+      where: { slug: "e2e-submission-safety-foreign" },
+      update: {},
+      create: {
+        name: "E2E Submission Safety Foreign",
+        slug: "e2e-submission-safety-foreign"
+      }
+    });
+    const foreignClaim = await prisma.claim.create({
+      data: {
+        organizationId: foreignOrg.id,
+        patientName: prefix + "FOREIGN",
+        payerName: "Foreign Test Payer",
+        status: "SUBMITTING",
+        submissionAttemptId: "e2e-foreign-owner",
+        submissionStartedAt: staleStartedAt,
+        submissionReconciliationRequired: true,
+        submissionReconciliationReason: "PAYER_RESPONSE_LOCAL_FINALIZATION_FAILED"
+      }
+    });
+
     res.json({
       primaryClaimId: primary.id,
       secondaryClaimId: secondary.id,
       tertiaryClaimId: tertiary.id,
       activeSubmittingClaimId: active.id,
+      activeLockedDocumentId: lockedDocument.id,
+      activeLockedCodingSuggestionId: lockedCodingSuggestion.id,
       staleSubmittingClaimId: stale.id,
-      reconciliationRequiredClaimId: reconciliationRequired.id
+      reconciliationRequiredClaimId: reconciliationRequired.id,
+      acceptedEvidenceClaimId: acceptedEvidence.id,
+      foreignSubmittingClaimId: foreignClaim.id
     });
   } catch (error) {
     console.error("[e2e-submission-safety] seed failed", {
@@ -1418,7 +1497,6 @@ router.delete("/e2e/submission-safety/cleanup", async (req, res) => {
   try {
     const result = await prisma.claim.deleteMany({
       where: {
-        organizationId: req.user.organizationId,
         patientName: { startsWith: "E2E-SUBMISSION-SAFETY-" }
       }
     });
