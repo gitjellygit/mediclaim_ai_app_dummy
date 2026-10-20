@@ -135,7 +135,8 @@ test("Claims UX - sortable columns visibly advertise sorting", async ({ page }) 
 
   const patientSort = page.getByRole("button", { name: /Patient Name/i });
   await patientSort.click();
-  await expect(patientSort).toHaveAttribute("aria-sort", /ascending|descending/);
+  const patientHeader = patientSort.locator("xpath=ancestor::th");
+  await expect(patientHeader).toHaveAttribute("aria-sort", /ascending|descending/);
 });
 
 test("Claims UX - PAID claim documents are historical read-only records", async ({ page }) => {
