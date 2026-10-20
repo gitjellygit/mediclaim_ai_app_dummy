@@ -1377,6 +1377,11 @@ router.post("/e2e/submission-safety/seed", async (req, res) => {
     const active = await createReady("ACTIVE-LOCK", {
       status: "SUBMITTING",
       submissionAttemptId: "e2e-active-lock",
+      submissionStartedAt: now
+    });
+    const mutationLocked = await createReady("MUTATION-LOCK", {
+      status: "SUBMITTING",
+      submissionAttemptId: "e2e-mutation-lock",
       submissionStartedAt: now,
       eligibilityStatus: "NOT_CHECKED",
       eligibilityCheckedAt: null
@@ -1396,7 +1401,7 @@ router.post("/e2e/submission-safety/seed", async (req, res) => {
 
     const lockedDocument = await prisma.document.create({
       data: {
-        claimId: active.id,
+        claimId: mutationLocked.id,
         type: "FINAL_BILL",
         suggestedType: "EOB",
         fileName: "submission-lock-final-bill.pdf",
@@ -1411,7 +1416,7 @@ router.post("/e2e/submission-safety/seed", async (req, res) => {
     });
     const lockedCodingSuggestion = await prisma.codingSuggestion.create({
       data: {
-        claimId: active.id,
+        claimId: mutationLocked.id,
         documentId: lockedDocument.id,
         system: "ICD10_CM",
         suggestedCode: "Z00.01",
@@ -1474,6 +1479,7 @@ router.post("/e2e/submission-safety/seed", async (req, res) => {
       secondaryClaimId: secondary.id,
       tertiaryClaimId: tertiary.id,
       activeSubmittingClaimId: active.id,
+      mutationLockedClaimId: mutationLocked.id,
       activeLockedDocumentId: lockedDocument.id,
       activeLockedCodingSuggestionId: lockedCodingSuggestion.id,
       staleSubmittingClaimId: stale.id,
