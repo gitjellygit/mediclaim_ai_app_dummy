@@ -323,6 +323,26 @@ test("Submission safety - abandoned SUBMITTING lock is reclaimed safely", async 
   expect(claim.submissionAttemptId).toBeUndefined();
 });
 
+test("Submission safety - admin reconciliation cannot prematurely release an active submission", async () => {
+  const response = await api.post(
+    `/api/claims/${fixture.activeSubmittingClaimId}/submission/reconcile`,
+    {
+      headers: headers(),
+      data: { releaseIfNotFound: true }
+    }
+  );
+
+  expect(response.status()).toBe(409);
+
+  const claim = await json(
+    await api.get(`/api/claims/${fixture.activeSubmittingClaimId}`, {
+      headers: headers()
+    }),
+    "load active claim after premature reconcile attempt"
+  );
+  expect(claim.status).toBe("SUBMITTING");
+});
+
 test("Submission safety - reconciliation-required stale lock cannot be retried normally", async () => {
   const response = await api.post(
     `/api/claims/${fixture.reconciliationRequiredClaimId}/submit`,
