@@ -259,7 +259,7 @@ test("A8 - direct journey URL survives refresh and stays in USD", async ({ page 
 
 test("A9 - claims list searches supported patient, payer and amount fields", async ({ page }) => {
   await page.goto("/claims");
-  const search = page.getByPlaceholder("Search claims...");
+  const search = page.getByPlaceholder("Search by Claim ID, patient, payer, member ID, policy number, or amount...");
 
   await search.fill(SEARCH_PATIENT);
   let row = page.getByRole("row").filter({ hasText: SEARCH_PATIENT });
