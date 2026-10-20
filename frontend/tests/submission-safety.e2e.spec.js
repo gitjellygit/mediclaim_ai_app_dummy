@@ -159,7 +159,7 @@ test("Submission safety - every key mutation surface is locked while SUBMITTING"
     ),
     "load locked coding suggestions"
   );
-  const lockedSuggestion = suggestions.find(
+  const lockedSuggestion = (suggestions.items || []).find(
     (suggestion) => suggestion.id === fixture.activeLockedCodingSuggestionId
   );
   expect(lockedSuggestion.status).toBe("PENDING");
