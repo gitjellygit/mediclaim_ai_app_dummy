@@ -387,6 +387,13 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
     const eligibilityProviderName = claim.organization?.stediBillingProviderName || null;
     delete claim.organization;
 
+    if (isClaimLocked(claim)) {
+      return res.status(409).json({
+        error: "Eligibility cannot be changed while claim submission is in progress or after submission.",
+        code: "CLAIM_LOCKED"
+      });
+    }
+
     // Eligibility is idempotent when the payer/member inputs have not changed,
     // including stable negative results such as inactive/member-not-found.
     if (claim.eligibilityStatus === "VERIFIED") {
