@@ -227,14 +227,14 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
   if (dos && verifiedServiceLines.some((line) => {
     const from = isoDateOnly(line.serviceDateFrom);
     const to = isoDateOnly(line.serviceDateTo);
-    return (from && from !== dos) || (to && to !== dos);
+    return (from && dos < from) || (to && dos > to);
   })) {
     addIssue(
       issues,
       configured,
       defaults,
       "US_SERVICE_DATE_CONSISTENCY",
-      "Service-line dates must align with the claim date of service",
+      "Claim date of service falls outside a service-line date range",
       { field: "serviceDateFrom", fixTarget: "serviceLines" }
     );
   }
