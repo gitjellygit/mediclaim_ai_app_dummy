@@ -128,6 +128,7 @@ export default function AppealWorkspace() {
 
   const [preview, setPreview] = React.useState(null);
   const [packageOpen, setPackageOpen] = React.useState(false);
+  const [packageChangedNotice, setPackageChangedNotice] = React.useState(false);
 
   const [analysisProgressOpen, setAnalysisProgressOpen] = React.useState(false);
   const [analysisProgressState, setAnalysisProgressState] = React.useState("RUNNING");
@@ -233,6 +234,7 @@ export default function AppealWorkspace() {
       return;
     }
 
+    const wasPrepared = data?.status === "APPEAL_PREPARED";
     setAction("save-rationale");
     try {
       await DenialsApi.saveAppealDraft(id, {
@@ -240,6 +242,7 @@ export default function AppealWorkspace() {
         evidenceDocumentIds: evidenceIds
       });
       await load();
+      if (wasPrepared) setPackageChangedNotice(true);
       signalRevenueRecoveryUpdate();
       showToast("Appeal rationale and evidence selection saved", "success");
     } catch (error) {
@@ -264,6 +267,7 @@ export default function AppealWorkspace() {
     );
     if (!ok) return;
 
+    const wasPrepared = data?.status === "APPEAL_PREPARED";
     setAction("clear-rationale");
     try {
       await DenialsApi.saveAppealDraft(id, {
@@ -271,6 +275,7 @@ export default function AppealWorkspace() {
         evidenceDocumentIds: evidenceIds
       });
       await load();
+      if (wasPrepared) setPackageChangedNotice(true);
       signalRevenueRecoveryUpdate();
       showToast("Appeal rationale cleared", "info");
     } catch (error) {
@@ -286,7 +291,7 @@ export default function AppealWorkspace() {
   async function prepareAppeal() {
     const selectedCount = evidenceIds.length;
     const ok = await confirmDialog(
-      `Prepare this appeal with ${selectedCount} selected evidence document${selectedCount === 1 ? "" : "s"}? This moves the case into Appeal Prepared and indicates the package has been reviewed.`,
+      `${packageChangedNotice ? "Review and re-prepare" : "Review and prepare"} this appeal with ${selectedCount} selected evidence document${selectedCount === 1 ? "" : "s"}? This confirms that the exact rationale and evidence package has been reviewed and is ready for submission.`,
       {
         title: "Prepare appeal?",
         severity: "warning",
@@ -300,6 +305,7 @@ export default function AppealWorkspace() {
     try {
       await DenialsApi.prepareAppeal(id);
       await load();
+      setPackageChangedNotice(false);
       signalRevenueRecoveryUpdate();
       showToast("Appeal prepared and ready for submission review", "success");
     } catch (error) {
@@ -413,6 +419,7 @@ export default function AppealWorkspace() {
       return;
     }
 
+    const wasPrepared = data?.status === "APPEAL_PREPARED";
     setAction("upload");
     try {
       const result = await DenialsApi.uploadAppealEvidence(id, {
@@ -426,6 +433,7 @@ export default function AppealWorkspace() {
       if (result?.document?.id) {
         setEvidenceIds((current) => [...new Set([...current, result.document.id])]);
       }
+      if (wasPrepared) setPackageChangedNotice(true);
       signalRevenueRecoveryUpdate();
       showToast("Supporting evidence uploaded and added to this appeal", "success");
     } catch (error) {
@@ -480,6 +488,7 @@ export default function AppealWorkspace() {
   async function toggleEvidence(documentId) {
     if (!editable || action) return;
 
+    const wasPrepared = data?.status === "APPEAL_PREPARED";
     const previous = [...evidenceIds];
     const next = previous.includes(documentId)
       ? previous.filter((idValue) => idValue !== documentId)
@@ -504,6 +513,7 @@ export default function AppealWorkspace() {
             }
           : current
       );
+      if (wasPrepared) setPackageChangedNotice(true);
       signalRevenueRecoveryUpdate();
     } catch (error) {
       setEvidenceIds(previous);
@@ -545,7 +555,7 @@ export default function AppealWorkspace() {
   const evidenceSaved =
     [...evidenceIds].sort().join("|") === [...savedEvidenceIds].sort().join("|");
   const draftSaved = rationaleSaved && evidenceSaved;
-  const hasDraftChanges = !rationaleSaved;
+  const hasDraftChanges = !rationaleSaved || !evidenceSaved;
   const suggestedEvidenceMissing =
     Array.isArray(data.requiredDocuments) &&
     data.requiredDocuments.length > 0 &&
@@ -714,8 +724,14 @@ export default function AppealWorkspace() {
                 </Typography>
               </Box>
               {editable && (
-                <Button variant="outlined" startIcon={<FactCheck />} onClick={runAnalysis} disabled={Boolean(action)}>
-                  {action === "analysis" ? "Analyzing..." : data.aiAnalyzedAt ? "Re-run Analysis" : "Run Analysis"}
+                <Button
+                  size="small"
+                  variant={data.aiAnalyzedAt ? "text" : "contained"}
+                  startIcon={<FactCheck />}
+                  onClick={runAnalysis}
+                  disabled={Boolean(action)}
+                >
+                  {action === "analysis" ? "Analyzing..." : data.aiAnalyzedAt ? "Re-run analysis" : "Run Analysis"}
                 </Button>
               )}
             </Stack>
@@ -819,8 +835,10 @@ export default function AppealWorkspace() {
                                   color={doc.verified ? "success" : "default"}
                                   variant="outlined"
                                 />
-                                {addedForThisAppeal && (
+                                {addedForThisAppeal ? (
                                   <Chip size="small" label="Added for this appeal" color="info" variant="outlined" />
+                                ) : (
+                                  <Chip size="small" label="Existing claim document" variant="outlined" />
                                 )}
                               </Stack>
                             </Box>
@@ -931,41 +949,39 @@ export default function AppealWorkspace() {
               <Stack spacing={1.25}>
                 <Chip
                   icon={data.aiAnalyzedAt ? <CheckCircle /> : undefined}
-                  label={data.aiAnalyzedAt ? "Analysis completed" : "Analysis required"}
+                  label={data.aiAnalyzedAt ? "1. Analysis complete" : "1. Analyze denial"}
                   color={data.aiAnalyzedAt ? "success" : "default"}
                   variant="outlined"
                 />
                 <Chip
-                  icon={rationaleSaved ? <CheckCircle /> : undefined}
+                  icon={draftSaved ? <CheckCircle /> : undefined}
                   label={
-                    rationaleSaved
-                      ? "Rationale complete"
-                      : rationaleLengthValid
-                      ? "Rationale ready — save required"
-                      : `Rationale required (minimum ${APPEAL_RATIONALE_MIN_CHARS} characters)`
+                    draftSaved
+                      ? `2. Package complete · ${evidenceIds.length} evidence document${evidenceIds.length === 1 ? "" : "s"}`
+                      : "2. Build appeal package"
                   }
-                  color={rationaleSaved ? "success" : rationaleLengthValid ? "warning" : "default"}
-                  variant="outlined"
-                />
-                <Chip
-                  icon={evidenceIds.length > 0 && evidenceSaved ? <CheckCircle /> : undefined}
-                  label={`${evidenceIds.length} evidence document${evidenceIds.length === 1 ? "" : "s"} selected`}
-                  color={evidenceIds.length > 0 && evidenceSaved ? "success" : evidenceIds.length > 0 ? "warning" : "default"}
+                  color={draftSaved ? "success" : "default"}
                   variant="outlined"
                 />
                 <Chip
                   icon={data.appealPreparedAt ? <CheckCircle /> : undefined}
-                  label={data.appealPreparedAt ? "Appeal prepared" : "Appeal not prepared"}
-                  color={data.appealPreparedAt ? "success" : "default"}
+                  label={data.appealPreparedAt ? "3. Review complete" : "3. Review package"}
+                  color={data.appealPreparedAt ? "success" : packageChangedNotice ? "warning" : "default"}
                   variant="outlined"
                 />
                 <Chip
                   icon={data.appealSubmittedAt ? <CheckCircle /> : undefined}
-                  label={data.appealSubmittedAt ? "Appeal submitted" : "Submission not recorded"}
+                  label={data.appealSubmittedAt ? "4. Submission recorded" : "4. Submit appeal"}
                   color={data.appealSubmittedAt ? "success" : "default"}
                   variant="outlined"
                 />
               </Stack>
+
+              {packageChangedNotice && editable && (
+                <Alert severity="warning" sx={{ mt: 2 }} data-testid="appeal-package-changed">
+                  <b>Appeal package changed.</b> Evidence or rationale was updated after the package was reviewed. Review the updated package before recording submission.
+                </Alert>
+              )}
 
               {suggestedEvidenceMissing && (
                 <Alert severity="warning" sx={{ mt: 2 }}>
@@ -991,29 +1007,37 @@ export default function AppealWorkspace() {
                   Preview Appeal Package
                 </Button>
 
-                <Button
-                  variant="contained"
-                  disabled={
-                    !editable ||
-                    Boolean(action) ||
-                    !data.aiAnalyzedAt ||
-                    data.appealEligible !== true ||
-                    !draftSaved
-                  }
-                  onClick={prepareAppeal}
-                >
-                  {action === "prepare" ? "Preparing..." : data.status === "APPEAL_PREPARED" ? "Re-prepare Appeal" : "Prepare Appeal"}
-                </Button>
+                {data.status !== "APPEAL_PREPARED" && !submitted && (
+                  <Button
+                    variant="contained"
+                    disabled={
+                      !editable ||
+                      Boolean(action) ||
+                      !data.aiAnalyzedAt ||
+                      data.appealEligible !== true ||
+                      !draftSaved
+                    }
+                    onClick={prepareAppeal}
+                  >
+                    {action === "prepare"
+                      ? "Preparing..."
+                      : packageChangedNotice
+                      ? "Review Updated Package"
+                      : "Review & Prepare Appeal"}
+                  </Button>
+                )}
 
-                <Button
-                  color="success"
-                  variant="contained"
-                  startIcon={<Send />}
-                  disabled={!canEdit || Boolean(action) || data.status !== "APPEAL_PREPARED"}
-                  onClick={() => setSubmissionOpen(true)}
-                >
-                  {action === "submit" ? "Submitting..." : "Submit Appeal"}
-                </Button>
+                {data.status === "APPEAL_PREPARED" && (
+                  <Button
+                    color="success"
+                    variant="contained"
+                    startIcon={<Send />}
+                    disabled={!canEdit || Boolean(action)}
+                    onClick={() => setSubmissionOpen(true)}
+                  >
+                    {action === "submit" ? "Submitting..." : "Record Appeal Submission"}
+                  </Button>
+                )}
               </Stack>
 
               <Alert severity="warning" sx={{ mt: 2 }}>
