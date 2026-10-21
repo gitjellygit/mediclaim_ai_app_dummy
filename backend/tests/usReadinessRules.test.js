@@ -16,10 +16,15 @@ function claim(overrides = {}) {
     priorAuthRequired: false,
     priorAuthStatus: "NOT_REQUIRED",
     authorizationNo: null,
+    dateOfService: new Date("2026-10-02T00:00:00.000Z"),
+    policyStartDate: new Date("2026-01-01T00:00:00.000Z"),
+    policyEndDate: new Date("2026-12-31T00:00:00.000Z"),
     serviceLines: [
       {
         cptHcpcsCode: "99213",
-        diagnosisPointers: ["M54.50"]
+        diagnosisPointers: ["M54.50"],
+        serviceDateFrom: new Date("2026-10-02T00:00:00.000Z"),
+        serviceDateTo: new Date("2026-10-02T00:00:00.000Z")
       }
     ],
     ...overrides
@@ -188,4 +193,48 @@ test("Submission safety - secondary and tertiary claims are mandatory readiness 
     US_READINESS_RULE_DEFAULTS
   );
   assert.equal(codes(primary).includes("US_COB_PRIMARY_ONLY"), false);
+});
+
+
+test("Denial prevention - date of service must be inside recorded coverage period", () => {
+  const issues = evaluateUsReadinessRules(
+    claim({
+      dateOfService: new Date("2026-10-02T00:00:00.000Z"),
+      policyEndDate: new Date("2026-09-30T00:00:00.000Z")
+    }),
+    US_READINESS_RULE_DEFAULTS
+  );
+  assert.ok(codes(issues).includes("US_COVERAGE_DOS"));
+});
+
+test("Denial prevention - service-line dates must align to claim date of service", () => {
+  const issues = evaluateUsReadinessRules(
+    claim({
+      serviceLines: [{
+        cptHcpcsCode: "99213",
+        diagnosisPointers: ["M54.50"],
+        serviceDateFrom: new Date("2026-10-03T00:00:00.000Z"),
+        serviceDateTo: new Date("2026-10-03T00:00:00.000Z")
+      }]
+    }),
+    US_READINESS_RULE_DEFAULTS
+  );
+  assert.ok(codes(issues).includes("US_SERVICE_DATE_CONSISTENCY"));
+});
+
+test("Denial prevention - approved prior auth must cover the date of service", () => {
+  const issues = evaluateUsReadinessRules(
+    claim({
+      priorAuthRequired: true,
+      priorAuthStatus: "APPROVED",
+      authorizationNo: "AUTH-200",
+      priorAuthExpiry: new Date("2026-10-01T00:00:00.000Z")
+    }),
+    US_READINESS_RULE_DEFAULTS
+  );
+  assert.ok(codes(issues).includes("US_PRIOR_AUTH"));
+  assert.match(
+    issues.find((item) => item.rule === "US_PRIOR_AUTH").message,
+    /expired before the date of service/i
+  );
 });
