@@ -62,7 +62,7 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   await expect(row).toBeVisible();
 
   const popupPromise = context.waitForEvent("page");
-  await row.getByRole("button", { name: "Work Case" }).click();
+  await row.getByTestId("recovery-next-action").click();
   const appealPage = await popupPromise;
 
   await appealPage.waitForLoadState("domcontentloaded");
@@ -86,7 +86,7 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   await expect(appealEligibleSelects).toHaveCount(0);
 
   const runAnalysis = appealPage.getByRole("button", {
-    name: /Run Analysis|Re-run Analysis/
+    name: /Run Analysis|Re-run analysis/
   });
   await runAnalysis.click();
 
@@ -110,7 +110,7 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   );
   await rationale.fill("Too short");
   await expect(
-    appealPage.getByText(/Rationale required \(minimum 50 characters\)/)
+    appealPage.getByText("2. Build appeal package", { exact: true })
   ).toBeVisible();
   await expect(
     appealPage.getByRole("button", { name: "Save Rationale" })
@@ -121,22 +121,19 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   );
 
   await expect(
-    appealPage.getByText("Rationale ready — save required", { exact: true })
-  ).toBeVisible();
-  await expect(
-    appealPage.getByRole("button", { name: "Prepare Appeal" })
+    appealPage.getByRole("button", { name: "Review & Prepare Appeal" })
   ).toBeDisabled();
 
   await appealPage.getByRole("button", { name: "Save Rationale" }).click();
   await expect(
-    appealPage.getByText("Rationale complete", { exact: true })
+    appealPage.getByText(/2\. Package complete/)
   ).toBeVisible();
 
-  await appealPage.getByRole("button", { name: "Prepare Appeal" }).click();
+  await appealPage.getByRole("button", { name: "Review & Prepare Appeal" }).click();
   await appealPage.getByRole("button", { name: "Prepare Appeal" }).last().click();
 
   await expect(
-    appealPage.getByText("Appeal prepared", { exact: true }).first()
+    appealPage.getByText("3. Review complete", { exact: true })
   ).toBeVisible();
 
   await rationale.fill(
@@ -145,18 +142,21 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   const saveRevisedRationale = appealPage.getByRole("button", { name: "Save Rationale" });
   await expect(saveRevisedRationale).toBeEnabled();
   await saveRevisedRationale.click();
+  await expect(appealPage.getByTestId("appeal-package-changed")).toContainText(
+    /Evidence or rationale was updated/
+  );
   await expect(
-    appealPage.getByText("Appeal not prepared", { exact: true }).first()
+    appealPage.getByRole("button", { name: "Review Updated Package" })
   ).toBeVisible();
 
-  await appealPage.getByRole("button", { name: "Prepare Appeal" }).click();
+  await appealPage.getByRole("button", { name: "Review Updated Package" }).click();
   await appealPage.getByRole("button", { name: "Prepare Appeal" }).last().click();
   await expect(
-    appealPage.getByText("Appeal prepared", { exact: true }).first()
+    appealPage.getByText("3. Review complete", { exact: true })
   ).toBeVisible();
 
   await appealPage.getByRole("button", {
-    name: "Submit Appeal"
+    name: "Record Appeal Submission"
   }).click();
 
   const submissionDialog = appealPage.getByRole("dialog", {

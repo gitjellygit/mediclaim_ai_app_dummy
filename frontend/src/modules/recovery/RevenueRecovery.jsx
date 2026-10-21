@@ -475,7 +475,7 @@ export default function RevenueRecovery() {
       ) : (
         <Paper>
           <TableContainer>
-          <Table size="small" sx={{ minWidth: 1280 }}>
+          <Table size="small" sx={{ minWidth: 1160 }}>
             <TableHead>
               <TableRow>
                 {sortableHeader("Priority", "priority")}
@@ -487,7 +487,6 @@ export default function RevenueRecovery() {
                 {sortableHeader("Deadline", "deadline")}
                 <TableCell><b>Workflow</b></TableCell>
                 <TableCell><b>Next Action</b></TableCell>
-                <TableCell align="right"><b>Action</b></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -601,20 +600,23 @@ export default function RevenueRecovery() {
                     />
                   </TableCell>
 
-                  <TableCell sx={{ minWidth: 220 }}>
-                    <Typography variant="body2" fontWeight={600}>
-                      {item.nextAction}
-                    </Typography>
-                  </TableCell>
-
-                  <TableCell align="right">
+                  <TableCell sx={{ minWidth: 240 }}>
                     <Button
                       size="small"
-                      variant="contained"
+                      variant="text"
                       endIcon={<ArrowForward />}
                       onClick={() => openRecovery(item)}
+                      data-testid="recovery-next-action"
+                      aria-label={`${item.nextAction} for ${item.patientName}`}
+                      sx={{
+                        justifyContent: "flex-start",
+                        px: 0.5,
+                        textAlign: "left",
+                        fontWeight: 700,
+                        textTransform: "none"
+                      }}
                     >
-                      Work Case
+                      {item.nextAction}
                     </Button>
                   </TableCell>
                 </TableRow>
