@@ -177,6 +177,7 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
       ...(q
         ? {
             OR: [
+              { id: { contains: q, mode: "insensitive" } },
               { patientName: { contains: q, mode: "insensitive" } },
               { payerName: { contains: q, mode: "insensitive" } },
               { policyNo: { contains: q, mode: "insensitive" } },

@@ -1514,6 +1514,97 @@ router.delete("/e2e/submission-safety/cleanup", async (req, res) => {
   }
 });
 
+router.post("/e2e/claims-ux/seed", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const organizationId = req.user.organizationId;
+  const prefix = "E2E-CLAIMS-UX-";
+  const now = Date.now();
+
+  try {
+    await prisma.claim.deleteMany({
+      where: {
+        organizationId,
+        patientName: { startsWith: prefix }
+      }
+    });
+
+    const created = [];
+    for (let index = 1; index <= 32; index += 1) {
+      const claim = await prisma.claim.create({
+        data: {
+          organizationId,
+          createdById: req.user.id,
+          patientName: `${prefix}${String(index).padStart(3, "0")}`,
+          payerName: index % 2 === 0 ? "Aetna Demo" : "United Demo",
+          memberId: `UX-MEM-${String(index).padStart(3, "0")}`,
+          policyNo: `UX-POL-${String(index).padStart(3, "0")}`,
+          amount: 100 + index,
+          status: index === 32 ? "PAID" : "DRAFT",
+          claimSubmissionDate:
+            index === 32 ? new Date(now - 60 * 60 * 1000) : null,
+          payerClaimStatus: index === 32 ? "PAID" : null,
+          remittanceStatus: index === 32 ? "POSTED" : "NOT_AVAILABLE",
+          createdAt: new Date(now - index * 60 * 1000)
+        }
+      });
+      created.push(claim);
+    }
+
+    const paidClaim = created.find((claim) => claim.status === "PAID");
+    const paidDocument = await prisma.document.create({
+      data: {
+        claimId: paidClaim.id,
+        type: "EOB",
+        suggestedType: "FINAL_BILL",
+        fileName: "paid-claim-eob.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        path: "e2e-fixture://paid-claim-eob.pdf",
+        rawText: "synthetic paid claim OCR",
+        fileHash: "claims-ux-paid-doc-hash",
+        status: "PROCESSED",
+        confidence: 96
+      }
+    });
+
+    res.json({
+      prefix,
+      total: created.length,
+      firstClaimId: created[0].id,
+      paidClaimId: paidClaim.id,
+      paidDocumentId: paidDocument.id
+    });
+  } catch (error) {
+    console.error("[e2e-claims-ux] seed failed", {
+      name: error?.name || "Error",
+      code: error?.code || null,
+      message: error?.message || null
+    });
+    res.status(500).json({ error: "Unable to seed claims UX scenarios" });
+  }
+});
+
+router.delete("/e2e/claims-ux/cleanup", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  try {
+    const result = await prisma.claim.deleteMany({
+      where: {
+        organizationId: req.user.organizationId,
+        patientName: { startsWith: "E2E-CLAIMS-UX-" }
+      }
+    });
+    res.json({ deleted: result.count });
+  } catch {
+    res.status(500).json({ error: "Unable to clean claims UX scenarios" });
+  }
+});
+
 function finalUatGuard(req, res) {
   const safety = finalUatLocalSafety();
   if (!safety.ok || req.user?.role !== "ADMIN") {

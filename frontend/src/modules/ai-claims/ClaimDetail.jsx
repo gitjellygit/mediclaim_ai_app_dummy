@@ -2459,7 +2459,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               Documents ({claim.documents.length})
             </Typography>
             
-            {selectedDocs.size > 0 && claim.status !== "SUBMITTED" && (
+            {selectedDocs.size > 0 && !claimFinalized && (
               <Stack direction="row" spacing={1} alignItems="center">
                 <Typography variant="body2" color="text.secondary">
                   {selectedDocs.size} selected
@@ -2478,166 +2478,172 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
             )}
           </Stack>
 
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={2}
-            sx={{ mb: 3, alignItems: { xs: "stretch", sm: "center" } }}
-          >
-            <TextField
-              select
-              label="Document Type"
-              value={docType}
-              onChange={(e) => setDocType(e.target.value)}
-              size="small"
-              sx={{
-                minWidth: { xs: "100%", sm: 260 },
-                "& .MuiSelect-select": { cursor: "pointer" }
-              }}
-              SelectProps={{
-                MenuProps: {
-                  PaperProps: {
-                    sx: { maxHeight: 360 }
-                  }
-                }
-              }}
-              helperText={
-                docType === "AUTO"
-                  ? "Recommended: AI detects the document type automatically"
-                  : "Manual override selected; AI will still validate the document type"
-              }
-            >
-              <MenuItem
-                value="AUTO"
-                sx={{ cursor: "pointer", py: 1.1, fontWeight: 700 }}
-              >
-                Auto Detect with AI (Recommended)
-              </MenuItem>
-              <Divider sx={{ gridColumn: "1 / -1" }} />
-              {DOC_TYPES.map((type) => (
-                <MenuItem
-                  key={type}
-                  value={type}
-                  sx={{ cursor: "pointer", py: 1.1 }}
-                >
-                  {DOC_TYPE_LABELS[type] || type.replaceAll("_", " ")}
-                </MenuItem>
-              ))}
-            </TextField>
-
-            <Button
-              variant="contained"
-              component="label"
-              startIcon={<FolderOpen />}
-              size="small"
-              disabled={claim.status === "SUBMITTED"}
-            >
-              Upload Document
-              <input
-                type="file"
-                hidden
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-
-                  try {
-                    const result = await ClaimsApi.uploadDoc({
-                      claimId: id,
-                      type: docType === "AUTO" ? null : docType,
-                      file
-                    });
-
-                    const selectedType =
-                      docType === "AUTO" ? null : docType;
-                    const suggestedType =
-                      result?.suggestedType || result?.document?.suggestedType;
-                    const suggestionConfidence =
-                      result?.confidence ?? result?.document?.confidence;
-
-                    if (
-                      selectedType &&
-                      suggestedType &&
-                      selectedType !== suggestedType
-                    ) {
-                      showDialog(
-                        `You selected ${DOC_TYPE_LABELS[selectedType] || selectedType}, but AI detected ${DOC_TYPE_LABELS[suggestedType] || suggestedType}${suggestionConfidence != null ? ` with ${suggestionConfidence}% confidence` : ""}. The document was uploaded using your selected type. You can use the AI suggestion from the Documents table after review.`,
-                        {
-                          title: "Document type needs review",
-                          severity: "warning"
-                        }
-                      );
-                    } else if (result?.identityValidation?.status === "REVIEW") {
-                      const fields = (result?.identityValidation?.warnings || [])
-                        .map((field) =>
-                          ({
-                            patientName: "patient name",
-                            memberId: "member ID",
-                            policyNo: "policy number",
-                            patientDob: "date of birth"
-                          })[field] || field
-                        )
-                        .join(", ");
-                      showDialog(
-                        result?.message ||
-                          `The document was uploaded, but please review the extracted ${fields || "patient identifier"}.`,
-                        {
-                          title: "Document uploaded — identity needs review",
-                          severity: "warning"
-                        }
-                      );
-                    } else if (result?.identityValidation?.status === "UNVERIFIED") {
-                      showDialog(
-                        result?.message ||
-                          "The document was uploaded, but the patient identity could not be verified from the extracted data. Please review it before relying on this document.",
-                        {
-                          title: "Document uploaded — identity not verified",
-                          severity: "warning"
-                        }
-                      );
-                    } else {
-                      showToast(
-                        result?.message ||
-                          "Document uploaded and patient identity matched the current claim.",
-                        "success"
-                      );
-                    }
-
-                    await load();
-                  } catch (err) {
-                    const isPatientMismatch =
-                      err?.code === "DOCUMENT_PATIENT_MISMATCH" ||
-                      /patient mismatch|appears to belong to/i.test(err?.message || "");
-
-                    showDialog(
-                      err?.message ||
-                        "The document upload failed. Please try again.",
-                      {
-                        title: isPatientMismatch
-                          ? "Wrong patient document"
-                          : "Document upload failed",
-                        severity: isPatientMismatch ? "warning" : "error"
-                      }
-                    );
-                  }
-
-                  e.target.value = "";
-                }}
-              />
-            </Button>
-
-            {claim?.documents?.length > 0 && (
-              <Stack direction="row" spacing={1}>
-                <Tooltip title={selectedDocs.size === claim?.documents?.length ? "Deselect All" : "Select All"}>
-                  <IconButton 
-                    size="small"
-                    onClick={handleSelectAll}
-                    color={selectedDocs.size === claim?.documents?.length ? "primary" : "default"}
-                  >
-                    {selectedDocs.size === claim?.documents?.length ? <CheckBoxOutlineBlank /> : <SelectAll />}
-                  </IconButton>
-                </Tooltip>
-              </Stack>
-            )}
-          </Stack>
+          {claimFinalized ? (
+            <Alert severity="info" sx={{ mb: 3 }} data-testid="documents-read-only">
+              This claim is {claim.status === "SUBMITTING" ? "currently being submitted" : "finalized"}. Supporting claim documents are read-only; preview and download remain available. Add appeal or recovery evidence through the appropriate recovery workflow instead of changing the submitted claim package.
+            </Alert>
+          ) : (
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        spacing={2}
+                        sx={{ mb: 3, alignItems: { xs: "stretch", sm: "center" } }}
+                      >
+                        <TextField
+                          select
+                          label="Document Type"
+                          value={docType}
+                          onChange={(e) => setDocType(e.target.value)}
+                          size="small"
+                          sx={{
+                            minWidth: { xs: "100%", sm: 260 },
+                            "& .MuiSelect-select": { cursor: "pointer" }
+                          }}
+                          SelectProps={{
+                            MenuProps: {
+                              PaperProps: {
+                                sx: { maxHeight: 360 }
+                              }
+                            }
+                          }}
+                          helperText={
+                            docType === "AUTO"
+                              ? "Recommended: AI detects the document type automatically"
+                              : "Manual override selected; AI will still validate the document type"
+                          }
+                        >
+                          <MenuItem
+                            value="AUTO"
+                            sx={{ cursor: "pointer", py: 1.1, fontWeight: 700 }}
+                          >
+                            Auto Detect with AI (Recommended)
+                          </MenuItem>
+                          <Divider sx={{ gridColumn: "1 / -1" }} />
+                          {DOC_TYPES.map((type) => (
+                            <MenuItem
+                              key={type}
+                              value={type}
+                              sx={{ cursor: "pointer", py: 1.1 }}
+                            >
+                              {DOC_TYPE_LABELS[type] || type.replaceAll("_", " ")}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+            
+                        <Button
+                          variant="contained"
+                          component="label"
+                          startIcon={<FolderOpen />}
+                          size="small"
+                          disabled={claim.status === "SUBMITTED"}
+                        >
+                          Upload Document
+                          <input
+                            type="file"
+                            hidden
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+            
+                              try {
+                                const result = await ClaimsApi.uploadDoc({
+                                  claimId: id,
+                                  type: docType === "AUTO" ? null : docType,
+                                  file
+                                });
+            
+                                const selectedType =
+                                  docType === "AUTO" ? null : docType;
+                                const suggestedType =
+                                  result?.suggestedType || result?.document?.suggestedType;
+                                const suggestionConfidence =
+                                  result?.confidence ?? result?.document?.confidence;
+            
+                                if (
+                                  selectedType &&
+                                  suggestedType &&
+                                  selectedType !== suggestedType
+                                ) {
+                                  showDialog(
+                                    `You selected ${DOC_TYPE_LABELS[selectedType] || selectedType}, but AI detected ${DOC_TYPE_LABELS[suggestedType] || suggestedType}${suggestionConfidence != null ? ` with ${suggestionConfidence}% confidence` : ""}. The document was uploaded using your selected type. You can use the AI suggestion from the Documents table after review.`,
+                                    {
+                                      title: "Document type needs review",
+                                      severity: "warning"
+                                    }
+                                  );
+                                } else if (result?.identityValidation?.status === "REVIEW") {
+                                  const fields = (result?.identityValidation?.warnings || [])
+                                    .map((field) =>
+                                      ({
+                                        patientName: "patient name",
+                                        memberId: "member ID",
+                                        policyNo: "policy number",
+                                        patientDob: "date of birth"
+                                      })[field] || field
+                                    )
+                                    .join(", ");
+                                  showDialog(
+                                    result?.message ||
+                                      `The document was uploaded, but please review the extracted ${fields || "patient identifier"}.`,
+                                    {
+                                      title: "Document uploaded — identity needs review",
+                                      severity: "warning"
+                                    }
+                                  );
+                                } else if (result?.identityValidation?.status === "UNVERIFIED") {
+                                  showDialog(
+                                    result?.message ||
+                                      "The document was uploaded, but the patient identity could not be verified from the extracted data. Please review it before relying on this document.",
+                                    {
+                                      title: "Document uploaded — identity not verified",
+                                      severity: "warning"
+                                    }
+                                  );
+                                } else {
+                                  showToast(
+                                    result?.message ||
+                                      "Document uploaded and patient identity matched the current claim.",
+                                    "success"
+                                  );
+                                }
+            
+                                await load();
+                              } catch (err) {
+                                const isPatientMismatch =
+                                  err?.code === "DOCUMENT_PATIENT_MISMATCH" ||
+                                  /patient mismatch|appears to belong to/i.test(err?.message || "");
+            
+                                showDialog(
+                                  err?.message ||
+                                    "The document upload failed. Please try again.",
+                                  {
+                                    title: isPatientMismatch
+                                      ? "Wrong patient document"
+                                      : "Document upload failed",
+                                    severity: isPatientMismatch ? "warning" : "error"
+                                  }
+                                );
+                              }
+            
+                              e.target.value = "";
+                            }}
+                          />
+                        </Button>
+            
+                        {claim?.documents?.length > 0 && (
+                          <Stack direction="row" spacing={1}>
+                            <Tooltip title={selectedDocs.size === claim?.documents?.length ? "Deselect All" : "Select All"}>
+                              <IconButton 
+                                size="small"
+                                onClick={handleSelectAll}
+                                color={selectedDocs.size === claim?.documents?.length ? "primary" : "default"}
+                              >
+                                {selectedDocs.size === claim?.documents?.length ? <CheckBoxOutlineBlank /> : <SelectAll />}
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
+                        )}
+                      </Stack>
+          )}
 
           {claim?.documents?.length > 0 ? (
             <>
@@ -2645,14 +2651,16 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 <Table stickyHeader aria-label="documents table">
                   <TableHead>
                     <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                      <TableCell padding="checkbox" sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold' }}>
-                        <Checkbox
-                          indeterminate={selectedDocs.size > 0 && selectedDocs.size < claim?.documents?.length}
-                          checked={claim?.documents?.length > 0 && selectedDocs.size === claim?.documents?.length}
-                          onChange={handleSelectAll}
-                          size="small"
-                        />
-                      </TableCell>
+                      {!claimFinalized && (
+                        <TableCell padding="checkbox" sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold' }}>
+                          <Checkbox
+                            indeterminate={selectedDocs.size > 0 && selectedDocs.size < claim?.documents?.length}
+                            checked={claim?.documents?.length > 0 && selectedDocs.size === claim?.documents?.length}
+                            onChange={handleSelectAll}
+                            size="small"
+                          />
+                        </TableCell>
+                      )}
                       <TableCell sx={{ borderBottom: '2px solid #e0e0e0', fontWeight: 'bold', minWidth: 120 }}>
                         Type
                       </TableCell>
@@ -2681,13 +2689,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                           selected={selectedDocs.has(doc.id)}
                           sx={{ '&:hover': { backgroundColor: '#f9f9f9' } }}
                         >
-                          <TableCell padding="checkbox" sx={{ borderBottom: '1px solid #e0e0e0' }}>
-                            <Checkbox
-                              checked={selectedDocs.has(doc.id)}
-                              onChange={() => handleSelectDoc(doc.id)}
-                              size="small"
-                            />
-                          </TableCell>
+                          {!claimFinalized && (
+                            <TableCell padding="checkbox" sx={{ borderBottom: '1px solid #e0e0e0' }}>
+                              <Checkbox
+                                checked={selectedDocs.has(doc.id)}
+                                onChange={() => handleSelectDoc(doc.id)}
+                                size="small"
+                              />
+                            </TableCell>
+                          )}
                           <TableCell sx={{ borderBottom: '1px solid #e0e0e0' }}>
                             {canEditDocuments && !aiCheckLocked ? (
                               <TextField
@@ -2741,7 +2751,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                                   color="primary"
                                   label={DOC_TYPE_LABELS[doc.suggestedType] || doc.suggestedType.replaceAll("_", " ")}
                                 />
-                                {doc.suggestedType !== doc.type && canEditDocuments && (
+                                {doc.suggestedType !== doc.type && canEditDocuments && !claimFinalized && (
                                   <Tooltip title="Change the saved document type to the AI-detected type">
                                     <Button
                                       size="small"
@@ -2812,7 +2822,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                                   <Download fontSize="small" />
                                 </IconButton>
                               </Tooltip>
-                              {canDeleteDoc && claim.status !== "SUBMITTED" && (
+                              {canDeleteDoc && !claimFinalized && (
                                 <Tooltip title="Delete">
                                   <IconButton 
                                     size="small"
@@ -2848,7 +2858,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                           </TableCell>
                         </TableRow>
                         <TableRow>
-                          <TableCell colSpan={7} sx={{ p: 0, borderBottom: '1px solid #e0e0e0' }}>
+                          <TableCell colSpan={claimFinalized ? 6 : 7} sx={{ p: 0, borderBottom: '1px solid #e0e0e0' }}>
                             <Collapse in={expandedRows.has(doc.id)} timeout="auto" unmountOnExit>
                               <Box sx={{ p: 2, backgroundColor: '#fafafa' }}>
                                 <Stack spacing={1}>
@@ -2910,7 +2920,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
             </>
           ) : (
             <Alert severity="info" sx={{ mt: 2 }}>
-              No documents uploaded yet. Upload documents to get started with AI analysis.
+              {claimFinalized
+                ? "No supporting documents were attached to this finalized claim."
+                : "No documents uploaded yet. Upload documents to get started with AI analysis."}
             </Alert>
           )}
         </CardContent>
