@@ -75,8 +75,8 @@ test("Appeal rationale has an explicit minimum and must be saved before preparat
   assert.match(ui, /APPEAL_RATIONALE_MIN_CHARS = 50/);
   assert.match(ui, /Save Rationale/);
   assert.match(ui, /Clear appeal rationale\?/);
-  assert.match(ui, /Rationale ready — save required/);
-  assert.match(ui, /Rationale complete/);
+  assert.match(ui, /2\. Build appeal package/);
+  assert.match(ui, /2\. Package complete/);
   assert.match(ui, /load\(\{ preserveDraft: true \}\)/);
   assert.match(ui, /!draftSaved/);
 });
@@ -94,7 +94,9 @@ test("Prepared appeal is invalidated when the saved package changes", () => {
   assert.match(ui, /async function toggleEvidence/);
   assert.match(ui, /DenialsApi\.saveAppealDraft\(id/);
   assert.match(ui, /evidenceDocumentIds: next/);
-  assert.match(ui, /Submit Appeal/);
+  assert.match(ui, /Appeal package changed/);
+  assert.match(ui, /Review Updated Package/);
+  assert.match(ui, /Record Appeal Submission/);
   assert.match(ui, /Yes, Submit Appeal/);
 });
 
@@ -150,6 +152,8 @@ test("Revenue Recovery paginates sorts and aligns recovered metrics with filters
   assert.match(ui, /sortableHeader\("Recovered", "recovered"\)/);
   assert.match(ui, /sortableHeader\("Deadline", "deadline"\)/);
   assert.match(ui, /Across all cases matching the current filters/);
+  assert.match(ui, /data-testid="recovery-next-action"/);
+  assert.doesNotMatch(ui, />Work Case</);
 
   assert.match(appeal, /data-testid="recovery-achievement"/);
   assert.match(appeal, /Recovery achieved/);
