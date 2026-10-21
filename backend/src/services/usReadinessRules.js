@@ -32,6 +32,18 @@ export const US_READINESS_RULE_DEFAULTS = Object.freeze([
     enabled: true
   },
   {
+    code: "US_COVERAGE_DOS",
+    name: "Coverage dates include date of service",
+    severity: "BLOCK",
+    enabled: true
+  },
+  {
+    code: "US_SERVICE_DATE_CONSISTENCY",
+    name: "Service-line dates align to claim date of service",
+    severity: "BLOCK",
+    enabled: true
+  },
+  {
     code: "US_PRIOR_AUTH",
     name: "Required prior authorization resolved",
     severity: "BLOCK",
@@ -195,6 +207,38 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
     );
   }
 
+  const dos = isoDateOnly(claim.dateOfService);
+  const policyStart = isoDateOnly(claim.policyStartDate);
+  const policyEnd = isoDateOnly(claim.policyEndDate);
+  if (
+    dos &&
+    ((policyStart && dos < policyStart) || (policyEnd && dos > policyEnd))
+  ) {
+    addIssue(
+      issues,
+      configured,
+      defaults,
+      "US_COVERAGE_DOS",
+      "Date of service falls outside the recorded policy coverage period",
+      { field: "dateOfService", fixTarget: "eligibility" }
+    );
+  }
+
+  if (dos && verifiedServiceLines.some((line) => {
+    const from = isoDateOnly(line.serviceDateFrom);
+    const to = isoDateOnly(line.serviceDateTo);
+    return (from && dos < from) || (to && dos > to);
+  })) {
+    addIssue(
+      issues,
+      configured,
+      defaults,
+      "US_SERVICE_DATE_CONSISTENCY",
+      "Claim date of service falls outside a service-line date range",
+      { field: "serviceDateFrom", fixTarget: "serviceLines" }
+    );
+  }
+
   if (["SECONDARY", "TERTIARY"].includes(String(claim.coordinationOfBenefits || "PRIMARY").toUpperCase())) {
     addIssue(
       issues,
@@ -285,6 +329,23 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
       "US_PRIOR_AUTH",
       "Required prior authorization must be approved with an authorization number",
       { field: "authorizationNo", fixTarget: "journey" }
+    );
+  }
+
+  if (
+    claim.priorAuthRequired === true &&
+    claim.priorAuthStatus === "APPROVED" &&
+    claim.priorAuthExpiry &&
+    dos &&
+    isoDateOnly(claim.priorAuthExpiry) < dos
+  ) {
+    addIssue(
+      issues,
+      configured,
+      defaults,
+      "US_PRIOR_AUTH",
+      "Prior authorization expired before the date of service",
+      { field: "priorAuthExpiry", fixTarget: "journey" }
     );
   }
 

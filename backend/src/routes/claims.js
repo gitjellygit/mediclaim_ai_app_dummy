@@ -43,6 +43,8 @@ import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
 import { buildApprovalIntelligenceItem } from "../services/approvalIntelligence.js";
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
 import { evaluateUsReadinessRules } from "../services/usReadinessRules.js";
+import { evaluateCodeSetReadiness } from "../services/codeSetReadiness.js";
+import { findLikelyDuplicateClaim } from "../services/duplicateClaimScrub.js";
 import { evaluateConfiguredRules } from "../services/configurableRuleEngine.js";
 import { rulesetFingerprint, rulesetFreshness } from "../services/ruleLifecycle.js";
 import { buildClaimPatch, changedPatchFields, serviceLinesDiffer } from "../services/claimPatch.js";
@@ -1679,6 +1681,25 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
     }
 
     issues.push(...evaluateUsReadinessRules(claim, rules));
+    issues.push(...(await evaluateCodeSetReadiness(prisma, claim)));
+
+    const likelyDuplicate = await findLikelyDuplicateClaim(
+      prisma,
+      claim,
+      orgId(req)
+    );
+    if (likelyDuplicate) {
+      issues.push({
+        rule: "US_DUPLICATE_CLAIM",
+        severity: "BLOCK",
+        source: "DUPLICATE_SCRUB",
+        message:
+          "A likely duplicate claim already exists for the same member, payer, date of service and service pattern",
+        fixTarget: "claim",
+        duplicateClaimId: likelyDuplicate.id
+      });
+    }
+
     issues.push(...evaluateConfiguredRules(claim, rules));
     const evaluatedRulesetFingerprint = rulesetFingerprint(rules, claim, new Date());
 
