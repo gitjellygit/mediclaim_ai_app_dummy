@@ -207,7 +207,7 @@ test("Denial prevention - date of service must be inside recorded coverage perio
   assert.ok(codes(issues).includes("US_COVERAGE_DOS"));
 });
 
-test("Denial prevention - service-line dates must align to claim date of service", () => {
+test("Denial prevention - claim DOS must fall inside service-line date range", () => {
   const issues = evaluateUsReadinessRules(
     claim({
       serviceLines: [{
