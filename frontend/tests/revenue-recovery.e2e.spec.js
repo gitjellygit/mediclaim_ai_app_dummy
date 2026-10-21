@@ -99,8 +99,9 @@ test("Revenue Recovery workspace searches filters and opens underlying recovery 
   const denialRow = page.locator("tbody tr").first();
   await expect(denialRow).toContainText("Denial");
 
+  await expect(denialRow.getByText("Work Case", { exact: true })).toHaveCount(0);
   const popupPromise = page.context().waitForEvent("page");
-  await denialRow.getByRole("button", { name: "Work Case" }).click();
+  await denialRow.getByTestId("recovery-next-action").click();
   const appealPage = await popupPromise;
 
   await appealPage.waitForLoadState("domcontentloaded");
