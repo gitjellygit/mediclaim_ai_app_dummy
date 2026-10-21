@@ -536,6 +536,39 @@ model Check {
   aiSummary   Json? // any extra AI outputs if you want later
 }
 
+
+model CodeSetRelease {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  system        String
+  version       String
+  source        String
+  effectiveFrom DateTime @db.Date
+  effectiveTo   DateTime? @db.Date
+  authoritative Boolean  @default(false)
+
+  definitions CodeDefinition[]
+
+  @@unique([system, version])
+  @@index([system, effectiveFrom, effectiveTo])
+}
+
+model CodeDefinition {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  releaseId   String
+  release     CodeSetRelease @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  code        String
+  description String?
+  billable    Boolean  @default(true)
+  activeFrom  DateTime? @db.Date
+  activeTo    DateTime? @db.Date
+
+  @@unique([releaseId, code])
+  @@index([code])
+  @@index([releaseId, activeFrom, activeTo])
+}
+
 model Rule {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
