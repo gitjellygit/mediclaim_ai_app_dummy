@@ -57,7 +57,7 @@ test("Appeal workspace UI requires confirmations for major state changes", () =>
 
 test("Material recovery and remittance updates require confirmation", () => {
   const denialUi = read("frontend/src/modules/denials/DenialIntelligence.jsx");
-  const underpaymentUi = read("frontend/src/modules/payments/UnderpaymentIntelligence.jsx");
+  const underpaymentUi = read("frontend/src/modules/recovery/UnderpaymentWorkspace.jsx");
   const journeyUi = read("frontend/src/modules/journey/ClaimJourney.jsx");
 
   assert.match(denialUi, /title: "Confirm denial case update"/);

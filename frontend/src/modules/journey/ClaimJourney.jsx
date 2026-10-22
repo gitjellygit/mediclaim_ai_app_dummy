@@ -2547,7 +2547,11 @@ export default function ClaimJourney() {
                           color="inherit"
                           size="small"
                           onClick={() =>
-                            navigate(`/denials?caseId=${activeDenialCase.id}`)
+                            window.open(
+                              `/revenue-recovery/appeals/${activeDenialCase.id}`,
+                              "_blank",
+                              "noopener,noreferrer"
+                            )
                           }
                         >
                           Open Denial Case
@@ -2570,7 +2574,11 @@ export default function ClaimJourney() {
                           color="inherit"
                           size="small"
                           onClick={() =>
-                            navigate(`/payments?caseId=${underpaymentCase.id}`)
+                            window.open(
+                              `/revenue-recovery/underpayments/${underpaymentCase.id}`,
+                              "_blank",
+                              "noopener,noreferrer"
+                            )
                           }
                         >
                           Open Recovery Case

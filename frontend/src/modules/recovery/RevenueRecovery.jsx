@@ -33,7 +33,6 @@ import {
   TrendingUp,
   WarningAmber
 } from "@mui/icons-material";
-import { useNavigate } from "react-router-dom";
 import { RevenueRecoveryApi } from "../../api/revenueRecovery.js";
 import { formatUSD } from "../../utils/currency.js";
 
@@ -99,7 +98,6 @@ function summaryCard(label, value, caption, tone = "text.primary", highlight = f
 }
 
 export default function RevenueRecovery() {
-  const navigate = useNavigate();
   const [data, setData] = React.useState({
     items: [],
     metrics: null,
@@ -250,7 +248,11 @@ export default function RevenueRecovery() {
       );
       return;
     }
-    navigate(`/payments?caseId=${item.id}`);
+    window.open(
+      `/revenue-recovery/underpayments/${item.id}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
   }
 
   return (
