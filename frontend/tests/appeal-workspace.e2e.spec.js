@@ -169,6 +169,25 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
     appealPage.getByTestId("appeal-step-4")
   ).toContainText("Complete");
 
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const futureSubmission = await apiContext.post(
+    "/api/denials/" + denial.id + "/appeal-submit",
+    {
+      headers: { Authorization: "Bearer " + auth.accessToken },
+      data: {
+        confirmed: true,
+        submissionChannel: "FAX",
+        submissionDate: tomorrow
+      }
+    }
+  );
+  expect(futureSubmission.status()).toBe(400);
+  expect(await futureSubmission.json()).toMatchObject({
+    error: "Submission date cannot be in the future"
+  });
+
   await appealPage.getByRole("button", {
     name: "Record External Submission"
   }).click();
@@ -179,7 +198,7 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   await expect(submissionDialog).toBeVisible();
   await expect(submissionDialog.getByText("Payer Portal", { exact: true })).toBeVisible();
   await submissionDialog
-    .getByRole("textbox", { name: "Submission Reference" })
+    .getByRole("textbox", { name: "Submission / Tracking Reference" })
     .fill("E2E-APPEAL-123");
   await appealPage.getByRole("button", {
     name: "Continue to Confirmation"
