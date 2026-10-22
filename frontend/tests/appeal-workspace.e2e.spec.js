@@ -86,7 +86,7 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   await expect(appealEligibleSelects).toHaveCount(0);
 
   const runAnalysis = appealPage.getByRole("button", {
-    name: /Run Analysis|Re-run analysis/
+    name: /Analyze Denial|Re-run analysis/
   });
   await runAnalysis.click();
 
@@ -101,17 +101,28 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
     appealPage.getByRole("dialog", { name: "Recovery Analysis Complete" })
   ).toBeHidden();
 
+  await appealPage.getByRole("button", { name: "View analysis details" }).click();
   await expect(
     appealPage.getByText("Recovery Rules", { exact: true })
   ).toBeVisible();
+
+  const eligibilityRecheck = appealPage.getByRole("button", {
+    name: "Re-check Eligibility"
+  });
+  if (await eligibilityRecheck.count()) {
+    await eligibilityRecheck.click();
+    await expect(
+      appealPage.getByTestId("eligibility-reconciliation")
+    ).toContainText(/read-only and does not resubmit or alter the claim/i);
+  }
 
   const rationale = appealPage.getByPlaceholder(
     /Explain the factual basis for the appeal/i
   );
   await rationale.fill("Too short");
   await expect(
-    appealPage.getByText("2. Build appeal package", { exact: true })
-  ).toBeVisible();
+    appealPage.getByTestId("appeal-step-3")
+  ).toContainText("Build Appeal Package");
   await expect(
     appealPage.getByRole("button", { name: "Save Rationale" })
   ).toBeDisabled();
@@ -120,21 +131,24 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
     "The appeal is supported by the payer denial facts and the claim record. Please reconsider the denied claim based on the documented eligibility, authorization, coding, and billing information available in the record."
   );
 
-  await expect(
-    appealPage.getByRole("button", { name: "Review & Prepare Appeal" })
-  ).toBeDisabled();
-
   await appealPage.getByRole("button", { name: "Save Rationale" }).click();
   await expect(
-    appealPage.getByText(/2\. Package complete/)
-  ).toBeVisible();
+    appealPage.getByTestId("appeal-step-3")
+  ).toContainText("Complete");
 
-  await appealPage.getByRole("button", { name: "Review & Prepare Appeal" }).click();
+  await appealPage.getByRole("button", { name: "Review Package", exact: true }).first().click();
+  const packagePreview = appealPage.getByRole("dialog", {
+    name: "Appeal Package Preview"
+  });
+  await expect(packagePreview).toBeVisible();
+  await packagePreview.getByRole("button", { name: "Close" }).click();
+
+  await appealPage.getByRole("button", { name: "Approve Package" }).click();
   await appealPage.getByRole("button", { name: "Prepare Appeal" }).last().click();
 
   await expect(
-    appealPage.getByText("3. Review complete", { exact: true })
-  ).toBeVisible();
+    appealPage.getByTestId("appeal-step-4")
+  ).toContainText("Complete");
 
   await rationale.fill(
     "The appeal is supported by the payer denial facts and the claim record. This revised rationale changes the prepared package and therefore requires a new preparation step before submission."
@@ -143,24 +157,24 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   await expect(saveRevisedRationale).toBeEnabled();
   await saveRevisedRationale.click();
   await expect(appealPage.getByTestId("appeal-package-changed")).toContainText(
-    /Evidence or rationale was updated/
+    /package changed after review/i
   );
   await expect(
-    appealPage.getByRole("button", { name: "Review Updated Package" })
+    appealPage.getByRole("button", { name: "Re-approve Package" })
   ).toBeVisible();
 
-  await appealPage.getByRole("button", { name: "Review Updated Package" }).click();
+  await appealPage.getByRole("button", { name: "Re-approve Package" }).click();
   await appealPage.getByRole("button", { name: "Prepare Appeal" }).last().click();
   await expect(
-    appealPage.getByText("3. Review complete", { exact: true })
-  ).toBeVisible();
+    appealPage.getByTestId("appeal-step-4")
+  ).toContainText("Complete");
 
   await appealPage.getByRole("button", {
-    name: "Record Appeal Submission"
+    name: "Record External Submission"
   }).click();
 
   const submissionDialog = appealPage.getByRole("dialog", {
-    name: "Submit Appeal"
+    name: "Record External Submission"
   });
   await expect(submissionDialog).toBeVisible();
   await expect(submissionDialog.getByText("Payer Portal", { exact: true })).toBeVisible();
@@ -172,7 +186,7 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   }).click();
 
   await appealPage.getByRole("button", {
-    name: "Yes, Submit Appeal"
+    name: "Yes, Record Submission"
   }).click();
 
   await expect(

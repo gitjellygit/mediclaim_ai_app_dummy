@@ -45,11 +45,11 @@ test("Appeal workspace UI requires confirmations for major state changes", () =>
 
   assert.match(ui, /title: "Prepare appeal\?"/);
   assert.match(ui, /title: "Confirm assessment override"/);
-  assert.match(ui, /title: "Submit appeal\?"/);
+  assert.match(ui, /title: "Record external submission\?"/);
   assert.match(ui, /Upload Supporting Evidence/);
-  assert.match(ui, /Preview Appeal Package/);
-  assert.match(ui, /View document/);
-  assert.match(ui, /Download document/);
+  assert.match(ui, /Appeal Package Preview/);
+  assert.match(ui, /viewDocument\(doc\)/);
+  assert.match(ui, /downloadDocument\(doc\)/);
 });
 
 
@@ -75,10 +75,10 @@ test("Appeal rationale has an explicit minimum and must be saved before preparat
   assert.match(ui, /APPEAL_RATIONALE_MIN_CHARS = 50/);
   assert.match(ui, /Save Rationale/);
   assert.match(ui, /Clear appeal rationale\?/);
-  assert.match(ui, /2\. Build appeal package/);
-  assert.match(ui, /2\. Package complete/);
+  assert.match(ui, /Build Appeal Package/);
+  assert.match(ui, /packageComplete/);
   assert.match(ui, /load\(\{ preserveDraft: true \}\)/);
-  assert.match(ui, /!draftSaved/);
+  assert.match(ui, /!packageComplete/);
 });
 
 
@@ -94,10 +94,10 @@ test("Prepared appeal is invalidated when the saved package changes", () => {
   assert.match(ui, /async function toggleEvidence/);
   assert.match(ui, /DenialsApi\.saveAppealDraft\(id/);
   assert.match(ui, /evidenceDocumentIds: next/);
-  assert.match(ui, /Appeal package changed/);
-  assert.match(ui, /Review Updated Package/);
-  assert.match(ui, /Record Appeal Submission/);
-  assert.match(ui, /Yes, Submit Appeal/);
+  assert.match(ui, /The package changed after review/);
+  assert.match(ui, /Re-approve Package/);
+  assert.match(ui, /Record External Submission/);
+  assert.match(ui, /Yes, Record Submission/);
 });
 
 test("Shared success feedback uses a centered auto-dismiss green check", () => {
@@ -118,13 +118,22 @@ test("Claim Detail submission requires explicit confirmation", () => {
 });
 
 
-test("Appeal Workspace exposes eligibility recheck and visible backend analysis progress", () => {
+test("Appeal Workspace uses a read-only inline eligibility reconciliation and visible analysis progress", () => {
   const ui = read("frontend/src/modules/recovery/AppealWorkspace.jsx");
+  const api = read("frontend/src/api/denials.js");
+  const route = read("backend/src/routes/denials.js");
   const intelligence = read("backend/src/services/denialIntelligence.js");
 
   assert.match(ui, /Re-check Eligibility/);
-  assert.match(ui, /stage=eligibility/);
-  assert.match(ui, /Re-checking coverage does not resubmit the claim/);
+  assert.match(ui, /eligibility-reconciliation/);
+  assert.match(ui, /read-only and does not resubmit or alter the claim/);
+  assert.match(ui, /DenialsApi\.recheckEligibility\(id\)/);
+  assert.match(api, /appeal-eligibility-recheck/);
+  assert.match(route, /"\/:id\/appeal-eligibility-recheck"/);
+  assert.match(route, /createPayerConnectorForClaim/);
+  assert.match(route, /This reconciliation check is read-only/);
+  assert.doesNotMatch(route, /appeal-eligibility-recheck[\s\S]{0,2200}prisma\.claim\.update/);
+
   assert.match(ui, /Re-running Recovery Analysis/);
   assert.match(ui, /This dialog reflects the active backend analysis request/);
   assert.match(ui, /Recovery Analysis Complete/);
@@ -155,11 +164,11 @@ test("Revenue Recovery paginates sorts and aligns recovered metrics with filters
   assert.match(ui, /data-testid="recovery-next-action"/);
   assert.doesNotMatch(ui, />Work Case</);
 
-  assert.match(appeal, /data-testid="recovery-achievement"/);
-  assert.match(appeal, /Recovery achieved/);
-  assert.match(appeal, /Partial recovery/);
-  assert.match(appeal, /Why this denial likely occurred/);
-  assert.match(appeal, /severity="error" variant="outlined"/);
-  assert.match(appeal, /Recommended next action/);
-  assert.match(appeal, /severity="warning" variant="outlined"/);
+  assert.match(appeal, /Recovery Summary/);
+  assert.match(appeal, /Next Action/);
+  assert.match(appeal, /View analysis details/);
+  assert.match(appeal, /PRISM recommendation/);
+  assert.match(appeal, /Use Recommended Evidence/);
+  assert.match(appeal, /Record External Submission/);
+  assert.match(appeal, /Advanced Actions/);
 });
