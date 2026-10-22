@@ -7,8 +7,6 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Divider,
-  Drawer,
   FormControl,
   InputAdornment,
   InputLabel,
@@ -27,12 +25,10 @@ import {
   Typography
 } from "@mui/material";
 import {
-  AccountBalanceWallet,
   Refresh,
   Search as SearchIcon,
   Visibility
 } from "@mui/icons-material";
-import { useLocation, useNavigate } from "react-router-dom";
 import { UnderpaymentsApi } from "../../api/underpayments.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import { formatUSD } from "../../utils/currency.js";
@@ -56,9 +52,7 @@ function statusColor(status) {
 }
 
 export default function UnderpaymentIntelligence() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { showToast, showDialog, confirmDialog } = useToast();
+  const { showDialog } = useToast();
   const [rows, setRows] = React.useState([]);
   const [metrics, setMetrics] = React.useState({
     activeCases: 0,
@@ -73,15 +67,6 @@ export default function UnderpaymentIntelligence() {
   const [sort, setSort] = React.useState("outstanding");
   const [direction, setDirection] = React.useState("desc");
   const [loading, setLoading] = React.useState(true);
-  const [detail, setDetail] = React.useState(null);
-  const [detailLoading, setDetailLoading] = React.useState(false);
-  const [saving, setSaving] = React.useState(false);
-  const [edit, setEdit] = React.useState({
-    status: "OPEN",
-    recoveredAmount: "",
-    reasonCategory: "",
-    notes: ""
-  });
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -104,155 +89,103 @@ export default function UnderpaymentIntelligence() {
 
   React.useEffect(() => {
     const timer = setTimeout(load, 300);
-
-
-  return () => clearTimeout(timer);
+    return () => clearTimeout(timer);
   }, [load]);
 
-  async function openCase(id) {
-    setDetailLoading(true);
-    try {
-      const item = await UnderpaymentsApi.get(id);
-      setDetail(item);
-      setEdit({
-        status: item.status || "OPEN",
-        recoveredAmount: item.recoveredAmount ?? "",
-        reasonCategory: item.reasonCategory || "",
-        notes: item.notes || ""
-      });
-    } catch (error) {
-      showDialog(error.message || "Unable to open the recovery case.", {
-        title: "Recovery case",
-        severity: "error"
-      });
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-
-  React.useEffect(() => {
-    const caseId = new URLSearchParams(location.search).get("caseId");
-    if (caseId && caseId !== detail?.id) {
-      openCase(caseId);
-    }
-  }, [location.search]);
-
-  async function saveCase() {
-    if (!detail) return;
-
-    const currentRecovered = Number(detail.recoveredAmount || 0);
-    const nextRecovered =
-      edit.recoveredAmount === "" ? currentRecovered : Number(edit.recoveredAmount);
-    const materialChange =
-      edit.status !== detail.status ||
-      (Number.isFinite(nextRecovered) && nextRecovered !== currentRecovered);
-
-    if (materialChange) {
-      const confirmed = await confirmDialog(
-        "Are you sure you want to change this recovery status or recovered amount? This affects payment-recovery reporting and case history.",
-        {
-          title: "Confirm recovery update",
-          severity: "warning",
-          confirmLabel: "Confirm Update",
-          cancelLabel: "Cancel"
-        }
-      );
-      if (!confirmed) return;
-    }
-
-    setSaving(true);
-    try {
-      const updated = await UnderpaymentsApi.update(detail.id, {
-        status: edit.status,
-        recoveredAmount:
-          edit.recoveredAmount === "" ? undefined : Number(edit.recoveredAmount),
-        reasonCategory: edit.reasonCategory,
-        notes: edit.notes
-      });
-      setDetail(updated);
-      showToast("Recovery case updated", "success");
-      await load();
-    } catch (error) {
-      showDialog(error.message || "Unable to update the recovery case.", {
-        title: "Recovery update failed",
-        severity: "error"
-      });
-    } finally {
-      setSaving(false);
-    }
-  }
-
   const sortedRows = React.useMemo(() => {
-  const copy = [...rows];
-  const value = (row) => {
-    switch (sort) {
-      case "patient": return String(row.claim?.patientName || "").toLowerCase();
-      case "expected": return Number(row.expectedPayerPayment || 0);
-      case "paid": return Number(row.actualPaidAmount || 0);
-      case "variance": return Number(row.varianceAmount || 0);
-      case "recovered": return Number(row.recoveredAmount || 0);
-      case "outstanding": return Number(row.outstandingAmount || 0);
-      case "status": return String(row.status || "");
-      default: return 0;
-    }
-  };
-  copy.sort((a, b) => {
-    const left = value(a);
-    const right = value(b);
-    const result = typeof left === "string"
-      ? left.localeCompare(String(right))
-      : Number(left) - Number(right);
-    return direction === "desc" ? -result : result;
-  });
-  return copy;
+    const copy = [...rows];
+    const value = (row) => {
+      switch (sort) {
+        case "patient": return String(row.claim?.patientName || "").toLowerCase();
+        case "expected": return Number(row.expectedPayerPayment || 0);
+        case "paid": return Number(row.actualPaidAmount || 0);
+        case "variance": return Number(row.varianceAmount || 0);
+        case "recovered": return Number(row.recoveredAmount || 0);
+        case "outstanding": return Number(row.outstandingAmount || 0);
+        case "status": return String(row.status || "");
+        default: return 0;
+      }
+    };
+    copy.sort((a, b) => {
+      const left = value(a);
+      const right = value(b);
+      const result =
+        typeof left === "string"
+          ? left.localeCompare(String(right))
+          : Number(left) - Number(right);
+      return direction === "desc" ? -result : result;
+    });
+    return copy;
   }, [rows, sort, direction]);
 
   function handleSort(field) {
-  if (sort === field) {
-    setDirection((current) => (current === "asc" ? "desc" : "asc"));
-    return;
+    if (sort === field) {
+      setDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSort(field);
+    setDirection(
+      ["expected", "paid", "variance", "recovered", "outstanding"].includes(field)
+        ? "desc"
+        : "asc"
+    );
   }
-  setSort(field);
-  setDirection(
-    ["expected", "paid", "variance", "recovered", "outstanding"].includes(field)
-      ? "desc"
-      : "asc"
-  );
+
+  function sortableHeader(label, field, defaultDirection = "asc") {
+    return (
+      <TableSortLabel
+        hideSortIcon={false}
+        sx={{
+          "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" },
+          "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" }
+        }}
+        active={sort === field}
+        direction={sort === field ? direction : defaultDirection}
+        onClick={() => handleSort(field)}
+      >
+        <b>{label}</b>
+      </TableSortLabel>
+    );
+  }
+
+  function openCase(id) {
+    window.open(
+      `/revenue-recovery/underpayments/${id}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ py: 1.5 }}>
       <Stack
         direction={{ xs: "column", md: "row" }}
         justifyContent="space-between"
         alignItems={{ xs: "stretch", md: "center" }}
-        spacing={2}
-        sx={{ mb: 3 }}
+        spacing={1}
+        sx={{ mb: 1.5 }}
       >
         <Box>
-          <Typography variant="h4" fontWeight={700}>
-            Underpayment Recovery
-          </Typography>
-          <Typography color="text.secondary">
+          <Typography variant="h4" fontWeight={800}>Underpayment Recovery</Typography>
+          <Typography variant="body2" color="text.secondary">
             Detect payer underpayments and track recovery from review through resolution.
           </Typography>
         </Box>
-        <Button variant="outlined" startIcon={<Refresh />} onClick={load} disabled={loading}>
+        <Button variant="outlined" size="small" startIcon={<Refresh />} onClick={load} disabled={loading}>
           Refresh
         </Button>
       </Stack>
 
-      <Alert severity="info" sx={{ mb: 3 }}>
-        Underpayment is calculated from expected payer payment versus actual payer payment.
-        Patient responsibility and normal contractual adjustments are excluded.
+      <Alert severity="info" sx={{ mb: 1.5 }}>
+        Underpayment is calculated from expected payer payment versus actual payer payment. Patient responsibility and normal contractual adjustments are excluded.
       </Alert>
 
       <Box
         sx={{
           display: "grid",
           gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "repeat(5, 1fr)" },
-          gap: 2,
-          mb: 3
+          gap: 1,
+          mb: 1.5
         }}
       >
         {[
@@ -265,29 +198,29 @@ export default function UnderpaymentIntelligence() {
           <Card key={label}>
             <CardContent>
               <Typography variant="body2" color="text.secondary">{label}</Typography>
-              <Typography variant="h5" fontWeight={700}>{value}</Typography>
+              <Typography variant="h5" fontWeight={800}>{value}</Typography>
             </CardContent>
           </Card>
         ))}
       </Box>
 
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+      <Paper sx={{ p: 1.25, mb: 1.25 }}>
+        <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
           <TextField
             fullWidth
             size="small"
             placeholder="Search patient, payer, member ID or payer claim number..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(event) => setSearch(event.target.value)}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start"><SearchIcon /></InputAdornment>
               )
             }}
           />
-          <FormControl size="small" sx={{ minWidth: 220 }}>
+          <FormControl size="small" sx={{ minWidth: 210 }}>
             <InputLabel>Status</InputLabel>
-            <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <Select label="Status" value={status} onChange={(event) => setStatus(event.target.value)}>
               <MenuItem value="ALL">All statuses</MenuItem>
               {STATUSES.map((item) => (
                 <MenuItem key={item} value={item}>{item.replaceAll("_", " ")}</MenuItem>
@@ -298,25 +231,23 @@ export default function UnderpaymentIntelligence() {
       </Paper>
 
       {loading ? (
-        <Paper sx={{ p: 6, textAlign: "center" }}>
+        <Paper sx={{ p: 5, textAlign: "center" }}>
           <CircularProgress />
         </Paper>
       ) : rows.length === 0 ? (
-        <Alert severity="success">
-          No payment variance cases match the current filter.
-        </Alert>
+        <Alert severity="success">No payment variance cases match the current filter.</Alert>
       ) : (
         <TableContainer component={Paper}>
-          <Table>
+          <Table size="small" sx={{ minWidth: 1050 }}>
             <TableHead>
               <TableRow>
-                <TableCell><TableSortLabel active={sort === "patient"} direction={sort === "patient" ? direction : "asc"} onClick={() => handleSort("patient")}><b>Patient / Payer</b></TableSortLabel></TableCell>
-                <TableCell><TableSortLabel active={sort === "expected"} direction={sort === "expected" ? direction : "desc"} onClick={() => handleSort("expected")}><b>Expected Payer</b></TableSortLabel></TableCell>
-                <TableCell><TableSortLabel active={sort === "paid"} direction={sort === "paid" ? direction : "desc"} onClick={() => handleSort("paid")}><b>Paid</b></TableSortLabel></TableCell>
-                <TableCell><TableSortLabel active={sort === "variance"} direction={sort === "variance" ? direction : "desc"} onClick={() => handleSort("variance")}><b>Variance</b></TableSortLabel></TableCell>
-                <TableCell><TableSortLabel active={sort === "recovered"} direction={sort === "recovered" ? direction : "desc"} onClick={() => handleSort("recovered")}><b>Recovered</b></TableSortLabel></TableCell>
-                <TableCell><TableSortLabel active={sort === "outstanding"} direction={sort === "outstanding" ? direction : "desc"} onClick={() => handleSort("outstanding")}><b>Outstanding</b></TableSortLabel></TableCell>
-                <TableCell><TableSortLabel active={sort === "status"} direction={sort === "status" ? direction : "asc"} onClick={() => handleSort("status")}><b>Status</b></TableSortLabel></TableCell>
+                <TableCell>{sortableHeader("Patient / Payer", "patient")}</TableCell>
+                <TableCell>{sortableHeader("Expected Payer", "expected", "desc")}</TableCell>
+                <TableCell>{sortableHeader("Paid", "paid", "desc")}</TableCell>
+                <TableCell>{sortableHeader("Variance", "variance", "desc")}</TableCell>
+                <TableCell>{sortableHeader("Recovered", "recovered", "desc")}</TableCell>
+                <TableCell>{sortableHeader("Outstanding", "outstanding", "desc")}</TableCell>
+                <TableCell>{sortableHeader("Status", "status")}</TableCell>
                 <TableCell align="right"><b>Action</b></TableCell>
               </TableRow>
             </TableHead>
@@ -324,10 +255,8 @@ export default function UnderpaymentIntelligence() {
               {sortedRows.map((row) => (
                 <TableRow key={row.id} hover>
                   <TableCell>
-                    <Typography fontWeight={600}>{row.claim?.patientName || "—"}</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {row.claim?.payerName || "—"}
-                    </Typography>
+                    <Typography fontWeight={700}>{row.claim?.patientName || "—"}</Typography>
+                    <Typography variant="body2" color="text.secondary">{row.claim?.payerName || "—"}</Typography>
                     {row.claim?.insurerClaimNo && (
                       <Typography variant="caption" color="text.secondary">
                         Claim {row.claim.insurerClaimNo}
@@ -337,28 +266,16 @@ export default function UnderpaymentIntelligence() {
                   <TableCell>{formatUSD(row.expectedPayerPayment)}</TableCell>
                   <TableCell>{formatUSD(row.actualPaidAmount)}</TableCell>
                   <TableCell>
-                    <Typography fontWeight={700} color="error.main">
-                      {formatUSD(row.varianceAmount)}
-                    </Typography>
+                    <Typography fontWeight={700} color="error.main">{formatUSD(row.varianceAmount)}</Typography>
                   </TableCell>
                   <TableCell>{formatUSD(row.recoveredAmount)}</TableCell>
+                  <TableCell><Typography fontWeight={700}>{formatUSD(row.outstandingAmount)}</Typography></TableCell>
                   <TableCell>
-                    <Typography fontWeight={700}>{formatUSD(row.outstandingAmount)}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      label={row.status.replaceAll("_", " ")}
-                      color={statusColor(row.status)}
-                    />
+                    <Chip size="small" label={row.status.replaceAll("_", " ")} color={statusColor(row.status)} />
                   </TableCell>
                   <TableCell align="right">
-                    <Button
-                      size="small"
-                      startIcon={<Visibility />}
-                      onClick={() => openCase(row.id)}
-                    >
-                      Review
+                    <Button size="small" startIcon={<Visibility />} onClick={() => openCase(row.id)}>
+                      Open Workspace
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -367,105 +284,6 @@ export default function UnderpaymentIntelligence() {
           </Table>
         </TableContainer>
       )}
-
-      <Drawer
-        anchor="right"
-        open={Boolean(detail)}
-        onClose={() => setDetail(null)}
-        PaperProps={{ sx: { width: { xs: "100%", sm: 560 }, p: 3 } }}
-      >
-        {detailLoading || !detail ? (
-          <Box sx={{ p: 5, textAlign: "center" }}><CircularProgress /></Box>
-        ) : (
-          <Stack spacing={2.5}>
-            <Box>
-              <Typography variant="h5" fontWeight={700}>Recovery Case</Typography>
-              <Typography color="text.secondary">
-                {detail.claim?.patientName} • {detail.claim?.payerName}
-              </Typography>
-            </Box>
-
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-              <Chip
-                icon={<AccountBalanceWallet />}
-                label={`Variance ${formatUSD(detail.varianceAmount)}`}
-                color="error"
-                variant="outlined"
-              />
-              <Chip
-                label={`Outstanding ${formatUSD(detail.outstandingAmount)}`}
-                color="warning"
-              />
-            </Stack>
-
-            <Paper variant="outlined" sx={{ p: 2 }}>
-              <Stack spacing={1}>
-                <Stack direction="row" justifyContent="space-between">
-                  <Typography color="text.secondary">Expected payer payment</Typography>
-                  <Typography fontWeight={600}>{formatUSD(detail.expectedPayerPayment)}</Typography>
-                </Stack>
-                <Stack direction="row" justifyContent="space-between">
-                  <Typography color="text.secondary">Actual payer payment</Typography>
-                  <Typography fontWeight={600}>{formatUSD(detail.actualPaidAmount)}</Typography>
-                </Stack>
-                <Divider />
-                <Stack direction="row" justifyContent="space-between">
-                  <Typography fontWeight={700}>Detected variance</Typography>
-                  <Typography fontWeight={700}>{formatUSD(detail.varianceAmount)}</Typography>
-                </Stack>
-              </Stack>
-            </Paper>
-
-            <FormControl size="small">
-              <InputLabel>Recovery Status</InputLabel>
-              <Select
-                label="Recovery Status"
-                value={edit.status}
-                onChange={(e) => setEdit((current) => ({ ...current, status: e.target.value }))}
-              >
-                {STATUSES.map((item) => (
-                  <MenuItem key={item} value={item}>{item.replaceAll("_", " ")}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <TextField
-              size="small"
-              type="number"
-              label="Recovered Amount"
-              inputProps={{ min: 0, step: "0.01" }}
-              value={edit.recoveredAmount}
-              onChange={(e) => setEdit((current) => ({ ...current, recoveredAmount: e.target.value }))}
-            />
-
-            <TextField
-              size="small"
-              label="Reason Category"
-              value={edit.reasonCategory}
-              onChange={(e) => setEdit((current) => ({ ...current, reasonCategory: e.target.value }))}
-            />
-
-            <TextField
-              multiline
-              minRows={4}
-              label="Recovery Notes"
-              value={edit.notes}
-              onChange={(e) => setEdit((current) => ({ ...current, notes: e.target.value }))}
-            />
-
-            <Button variant="contained" onClick={saveCase} disabled={saving}>
-              {saving ? "Saving..." : "Save Recovery Case"}
-            </Button>
-
-            <Button
-              startIcon={<Visibility />}
-              onClick={() => navigate(`/claims/${detail.claimId}`)}
-            >
-              Open Claim Detail
-            </Button>
-          </Stack>
-        )}
-      </Drawer>
     </Box>
   );
 }
