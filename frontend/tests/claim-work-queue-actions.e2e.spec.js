@@ -147,7 +147,7 @@ test("Claim Work Queue sorts the full filtered result set by derived risk", asyn
 });
 
 test("finalized claims show lifecycle-aware historical and payment context", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "15-PAID");
 
   const paid = queueRow(page, "15-PAID");
   await expect(paid).toContainText("837P");
