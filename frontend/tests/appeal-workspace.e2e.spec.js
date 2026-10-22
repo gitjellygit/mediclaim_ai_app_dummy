@@ -209,7 +209,13 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   }).click();
 
   await expect(
-    appealPage.getByText(/No external payer transmission was performed/i)
+    appealPage.getByTestId("appeal-step-5")
+  ).toContainText("Complete");
+  await expect(
+    appealPage.getByText("Submission Record", { exact: true })
+  ).toBeVisible();
+  await expect(
+    appealPage.getByTestId("appeal-payer-outcome")
   ).toBeVisible();
 
   await appealPage.close();
