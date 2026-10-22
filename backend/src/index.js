@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import cors from "cors";
 import dotenv from "dotenv";
 import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import { prisma, disconnectDatabase } from "./db.js";
 import { captureAsyncRouter } from "./middleware/asyncRouter.js";
 import { standardizeApiErrors } from "./middleware/apiErrors.js";
@@ -17,6 +18,7 @@ import denialsRouter from "./routes/denials.js";
 import underpaymentsRouter from "./routes/underpayments.js";
 import revenueRecoveryRouter from "./routes/revenueRecovery.js";
 import auditRouter from "./routes/audit.js";
+import analyticsRouter from "./routes/analytics.js";
 import payerConnectorsRouter from "./routes/payerConnectors.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
@@ -99,6 +101,17 @@ const apiRateLimiter = createMemoryRateLimiter({
   windowMs: Number(process.env.API_RATE_LIMIT_WINDOW_MS || 60000),
   max: Number(process.env.API_RATE_LIMIT_MAX || 300),
   code: "API_RATE_LIMITED"
+});
+const analyticsRateLimiter = rateLimit({
+  windowMs: Number(process.env.ANALYTICS_RATE_LIMIT_WINDOW_MS || 60000),
+  limit: Number(process.env.ANALYTICS_RATE_LIMIT_MAX || 60),
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    error: "Too many requests",
+    message: "Analytics request rate limit exceeded. Retry after the current window resets.",
+    code: "ANALYTICS_RATE_LIMITED"
+  }
 });
 const expensiveOperationRateLimiter = createMemoryRateLimiter({
   windowMs: Number(process.env.EXPENSIVE_RATE_LIMIT_WINDOW_MS || 60000),
@@ -193,6 +206,12 @@ if (process.env.E2E_TEST_MODE === "true") {
 app.use("/api/denials", requireAuth, captureAsyncRouter(denialsRouter));
 app.use("/api/underpayments", requireAuth, captureAsyncRouter(underpaymentsRouter));
 app.use("/api/revenue-recovery", requireAuth, captureAsyncRouter(revenueRecoveryRouter));
+app.use(
+  "/api/analytics",
+  analyticsRateLimiter,
+  requireAuth,
+  captureAsyncRouter(analyticsRouter)
+);
 app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectorsRouter));
 
 /**
