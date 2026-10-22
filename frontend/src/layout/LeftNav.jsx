@@ -19,7 +19,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { hasPermission, PERMISSIONS } from "../security/permissions.js";
 
 export default function LeftNav({
-  width = 240,
+  width = 206,
   mobileOpen = false,
   onMobileClose = () => {}
 }) {
@@ -46,10 +46,10 @@ export default function LeftNav({
       <ListItemButton
         onClick={() => go(path)}
         sx={{
-          mx: 1,
-          my: 0.25,
-          px: 1.25,
-          minHeight: 42,
+          mx: 0.75,
+          my: 0.15,
+          px: 1,
+          minHeight: 36,
           borderRadius: 1,
           backgroundColor: isActive ? "rgba(255,255,255,0.12)" : "transparent",
           "&:hover": {
@@ -62,7 +62,7 @@ export default function LeftNav({
         <ListItemIcon
           sx={{
             color: isActive ? "#fff" : "rgba(255,255,255,0.7)",
-            minWidth: 38
+            minWidth: 32
           }}
         >
           {icon}
@@ -71,8 +71,8 @@ export default function LeftNav({
           primary={label}
           primaryTypographyProps={{
             noWrap: true,
-            fontSize: 13.5,
-            fontWeight: isActive ? 650 : 450
+            fontSize: 12.5,
+            fontWeight: isActive ? 650 : 500
           }}
           sx={{
             color: isActive ? "#fff" : "rgba(255,255,255,0.82)"
@@ -95,18 +95,18 @@ export default function LeftNav({
     >
       <Box
         sx={{
-          px: 2,
-          py: 2.1,
+          px: 1.5,
+          py: 1.4,
           borderBottom: "1px solid rgba(255,255,255,0.08)"
         }}
       >
-        <Box sx={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.08em" }}>
+        <Box sx={{ fontSize: 18, fontWeight: 800, letterSpacing: "0.08em" }}>
           PRISM
         </Box>
         <Box
           sx={{
             mt: 0.25,
-            fontSize: 10.5,
+            fontSize: 9.5,
             lineHeight: 1.35,
             letterSpacing: "0.045em",
             color: "rgba(255,255,255,0.62)",
@@ -117,7 +117,7 @@ export default function LeftNav({
         </Box>
       </Box>
 
-      <List sx={{ flex: 1, overflowY: "auto" }}>
+      <List dense sx={{ flex: 1, overflowY: "auto", py: 0.75 }}>
         {hasPermission(user, PERMISSIONS.CLAIM_VIEW) && (
           <NavItem
             icon={<DescriptionIcon />}
@@ -180,9 +180,9 @@ export default function LeftNav({
         )}
       </List>
 
-      <Box sx={{ p: 1, borderTop: "1px solid rgba(255,255,255,0.2)" }}>
+      <Box sx={{ p: 0.75, borderTop: "1px solid rgba(255,255,255,0.2)" }}>
         <ListItemButton onClick={handleLogout} sx={{ borderRadius: 1 }}>
-          <ListItemIcon sx={{ color: "#fff", minWidth: 44 }}>
+          <ListItemIcon sx={{ color: "#fff", minWidth: 34 }}>
             <LogoutIcon />
           </ListItemIcon>
           <ListItemText primary="Logout" />
