@@ -43,6 +43,93 @@ function pct(value) {
   return `${Number(value || 0).toFixed(1)}%`;
 }
 
+function DonutChart({ items, centerLabel, centerValue }) {
+  const total = items.reduce((sum, item) => sum + Math.max(0, Number(item.value || 0)), 0);
+  const radius = 44;
+  const circumference = 2 * Math.PI * radius;
+  let offset = 0;
+
+  return (
+    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "180px 1fr" }, gap: 1.5, alignItems: "center" }}>
+      <Box sx={{ position: "relative", width: 170, height: 170, mx: "auto" }}>
+        <Box component="svg" viewBox="0 0 120 120" sx={{ width: "100%", height: "100%", transform: "rotate(-90deg)" }}>
+          <circle cx="60" cy="60" r={radius} fill="none" stroke="#E7EDF2" strokeWidth="16" />
+          {total > 0 && items.map((item) => {
+            const value = Math.max(0, Number(item.value || 0));
+            const length = (value / total) * circumference;
+            const segment = (
+              <circle
+                key={item.label}
+                cx="60"
+                cy="60"
+                r={radius}
+                fill="none"
+                stroke={item.color}
+                strokeWidth="16"
+                strokeDasharray={`${length} ${circumference - length}`}
+                strokeDashoffset={-offset}
+                strokeLinecap="butt"
+              />
+            );
+            offset += length;
+            return segment;
+          })}
+        </Box>
+        <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", textAlign: "center", pointerEvents: "none" }}>
+          <Box>
+            <Typography variant="h5" fontWeight={850} lineHeight={1}>{centerValue}</Typography>
+            <Typography variant="caption" color="text.secondary">{centerLabel}</Typography>
+          </Box>
+        </Box>
+      </Box>
+
+      <Stack spacing={0.8}>
+        {items.map((item) => (
+          <Stack key={item.label} direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+            <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
+              <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: item.color, flexShrink: 0 }} />
+              <Typography variant="body2" noWrap>{item.label}</Typography>
+            </Stack>
+            <Typography variant="body2" fontWeight={750}>{item.value}</Typography>
+          </Stack>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+function ColumnChart({ items, valueKey = "amount", formatter = formatUSD }) {
+  const max = Math.max(1, ...items.map((item) => Number(item[valueKey] || 0)));
+  return (
+    <Box sx={{ height: 190, display: "flex", alignItems: "flex-end", gap: 1, pt: 1 }}>
+      {items.map((item) => {
+        const value = Number(item[valueKey] || 0);
+        const height = Math.max(6, (value / max) * 138);
+        return (
+          <Box key={item.label} sx={{ flex: 1, minWidth: 0, textAlign: "center" }}>
+            <Tooltip title={`${item.label}: ${formatter(value)}`}>
+              <Box
+                sx={{
+                  height,
+                  mx: "auto",
+                  width: "min(34px, 72%)",
+                  borderRadius: "5px 5px 2px 2px",
+                  background: "linear-gradient(180deg, #2E7C86 0%, #173B57 100%)",
+                  boxShadow: "0 5px 12px rgba(23,59,87,0.12)"
+                }}
+              />
+            </Tooltip>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.65, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {item.label}
+            </Typography>
+            <Typography variant="caption" fontWeight={700}>{formatter(value)}</Typography>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
 function MetricCard({ title, value, subtitle, icon, onClick, testId }) {
   const body = (
     <CardContent>
@@ -191,6 +278,15 @@ export default function AnalyticsDashboard() {
   const payerPerformance = data?.payerPerformance || [];
   const trend = data?.trend || [];
   const payerOptions = data?.filters?.payerOptions || [];
+  const disposition = [
+    { label: "Paid", value: Number(kpis.paidClaims || 0), color: "#2F7D5B" },
+    { label: "Denied", value: Number(kpis.deniedClaims || 0), color: "#C84C4C" },
+    {
+      label: "Other / Open",
+      value: Math.max(0, Number(kpis.totalClaims || 0) - Number(kpis.paidClaims || 0) - Number(kpis.deniedClaims || 0)),
+      color: "#5B7FA3"
+    }
+  ];
 
   const maxFunnel = Math.max(1, ...funnel.map((item) => Number(item.value || 0)));
 
@@ -201,7 +297,7 @@ export default function AnalyticsDashboard() {
         justifyContent="space-between"
         alignItems={{ xs: "stretch", lg: "center" }}
         spacing={2}
-        sx={{ mb: 3 }}
+        sx={{ mb: 2 }}
       >
         <Box>
           <Typography variant="h4" fontWeight={800}>
@@ -248,12 +344,12 @@ export default function AnalyticsDashboard() {
         </Stack>
       </Stack>
 
-      <Alert severity="info" sx={{ mb: 3 }}>
+      <Alert severity="info" sx={{ mb: 2 }}>
         Dashboard values are calculated from recorded claim, adjudication, remittance, denial, and recovery data.
         Denial rate is based on adjudicated claims only; it is not presented as a payer approval probability or a guaranteed denial-reduction result.
       </Alert>
 
-      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {loading && !data ? (
         <Paper sx={{ p: 7, textAlign: "center" }}>
@@ -273,7 +369,7 @@ export default function AnalyticsDashboard() {
                 lg: "repeat(4, minmax(0, 1fr))"
               },
               gap: 2,
-              mb: 3
+              mb: 2
             }}
           >
             <MetricCard
@@ -346,31 +442,43 @@ export default function AnalyticsDashboard() {
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", lg: "1.15fr 1fr" },
-              gap: 2,
-              mb: 3
+              gridTemplateColumns: { xs: "1fr", lg: "0.8fr 1.15fr 1fr" },
+              gap: 1.5,
+              mb: 2
             }}
           >
-            <Paper sx={{ p: 2.5 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            <Paper sx={{ p: 1.75 }} data-testid="analytics-disposition-donut">
+              <Typography variant="h6" fontWeight={800}>Claim Disposition</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
+                Current cohort by recorded paid, denied, and remaining/open claim state.
+              </Typography>
+              <DonutChart
+                items={disposition}
+                centerLabel="claims"
+                centerValue={kpis.totalClaims || 0}
+              />
+            </Paper>
+
+            <Paper sx={{ p: 1.75 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.25 }}>
                 <Box>
                   <Typography variant="h6" fontWeight={800}>Claim Funnel</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Current cohort progression. “Ready now” is current-state inventory, not a historical stage count.
+                    Current cohort progression; ready-now remains current-state inventory.
                   </Typography>
                 </Box>
                 <Button size="small" endIcon={<ArrowForward />} onClick={() => navigate("/approval")}>
-                  Open Work Queue
+                  Work Queue
                 </Button>
               </Stack>
-              <Stack spacing={1.5}>
+              <Stack spacing={1}>
                 {funnel.map((item) => (
                   <Box key={item.label}>
                     <Stack direction="row" justifyContent="space-between">
                       <Typography variant="body2" fontWeight={650}>{item.label}</Typography>
                       <Typography variant="body2">{item.value}</Typography>
                     </Stack>
-                    <Box sx={{ mt: 0.6, height: 12, bgcolor: "action.hover", borderRadius: 999, overflow: "hidden" }}>
+                    <Box sx={{ mt: 0.4, height: 9, bgcolor: "action.hover", borderRadius: 999, overflow: "hidden" }}>
                       <Box
                         sx={{
                           height: "100%",
@@ -388,13 +496,15 @@ export default function AnalyticsDashboard() {
               </Stack>
             </Paper>
 
-            <Paper sx={{ p: 2.5 }}>
+            <Paper sx={{ p: 1.75 }} data-testid="analytics-aging-columns">
               <Typography variant="h6" fontWeight={800}>A/R Aging</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary">
                 Outstanding submitted claims grouped by age.
               </Typography>
-              <BarList items={aging} />
-              <Divider sx={{ my: 2 }} />
+              {aging.length ? <ColumnChart items={aging} /> : (
+                <Typography color="text.secondary" sx={{ mt: 2 }}>No aging data for this selection.</Typography>
+              )}
+              <Divider sx={{ my: 1 }} />
               <Stack direction="row" justifyContent="space-between">
                 <Typography variant="body2" color="text.secondary">Recovery outstanding</Typography>
                 <Typography fontWeight={800}>{formatUSD(kpis.recoveryOutstanding)}</Typography>
@@ -407,10 +517,10 @@ export default function AnalyticsDashboard() {
               display: "grid",
               gridTemplateColumns: { xs: "1fr", lg: "1.15fr 1fr" },
               gap: 2,
-              mb: 3
+              mb: 2
             }}
           >
-            <Paper sx={{ p: 2.5 }}>
+            <Paper sx={{ p: 1.75 }}>
               <Typography variant="h6" fontWeight={800}>Billed vs Paid Trend</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Financial movement with submitted and denied claim counts in each period.
@@ -420,7 +530,7 @@ export default function AnalyticsDashboard() {
               )}
             </Paper>
 
-            <Paper sx={{ p: 2.5 }}>
+            <Paper sx={{ p: 1.75 }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
                 <Box>
                   <Typography variant="h6" fontWeight={800}>Top Denial Causes</Typography>
@@ -440,7 +550,7 @@ export default function AnalyticsDashboard() {
             </Paper>
           </Box>
 
-          <Paper sx={{ mb: 3 }}>
+          <Paper sx={{ mb: 2 }}>
             <Box sx={{ p: 2.5, pb: 1.5 }}>
               <Typography variant="h6" fontWeight={800}>Payer Performance</Typography>
               <Typography variant="body2" color="text.secondary">
@@ -489,7 +599,7 @@ export default function AnalyticsDashboard() {
             </TableContainer>
           </Paper>
 
-          <Paper sx={{ p: 2.5 }}>
+          <Paper sx={{ p: 1.75 }}>
             <Typography variant="h6" fontWeight={800}>How these metrics are calculated</Typography>
             <Stack spacing={0.8} sx={{ mt: 1 }}>
               <Typography variant="body2" color="text.secondary">{data?.methodology?.cohort}</Typography>
