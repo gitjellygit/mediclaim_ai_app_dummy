@@ -1227,6 +1227,20 @@ export default function ClaimJourney() {
         />
       </Paper>
 
+      {!loadingJourney && !claim && (
+        <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, mb: 2, textAlign: "center" }}>
+          <Typography variant="h6" fontWeight={800}>Start with a claim</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Search by patient, claim number, member ID, policy, or payer to open the full claim journey.
+          </Typography>
+          <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" justifyContent="center" sx={{ mt: 1.5 }}>
+            {["Eligibility", "Prior Authorization", "Claim Submission", "Claim Status", "Remittance"].map((label, index) => (
+              <Chip key={label} size="small" variant="outlined" label={`${index + 1}. ${label}`} />
+            ))}
+          </Stack>
+        </Paper>
+      )}
+
       {pageError && (
         <Alert
           severity="error"
@@ -1252,25 +1266,50 @@ export default function ClaimJourney() {
 
       {!loadingJourney && claim && stages && (
         <>
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
+          <Card sx={{ mb: 2 }}>
+            <CardContent sx={{ py: 1.5 }}>
               <Stack
-                direction={{ xs: "column", md: "row" }}
+                direction={{ xs: "column", lg: "row" }}
                 justifyContent="space-between"
-                alignItems={{ xs: "flex-start", md: "center" }}
-                spacing={2}
+                alignItems={{ xs: "stretch", lg: "center" }}
+                spacing={1.25}
               >
-                <Box>
-                  <Typography variant="h5" fontWeight={700}>{claim.patientName}</Typography>
-                  <Typography color="text.secondary">
-                    Claim {claimReference}
-                    {claim.dateOfService ? ` • DOS ${date(claim.dateOfService)}` : ""}
-                  </Typography>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0,1fr))", md: "repeat(5, minmax(0,1fr))" },
+                    gap: 1.25,
+                    flex: 1
+                  }}
+                >
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Patient</Typography>
+                    <Typography variant="body2" fontWeight={800}>{claim.patientName || "—"}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Claim ID</Typography>
+                    <Typography variant="body2" fontWeight={750} fontFamily="monospace" sx={{ whiteSpace: "nowrap" }}>{claim.id}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Payer</Typography>
+                    <Typography variant="body2" fontWeight={750}>{claim.payerName || "—"}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Date of Service</Typography>
+                    <Typography variant="body2" fontWeight={750}>{date(claim.dateOfService)}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Amount</Typography>
+                    <Typography variant="body2" fontWeight={800}>
+                      {claim.amount == null ? "—" : money(claim.amount)}
+                    </Typography>
+                  </Box>
                 </Box>
-                <Stack direction="row" spacing={1}>
-                  <Chip label={claim.status} color={stageColor(claim.status)} />
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  <Chip size="small" label={claim.status} color={stageColor(claim.status)} />
                   <Button
                     size="small"
+                    variant="outlined"
                     startIcon={<Visibility />}
                     onClick={() =>
                       navigate(`/claims/${claim.id}`, {
@@ -1278,14 +1317,14 @@ export default function ClaimJourney() {
                       })
                     }
                   >
-                    View Claim Details
+                    View Claim
                   </Button>
                 </Stack>
               </Stack>
             </CardContent>
           </Card>
 
-          <Card sx={{ mb: 3 }} data-testid="insurance-on-file-card">
+          <Card sx={{ mb: 2 }} data-testid="insurance-on-file-card">
             <CardContent>
               <Stack
                 direction={{ xs: "column", md: "row" }}
