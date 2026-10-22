@@ -92,7 +92,21 @@ test("Revenue Recovery workspace searches filters and opens underlying recovery 
 
   await page.getByTestId("recovery-type-filter").click();
   await page.getByRole("option", { name: "Underpayments" }).click();
-  await expect(page.locator("tbody tr").first()).toContainText("Underpayment");
+  const underpaymentRow = page.locator("tbody tr").first();
+  await expect(underpaymentRow).toContainText("Underpayment");
+
+  const underpaymentPopupPromise = page.context().waitForEvent("page");
+  await underpaymentRow.getByTestId("recovery-next-action").click();
+  const underpaymentPage = await underpaymentPopupPromise;
+  await underpaymentPage.waitForLoadState("domcontentloaded");
+  await expect(underpaymentPage).toHaveURL(
+    /\/revenue-recovery\/underpayments\//,
+    { timeout: 30_000 }
+  );
+  await expect(
+    underpaymentPage.getByRole("heading", { name: "Underpayment Recovery Workspace" })
+  ).toBeVisible({ timeout: 30_000 });
+  await underpaymentPage.close();
 
   await page.getByTestId("recovery-type-filter").click();
   await page.getByRole("option", { name: "Denials" }).click();
