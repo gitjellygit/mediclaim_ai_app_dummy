@@ -4,7 +4,7 @@ import { AppBar, Box, IconButton, Toolbar, Typography } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import LeftNav from "./LeftNav";
 
-const SIDEBAR_WIDTH = 240;
+const SIDEBAR_WIDTH = 206;
 
 export default function MainLayout({ children }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
@@ -47,10 +47,10 @@ export default function MainLayout({ children }) {
         sx={{
           minWidth: 0,
           ml: { xs: 0, md: `${SIDEBAR_WIDTH}px` },
-          pt: { xs: 8, md: 0 },
-          px: { xs: 1.5, sm: 2, md: 2.5 },
-          pb: { xs: 2, md: 3 },
-          backgroundColor: "#f5f7fb",
+          pt: { xs: 7, md: 0 },
+          px: { xs: 1, sm: 1.25, md: 1.5 },
+          pb: { xs: 1.25, md: 1.5 },
+          backgroundColor: "background.default",
           minHeight: "100vh"
         }}
       >
