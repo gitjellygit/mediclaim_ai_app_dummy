@@ -7,6 +7,7 @@ const password = process.env.E2E_PASSWORD || "admin123";
 let apiContext;
 let auth;
 let claimId;
+let recoveryCaseId;
 
 test.describe.configure({ mode: "serial" });
 
@@ -106,6 +107,7 @@ test("payment variance - underpaid remittance automatically opens a recovery cas
 
   const recoveryCase = listed.items.find((item) => item.claimId === claimId);
   expect(recoveryCase).toBeTruthy();
+  recoveryCaseId = recoveryCase.id;
   expect(recoveryCase.status).toBe("OPEN");
   expect(recoveryCase.outstandingAmount).toBeGreaterThan(0);
 });
@@ -166,10 +168,12 @@ test("payment variance - workspace shows the detected case", async ({ page }) =>
     auth
   );
 
-  await page.goto("/payments");
+  await page.goto(`/revenue-recovery/underpayments/${recoveryCaseId}`);
   await expect(
-    page.getByRole("heading", { name: "Underpayment Recovery" })
+    page.getByRole("heading", { name: "Underpayment Recovery Workspace" })
   ).toBeVisible();
+  await expect(page.getByTestId("underpayment-workspace")).toBeVisible();
   await expect(page.getByText("E2E-PAYMENT-VARIANCE", { exact: true })).toBeVisible();
-  await expect(page.getByText("RECOVERED", { exact: true })).toBeVisible();
+  await expect(page.getByText("RECOVERED", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Payment Variance", { exact: true })).toBeVisible();
 });
