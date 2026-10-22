@@ -91,3 +91,20 @@ test("PRISM - enterprise theme and brand shell stay centralized", () => {
   assert.equal(mobile.includes("Hospital AI Platform"), false);
   assert.equal(login.includes("Claim AI"), false);
 });
+
+
+test("recovery workspaces - primary cases always use dedicated full pages", () => {
+  const app = read("frontend/src/App.jsx");
+  const recovery = read("frontend/src/modules/recovery/RevenueRecovery.jsx");
+  const underpaymentList = read("frontend/src/modules/payments/UnderpaymentIntelligence.jsx");
+  const underpaymentWorkspace = read("frontend/src/modules/recovery/UnderpaymentWorkspace.jsx");
+
+  assert.ok(app.includes('/revenue-recovery/appeals/:id'));
+  assert.ok(app.includes('/revenue-recovery/underpayments/:id'));
+  assert.ok(recovery.includes('/revenue-recovery/appeals/'));
+  assert.ok(recovery.includes('/revenue-recovery/underpayments/'));
+  assert.equal(recovery.includes('/payments?caseId='), false);
+  assert.equal(underpaymentList.includes("Drawer"), false);
+  assert.ok(underpaymentList.includes('/revenue-recovery/underpayments/'));
+  assert.ok(underpaymentWorkspace.includes("Underpayment Recovery Workspace"));
+});
