@@ -45,7 +45,7 @@ const steps = [
 ];
 
 export default function NewClaim() {
-  const { showDialog } = useToast();
+  const { showDialog, confirmDialog } = useToast();
   const navigate = useNavigate();
 
   const [activeStep, setActiveStep] = React.useState(0);
@@ -100,6 +100,32 @@ export default function NewClaim() {
   function update(key, value) {
     setForm((f) => ({ ...f, [key]: value }));
     setErrors((e) => ({ ...e, [key]: null }));
+  }
+
+  const hasDraftData = React.useMemo(() => {
+    const ignoredDefaults = new Set(["claimType", "claimFrequencyCode"]);
+    return Object.entries(form).some(([key, value]) => {
+      if (ignoredDefaults.has(key)) return false;
+      if (Array.isArray(value)) return value.length > 0;
+      return String(value || "").trim() !== "";
+    });
+  }, [form]);
+
+  async function cancelClaimCreation() {
+    if (submitting) return;
+    if (hasDraftData) {
+      const confirmed = await confirmDialog(
+        "The information entered on this claim has not been saved. Discard it and return to Claims?",
+        {
+          title: "Discard claim draft?",
+          severity: "warning",
+          confirmLabel: "Discard",
+          cancelLabel: "Keep editing"
+        }
+      );
+      if (!confirmed) return;
+    }
+    navigate("/claims");
   }
 
   function validateStep(step) {
@@ -375,12 +401,22 @@ export default function NewClaim() {
   };
   
   return (
-    <Box sx={{ maxWidth: 900, mx: "auto", p: 3 }}>
+    <Box sx={{ maxWidth: 960, mx: "auto", py: 1.5 }}>
       <Card>
         <CardContent>
-          <Typography variant="h5" gutterBottom>
-            New Medical Claim
-          </Typography>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+            <Box>
+              <Typography variant="h5" fontWeight={800}>
+                New Medical Claim
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Step {activeStep + 1} of {steps.length} · {steps[activeStep]}
+              </Typography>
+            </Box>
+            <Button color="inherit" onClick={cancelClaimCreation} disabled={submitting}>
+              Cancel
+            </Button>
+          </Stack>
 
           <Stepper activeStep={activeStep} sx={{ my: 3 }}>
             {steps.map((label) => (
@@ -739,10 +775,14 @@ export default function NewClaim() {
           )}
 
           {/* ACTIONS */}
-          <Stack direction="row" spacing={2} sx={{ mt: 4 }}>
-            <Button disabled={activeStep === 0} onClick={back}>
-              Back
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2} sx={{ mt: 3 }}>
+            <Button color="inherit" onClick={cancelClaimCreation} disabled={submitting}>
+              Cancel
             </Button>
+            <Stack direction="row" spacing={1}>
+              <Button disabled={activeStep === 0 || submitting} onClick={back}>
+                Back
+              </Button>
 
             {activeStep < 4 ? (
               <Button variant="contained" onClick={next}>
@@ -758,6 +798,7 @@ export default function NewClaim() {
                 {submitting ? "Creating..." : "Create Claim"}
               </Button>
             )}
+            </Stack>
           </Stack>
         </CardContent>
       </Card>

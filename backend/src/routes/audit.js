@@ -232,7 +232,19 @@ router.get("/export", requirePermission(PERMISSIONS.AUDIT_EXPORT), async (req, r
 
 router.get("/", requirePermission(PERMISSIONS.AUDIT_VIEW), async (req, res) => {
   const page = Math.max(1, Number(req.query.page || 1));
-  const pageSize = Math.min(100, Math.max(10, Number(req.query.pageSize || 25)));
+  const pageSize = Math.min(100, Math.max(10, Number(req.query.pageSize || 10)));
+  const requestedSort = String(req.query.sort || "createdAt");
+  const requestedDirection = String(req.query.direction || "desc").toLowerCase();
+  const direction = requestedDirection === "asc" ? "asc" : "desc";
+  const sortMap = {
+    createdAt: { createdAt: direction },
+    actorEmail: { actorUser: { email: direction } },
+    action: { action: direction },
+    target: { entityType: direction },
+    outcome: { outcome: direction },
+    request: { requestId: direction }
+  };
+  const orderBy = sortMap[requestedSort] || sortMap.createdAt;
 
   // Record access before reading so the initial unfiltered page can show the
   // access event immediately. Subsequent filter/pagination requests within the
@@ -244,7 +256,7 @@ router.get("/", requirePermission(PERMISSIONS.AUDIT_VIEW), async (req, res) => {
   const [items, total] = await prisma.$transaction([
     prisma.auditEvent.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [orderBy, { createdAt: "desc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
       include
@@ -257,7 +269,9 @@ router.get("/", requirePermission(PERMISSIONS.AUDIT_VIEW), async (req, res) => {
     items: items.map(serialize),
     page,
     pageSize,
-    total
+    total,
+    sort: requestedSort,
+    direction
   });
 });
 

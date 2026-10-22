@@ -14,14 +14,22 @@ function scenario(key) {
   return item;
 }
 
-async function openQueue(page) {
+async function openQueue(page, key = "01-READY") {
   await page.goto("/approval");
   await expect(page.getByRole("heading", { name: "Claim Work Queue" })).toBeVisible();
   const search = page.getByPlaceholder(
     "Search patient, payer, member, policy, claim or authorization..."
   );
-  await search.fill("UAT-APPROVAL-");
-  await expect(page.getByRole("row").filter({ hasText: scenario("01-READY").patientName })).toBeVisible();
+  await search.fill(scenario(key).patientName);
+  await expect(page.getByRole("row").filter({ hasText: scenario(key).patientName })).toBeVisible();
+}
+
+async function showScenario(page, key) {
+  const search = page.getByPlaceholder(
+    "Search patient, payer, member, policy, claim or authorization..."
+  );
+  await search.fill(scenario(key).patientName);
+  await expect(page.getByRole("row").filter({ hasText: scenario(key).patientName })).toBeVisible();
 }
 
 function queueRow(page, key) {
@@ -73,6 +81,9 @@ test("Claim Work Queue renders the renamed work queue and compact smart filters"
   await filters.click();
   await page.getByRole("menuitem", { name: "Prior authorization issues" }).click();
   await page.keyboard.press("Escape");
+  await page.getByPlaceholder(
+    "Search patient, payer, member, policy, claim or authorization..."
+  ).fill("UAT-APPROVAL-");
 
   await expect(queueRow(page, "04-AUTH-REQUIRED")).toBeVisible();
   await expect(queueRow(page, "05-AUTH-DENIED")).toBeVisible();
@@ -95,11 +106,11 @@ test("Claim Work Queue sorts the full filtered result set by derived risk", asyn
   await openQueue(page);
 
   const highRisk = scenario("11-BLOCKED").patientName;
-  const lowRisk = scenario("01-READY").patientName;
+  const lowRisk = scenario("10-STALE").patientName;
 
   await page.getByPlaceholder(
     "Search patient, payer, member, policy, claim or authorization..."
-  ).fill("UAT-APPROVAL-");
+  ).fill("UAT-APPROVAL-1");
 
   await expect(page.getByRole("row").filter({ hasText: highRisk })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: lowRisk })).toBeVisible();
@@ -136,7 +147,7 @@ test("Claim Work Queue sorts the full filtered result set by derived risk", asyn
 });
 
 test("finalized claims show lifecycle-aware historical and payment context", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "15-PAID");
 
   const paid = queueRow(page, "15-PAID");
   await expect(paid).toContainText("837P");
@@ -150,14 +161,17 @@ test("finalized claims show lifecycle-aware historical and payment context", asy
   await expect(paid).toContainText("$980");
   await expect(paid).toContainText("Paid");
 
+  await showScenario(page, "14-DENIED");
   const denied = queueRow(page, "14-DENIED");
   await expect(denied).toContainText("Revenue at risk");
   await expect(denied).toContainText("Pre-submit only");
 
+  await showScenario(page, "13-SUBMITTED");
   const submitted = queueRow(page, "13-SUBMITTED");
   await expect(submitted).toContainText("At submission");
   await expect(submitted).toContainText("Pre-submit only");
 
+  await showScenario(page, "01-READY");
   const ready = queueRow(page, "01-READY");
   await expect(ready).toContainText("LOW");
   await expect(ready).toContainText(/\/100 risk score/);
@@ -165,7 +179,7 @@ test("finalized claims show lifecycle-aware historical and payment context", asy
 });
 
 test("Review & Submit opens Submission Readiness and highlights Submit Claim", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "01-READY");
   await queueRow(page, "01-READY").getByRole("button", { name: "Review & Submit" }).click();
 
   await expect(page).toHaveURL(
@@ -182,7 +196,7 @@ test("Review & Submit opens Submission Readiness and highlights Submit Claim", a
 });
 
 test("Check Eligibility opens the exact Journey stage and highlights the eligibility action", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "02-ELIG-REVIEW");
   await queueRow(page, "02-ELIG-REVIEW").getByRole("button", { name: "Check Eligibility" }).click();
 
   await expect(page).toHaveURL(
@@ -199,7 +213,7 @@ test("Check Eligibility opens the exact Journey stage and highlights the eligibi
 });
 
 test("Review Prior Auth opens the exact Journey stage and highlights the prior-auth action", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "04-AUTH-REQUIRED");
   await queueRow(page, "04-AUTH-REQUIRED").getByRole("button", { name: "Review Prior Auth" }).click();
 
   await expect(page).toHaveURL(
@@ -216,7 +230,7 @@ test("Review Prior Auth opens the exact Journey stage and highlights the prior-a
 });
 
 test("Refresh Readiness opens Submission Readiness and highlights the readiness control", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "10-STALE");
   await queueRow(page, "10-STALE").getByRole("button", { name: "Refresh Readiness" }).click();
 
   await expect(page).toHaveURL(
@@ -232,7 +246,7 @@ test("Refresh Readiness opens Submission Readiness and highlights the readiness 
 });
 
 test("Resolve Issue opens edit mode on the exact blocking Billing Provider NPI field", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "11-BLOCKED");
   await queueRow(page, "11-BLOCKED").getByRole("button", { name: "Resolve Issue" }).click();
 
   await expect(page).toHaveURL(
@@ -247,7 +261,7 @@ test("Resolve Issue opens edit mode on the exact blocking Billing Provider NPI f
 });
 
 test("Resolve Filing Risk opens edit mode on the Timely Filing Deadline field", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "07-FILING-EXPIRED");
   await queueRow(page, "07-FILING-EXPIRED").getByRole("button", { name: "Resolve Filing Risk" }).click();
 
   await expect(page).toHaveURL(
@@ -262,7 +276,7 @@ test("Resolve Filing Risk opens edit mode on the Timely Filing Deadline field", 
 });
 
 test("Track Claim opens Claim Status and highlights the status action", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "13-SUBMITTED");
   await queueRow(page, "13-SUBMITTED").getByRole("button", { name: "Track Claim" }).click();
 
   await expect(page).toHaveURL(
@@ -278,7 +292,7 @@ test("Track Claim opens Claim Status and highlights the status action", async ({
 });
 
 test("Review Denial opens the denied claim status context", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "14-DENIED");
   await queueRow(page, "14-DENIED").getByRole("button", { name: "Review Denial" }).click();
 
   await expect(page).toHaveURL(
@@ -288,7 +302,7 @@ test("Review Denial opens the denied claim status context", async ({ page }) => 
 });
 
 test("View Remittance opens Remittance and highlights the remittance action", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "15-PAID");
   await queueRow(page, "15-PAID").getByRole("button", { name: "View Remittance" }).click();
 
   await expect(page).toHaveURL(
@@ -304,7 +318,7 @@ test("View Remittance opens Remittance and highlights the remittance action", as
 });
 
 test("View Claim remains available as the secondary action", async ({ page }) => {
-  await openQueue(page);
+  await openQueue(page, "01-READY");
   await queueRow(page, "01-READY").getByRole("button", { name: "View Claim" }).click();
 
   await expect(page).toHaveURL(new RegExp(`/claims/${scenario("01-READY").id}$`));

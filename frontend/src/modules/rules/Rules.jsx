@@ -27,6 +27,7 @@ import {
   TableHead,
   TableRow,
   TableSortLabel,
+  TablePagination,
   TextField,
   Tooltip,
   Typography
@@ -85,6 +86,8 @@ export default function Rules() {
   const [kind, setKind] = React.useState("ALL");
   const [sort, setSort] = React.useState("name");
   const [direction, setDirection] = React.useState("asc");
+  const [page, setPage] = React.useState(0);
+  const pageSize = 10;
   const [deleteTarget, setDeleteTarget] = React.useState(null);
   const [deleting, setDeleting] = React.useState(false);
   const navigate = useNavigate();
@@ -150,6 +153,7 @@ export default function Rules() {
       if (sort === "severity") return severityRank[rule.severity] || 0;
       if (sort === "scope") return String(rule.scope || "").toLowerCase();
       if (sort === "enabled") return rule.enabled ? 1 : 0;
+      if (sort === "effective") return new Date(rule.effectiveFrom || "1900-01-01").getTime();
       return String(rule.name || "").toLowerCase();
     };
 
@@ -164,7 +168,14 @@ export default function Rules() {
     });
   }, [data.items, search, category, kind, sort, direction]);
 
+  React.useEffect(() => {
+    setPage(0);
+  }, [search, category, kind]);
+
+  const pagedRules = filteredRules.slice(page * pageSize, page * pageSize + pageSize);
+
   function handleSort(field) {
+    setPage(0);
     if (sort === field) {
       setDirection((current) => (current === "asc" ? "desc" : "asc"));
       return;
@@ -325,37 +336,37 @@ export default function Rules() {
             <TableHead>
               <TableRow>
                 <TableCell>
-                  <TableSortLabel active={sort === "enabled"} direction={sort === "enabled" ? direction : "desc"} onClick={() => handleSort("enabled")}>
+                  <TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "enabled"} direction={sort === "enabled" ? direction : "desc"} onClick={() => handleSort("enabled")}>
                     <b>Status</b>
                   </TableSortLabel>
                 </TableCell>
                 <TableCell>
-                  <TableSortLabel active={sort === "code"} direction={sort === "code" ? direction : "asc"} onClick={() => handleSort("code")}>
+                  <TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "code"} direction={sort === "code" ? direction : "asc"} onClick={() => handleSort("code")}>
                     <b>Rule</b>
                   </TableSortLabel>
                 </TableCell>
                 <TableCell>
-                  <TableSortLabel active={sort === "category"} direction={sort === "category" ? direction : "asc"} onClick={() => handleSort("category")}>
+                  <TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "category"} direction={sort === "category" ? direction : "asc"} onClick={() => handleSort("category")}>
                     <b>Category</b>
                   </TableSortLabel>
                 </TableCell>
                 <TableCell>
-                  <TableSortLabel active={sort === "scope"} direction={sort === "scope" ? direction : "asc"} onClick={() => handleSort("scope")}>
+                  <TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "scope"} direction={sort === "scope" ? direction : "asc"} onClick={() => handleSort("scope")}>
                     <b>Scope</b>
                   </TableSortLabel>
                 </TableCell>
                 <TableCell>
-                  <TableSortLabel active={sort === "severity"} direction={sort === "severity" ? direction : "desc"} onClick={() => handleSort("severity")}>
+                  <TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "severity"} direction={sort === "severity" ? direction : "desc"} onClick={() => handleSort("severity")}>
                     <b>Severity</b>
                   </TableSortLabel>
                 </TableCell>
                 <TableCell><b>Governance</b></TableCell>
-                <TableCell><b>Effective</b></TableCell>
+                <TableCell><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "effective"} direction={sort === "effective" ? direction : "asc"} onClick={() => handleSort("effective")}><b>Effective</b></TableSortLabel></TableCell>
                 <TableCell align="right"><b>Action</b></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredRules.map((rule) => (
+              {pagedRules.map((rule) => (
                 <TableRow key={rule.id} hover>
                   <TableCell>
                     <Tooltip title={rule.mandatory ? "Mandatory system rule is always enabled" : rule.enabled ? "Disable rule" : "Enable rule"}>
@@ -438,6 +449,15 @@ export default function Rules() {
               )}
             </TableBody>
           </Table>
+          <TablePagination
+            component="div"
+            count={filteredRules.length}
+            page={Math.min(page, Math.max(0, Math.ceil(filteredRules.length / pageSize) - 1))}
+            onPageChange={(_event, value) => setPage(value)}
+            rowsPerPage={pageSize}
+            rowsPerPageOptions={[10]}
+            labelRowsPerPage="Rows per page"
+          />
         </TableContainer>
       )}
 

@@ -64,8 +64,9 @@ export default function ClaimsList() {
   const canViewFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_VIEW);
   const [claims, setClaims] = useState([]);
   const [totalClaims, setTotalClaims] = useState(0);
+  const [statusSummary, setStatusSummary] = useState({});
   const [claimsPage, setClaimsPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [loadingClaims, setLoadingClaims] = useState(false);
   const [selected, setSelected] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -110,6 +111,7 @@ export default function ClaimsList() {
         : [];
       setClaims(items);
       setTotalClaims(Number(data?.total ?? items.length));
+      setStatusSummary(data?.statusSummary || {});
       setSelected([]);
     } catch (e) {
       console.error("Failed to load claims:", e);
@@ -433,22 +435,50 @@ export default function ClaimsList() {
 
   return (
     <Box sx={{ p: { xs: 1, sm: 2, lg: 3 } }}>
-      <Typography variant="h4" fontWeight={700} mb={3}>
-        Claims ({totalClaims})
-      </Typography>
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        justifyContent="space-between"
+        alignItems={{ xs: "stretch", md: "center" }}
+        spacing={1}
+        sx={{ mb: 1 }}
+      >
+        <Box>
+          <Typography variant="h4" fontWeight={800}>Claims</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Search, review, and progress claims through the revenue cycle.
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+          {[
+            ["All", totalClaims, "default"],
+            ["Draft", Number(statusSummary.DRAFT || 0), "default"],
+            ["Ready", Number(statusSummary.READY || 0), "info"],
+            ["Submitted", Number(statusSummary.SUBMITTED || 0) + Number(statusSummary.SUBMITTING || 0), "warning"],
+            ["Paid", Number(statusSummary.PAID || 0), "success"]
+          ].map(([label, value, color]) => (
+            <Chip
+              key={label}
+              size="small"
+              variant={label === "All" ? "filled" : "outlined"}
+              color={color}
+              label={`${label} ${value}`}
+            />
+          ))}
+        </Stack>
+      </Stack>
 
       <Stack
         direction="row"
         spacing={1.5}
         alignItems="center"
         mb={3}
-        sx={{ flexWrap: "wrap", rowGap: 1.5 }}
+        sx={{ flexWrap: "wrap", rowGap: 1, mb: 1.5 }}
       >
         <TextField
           placeholder="Search by Claim ID, patient, payer, member ID, policy number, or amount..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          sx={{ width: { xs: "100%", sm: 320 } }}
+          sx={{ width: { xs: "100%", sm: 420 } }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -498,7 +528,7 @@ export default function ClaimsList() {
       </Stack>
 
       <Paper sx={{ overflowX: "auto" }}>
-        <Table sx={{ minWidth: 760 }}>
+        <Table size="small" sx={{ minWidth: 1120, tableLayout: "auto" }}>
           <TableHead>
             <TableRow>
               {canDeleteClaims && (
@@ -511,7 +541,7 @@ export default function ClaimsList() {
                 </TableCell>
               )}
 
-              <TableCell><strong>Claim ID</strong></TableCell>
+              <TableCell sortDirection={sort === "id" ? direction : false} sx={{ minWidth: 235 }}><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "id"} direction={sort === "id" ? direction : "asc"} onClick={() => handleSort("id")}><strong>Claim ID</strong></TableSortLabel></TableCell>
               <TableCell sortDirection={sort === "patientName" ? direction : false}><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "patientName"} direction={sort === "patientName" ? direction : "asc"} onClick={() => handleSort("patientName")}><strong>Patient Name</strong></TableSortLabel></TableCell>
               <TableCell sortDirection={sort === "payerName" ? direction : false}><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "payerName"} direction={sort === "payerName" ? direction : "asc"} onClick={() => handleSort("payerName")}><strong>Insurance Company</strong></TableSortLabel></TableCell>
               {canViewFinancial && <TableCell sortDirection={sort === "amount" ? direction : false}><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "amount"} direction={sort === "amount" ? direction : "desc"} onClick={() => handleSort("amount")}><strong>Amount</strong></TableSortLabel></TableCell>}
@@ -538,9 +568,9 @@ export default function ClaimsList() {
                     <Tooltip title={claim.id}>
                       <Typography
                         variant="body2"
-                        sx={{ fontFamily: "monospace", fontWeight: 700 }}
+                        sx={{ fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap", fontSize: "0.76rem" }}
                       >
-                        {claim.id?.length > 12 ? `…${claim.id.slice(-10)}` : claim.id}
+                        {claim.id}
                       </Typography>
                     </Tooltip>
                     <Tooltip title="Copy Claim ID">
@@ -631,8 +661,8 @@ export default function ClaimsList() {
           setRowsPerPage(Number(event.target.value));
           setClaimsPage(0);
         }}
-        rowsPerPageOptions={[10, 25, 50, 100]}
-        labelRowsPerPage="Claims per page"
+        rowsPerPageOptions={[10]}
+        labelRowsPerPage="Rows per page"
         showFirstButton
         showLastButton
         sx={{ mt: 1 }}

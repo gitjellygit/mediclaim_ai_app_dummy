@@ -159,10 +159,10 @@ async function auditClaim(req, { claimId, action, outcome = "SUCCESS", metadata 
 router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
   try {
     const requestedPage = Number(req.query.page || 1);
-    const requestedPageSize = Number(req.query.pageSize || 50);
+    const requestedPageSize = Number(req.query.pageSize || 10);
     const requestedSort = String(req.query.sort || "createdAt");
     const requestedDirection = String(req.query.direction || "desc").toLowerCase();
-    const allowedSorts = new Set(["patientName", "payerName", "amount", "status", "createdAt"]);
+    const allowedSorts = new Set(["id", "patientName", "payerName", "amount", "status", "createdAt"]);
     const sort = allowedSorts.has(requestedSort) ? requestedSort : "createdAt";
     const direction = requestedDirection === "asc" ? "asc" : "desc";
     const page = Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1);
@@ -171,7 +171,7 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
     const hasQAmount = q !== "" && Number.isFinite(qAmount);
     const pageSize = Math.max(
       1,
-      Math.min(Number.isFinite(requestedPageSize) ? Math.floor(requestedPageSize) : 50, 100)
+      Math.min(Number.isFinite(requestedPageSize) ? Math.floor(requestedPageSize) : 10, 100)
     );
     const where = {
       organizationId: orgId(req),
@@ -195,7 +195,7 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
           }
         : {})
     };
-    const [claims, total] = await Promise.all([
+    const [claims, total, statusGroups] = await Promise.all([
       prisma.claim.findMany({
         where,
         select: {
@@ -217,7 +217,12 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
         skip: (page - 1) * pageSize,
         take: pageSize
       }),
-      prisma.claim.count({ where })
+      prisma.claim.count({ where }),
+      prisma.claim.groupBy({
+        by: ["status"],
+        where,
+        _count: { _all: true }
+      })
     ]);
     const items = claims.map((claim) => minimumNecessaryClaim(claim, req.user));
 
@@ -230,8 +235,12 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
     res.setHeader("X-Total-Count", String(total));
     res.setHeader("X-Page", String(page));
     res.setHeader("X-Page-Size", String(pageSize));
+    const statusSummary = Object.fromEntries(
+      statusGroups.map((row) => [row.status, row._count._all])
+    );
+
     if (String(req.query.paginated || "") === "1") {
-      return res.json({ items, page, pageSize, total });
+      return res.json({ items, page, pageSize, total, statusSummary });
     }
     res.json(items);
   } catch (error) {
@@ -449,7 +458,7 @@ router.get(
       const page = Math.max(1, Number.parseInt(String(req.query.page || "1"), 10) || 1);
       const pageSize = Math.min(
         100,
-        Math.max(10, Number.parseInt(String(req.query.pageSize || "25"), 10) || 25)
+        Math.max(10, Number.parseInt(String(req.query.pageSize || "10"), 10) || 10)
       );
       const q = String(req.query.q || "").trim().slice(0, 100);
       const requestedStatus = String(req.query.status || "ALL").toUpperCase();

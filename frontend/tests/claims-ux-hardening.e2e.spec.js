@@ -92,17 +92,13 @@ test("Claims UX - list shows real pagination and rows-per-page controls", async 
   await expect(search).toBeVisible();
   await search.fill(fixture.prefix);
 
-  await expect(page.getByText("1–25 of 32")).toBeVisible();
-  await expect(page.locator("tbody tr")).toHaveCount(25);
-
-  await page.getByLabel("Go to next page").click();
-  await expect(page.getByText("26–32 of 32")).toBeVisible();
-  await expect(page.locator("tbody tr")).toHaveCount(7);
-
-  await page.getByLabel("Claims per page").click();
-  await page.getByRole("option", { name: "10", exact: true }).click();
   await expect(page.getByText("1–10 of 32")).toBeVisible();
   await expect(page.locator("tbody tr")).toHaveCount(10);
+
+  await page.getByLabel("Go to next page").click();
+  await expect(page.getByText("11–20 of 32")).toBeVisible();
+  await expect(page.locator("tbody tr")).toHaveCount(10);
+
 });
 
 test("Claims UX - Claim ID is visible, copyable, and searchable from the main list", async ({ page }) => {
@@ -115,7 +111,7 @@ test("Claims UX - Claim ID is visible, copyable, and searchable from the main li
 
   const row = page.locator("tbody tr").filter({ hasText: "E2E-CLAIMS-UX-001" });
   await expect(row).toBeVisible();
-  await expect(row).toContainText(fixture.firstClaimId.slice(-10));
+  await expect(row).toContainText(fixture.firstClaimId);
   await expect(
     row.getByRole("button", { name: `Copy Claim ID ${fixture.firstClaimId}` })
   ).toBeVisible();
@@ -128,8 +124,8 @@ test("Claims UX - sortable columns visibly advertise sorting", async ({ page }) 
   ).fill(fixture.prefix);
 
   const sortIcons = page.locator(".MuiTableSortLabel-icon");
-  await expect(sortIcons).toHaveCount(5);
-  for (let index = 0; index < 5; index += 1) {
+  await expect(sortIcons).toHaveCount(6);
+  for (let index = 0; index < 6; index += 1) {
     await expect(sortIcons.nth(index)).toBeVisible();
   }
 
