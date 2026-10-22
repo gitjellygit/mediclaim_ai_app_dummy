@@ -31,6 +31,11 @@ test("Analytics v1 exposes operational dashboard sections without invented appro
   assert.match(ui, /Payer Performance/);
   assert.match(ui, /Eligibility Issues/);
   assert.match(ui, /Prior Auth Issues/);
+  assert.match(ui, /DonutChart/);
+  assert.match(ui, /ColumnChart/);
+  assert.match(ui, /Claim Disposition/);
+  assert.match(ui, /analytics-disposition-donut/);
+  assert.match(ui, /analytics-aging-columns/);
   assert.doesNotMatch(ui, /First.Pass Acceptance/i);
   assert.doesNotMatch(ui, /95%/);
 });
