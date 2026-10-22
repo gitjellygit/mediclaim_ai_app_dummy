@@ -26,13 +26,13 @@ import {
   Typography
 } from "@mui/material";
 import {
+  ArrowForward,
   CheckCircle,
   Close,
   Description,
   Download,
   Edit,
   FactCheck,
-  OpenInNew,
   Save,
   Send,
   UploadFile,
@@ -134,6 +134,9 @@ export default function AppealWorkspace() {
   const [analysisProgressState, setAnalysisProgressState] = React.useState("RUNNING");
   const [analysisProgressMessage, setAnalysisProgressMessage] = React.useState("");
 
+  const [eligibilityResult, setEligibilityResult] = React.useState(null);
+  const [analysisDetailsOpen, setAnalysisDetailsOpen] = React.useState(false);
+
   const [submissionOpen, setSubmissionOpen] = React.useState(false);
   const [submission, setSubmission] = React.useState({
     channel: "PAYER_PORTAL",
@@ -215,13 +218,25 @@ export default function AppealWorkspace() {
     }
   }
 
-  function openEligibilityReview() {
-    if (!data?.claimId) return;
-    window.open(
-      `/journey?claimId=${encodeURIComponent(data.claimId)}&stage=eligibility`,
-      "_blank",
-      "noopener,noreferrer"
-    );
+  async function recheckEligibility() {
+    setAction("eligibility-recheck");
+    try {
+      const result = await DenialsApi.recheckEligibility(id);
+      setEligibilityResult(result);
+      showToast(
+        result?.supportsAppeal
+          ? "Eligibility reconciliation supports the appeal"
+          : "Eligibility reconciliation completed",
+        result?.supportsAppeal ? "success" : "info"
+      );
+    } catch (error) {
+      showDialog(error?.message || "Eligibility could not be re-checked for this appeal.", {
+        title: "Eligibility reconciliation failed",
+        severity: "error"
+      });
+    } finally {
+      setAction("");
+    }
   }
 
   async function saveRationale() {
@@ -336,9 +351,9 @@ export default function AppealWorkspace() {
     const ok = await confirmDialog(
       "Are you sure this appeal has already been submitted through the selected external channel? PRISM will record the submission and lock the appeal for editing. PRISM itself will not transmit anything to the payer.",
       {
-        title: "Submit appeal?",
+        title: "Record external submission?",
         severity: "warning",
-        confirmLabel: "Yes, Submit Appeal",
+        confirmLabel: "Yes, Record Submission",
         cancelLabel: "Cancel"
       }
     );
@@ -526,6 +541,51 @@ export default function AppealWorkspace() {
     }
   }
 
+  async function useRecommendedEvidence() {
+    if (!editable || action) return;
+
+    const recommendedTypes = new Set(
+      (Array.isArray(data?.requiredDocuments) ? data.requiredDocuments : [])
+        .map((item) => String(item || "").toUpperCase())
+    );
+    const recommendedIds = documents
+      .filter((doc) => recommendedTypes.has(String(doc.type || "").toUpperCase()))
+      .map((doc) => doc.id);
+
+    if (recommendedIds.length === 0) {
+      showDialog(
+        "None of the currently available claim documents match the evidence recommended by the recovery analysis. Upload the missing evidence or select another relevant document.",
+        { title: "Recommended evidence is missing", severity: "info" }
+      );
+      return;
+    }
+
+    const next = [...new Set([...evidenceIds, ...recommendedIds])];
+    setAction("recommended-evidence");
+    try {
+      const updated = await DenialsApi.saveAppealDraft(id, {
+        rationale: String(data?.appealRationale || "").trim(),
+        evidenceDocumentIds: next
+      });
+      setEvidenceIds(next);
+      setData((current) =>
+        current
+          ? { ...current, ...updated, appealEvidenceDocumentIds: next }
+          : current
+      );
+      if (data?.status === "APPEAL_PREPARED") setPackageChangedNotice(true);
+      signalRevenueRecoveryUpdate();
+      showToast("Recommended available evidence added to the appeal", "success");
+    } catch (error) {
+      showDialog(error?.message || "Recommended evidence could not be selected.", {
+        title: "Evidence update failed",
+        severity: "error"
+      });
+    } finally {
+      setAction("");
+    }
+  }
+
   if (loading) {
     return (
       <Box sx={{ p: 6, textAlign: "center" }}>
@@ -561,509 +621,497 @@ export default function AppealWorkspace() {
     data.requiredDocuments.length > 0 &&
     evidenceIds.length === 0;
 
+  const eligibilityDenial =
+    String(data.denialCategory || "").toUpperCase() === "ELIGIBILITY";
+  const recommendedTypes = new Set(
+    (Array.isArray(data.requiredDocuments) ? data.requiredDocuments : [])
+      .map((item) => String(item || "").toUpperCase())
+  );
+  const recommendedDocuments = documents.filter((doc) =>
+    recommendedTypes.has(String(doc.type || "").toUpperCase())
+  );
+  const missingRecommendedTypes = [...recommendedTypes].filter(
+    (type) => !documents.some((doc) => String(doc.type || "").toUpperCase() === type)
+  );
+  const issueResolved = !eligibilityDenial || Boolean(eligibilityResult);
+  const packageComplete = Boolean(data.aiAnalyzedAt) && issueResolved && draftSaved;
+  const reviewComplete = Boolean(data.appealPreparedAt) && !packageChangedNotice;
+  const submissionRecorded = Boolean(data.appealSubmittedAt);
+  const workflowSteps = [
+    { label: "Analyze Denial", complete: Boolean(data.aiAnalyzedAt) },
+    { label: "Resolve Denial Issue", complete: issueResolved && Boolean(data.aiAnalyzedAt) },
+    { label: "Build Appeal Package", complete: packageComplete },
+    { label: "Review Package", complete: reviewComplete },
+    { label: "Record Submission", complete: submissionRecorded }
+  ];
+  const activeStep = submissionRecorded
+    ? 5
+    : reviewComplete
+    ? 5
+    : packageComplete
+    ? 4
+    : data.aiAnalyzedAt && issueResolved
+    ? 3
+    : data.aiAnalyzedAt
+    ? 2
+    : 1;
+
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1320, mx: "auto" }}>
+    <Box sx={{ py: 1.5, maxWidth: 1500, mx: "auto" }}>
       <Stack
         direction={{ xs: "column", md: "row" }}
         justifyContent="space-between"
-        alignItems={{ xs: "stretch", md: "flex-start" }}
-        spacing={2}
-        sx={{ mb: 3 }}
+        alignItems={{ xs: "stretch", md: "center" }}
+        spacing={1}
+        sx={{ mb: 1.25 }}
       >
         <Box>
-          <Typography variant="h4" fontWeight={800}>
-            Appeal Workspace
-          </Typography>
-          <Typography color="text.secondary">
-            Review the denial, inspect evidence, build the appeal package and record submission.
+          <Typography variant="h4" fontWeight={800}>Appeal Workspace</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {data.claim?.patientName || "—"} · {data.claim?.payerName || "—"} · {data.claim?.insurerClaimNo || data.claimId}
           </Typography>
         </Box>
-        <Button variant="outlined" startIcon={<Close />} onClick={() => window.close()}>
-          Close Appeal Tab
-        </Button>
+        <Stack direction="row" spacing={0.75} alignItems="center">
+          <Chip
+            size="small"
+            label={String(data.status || "").replaceAll("_", " ")}
+            color={submitted ? "success" : "warning"}
+            variant="outlined"
+          />
+          <Button variant="outlined" size="small" startIcon={<Close />} onClick={() => window.close()}>
+            Close
+          </Button>
+        </Stack>
       </Stack>
 
+      <Paper variant="outlined" sx={{ px: 1.25, py: 1, mb: 1.25 }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(5, minmax(0,1fr))" }, gap: 0.5 }}>
+          {workflowSteps.map((step, index) => {
+            const number = index + 1;
+            const active = activeStep === number && !step.complete;
+            return (
+              <Box
+                key={step.label}
+                data-testid={`appeal-step-${number}`}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.75,
+                  px: 1,
+                  py: 0.7,
+                  borderRadius: 1,
+                  bgcolor: active ? "rgba(23,59,87,0.08)" : "transparent",
+                  border: "1px solid",
+                  borderColor: active ? "primary.light" : "transparent"
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: "50%",
+                    display: "grid",
+                    placeItems: "center",
+                    flexShrink: 0,
+                    fontWeight: 800,
+                    fontSize: "0.75rem",
+                    bgcolor: step.complete ? "success.main" : active ? "primary.main" : "grey.200",
+                    color: step.complete || active ? "#fff" : "text.secondary"
+                  }}
+                >
+                  {step.complete ? "✓" : number}
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" fontWeight={active || step.complete ? 750 : 600} noWrap>
+                    {step.label}
+                  </Typography>
+                  <Typography variant="caption" color={step.complete ? "success.main" : active ? "primary.main" : "text.secondary"}>
+                    {step.complete ? "Complete" : active ? "In progress" : "Pending"}
+                  </Typography>
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
+      </Paper>
+
       {submitted && (
-        <Alert severity="success" sx={{ mb: 3 }}>
-          This appeal is recorded as submitted/finalized and is now read-only.
-          Return to Revenue Recovery to continue tracking payer outcome.
+        <Alert severity="success" sx={{ mb: 1.25 }}>
+          This appeal is recorded as submitted/finalized and is read-only. Continue payer outcome tracking from Revenue Recovery.
         </Alert>
       )}
 
-      {Number(data.recoveredAmount || 0) > 0 && (
-        <Paper
-          data-testid="recovery-achievement"
-          sx={{
-            mb: 3,
-            p: 2.5,
-            border: "1px solid",
-            borderColor: "success.light",
-            backgroundColor: "rgba(46, 125, 50, 0.06)"
-          }}
-        >
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            justifyContent="space-between"
-            alignItems={{ xs: "flex-start", sm: "center" }}
-            spacing={1.5}
-          >
-            <Box>
-              <Typography variant="overline" color="success.dark" fontWeight={800}>
-                Recovery achieved
-              </Typography>
-              <Typography variant="h3" color="success.main" fontWeight={900} lineHeight={1}>
-                {formatUSD(data.recoveredAmount)}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                Confirmed recovered amount recorded for this denial case.
-              </Typography>
-            </Box>
-            {Number(data.revenueAtRisk || 0) > Number(data.recoveredAmount || 0) && (
-              <Alert severity="warning" sx={{ maxWidth: 430 }}>
-                Partial recovery. {formatUSD(
-                  Math.max(
-                    0,
-                    Number(data.revenueAtRisk || 0) - Number(data.recoveredAmount || 0)
-                  )
-                )} remains unresolved. A further payer challenge should be handled as a
-                new follow-up/appeal attempt so the original submitted appeal record stays intact.
-              </Alert>
-            )}
-          </Stack>
-        </Paper>
-      )}
-
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", lg: "2fr 1fr" },
-          gap: 2.5
-        }}
-      >
-        <Stack spacing={2.5}>
-          <Paper sx={{ p: 2.5 }}>
-            <Typography variant="h6" fontWeight={800} sx={{ mb: 2 }}>
-              Case Overview
-            </Typography>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
-                gap: 1.5
-              }}
-            >
-              {[
-                ["Patient", data.claim?.patientName || "—"],
-                ["Payer", data.claim?.payerName || "—"],
-                ["Payer Claim #", data.claim?.insurerClaimNo || "—"],
-                ["Claim Form", data.claim?.claimForm || "—"],
-                ["Date of Service", formatDate(data.claim?.dateOfService)],
-                ["Revenue at Risk", formatUSD(data.revenueAtRisk)],
-                ["Recovered", formatUSD(data.recoveredAmount)],
-                [
-                  "Remaining Recovery",
-                  formatUSD(
-                    Math.max(
-                      0,
-                      Number(data.revenueAtRisk || 0) - Number(data.recoveredAmount || 0)
-                    )
-                  )
-                ],
-                ["Denial Category", data.denialCategory || "UNCLASSIFIED"],
-                ["CARC / RARC", [data.carcCode, data.rarcCode].filter(Boolean).join(" / ") || "—"],
-                ["Appeal Deadline", formatDate(data.appealDeadline)],
-                ["Current Status", String(data.status || "").replaceAll("_", " ")]
-              ].map(([label, value]) => (
-                <Box key={label}>
-                  <Typography variant="caption" color="text.secondary">{label}</Typography>
-                  <Typography fontWeight={700}>{value}</Typography>
-                </Box>
-              ))}
-            </Box>
-          </Paper>
-
-          <Paper sx={{ p: 2.5 }}>
-            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 2.35fr) minmax(280px, 0.8fr)" }, gap: 1.25 }}>
+        <Stack spacing={1.25}>
+          <Paper variant="outlined" sx={{ p: 1.5 }}>
+            <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={1}>
               <Box>
-                <Typography variant="h6" fontWeight={800}>Recovery Assessment</Typography>
+                <Typography variant="subtitle1" fontWeight={800}>
+                  {eligibilityDenial ? "Eligibility / Coverage Denial" : (data.denialCategory || "Denial Review")}
+                </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  System-derived values are read-only unless an authorized user records an audited override.
+                  {[data.carcCode, data.rarcCode].filter(Boolean).join(" / ") || "No CARC/RARC recorded"}
+                  {data.reasonText ? ` · ${data.reasonText}` : ""}
                 </Typography>
               </Box>
-              {editable && (
-                <Button size="small" startIcon={<Edit />} onClick={() => setOverrideOpen(true)}>
-                  Override Assessment
+              <Box sx={{ textAlign: { xs: "left", md: "right" } }}>
+                <Typography variant="caption" color="text.secondary">Amount at risk</Typography>
+                <Typography variant="h5" fontWeight={850} color="error.main">{formatUSD(data.revenueAtRisk)}</Typography>
+              </Box>
+            </Stack>
+
+            {!data.aiAnalyzedAt ? (
+              <Stack direction={{ xs: "column", sm: "row" }} alignItems={{ xs: "stretch", sm: "center" }} justifyContent="space-between" spacing={1} sx={{ mt: 1.25 }}>
+                <Typography variant="body2">Run recovery analysis to classify the denial and determine the recommended recovery path.</Typography>
+                <Button variant="contained" size="small" startIcon={<FactCheck />} onClick={runAnalysis} disabled={Boolean(action)}>
+                  {action === "analysis" ? "Analyzing..." : "Analyze Denial"}
                 </Button>
-              )}
-            </Stack>
-
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-              <Chip
-                label={"Appeal Eligible: " + yesNo(data.appealEligible)}
-                color={data.appealEligible === true ? "success" : data.appealEligible === false ? "error" : "default"}
-              />
-              <Chip label={"Correctable: " + yesNo(data.correctable)} variant="outlined" />
-              {data.assessmentOverriddenAt && (
-                <Chip label={"Overridden " + formatDate(data.assessmentOverriddenAt)} color="warning" variant="outlined" />
-              )}
-            </Stack>
-
-            {data.assessmentOverrideReason && (
-              <Alert severity="warning" sx={{ mt: 2 }}>
-                <b>Override reason:</b> {data.assessmentOverrideReason}
-              </Alert>
+              </Stack>
+            ) : (
+              <Box sx={{ mt: 1.25 }}>
+                <Alert severity="info" icon={false} sx={{ py: 0.5 }}>
+                  <b>PRISM recommendation:</b> {data.recommendedAction || "Review this denial and supporting claim evidence."}
+                </Alert>
+                <Button size="small" sx={{ mt: 0.5, px: 0 }} onClick={() => setAnalysisDetailsOpen((value) => !value)}>
+                  {analysisDetailsOpen ? "Hide analysis details" : "View analysis details"}
+                </Button>
+                {analysisDetailsOpen && (
+                  <Box sx={{ mt: 0.5, p: 1, bgcolor: "grey.50", borderRadius: 1 }}>
+                    <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mb: 0.75 }}>
+                      <Chip size="small" label={data.aiProvider === "OPENAI" ? "Approved External AI" : "Recovery Rules"} />
+                      <Chip size="small" label={`${data.aiConfidence ?? "—"}% confidence`} variant="outlined" />
+                      <Chip size="small" label={`Appeal eligible: ${yesNo(data.appealEligible)}`} color={data.appealEligible ? "success" : "default"} variant="outlined" />
+                    </Stack>
+                    <Typography variant="body2">{data.aiExplanation || "No additional analysis detail."}</Typography>
+                  </Box>
+                )}
+              </Box>
             )}
           </Paper>
 
-          <Paper sx={{ p: 2.5 }}>
-            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
-              <Box>
-                <Typography variant="h6" fontWeight={800}>Recovery Analysis</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Analysis uses deterministic Recovery Rules unless an explicitly approved external AI configuration is enabled.
-                </Typography>
+          {data.aiAnalyzedAt && eligibilityDenial && (
+            <Paper variant="outlined" sx={{ p: 1.5 }} data-testid="eligibility-reconciliation">
+              <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={1.25}>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={800}>Step 2 · Resolve Denial Issue</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    The payer denied eligibility even though PRISM previously recorded eligibility as {String(data.claim?.eligibilityStatus || "not verified").replaceAll("_", " ")}.
+                    Reconcile coverage for the date of service without changing the submitted claim.
+                  </Typography>
+                </Box>
+                <Button
+                  variant={eligibilityResult ? "outlined" : "contained"}
+                  size="small"
+                  onClick={recheckEligibility}
+                  disabled={!editable || Boolean(action)}
+                >
+                  {action === "eligibility-recheck" ? "Checking..." : eligibilityResult ? "Run Again" : "Re-check Eligibility"}
+                </Button>
+              </Stack>
+
+              <Box sx={{ mt: 1.25, display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr auto 1fr" }, gap: 1, alignItems: "stretch" }}>
+                <Box sx={{ p: 1, bgcolor: "grey.50", borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Previous recorded eligibility</Typography>
+                  <Typography variant="body2" fontWeight={750}>{String(data.claim?.eligibilityStatus || "NOT CHECKED").replaceAll("_", " ")}</Typography>
+                  <Typography variant="caption" color="text.secondary">DOS: {formatDate(data.claim?.dateOfService)}</Typography>
+                </Box>
+                <Box sx={{ display: { xs: "none", md: "grid" }, placeItems: "center", color: "text.secondary" }}>→</Box>
+                <Box sx={{ p: 1, bgcolor: eligibilityResult?.supportsAppeal ? "rgba(47,125,91,0.07)" : "grey.50", borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Appeal reconciliation result</Typography>
+                  <Typography variant="body2" fontWeight={750} color={eligibilityResult?.supportsAppeal ? "success.main" : "text.primary"}>
+                    {eligibilityResult ? String(eligibilityResult.coverageStatus || eligibilityResult.status).replaceAll("_", " ") : "Not run yet"}
+                  </Typography>
+                  {eligibilityResult && (
+                    <Typography variant="caption" color="text.secondary">
+                      {eligibilityResult.livePayerVerification ? "Live payer response" : "Configured payer connector response"} · {formatDateTime(eligibilityResult.checkedAt)}
+                    </Typography>
+                  )}
+                </Box>
               </Box>
-              {editable && (
+
+              {eligibilityResult && (
+                <Alert severity={eligibilityResult.supportsAppeal ? "success" : "warning"} sx={{ mt: 1 }}>
+                  {eligibilityResult.supportsAppeal
+                    ? "Coverage is active for the date of service. This supports the appeal."
+                    : "Coverage was not confirmed active. Review the payer response and recovery strategy before continuing."}
+                  {" "}This check is read-only and does not resubmit or alter the claim.
+                </Alert>
+              )}
+            </Paper>
+          )}
+
+          {data.aiAnalyzedAt && issueResolved && (
+            <Paper variant="outlined" sx={{ p: 1.5 }} data-testid="appeal-package-builder">
+              <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={1}>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={800}>Step 3 · Build Appeal Package</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Select evidence and save the factual appeal rationale. Only checked documents are included.
+                  </Typography>
+                </Box>
+                <Stack direction="row" spacing={0.75}>
+                  <Button size="small" variant="outlined" onClick={useRecommendedEvidence} disabled={!editable || Boolean(action)}>
+                    Use Recommended Evidence
+                  </Button>
+                  {canUpload && (
+                    <Button size="small" variant="outlined" startIcon={<UploadFile />} onClick={() => setUploadOpen(true)} disabled={Boolean(action)}>
+                      Upload
+                    </Button>
+                  )}
+                </Stack>
+              </Stack>
+
+              {missingRecommendedTypes.length > 0 && (
+                <Alert severity="warning" sx={{ mt: 1 }}>
+                  Missing recommended evidence: {missingRecommendedTypes.map((item) => item.replaceAll("_", " ")).join(", ")}
+                </Alert>
+              )}
+
+              <Box sx={{ mt: 1.25, display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1.05fr 1fr" }, gap: 1.25 }}>
+                <Box>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.75 }}>
+                    <Typography variant="subtitle2" fontWeight={800}>Evidence</Typography>
+                    <Typography variant="caption" color="text.secondary">{evidenceIds.length} selected</Typography>
+                  </Stack>
+                  <Stack spacing={0.5}>
+                    {documents.length === 0 ? (
+                      <Alert severity="warning">No claim documents are available.</Alert>
+                    ) : documents.map((doc) => {
+                      const recommended = recommendedTypes.has(String(doc.type || "").toUpperCase());
+                      return (
+                        <Box
+                          key={doc.id}
+                          sx={{
+                            display: "grid",
+                            gridTemplateColumns: "auto minmax(0,1fr) auto",
+                            alignItems: "center",
+                            gap: 0.6,
+                            px: 0.75,
+                            py: 0.45,
+                            border: "1px solid",
+                            borderColor: selectedDocs.has(doc.id) ? "primary.light" : "divider",
+                            borderRadius: 1,
+                            bgcolor: selectedDocs.has(doc.id) ? "rgba(23,59,87,0.035)" : "background.paper"
+                          }}
+                        >
+                          <Checkbox
+                            size="small"
+                            checked={selectedDocs.has(doc.id)}
+                            disabled={!editable || Boolean(action)}
+                            onChange={() => toggleEvidence(doc.id)}
+                            sx={{ p: 0.25 }}
+                          />
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={700} noWrap>{doc.fileName}</Typography>
+                            <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                              <Typography variant="caption" color="text.secondary">{String(doc.type).replaceAll("_", " ")}</Typography>
+                              <Chip
+                                size="small"
+                                label={recommended ? "Recommended" : "Optional"}
+                                color={recommended ? "info" : "default"}
+                                variant="outlined"
+                              />
+                            </Stack>
+                          </Box>
+                          <Stack direction="row" spacing={0.25}>
+                            <IconButton size="small" onClick={() => viewDocument(doc)} disabled={Boolean(action)} aria-label={`View ${doc.fileName}`}>
+                              <Visibility fontSize="small" />
+                            </IconButton>
+                            {canDownloadDocuments && (
+                              <IconButton size="small" onClick={() => downloadDocument(doc)} disabled={Boolean(action)} aria-label={`Download ${doc.fileName}`}>
+                                <Download fontSize="small" />
+                              </IconButton>
+                            )}
+                          </Stack>
+                        </Box>
+                      );
+                    })}
+                  </Stack>
+                </Box>
+
+                <Box>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.75 }}>
+                    <Typography variant="subtitle2" fontWeight={800}>Appeal Rationale</Typography>
+                    <Typography variant="caption" color="text.secondary">{rationale.length}/5000</Typography>
+                  </Stack>
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={8}
+                    value={rationale}
+                    disabled={!editable}
+                    onChange={(event) => setRationale(event.target.value)}
+                    placeholder="Explain the factual basis for the appeal using the denial reason, claim facts, and selected evidence."
+                    inputProps={{ maxLength: 5000 }}
+                    error={Boolean(rationaleTrimmed) && !rationaleLengthValid}
+                    helperText={
+                      rationaleSaved
+                        ? "Saved and ready."
+                        : rationaleLengthValid
+                        ? "Minimum met. Save to complete the package."
+                        : `${Math.max(0, APPEAL_RATIONALE_MIN_CHARS - rationaleTrimmed.length)} more characters required.`
+                    }
+                  />
+                  <Stack direction="row" justifyContent="flex-end" spacing={0.75} sx={{ mt: 0.75 }}>
+                    <Button size="small" color="inherit" disabled={!editable || Boolean(action) || (!rationale && !savedRationale)} onClick={clearRationale}>
+                      Clear
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<Save />}
+                      disabled={!editable || Boolean(action) || !rationaleLengthValid || rationaleSaved}
+                      onClick={saveRationale}
+                    >
+                      {action === "save-rationale" ? "Saving..." : "Save Rationale"}
+                    </Button>
+                  </Stack>
+                </Box>
+              </Box>
+
+              <Divider sx={{ my: 1.25 }} />
+              <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", md: "center" }} spacing={1}>
+                <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+                  <Chip size="small" icon={data.aiAnalyzedAt ? <CheckCircle /> : undefined} label="Analysis" color={data.aiAnalyzedAt ? "success" : "default"} variant="outlined" />
+                  <Chip size="small" icon={issueResolved ? <CheckCircle /> : undefined} label="Issue reviewed" color={issueResolved ? "success" : "default"} variant="outlined" />
+                  <Chip size="small" icon={rationaleSaved ? <CheckCircle /> : undefined} label="Rationale saved" color={rationaleSaved ? "success" : "default"} variant="outlined" />
+                  <Chip size="small" icon={evidenceSaved ? <CheckCircle /> : undefined} label={`${evidenceIds.length} evidence selected`} color={evidenceSaved ? "success" : "default"} variant="outlined" />
+                </Stack>
                 <Button
                   size="small"
-                  variant={data.aiAnalyzedAt ? "text" : "contained"}
-                  startIcon={<FactCheck />}
-                  onClick={runAnalysis}
-                  disabled={Boolean(action)}
-                >
-                  {action === "analysis" ? "Analyzing..." : data.aiAnalyzedAt ? "Re-run analysis" : "Run Analysis"}
-                </Button>
-              )}
-            </Stack>
-
-            {data.aiAnalyzedAt ? (
-              <Stack spacing={1.5}>
-                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                  <Chip
-                    size="small"
-                    label={data.aiProvider === "OPENAI" ? "Approved External AI" : "Recovery Rules"}
-                    color={data.aiProvider === "OPENAI" ? "secondary" : "info"}
-                  />
-                  <Chip size="small" label={(data.aiConfidence ?? "—") + "% confidence"} variant="outlined" />
-                </Stack>
-                <Alert severity="error" variant="outlined">
-                  <Typography variant="subtitle2" fontWeight={800}>
-                    Why this denial likely occurred
-                  </Typography>
-                  <Typography variant="body2">{data.aiExplanation || "—"}</Typography>
-                </Alert>
-                <Alert severity="warning" variant="outlined">
-                  <Typography variant="subtitle2" fontWeight={800}>
-                    Recommended next action
-                  </Typography>
-                  <Typography variant="body2">{data.recommendedAction || "—"}</Typography>
-                  {String(data.denialCategory || "").toUpperCase() === "ELIGIBILITY" && (
-                    <Stack spacing={1} sx={{ mt: 1.25 }}>
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<OpenInNew />}
-                        onClick={openEligibilityReview}
-                        sx={{ alignSelf: "flex-start" }}
-                      >
-                        Re-check Eligibility
-                      </Button>
-                      <Typography variant="caption" color="text.secondary">
-                        Opens the same claim's Eligibility stage in a new tab. Re-checking coverage does not resubmit the claim.
-                      </Typography>
-                    </Stack>
-                  )}
-                </Alert>
-              </Stack>
-            ) : (
-              <Alert severity="info">Run recovery analysis before preparing an appeal.</Alert>
-            )}
-          </Paper>
-
-          <Paper sx={{ p: 2.5 }}>
-            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
-              <Box>
-                <Typography variant="h6" fontWeight={800}>Supporting Evidence</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Existing claim documents are read-only. Review them, then select only the documents that should be included in this appeal package.
-                </Typography>
-              </Box>
-              {canUpload && (
-                <Button
-                  variant="outlined"
-                  startIcon={<UploadFile />}
-                  onClick={() => setUploadOpen(true)}
-                  disabled={Boolean(action)}
-                >
-                  Upload Supporting Evidence
-                </Button>
-              )}
-            </Stack>
-
-            {Array.isArray(data.requiredDocuments) && data.requiredDocuments.length > 0 && (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                Suggested evidence: {data.requiredDocuments.map((item) => String(item).replaceAll("_", " ")).join(", ")}
-              </Alert>
-            )}
-
-            {documents.length === 0 ? (
-              <Alert severity="warning">No claim documents are available for this appeal.</Alert>
-            ) : (
-              <Stack spacing={1}>
-                {documents.map((doc) => {
-                  const addedForThisAppeal = doc.appealCaseId === data.id;
-                  return (
-                    <Paper key={doc.id} variant="outlined" sx={{ p: 1.25 }}>
-                      <Stack direction={{ xs: "column", sm: "row" }} alignItems={{ xs: "stretch", sm: "center" }} justifyContent="space-between" spacing={1}>
-                        <FormControlLabel
-                          sx={{ m: 0, flex: 1 }}
-                          control={
-                            <Checkbox
-                              checked={selectedDocs.has(doc.id)}
-                              disabled={!editable || Boolean(action)}
-                              onChange={() => toggleEvidence(doc.id)}
-                            />
-                          }
-                          label={
-                            <Box>
-                              <Typography variant="body2" fontWeight={700}>{doc.fileName}</Typography>
-                              <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mt: 0.5 }}>
-                                <Chip size="small" label={String(doc.type).replaceAll("_", " ")} />
-                                <Chip
-                                  size="small"
-                                  label={doc.verified ? "Verified" : "Not verified"}
-                                  color={doc.verified ? "success" : "default"}
-                                  variant="outlined"
-                                />
-                                {addedForThisAppeal ? (
-                                  <Chip size="small" label="Added for this appeal" color="info" variant="outlined" />
-                                ) : (
-                                  <Chip size="small" label="Existing claim document" variant="outlined" />
-                                )}
-                              </Stack>
-                            </Box>
-                          }
-                        />
-                        <Stack direction="row" spacing={0.5}>
-                          <Tooltip title="View document">
-                            <span>
-                              <IconButton
-                                size="small"
-                                onClick={() => viewDocument(doc)}
-                                disabled={Boolean(action)}
-                              >
-                                <Visibility fontSize="small" />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                          {canDownloadDocuments && (
-                            <Tooltip title="Download document">
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => downloadDocument(doc)}
-                                  disabled={Boolean(action)}
-                                >
-                                  <Download fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          )}
-                        </Stack>
-                      </Stack>
-                    </Paper>
-                  );
-                })}
-              </Stack>
-            )}
-
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>
-              Checkbox = include this document in the appeal package. It does not modify the source document.
-            </Typography>
-          </Paper>
-
-          <Paper sx={{ p: 2.5 }}>
-            <Typography variant="h6" fontWeight={800}>Appeal Rationale</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Enter at least {APPEAL_RATIONALE_MIN_CHARS} characters, then save. The workflow is not considered complete until the rationale is saved.
-            </Typography>
-            <TextField
-              fullWidth
-              multiline
-              minRows={8}
-              value={rationale}
-              disabled={!editable}
-              onChange={(event) => setRationale(event.target.value)}
-              placeholder="Explain the factual basis for the appeal using the payer denial reason, claim facts and supporting evidence."
-              inputProps={{ maxLength: 5000 }}
-              error={Boolean(rationaleTrimmed) && !rationaleLengthValid}
-              helperText={
-                rationaleTrimmed.length < APPEAL_RATIONALE_MIN_CHARS
-                  ? `Minimum ${APPEAL_RATIONALE_MIN_CHARS} characters required. ${Math.max(0, APPEAL_RATIONALE_MIN_CHARS - rationaleTrimmed.length)} more needed.`
-                  : rationaleSaved
-                  ? "Saved and ready."
-                  : "Minimum met. Save the rationale to mark it complete."
-              }
-            />
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              justifyContent="space-between"
-              alignItems={{ xs: "stretch", sm: "center" }}
-              spacing={1}
-              sx={{ mt: 1.25 }}
-            >
-              <Typography variant="caption" color="text.secondary">
-                {rationale.length}/5000 characters · minimum {APPEAL_RATIONALE_MIN_CHARS}
-              </Typography>
-              <Stack direction="row" spacing={1}>
-                <Button
-                  variant="text"
-                  color="inherit"
-                  disabled={!editable || Boolean(action) || (!rationale && !savedRationale)}
-                  onClick={clearRationale}
-                >
-                  {action === "clear-rationale" ? "Clearing..." : "Clear"}
-                </Button>
-                <Button
                   variant="contained"
-                  startIcon={<Save />}
-                  disabled={
-                    !editable ||
-                    Boolean(action) ||
-                    !rationaleLengthValid ||
-                    rationaleSaved
-                  }
-                  onClick={saveRationale}
-                >
-                  {action === "save-rationale" ? "Saving..." : "Save Rationale"}
-                </Button>
-              </Stack>
-            </Stack>
-          </Paper>
-        </Stack>
-
-        <Stack spacing={2.5}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" fontWeight={800} sx={{ mb: 1.5 }}>Appeal Workflow</Typography>
-              <Stack spacing={1.25}>
-                <Chip
-                  icon={data.aiAnalyzedAt ? <CheckCircle /> : undefined}
-                  label={data.aiAnalyzedAt ? "1. Analysis complete" : "1. Analyze denial"}
-                  color={data.aiAnalyzedAt ? "success" : "default"}
-                  variant="outlined"
-                />
-                <Chip
-                  icon={draftSaved ? <CheckCircle /> : undefined}
-                  label={
-                    draftSaved
-                      ? `2. Package complete · ${evidenceIds.length} evidence document${evidenceIds.length === 1 ? "" : "s"}`
-                      : "2. Build appeal package"
-                  }
-                  color={draftSaved ? "success" : "default"}
-                  variant="outlined"
-                />
-                <Chip
-                  icon={data.appealPreparedAt ? <CheckCircle /> : undefined}
-                  label={data.appealPreparedAt ? "3. Review complete" : "3. Review package"}
-                  color={data.appealPreparedAt ? "success" : packageChangedNotice ? "warning" : "default"}
-                  variant="outlined"
-                />
-                <Chip
-                  icon={data.appealSubmittedAt ? <CheckCircle /> : undefined}
-                  label={data.appealSubmittedAt ? "4. Submission recorded" : "4. Submit appeal"}
-                  color={data.appealSubmittedAt ? "success" : "default"}
-                  variant="outlined"
-                />
-              </Stack>
-
-              {packageChangedNotice && editable && (
-                <Alert severity="warning" sx={{ mt: 2 }} data-testid="appeal-package-changed">
-                  <b>Appeal package changed.</b> Evidence or rationale was updated after the package was reviewed. Review the updated package before recording submission.
-                </Alert>
-              )}
-
-              {suggestedEvidenceMissing && (
-                <Alert severity="warning" sx={{ mt: 2 }}>
-                  Recovery analysis recommends supporting evidence, but no documents are currently selected.
-                </Alert>
-              )}
-
-              <Divider sx={{ my: 2 }} />
-
-              {hasDraftChanges && editable && (
-                <Alert severity="warning" sx={{ mb: 1.5 }}>
-                  Save the rationale and evidence selection before preparing the appeal.
-                </Alert>
-              )}
-
-              <Stack spacing={1}>
-                <Button
-                  variant="outlined"
-                  startIcon={<Description />}
-                  disabled={!rationaleLengthValid}
+                  endIcon={<ArrowForward />}
+                  disabled={!editable || Boolean(action) || !packageComplete}
                   onClick={() => setPackageOpen(true)}
                 >
-                  Preview Appeal Package
+                  Review Package
                 </Button>
-
-                {data.status !== "APPEAL_PREPARED" && !submitted && (
-                  <Button
-                    variant="contained"
-                    disabled={
-                      !editable ||
-                      Boolean(action) ||
-                      !data.aiAnalyzedAt ||
-                      data.appealEligible !== true ||
-                      !draftSaved
-                    }
-                    onClick={prepareAppeal}
-                  >
-                    {action === "prepare"
-                      ? "Preparing..."
-                      : packageChangedNotice
-                      ? "Review Updated Package"
-                      : "Review & Prepare Appeal"}
-                  </Button>
-                )}
-
-                {data.status === "APPEAL_PREPARED" && (
-                  <Button
-                    color="success"
-                    variant="contained"
-                    startIcon={<Send />}
-                    disabled={!canEdit || Boolean(action)}
-                    onClick={() => setSubmissionOpen(true)}
-                  >
-                    {action === "submit" ? "Submitting..." : "Record Appeal Submission"}
-                  </Button>
-                )}
-              </Stack>
-
-              <Alert severity="warning" sx={{ mt: 2 }}>
-                Recording submission does not transmit anything to the payer. Use it only after submission through the approved external channel.
-              </Alert>
-            </CardContent>
-          </Card>
-
-          {data.appealSubmittedAt && (
-            <Paper sx={{ p: 2 }}>
-              <Typography variant="subtitle2" fontWeight={800}>Submission Record</Typography>
-              <Stack spacing={0.8} sx={{ mt: 1 }}>
-                <Typography variant="body2"><b>Channel:</b> {String(data.appealSubmissionChannel || "—").replaceAll("_", " ")}</Typography>
-                <Typography variant="body2"><b>External submission date:</b> {formatDate(data.appealExternalSubmittedAt)}</Typography>
-                <Typography variant="body2"><b>Reference:</b> {data.appealSubmissionReference || "—"}</Typography>
-                <Typography variant="body2"><b>Recorded in PRISM:</b> {formatDateTime(data.appealSubmittedAt)}</Typography>
               </Stack>
             </Paper>
           )}
 
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle2" fontWeight={800}>What is editable?</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Appeal rationale, evidence selection, and new appeal-supporting uploads are editable before submission. Claim facts, payer denial data, original documents, calculated recovery amounts, and system assessments remain read-only except through the audited assessment override.
+          {packageComplete && (
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", md: "center" }} spacing={1}>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={800}>Step 4 · Review Package</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Preview the exact rationale and selected evidence before approving the package.
+                  </Typography>
+                </Box>
+                <Stack direction="row" spacing={0.75}>
+                  <Button size="small" variant="outlined" startIcon={<Description />} onClick={() => setPackageOpen(true)}>
+                    Preview
+                  </Button>
+                  {!reviewComplete && !submitted && (
+                    <Button size="small" variant="contained" onClick={prepareAppeal} disabled={!editable || Boolean(action)}>
+                      {action === "prepare" ? "Preparing..." : packageChangedNotice ? "Re-approve Package" : "Approve Package"}
+                    </Button>
+                  )}
+                </Stack>
+              </Stack>
+              {packageChangedNotice && (
+                <Alert severity="warning" sx={{ mt: 1 }}>
+                  The package changed after review. Preview and approve it again before recording submission.
+                </Alert>
+              )}
+            </Paper>
+          )}
+
+          {reviewComplete && !submitted && (
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", md: "center" }} spacing={1}>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={800}>Step 5 · Record External Submission</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Submit through the payer-approved external channel first. Then record the channel, date, and confirmation here.
+                  </Typography>
+                </Box>
+                <Button color="success" variant="contained" size="small" startIcon={<Send />} onClick={() => setSubmissionOpen(true)} disabled={!canEdit || Boolean(action)}>
+                  Record External Submission
+                </Button>
+              </Stack>
+            </Paper>
+          )}
+        </Stack>
+
+        <Stack spacing={1.25}>
+          <Paper variant="outlined" sx={{ p: 1.25 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="subtitle2" fontWeight={800}>Claim Summary</Typography>
+              <Chip size="small" label={data.denialCategory || "DENIAL"} color="error" variant="outlined" />
+            </Stack>
+            <Stack spacing={0.65} sx={{ mt: 1 }}>
+              {[
+                ["Patient", data.claim?.patientName || "—"],
+                ["Payer", data.claim?.payerName || "—"],
+                ["Claim #", data.claim?.insurerClaimNo || data.claimId || "—"],
+                ["Date of Service", formatDate(data.claim?.dateOfService)],
+                ["Claim Form", data.claim?.claimForm || "—"],
+                ["Appeal Deadline", formatDate(data.appealDeadline)]
+              ].map(([label, value]) => (
+                <Stack key={label} direction="row" justifyContent="space-between" spacing={1}>
+                  <Typography variant="caption" color="text.secondary">{label}</Typography>
+                  <Typography variant="body2" fontWeight={650} textAlign="right">{value}</Typography>
+                </Stack>
+              ))}
+            </Stack>
+          </Paper>
+
+          <Paper variant="outlined" sx={{ p: 1.25 }}>
+            <Typography variant="subtitle2" fontWeight={800}>Recovery Summary</Typography>
+            <Box sx={{ mt: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75 }}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">At risk</Typography>
+                <Typography variant="h6" fontWeight={850}>{formatUSD(data.revenueAtRisk)}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Recovered</Typography>
+                <Typography variant="h6" fontWeight={850} color="success.main">{formatUSD(data.recoveredAmount)}</Typography>
+              </Box>
+            </Box>
+          </Paper>
+
+          <Paper variant="outlined" sx={{ p: 1.25 }}>
+            <Typography variant="subtitle2" fontWeight={800}>Next Action</Typography>
+            <Typography variant="body2" sx={{ mt: 0.75 }}>
+              {!data.aiAnalyzedAt
+                ? "Analyze the denial."
+                : eligibilityDenial && !eligibilityResult
+                ? "Re-check eligibility for the date of service."
+                : !packageComplete
+                ? "Build and save the appeal package."
+                : !reviewComplete
+                ? "Preview and approve the appeal package."
+                : !submissionRecorded
+                ? "Submit externally and record the submission."
+                : "Track the payer outcome in Revenue Recovery."}
             </Typography>
           </Paper>
+
+          {data.appealSubmittedAt && (
+            <Paper variant="outlined" sx={{ p: 1.25 }}>
+              <Typography variant="subtitle2" fontWeight={800}>Submission Record</Typography>
+              <Stack spacing={0.6} sx={{ mt: 0.75 }}>
+                <Typography variant="body2"><b>Channel:</b> {String(data.appealSubmissionChannel || "—").replaceAll("_", " ")}</Typography>
+                <Typography variant="body2"><b>Date:</b> {formatDate(data.appealExternalSubmittedAt)}</Typography>
+                <Typography variant="body2"><b>Reference:</b> {data.appealSubmissionReference || "—"}</Typography>
+                <Typography variant="body2"><b>Recorded:</b> {formatDateTime(data.appealSubmittedAt)}</Typography>
+              </Stack>
+            </Paper>
+          )}
+
+          {editable && (
+            <Paper variant="outlined" sx={{ p: 1.25 }}>
+              <Typography variant="subtitle2" fontWeight={800}>Advanced Actions</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, mb: 0.75 }}>
+                Assessment override is not part of the normal appeal flow. Use it only when payer or contract evidence supports a different assessment.
+              </Typography>
+              <Button size="small" color="inherit" startIcon={<Edit />} onClick={() => setOverrideOpen(true)}>
+                Override Assessment
+              </Button>
+            </Paper>
+          )}
         </Stack>
       </Box>
 
@@ -1267,10 +1315,10 @@ export default function AppealWorkspace() {
       </Dialog>
 
       <Dialog open={submissionOpen} onClose={() => setSubmissionOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Submit Appeal</DialogTitle>
+        <DialogTitle>Record External Submission</DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            PRISM records the appeal submission from this screen but does not transmit the appeal to the payer. Enter how and when the appeal was actually submitted through the approved external channel.
+            PRISM does not transmit the appeal to the payer. Submit through the approved external channel first, then record how and when it was submitted.
           </Alert>
           <Stack spacing={2}>
             <FormControl fullWidth size="small">
