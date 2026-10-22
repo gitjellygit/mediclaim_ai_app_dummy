@@ -21,6 +21,7 @@ import {
 import { validateDocumentIdentityAgainstClaim } from "../services/documentIdentity.js";
 import { publicDocument } from "../services/documentPublicView.js";
 import { DOC_TYPES } from "../services/docIntel.js";
+import { createPayerConnectorForClaim } from "../services/payerGateway.js";
 import {
   DEFAULT_APPEAL_WINDOW_DAYS,
   computeAppealDeadline,
@@ -345,6 +346,118 @@ router.get(
         name: error?.name || "Error"
       });
       res.status(500).json({ error: "Unable to load appeal workspace" });
+    }
+  }
+);
+
+router.post(
+  "/:id/appeal-eligibility-recheck",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  requirePermission(PERMISSIONS.PAYER_ACTION),
+  async (req, res) => {
+    try {
+      const denial = await prisma.denialCase.findFirst({
+        where: {
+          id: req.params.id,
+          claim: {
+            organizationId: req.user.organizationId,
+            deletedAt: null
+          }
+        },
+        include: {
+          claim: {
+            include: {
+              organization: {
+                select: { stediBillingProviderName: true }
+              }
+            }
+          }
+        }
+      });
+
+      if (!denial) {
+        return res.status(404).json({ error: "Denial case not found" });
+      }
+
+      const claim = denial.claim;
+      const previousEligibility = {
+        status: claim.eligibilityStatus,
+        coverageStatus: claim.coverageStatus,
+        checkedAt: claim.eligibilityCheckedAt || null
+      };
+      const providerName = claim.organization?.stediBillingProviderName || null;
+      delete claim.organization;
+
+      const connector = createPayerConnectorForClaim(
+        claim,
+        claim.connectedPayerCode ||
+          claim.payerEdiId ||
+          claim.simulatedPayerCode ||
+          claim.payerConnectorId
+      );
+      const result = await connector.checkEligibility(claim, { providerName });
+
+      const response = {
+        checkedAt: new Date().toISOString(),
+        status: result.status || "UNKNOWN",
+        coverageStatus: result.coverageStatus || "UNKNOWN",
+        livePayerVerification: result.livePayerVerification === true,
+        previousEligibility,
+        dateOfService: claim.dateOfService,
+        payerName: claim.payerName,
+        supportsAppeal:
+          String(result.status || "").toUpperCase() === "ACTIVE" ||
+          String(result.coverageStatus || "").toUpperCase() === "ACTIVE",
+        note:
+          "This reconciliation check is read-only. It does not change the submitted claim or resubmit it."
+      };
+
+      await audit(req, {
+        claimId: denial.claimId,
+        action: "APPEAL_ELIGIBILITY_RECHECKED",
+        entityType: "DenialCase",
+        entityId: denial.id,
+        metadata: {
+          resultStatus: response.status,
+          coverageStatus: response.coverageStatus,
+          livePayerVerification: response.livePayerVerification,
+          supportsAppeal: response.supportsAppeal
+        }
+      });
+
+      return res.json(response);
+    } catch (error) {
+      console.error("[appeal-workspace] eligibility recheck failed", {
+        denialId: req.params.id,
+        name: error?.name || "Error",
+        code: error?.code || null
+      });
+
+      if (error?.code === "PAYER_CONNECTOR_UNAVAILABLE") {
+        return res.status(503).json({
+          error: "Eligibility connector is not configured for this payer",
+          code: error.code
+        });
+      }
+
+      if (["STEDI_REQUEST_INVALID", "AVAILITY_REQUEST_INVALID"].includes(error?.code)) {
+        return res.status(400).json({
+          error: "The claim is missing information required for an eligibility reconciliation",
+          code: error.code
+        });
+      }
+
+      if (["STEDI_API_ERROR", "AVAILITY_API_ERROR"].includes(error?.code)) {
+        return res.status(Number(error?.status) === 429 ? 503 : 502).json({
+          error: "External eligibility service request failed",
+          code: error.code
+        });
+      }
+
+      return res.status(500).json({
+        error: "Unable to re-check eligibility for this appeal",
+        code: "APPEAL_ELIGIBILITY_RECHECK_FAILED"
+      });
     }
   }
 );
