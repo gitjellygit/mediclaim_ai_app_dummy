@@ -33,8 +33,10 @@ test("journey exposes active denial and underpayment recovery cases", () => {
   assert.match(ui, /Recovery Work/);
   assert.match(ui, /Open Denial Case/);
   assert.match(ui, /Open Recovery Case/);
-  assert.match(ui, /\/denials\?caseId=/);
-  assert.match(ui, /\/payments\?caseId=/);
+  assert.match(ui, /\/revenue-recovery\/appeals\//);
+  assert.match(ui, /\/revenue-recovery\/underpayments\//);
+  assert.doesNotMatch(ui, /\/denials\?caseId=/);
+  assert.doesNotMatch(ui, /\/payments\?caseId=/);
 });
 
 test("later ERA payment can resolve and reopen payment variance recovery", () => {
@@ -53,13 +55,16 @@ test("later ERA payment can resolve and reopen payment variance recovery", () =>
   assert.match(journey, /resolvedAt: null/);
 });
 
-test("recovery intelligence screens accept case deep links", () => {
-  const denials = read("frontend/src/modules/denials/DenialIntelligence.jsx");
-  const payments = read(
-    "frontend/src/modules/payments/UnderpaymentIntelligence.jsx"
-  );
+test("recovery intelligence uses dedicated case workspace routes", () => {
+  const app = read("frontend/src/App.jsx");
+  const journey = read("frontend/src/modules/journey/ClaimJourney.jsx");
+  const underpayment = read("frontend/src/modules/recovery/UnderpaymentWorkspace.jsx");
 
-  assert.match(denials, /new URLSearchParams\(location\.search\)\.get\("caseId"\)/);
-  assert.match(payments, /new URLSearchParams\(location\.search\)\.get\("caseId"\)/);
-  assert.match(denials, /Payer Evidence/);
+  assert.match(app, /\/revenue-recovery\/appeals\/:id/);
+  assert.match(app, /\/revenue-recovery\/underpayments\/:id/);
+  assert.match(journey, /\/revenue-recovery\/appeals\//);
+  assert.match(journey, /\/revenue-recovery\/underpayments\//);
+  assert.match(underpayment, /Underpayment Recovery Workspace/);
+  assert.doesNotMatch(journey, /\/payments\?caseId=/);
+  assert.doesNotMatch(journey, /\/denials\?caseId=/);
 });
