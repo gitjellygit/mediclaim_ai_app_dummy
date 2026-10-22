@@ -113,6 +113,11 @@ function isPostSubmission(claim) {
 function sortableHeader(label, field, sort, direction, onSort, help = "") {
   const content = (
     <TableSortLabel
+      hideSortIcon={false}
+      sx={{
+        "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" },
+        "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" }
+      }}
       active={sort === field}
       direction={sort === field ? direction : "asc"}
       onClick={() => onSort(field)}
@@ -299,7 +304,7 @@ export default function ApprovalIntelligence() {
   const [filing, setFiling] = React.useState("ALL");
   const [filterAnchor, setFilterAnchor] = React.useState(null);
   const [page, setPage] = React.useState(0);
-  const [pageSize, setPageSize] = React.useState(25);
+  const [pageSize, setPageSize] = React.useState(10);
   const [sort, setSort] = React.useState("priority");
   const [direction, setDirection] = React.useState("desc");
 
@@ -1040,7 +1045,7 @@ export default function ApprovalIntelligence() {
               setPageSize(Number(event.target.value));
               setPage(0);
             }}
-            rowsPerPageOptions={[10, 25, 50, 100]}
+            rowsPerPageOptions={[10]}
           />
         </Paper>
       )}
