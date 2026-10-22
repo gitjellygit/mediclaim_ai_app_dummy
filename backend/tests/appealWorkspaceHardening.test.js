@@ -45,7 +45,7 @@ test("Appeal workspace UI requires confirmations for major state changes", () =>
 
   assert.match(ui, /title: "Prepare appeal\?"/);
   assert.match(ui, /title: "Confirm assessment override"/);
-  assert.match(ui, /title: "Submit appeal\?"/);
+  assert.match(ui, /title: "Record external submission\?"/);
   assert.match(ui, /Upload Supporting Evidence/);
   assert.match(ui, /Preview Appeal Package/);
   assert.match(ui, /View document/);
@@ -75,8 +75,8 @@ test("Appeal rationale has an explicit minimum and must be saved before preparat
   assert.match(ui, /APPEAL_RATIONALE_MIN_CHARS = 50/);
   assert.match(ui, /Save Rationale/);
   assert.match(ui, /Clear appeal rationale\?/);
-  assert.match(ui, /2\. Build appeal package/);
-  assert.match(ui, /2\. Package complete/);
+  assert.match(ui, /Build Appeal Package/);
+  assert.match(ui, /packageComplete/);
   assert.match(ui, /load\(\{ preserveDraft: true \}\)/);
   assert.match(ui, /!packageComplete/);
 });
@@ -96,7 +96,7 @@ test("Prepared appeal is invalidated when the saved package changes", () => {
   assert.match(ui, /evidenceDocumentIds: next/);
   assert.match(ui, /The package changed after review/);
   assert.match(ui, /Re-approve Package/);
-  assert.match(ui, /Record Appeal Submission/);
+  assert.match(ui, /Record External Submission/);
   assert.match(ui, /Yes, Record Submission/);
 });
 
