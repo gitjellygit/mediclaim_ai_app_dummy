@@ -58,6 +58,13 @@ export const DenialsApi = {
     });
   },
 
+  recheckEligibility(id) {
+    return api(`${BASE}/${id}/appeal-eligibility-recheck`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  },
+
   prepareAppeal(id) {
     return api(`${BASE}/${id}/appeal-prepare`, {
       method: "POST"
