@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import cors from "cors";
 import dotenv from "dotenv";
 import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import { prisma, disconnectDatabase } from "./db.js";
 import { captureAsyncRouter } from "./middleware/asyncRouter.js";
 import { standardizeApiErrors } from "./middleware/apiErrors.js";
@@ -101,10 +102,16 @@ const apiRateLimiter = createMemoryRateLimiter({
   max: Number(process.env.API_RATE_LIMIT_MAX || 300),
   code: "API_RATE_LIMITED"
 });
-const analyticsRateLimiter = createMemoryRateLimiter({
+const analyticsRateLimiter = rateLimit({
   windowMs: Number(process.env.ANALYTICS_RATE_LIMIT_WINDOW_MS || 60000),
-  max: Number(process.env.ANALYTICS_RATE_LIMIT_MAX || 60),
-  code: "ANALYTICS_RATE_LIMITED"
+  limit: Number(process.env.ANALYTICS_RATE_LIMIT_MAX || 60),
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    error: "Too many requests",
+    message: "Analytics request rate limit exceeded. Retry after the current window resets.",
+    code: "ANALYTICS_RATE_LIMITED"
+  }
 });
 const expensiveOperationRateLimiter = createMemoryRateLimiter({
   windowMs: Number(process.env.EXPENSIVE_RATE_LIMIT_WINDOW_MS || 60000),
@@ -199,12 +206,9 @@ if (process.env.E2E_TEST_MODE === "true") {
 app.use("/api/denials", requireAuth, captureAsyncRouter(denialsRouter));
 app.use("/api/underpayments", requireAuth, captureAsyncRouter(underpaymentsRouter));
 app.use("/api/revenue-recovery", requireAuth, captureAsyncRouter(revenueRecoveryRouter));
-// Analytics is protected by both the global API limiter and this route-specific limiter.
-// codeql[js/missing-rate-limiting]
 app.use(
   "/api/analytics",
   analyticsRateLimiter,
-  // codeql[js/missing-rate-limiting]
   requireAuth,
   captureAsyncRouter(analyticsRouter)
 );
