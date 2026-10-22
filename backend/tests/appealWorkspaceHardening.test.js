@@ -28,6 +28,8 @@ test("Appeal submission requires confirmation plus structured external submissio
   assert.match(route, /submissionDate/);
   assert.match(route, /appealSubmissionChannel:\s*channel/);
   assert.match(route, /appealExternalSubmittedAt:\s*externalSubmittedAt/);
+  assert.match(route, /submittedDateOnly > todayUtc/);
+  assert.match(route, /PRISM-APL-/);
   assert.match(route, /externalTransmissionPerformed:\s*false/);
 });
 
@@ -100,13 +102,13 @@ test("Prepared appeal is invalidated when the saved package changes", () => {
   assert.match(ui, /Yes, Record Submission/);
 });
 
-test("Shared success feedback uses a centered auto-dismiss green check", () => {
+test("Successful actions do not create transient global popups", () => {
   const feedback = read("frontend/src/context/ToastContext.jsx");
+  const login = read("frontend/src/pages/Login.jsx");
 
-  assert.match(feedback, /CheckCircle color="success"/);
-  assert.match(feedback, /setTimeout\(\(\) =>/);
-  assert.match(feedback, /1800/);
-  assert.match(feedback, /setSuccessNotice\(\{ open: true, message \}\)/);
+  assert.match(feedback, /if \(severity === "success"\) return/);
+  assert.doesNotMatch(feedback, /successNotice/);
+  assert.doesNotMatch(login, /Login successful/);
 });
 
 test("Claim Detail submission requires explicit confirmation", () => {
@@ -171,4 +173,7 @@ test("Revenue Recovery paginates sorts and aligns recovered metrics with filters
   assert.match(appeal, /Use Recommended Evidence/);
   assert.match(appeal, /Record External Submission/);
   assert.match(appeal, /Advanced Actions/);
+  assert.match(appeal, /recommendedEvidenceAlreadySelected/);
+  assert.match(appeal, /Refresh Payer Outcome/);
+  assert.match(appeal, /Save a valid appeal rationale before package review/);
 });
