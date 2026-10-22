@@ -31,11 +31,13 @@ import {
   FactCheck,
   Save,
   Send,
+  Refresh,
   UploadFile,
   Visibility
 } from "@mui/icons-material";
 import { useParams } from "react-router-dom";
 import { DenialsApi } from "../../api/denials.js";
+import { ClaimsApi } from "../../api/claims.js";
 import { AuthApi } from "../../api/auth.js";
 import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
 import { useToast } from "../../context/ToastContext.jsx";
@@ -103,6 +105,7 @@ export default function AppealWorkspace() {
   const canEdit = hasPermission(user, PERMISSIONS.RECOVERY_EDIT);
   const canUploadDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_EDIT);
   const canDownloadDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_DOWNLOAD);
+  const canRefreshPayerOutcome = hasPermission(user, PERMISSIONS.PAYER_ACTION);
   const { showToast, showDialog, confirmDialog } = useToast();
 
   const [data, setData] = React.useState(null);
@@ -132,6 +135,7 @@ export default function AppealWorkspace() {
 
   const [eligibilityResult, setEligibilityResult] = React.useState(null);
   const [analysisDetailsOpen, setAnalysisDetailsOpen] = React.useState(false);
+  const [payerOutcome, setPayerOutcome] = React.useState(null);
 
   const [submissionOpen, setSubmissionOpen] = React.useState(false);
   const [submission, setSubmission] = React.useState({
@@ -145,6 +149,15 @@ export default function AppealWorkspace() {
     try {
       const result = await DenialsApi.getAppealWorkspace(id);
       setData(result);
+      setPayerOutcome((current) => current || {
+        payerClaimStatus: result.claim?.payerClaimStatus || null,
+        claimStatusCheckedAt: result.claim?.claimStatusCheckedAt || null,
+        remittanceStatus: result.claim?.remittanceStatus || "NOT_AVAILABLE",
+        remittanceReceivedAt: result.claim?.remittanceReceivedAt || null,
+        paidAmount: result.claim?.paidAmount ?? null,
+        paymentReference: result.claim?.paymentReference || null,
+        message: null
+      });
       if (!preserveDraft) {
         setRationale(result.appealRationale || "");
         setEvidenceIds(result.appealEvidenceDocumentIds || []);
@@ -338,6 +351,14 @@ export default function AppealWorkspace() {
       return;
     }
 
+    if (submission.date > todayInputValue()) {
+      showDialog("Submission date cannot be in the future.", {
+        title: "Invalid submission date",
+        severity: "warning"
+      });
+      return;
+    }
+
     // Never stack the global confirmation dialog on top of the submission
     // details modal. MUI traps focus in the first modal, which can make the
     // confirmation inaccessible to keyboard users and automated browsers.
@@ -376,6 +397,68 @@ export default function AppealWorkspace() {
     } catch (error) {
       showDialog(error?.message || "Appeal could not be marked submitted.", {
         title: "Submission status update failed",
+        severity: "error"
+      });
+    } finally {
+      setAction("");
+    }
+  }
+
+  async function refreshPayerOutcome() {
+    if (!data?.claimId || action) return;
+    setAction("payer-outcome");
+
+    let message = "";
+    try {
+      let journey = await ClaimsApi.getJourney(data.claimId);
+      const mode = String(journey?.payerConnection?.mode || "").toUpperCase();
+
+      try {
+        if (mode === "SIMULATED") {
+          await ClaimsApi.simulatePayerStatus(data.claimId);
+        } else if (mode === "LIVE" && journey?.stages?.claimStatus?.actionable) {
+          await ClaimsApi.refreshPayerStatus(data.claimId);
+        }
+      } catch (error) {
+        message = error?.message || "Payer claim status could not be refreshed.";
+      }
+
+      journey = await ClaimsApi.getJourney(data.claimId);
+
+      try {
+        const remittanceActionable = journey?.stages?.remittance?.actionable;
+        if (mode === "SIMULATED" && remittanceActionable) {
+          await ClaimsApi.simulatePayerRemittance(data.claimId);
+          journey = await ClaimsApi.getJourney(data.claimId);
+        } else if (
+          mode === "LIVE" &&
+          remittanceActionable &&
+          hasPermission(user, PERMISSIONS.FINANCIAL_VIEW)
+        ) {
+          await ClaimsApi.refreshRemittance(data.claimId);
+          journey = await ClaimsApi.getJourney(data.claimId);
+        }
+      } catch (error) {
+        if (!message) message = error?.message || "Remittance is not available yet.";
+      }
+
+      setPayerOutcome({
+        payerClaimStatus: journey?.stages?.claimStatus?.status || null,
+        claimStatusCheckedAt: journey?.stages?.claimStatus?.checkedAt || null,
+        remittanceStatus: journey?.stages?.remittance?.status || "NOT_AVAILABLE",
+        remittanceReceivedAt: journey?.stages?.remittance?.receivedAt || null,
+        paidAmount: journey?.stages?.remittance?.paidAmount ?? null,
+        paymentReference: journey?.stages?.remittance?.paymentReference || null,
+        message:
+          message ||
+          (mode === "LOCAL"
+            ? "Showing the latest recorded payer outcome. No live payer status connector is configured."
+            : "Payer outcome refreshed.")
+      });
+      await load({ preserveDraft: true });
+    } catch (error) {
+      showDialog(error?.message || "Payer outcome could not be refreshed.", {
+        title: "Outcome refresh failed",
         severity: "error"
       });
     } finally {
@@ -557,6 +640,7 @@ export default function AppealWorkspace() {
     }
 
     const next = [...new Set([...evidenceIds, ...recommendedIds])];
+    if (next.length === evidenceIds.length) return;
     setAction("recommended-evidence");
     try {
       const updated = await DenialsApi.saveAppealDraft(id, {
@@ -626,6 +710,10 @@ export default function AppealWorkspace() {
   const recommendedDocuments = documents.filter((doc) =>
     recommendedTypes.has(String(doc.type || "").toUpperCase())
   );
+  const recommendedAvailableIds = recommendedDocuments.map((doc) => doc.id);
+  const recommendedEvidenceAlreadySelected =
+    recommendedAvailableIds.length > 0 &&
+    recommendedAvailableIds.every((documentId) => selectedDocs.has(documentId));
   const missingRecommendedTypes = [...recommendedTypes].filter(
     (type) => !documents.some((doc) => String(doc.type || "").toUpperCase() === type)
   );
@@ -859,8 +947,18 @@ export default function AppealWorkspace() {
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={0.75}>
-                  <Button size="small" variant="outlined" onClick={useRecommendedEvidence} disabled={!editable || Boolean(action)}>
-                    Use Recommended Evidence
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={useRecommendedEvidence}
+                    disabled={
+                      !editable ||
+                      Boolean(action) ||
+                      recommendedAvailableIds.length === 0 ||
+                      recommendedEvidenceAlreadySelected
+                    }
+                  >
+                    {recommendedEvidenceAlreadySelected ? "Recommended Evidence Added" : "Use Recommended Evidence"}
                   </Button>
                   {canUpload && (
                     <Button size="small" variant="outlined" startIcon={<UploadFile />} onClick={() => setUploadOpen(true)} disabled={Boolean(action)}>
@@ -986,15 +1084,22 @@ export default function AppealWorkspace() {
                   <Chip size="small" icon={rationaleSaved ? <CheckCircle /> : undefined} label="Rationale saved" color={rationaleSaved ? "success" : "default"} variant="outlined" />
                   <Chip size="small" icon={evidenceSaved ? <CheckCircle /> : undefined} label={`${evidenceIds.length} evidence selected`} color={evidenceSaved ? "success" : "default"} variant="outlined" />
                 </Stack>
-                <Button
-                  size="small"
-                  variant="contained"
-                  endIcon={<ArrowForward />}
-                  disabled={!editable || Boolean(action) || !packageComplete}
-                  onClick={() => setPackageOpen(true)}
-                >
-                  Review Package
-                </Button>
+                <Stack alignItems={{ xs: "stretch", md: "flex-end" }} spacing={0.25}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    endIcon={<ArrowForward />}
+                    disabled={!editable || Boolean(action) || !packageComplete}
+                    onClick={() => setPackageOpen(true)}
+                  >
+                    Review Package
+                  </Button>
+                  {!rationaleSaved && (
+                    <Typography variant="caption" color="text.secondary">
+                      Save a valid appeal rationale before package review.
+                    </Typography>
+                  )}
+                </Stack>
               </Stack>
             </Paper>
           )}
@@ -1116,7 +1221,7 @@ export default function AppealWorkspace() {
                 ? "Preview and approve the appeal package."
                 : !submissionRecorded
                 ? "Submit externally and record the submission."
-                : "Track the payer outcome in Revenue Recovery."}
+                : "Refresh the payer outcome here or continue tracking in Revenue Recovery."}
             </Typography>
           </Paper>
 
@@ -1129,6 +1234,58 @@ export default function AppealWorkspace() {
                 <Typography variant="body2"><b>Reference:</b> {data.appealSubmissionReference || "—"}</Typography>
                 <Typography variant="body2"><b>Recorded:</b> {formatDateTime(data.appealSubmittedAt)}</Typography>
               </Stack>
+            </Paper>
+          )}
+
+          {data.appealSubmittedAt && (
+            <Paper variant="outlined" sx={{ p: 1.25 }} data-testid="appeal-payer-outcome">
+              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                <Typography variant="subtitle2" fontWeight={800}>Payer Outcome</Typography>
+                <IconButton
+                  size="small"
+                  aria-label="Refresh payer outcome"
+                  onClick={refreshPayerOutcome}
+                  disabled={!canRefreshPayerOutcome || Boolean(action)}
+                >
+                  {action === "payer-outcome" ? <CircularProgress size={16} /> : <Refresh fontSize="small" />}
+                </IconButton>
+              </Stack>
+              <Stack spacing={0.6} sx={{ mt: 0.75 }}>
+                <Stack direction="row" justifyContent="space-between" spacing={1}>
+                  <Typography variant="caption" color="text.secondary">Claim status</Typography>
+                  <Chip size="small" label={String(payerOutcome?.payerClaimStatus || data.claim?.payerClaimStatus || "NOT AVAILABLE").replaceAll("_", " ")} variant="outlined" />
+                </Stack>
+                <Stack direction="row" justifyContent="space-between" spacing={1}>
+                  <Typography variant="caption" color="text.secondary">Remittance</Typography>
+                  <Typography variant="body2" fontWeight={650}>
+                    {String(payerOutcome?.remittanceStatus || data.claim?.remittanceStatus || "NOT_AVAILABLE").replaceAll("_", " ")}
+                  </Typography>
+                </Stack>
+                <Stack direction="row" justifyContent="space-between" spacing={1}>
+                  <Typography variant="caption" color="text.secondary">Paid amount</Typography>
+                  <Typography variant="body2" fontWeight={750} color={Number(payerOutcome?.paidAmount ?? data.claim?.paidAmount ?? 0) > 0 ? "success.main" : "text.primary"}>
+                    {formatUSD(payerOutcome?.paidAmount ?? data.claim?.paidAmount ?? 0)}
+                  </Typography>
+                </Stack>
+                {(payerOutcome?.paymentReference || data.claim?.paymentReference) && (
+                  <Typography variant="caption" color="text.secondary">
+                    Payment reference: {payerOutcome?.paymentReference || data.claim?.paymentReference}
+                  </Typography>
+                )}
+                {payerOutcome?.message && (
+                  <Typography variant="caption" color="text.secondary">{payerOutcome.message}</Typography>
+                )}
+              </Stack>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<Refresh />}
+                onClick={refreshPayerOutcome}
+                disabled={!canRefreshPayerOutcome || Boolean(action)}
+                sx={{ mt: 0.9 }}
+              >
+                {action === "payer-outcome" ? "Refreshing..." : "Refresh Payer Outcome"}
+              </Button>
             </Paper>
           )}
 
@@ -1365,17 +1522,18 @@ export default function AppealWorkspace() {
               </Select>
             </FormControl>
             <TextField
-              label="Submission Reference"
+              label="Submission / Tracking Reference"
               value={submission.reference}
               onChange={(event) => setSubmission((current) => ({ ...current, reference: event.target.value }))}
               inputProps={{ maxLength: 200 }}
-              helperText="Optional payer portal confirmation, fax reference, tracking number, etc."
+              helperText="Optional external confirmation/reference. If left blank, PRISM creates a unique internal tracking reference."
             />
             <TextField
               label="Submission Date"
               type="date"
               value={submission.date}
               onChange={(event) => setSubmission((current) => ({ ...current, date: event.target.value }))}
+              inputProps={{ max: todayInputValue() }}
               InputLabelProps={{ shrink: true }}
             />
           </Stack>
