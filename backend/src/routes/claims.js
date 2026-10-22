@@ -195,7 +195,7 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
           }
         : {})
     };
-    const [claims, total] = await Promise.all([
+    const [claims, total, statusGroups] = await Promise.all([
       prisma.claim.findMany({
         where,
         select: {
@@ -217,7 +217,12 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
         skip: (page - 1) * pageSize,
         take: pageSize
       }),
-      prisma.claim.count({ where })
+      prisma.claim.count({ where }),
+      prisma.claim.groupBy({
+        by: ["status"],
+        where,
+        _count: { _all: true }
+      })
     ]);
     const items = claims.map((claim) => minimumNecessaryClaim(claim, req.user));
 
@@ -230,8 +235,12 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
     res.setHeader("X-Total-Count", String(total));
     res.setHeader("X-Page", String(page));
     res.setHeader("X-Page-Size", String(pageSize));
+    const statusSummary = Object.fromEntries(
+      statusGroups.map((row) => [row.status, row._count._all])
+    );
+
     if (String(req.query.paginated || "") === "1") {
-      return res.json({ items, page, pageSize, total });
+      return res.json({ items, page, pageSize, total, statusSummary });
     }
     res.json(items);
   } catch (error) {
