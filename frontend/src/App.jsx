@@ -43,6 +43,9 @@ const DenialIntelligence = lazy(() =>
 const UnderpaymentIntelligence = lazy(() =>
   import("./modules/payments/UnderpaymentIntelligence.jsx")
 );
+const UnderpaymentWorkspace = lazy(() =>
+  import("./modules/recovery/UnderpaymentWorkspace.jsx")
+);
 const AuditTrail = lazy(() => import("./modules/audit/AuditTrail.jsx"));
 
 const protectedRoutes = [
@@ -52,6 +55,7 @@ const protectedRoutes = [
   { path: "/journey", Component: ClaimJourney, permission: PERMISSIONS.INSURANCE_VIEW },
   { path: "/revenue-recovery", Component: RevenueRecovery, permission: PERMISSIONS.RECOVERY_VIEW },
   { path: "/revenue-recovery/appeals/:id", Component: AppealWorkspace, permission: PERMISSIONS.RECOVERY_VIEW },
+  { path: "/revenue-recovery/underpayments/:id", Component: UnderpaymentWorkspace, permission: PERMISSIONS.FINANCIAL_VIEW },
   { path: "/denials", Component: DenialIntelligence, permission: PERMISSIONS.DENIAL_VIEW },
   { path: "/payments", Component: UnderpaymentIntelligence, permission: PERMISSIONS.FINANCIAL_VIEW },
   { path: "/medical-ai", Component: MedicalConsistency, permission: PERMISSIONS.CLINICAL_VIEW },
