@@ -16,7 +16,7 @@ const prismTheme = createTheme({
       contrastText: "#FFFFFF"
     },
     background: {
-      default: "#F4F7FA",
+      default: "#EEF3F7",
       paper: "#FFFFFF"
     },
     text: {
@@ -39,7 +39,7 @@ const prismTheme = createTheme({
     }
   },
   shape: {
-    borderRadius: 9
+    borderRadius: 7
   },
   typography: {
     fontFamily:
@@ -82,17 +82,17 @@ const prismTheme = createTheme({
       fontWeight: 600
     },
     subtitle2: {
-      fontSize: "0.86rem",
+      fontSize: "0.80rem",
       lineHeight: 1.45,
       fontWeight: 600
     },
     body1: {
-      fontSize: "0.9rem",
-      lineHeight: 1.55
+      fontSize: "0.86rem",
+      lineHeight: 1.45
     },
     body2: {
-      fontSize: "0.82rem",
-      lineHeight: 1.5
+      fontSize: "0.79rem",
+      lineHeight: 1.42
     },
     button: {
       fontSize: "0.81rem",
@@ -102,15 +102,15 @@ const prismTheme = createTheme({
       textTransform: "none"
     },
     caption: {
-      fontSize: "0.75rem",
-      lineHeight: 1.45
+      fontSize: "0.72rem",
+      lineHeight: 1.4
     }
   },
   components: {
     MuiCssBaseline: {
       styleOverrides: {
         body: {
-          backgroundColor: "#F4F7FA",
+          backgroundColor: "#EEF3F7",
           color: "#1E2936",
           WebkitFontSmoothing: "antialiased"
         },
@@ -126,20 +126,20 @@ const prismTheme = createTheme({
       },
       styleOverrides: {
         root: {
-          minHeight: 36,
-          borderRadius: 8,
-          padding: "7px 14px",
+          minHeight: 32,
+          borderRadius: 6,
+          padding: "5px 11px",
           boxShadow: "none"
         },
         sizeSmall: {
-          minHeight: 32,
-          padding: "5px 10px",
-          fontSize: "0.76rem"
+          minHeight: 28,
+          padding: "4px 9px",
+          fontSize: "0.73rem"
         },
         sizeLarge: {
-          minHeight: 40,
-          padding: "8px 16px",
-          fontSize: "0.84rem"
+          minHeight: 36,
+          padding: "6px 13px",
+          fontSize: "0.81rem"
         },
         containedPrimary: {
           "&:hover": {
@@ -162,14 +162,14 @@ const prismTheme = createTheme({
     MuiChip: {
       styleOverrides: {
         root: {
-          height: 28,
-          borderRadius: 14,
+          height: 24,
+          borderRadius: 12,
           fontWeight: 600,
           fontSize: "0.76rem"
         },
         sizeSmall: {
-          height: 24,
-          fontSize: "0.72rem"
+          height: 21,
+          fontSize: "0.69rem"
         }
       }
     },
@@ -177,17 +177,17 @@ const prismTheme = createTheme({
       styleOverrides: {
         root: {
           border: "1px solid #E1E7ED",
-          borderRadius: 10,
-          boxShadow: "0 1px 2px rgba(16, 42, 62, 0.05)"
+          borderRadius: 7,
+          boxShadow: "0 1px 2px rgba(16, 42, 62, 0.04)"
         }
       }
     },
     MuiCardContent: {
       styleOverrides: {
         root: {
-          padding: 18,
+          padding: 12,
           "&:last-child": {
-            paddingBottom: 18
+            paddingBottom: 12
           }
         }
       }
@@ -195,10 +195,10 @@ const prismTheme = createTheme({
     MuiPaper: {
       styleOverrides: {
         rounded: {
-          borderRadius: 10
+          borderRadius: 7
         },
         elevation1: {
-          boxShadow: "0 1px 3px rgba(16, 42, 62, 0.08)"
+          boxShadow: "0 1px 2px rgba(16, 42, 62, 0.06)"
         }
       }
     },
@@ -215,19 +215,19 @@ const prismTheme = createTheme({
     MuiInputBase: {
       styleOverrides: {
         root: {
-          fontSize: "0.88rem"
+          fontSize: "0.82rem"
         }
       }
     },
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 8,
-          minHeight: 40,
+          borderRadius: 6,
+          minHeight: 34,
           backgroundColor: "#FFFFFF"
         },
         input: {
-          padding: "9px 12px"
+          padding: "7px 10px"
         }
       }
     },
@@ -241,8 +241,8 @@ const prismTheme = createTheme({
     MuiAlert: {
       styleOverrides: {
         root: {
-          borderRadius: 8,
-          fontSize: "0.82rem",
+          borderRadius: 6,
+          fontSize: "0.78rem",
           alignItems: "center"
         }
       }
@@ -250,7 +250,7 @@ const prismTheme = createTheme({
     MuiDialogTitle: {
       styleOverrides: {
         root: {
-          fontSize: "1.15rem",
+          fontSize: "1.05rem",
           fontWeight: 700
         }
       }
@@ -258,8 +258,8 @@ const prismTheme = createTheme({
     MuiTableCell: {
       styleOverrides: {
         root: {
-          fontSize: "0.82rem",
-          padding: "10px 12px",
+          fontSize: "0.78rem",
+          padding: "7px 9px",
           borderColor: "#E5EAF0"
         },
         head: {
@@ -269,10 +269,36 @@ const prismTheme = createTheme({
         }
       }
     },
+    MuiTable: {
+      defaultProps: {
+        size: "small"
+      }
+    },
+    MuiToolbar: {
+      styleOverrides: {
+        regular: {
+          minHeight: 48
+        }
+      }
+    },
+    MuiDialogContent: {
+      styleOverrides: {
+        root: {
+          padding: "12px 16px"
+        }
+      }
+    },
+    MuiDialogActions: {
+      styleOverrides: {
+        root: {
+          padding: "8px 12px"
+        }
+      }
+    },
     MuiTooltip: {
       styleOverrides: {
         tooltip: {
-          fontSize: "0.74rem"
+          fontSize: "0.72rem"
         }
       }
     }
