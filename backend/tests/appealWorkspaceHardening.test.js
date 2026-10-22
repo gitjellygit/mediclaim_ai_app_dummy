@@ -48,8 +48,8 @@ test("Appeal workspace UI requires confirmations for major state changes", () =>
   assert.match(ui, /title: "Record external submission\?"/);
   assert.match(ui, /Upload Supporting Evidence/);
   assert.match(ui, /Appeal Package Preview/);
-  assert.match(ui, /View document/);
-  assert.match(ui, /Download document/);
+  assert.match(ui, /viewDocument\(doc\)/);
+  assert.match(ui, /downloadDocument\(doc\)/);
 });
 
 
