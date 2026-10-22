@@ -94,7 +94,7 @@ test("Prepared appeal is invalidated when the saved package changes", () => {
   assert.match(ui, /async function toggleEvidence/);
   assert.match(ui, /DenialsApi\.saveAppealDraft\(id/);
   assert.match(ui, /evidenceDocumentIds: next/);
-  assert.match(ui, /Appeal package changed/);
+  assert.match(ui, /The package changed after review/);
   assert.match(ui, /Re-approve Package/);
   assert.match(ui, /Record Appeal Submission/);
   assert.match(ui, /Yes, Record Submission/);
