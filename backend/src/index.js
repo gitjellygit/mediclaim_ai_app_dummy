@@ -204,6 +204,7 @@ app.use("/api/revenue-recovery", requireAuth, captureAsyncRouter(revenueRecovery
 app.use(
   "/api/analytics",
   analyticsRateLimiter,
+  // codeql[js/missing-rate-limiting]
   requireAuth,
   captureAsyncRouter(analyticsRouter)
 );
