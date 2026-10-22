@@ -64,6 +64,7 @@ export default function ClaimsList() {
   const canViewFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_VIEW);
   const [claims, setClaims] = useState([]);
   const [totalClaims, setTotalClaims] = useState(0);
+  const [statusSummary, setStatusSummary] = useState({});
   const [claimsPage, setClaimsPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [loadingClaims, setLoadingClaims] = useState(false);
@@ -110,6 +111,7 @@ export default function ClaimsList() {
         : [];
       setClaims(items);
       setTotalClaims(Number(data?.total ?? items.length));
+      setStatusSummary(data?.statusSummary || {});
       setSelected([]);
     } catch (e) {
       console.error("Failed to load claims:", e);
@@ -433,9 +435,37 @@ export default function ClaimsList() {
 
   return (
     <Box sx={{ p: { xs: 1, sm: 2, lg: 3 } }}>
-      <Typography variant="h4" fontWeight={700} mb={1.5}>
-        Claims ({totalClaims})
-      </Typography>
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        justifyContent="space-between"
+        alignItems={{ xs: "stretch", md: "center" }}
+        spacing={1}
+        sx={{ mb: 1 }}
+      >
+        <Box>
+          <Typography variant="h4" fontWeight={800}>Claims</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Search, review, and progress claims through the revenue cycle.
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+          {[
+            ["All", totalClaims, "default"],
+            ["Draft", Number(statusSummary.DRAFT || 0), "default"],
+            ["Ready", Number(statusSummary.READY || 0), "info"],
+            ["Submitted", Number(statusSummary.SUBMITTED || 0) + Number(statusSummary.SUBMITTING || 0), "warning"],
+            ["Paid", Number(statusSummary.PAID || 0), "success"]
+          ].map(([label, value, color]) => (
+            <Chip
+              key={label}
+              size="small"
+              variant={label === "All" ? "filled" : "outlined"}
+              color={color}
+              label={`${label} ${value}`}
+            />
+          ))}
+        </Stack>
+      </Stack>
 
       <Stack
         direction="row"
