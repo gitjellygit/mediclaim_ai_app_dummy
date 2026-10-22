@@ -199,6 +199,8 @@ if (process.env.E2E_TEST_MODE === "true") {
 app.use("/api/denials", requireAuth, captureAsyncRouter(denialsRouter));
 app.use("/api/underpayments", requireAuth, captureAsyncRouter(underpaymentsRouter));
 app.use("/api/revenue-recovery", requireAuth, captureAsyncRouter(revenueRecoveryRouter));
+// Analytics is protected by both the global API limiter and this route-specific limiter.
+// codeql[js/missing-rate-limiting]
 app.use(
   "/api/analytics",
   analyticsRateLimiter,
