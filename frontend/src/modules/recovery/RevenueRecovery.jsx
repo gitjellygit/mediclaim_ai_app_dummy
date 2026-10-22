@@ -197,6 +197,21 @@ export default function RevenueRecovery() {
     criticalCount: 0
   };
 
+  const maxPayerLeakage = Math.max(
+    1,
+    ...data.topPayers.map((item) => Number(item.outstandingAmount || 0))
+  );
+  const maxRootCauseLeakage = Math.max(
+    1,
+    ...data.topRootCauses.map((item) => Number(item.outstandingAmount || 0))
+  );
+  const financialMixTotal =
+    Number(metrics.totalOutstanding || 0) + Number(metrics.totalRecovered || 0);
+  const recoveredPct =
+    financialMixTotal > 0
+      ? (Number(metrics.totalRecovered || 0) / financialMixTotal) * 100
+      : 0;
+
   function handleSort(column) {
     setPage(0);
     if (sort === column) {
@@ -211,6 +226,11 @@ export default function RevenueRecovery() {
     return (
       <TableCell align={align}>
         <TableSortLabel
+          hideSortIcon={false}
+          sx={{
+            "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" },
+            "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" }
+          }}
           active={sort === column}
           direction={sort === column ? direction : "asc"}
           onClick={() => handleSort(column)}
@@ -276,8 +296,8 @@ export default function RevenueRecovery() {
             sm: "1fr 1fr",
             lg: "repeat(5, 1fr)"
           },
-          gap: 2,
-          mb: 3
+          gap: 1.5,
+          mb: 2
         }}
       >
         {summaryCard(
@@ -315,12 +335,12 @@ export default function RevenueRecovery() {
         sx={{
           display: "grid",
           gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" },
-          gap: 2,
-          mb: 3
+          gap: 1.5,
+          mb: 2
         }}
       >
-        <Paper sx={{ p: 2 }}>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+        <Paper sx={{ p: 1.5 }}>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
             <TrendingUp fontSize="small" color="primary" />
             <Typography fontWeight={800}>Top Payer Leakage</Typography>
           </Stack>
@@ -329,33 +349,34 @@ export default function RevenueRecovery() {
               No outstanding recovery opportunities.
             </Typography>
           ) : (
-            <Stack spacing={1}>
+            <Stack spacing={0.9}>
               {data.topPayers.map((payer) => (
-                <Stack
-                  key={payer.label}
-                  direction="row"
-                  justifyContent="space-between"
-                  spacing={2}
-                >
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography variant="body2" fontWeight={700} noWrap>
-                      {payer.label}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {payer.count} open opportunit{payer.count === 1 ? "y" : "ies"}
-                    </Typography>
+                <Box key={payer.label}>
+                  <Stack direction="row" justifyContent="space-between" spacing={1}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={700} noWrap>{payer.label}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {payer.count} open opportunit{payer.count === 1 ? "y" : "ies"}
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" fontWeight={800}>{money(payer.outstandingAmount)}</Typography>
+                  </Stack>
+                  <Box sx={{ height: 7, bgcolor: "action.hover", borderRadius: 999, overflow: "hidden", mt: 0.35 }}>
+                    <Box sx={{
+                      height: "100%",
+                      width: `${Math.max(4, (Number(payer.outstandingAmount || 0) / maxPayerLeakage) * 100)}%`,
+                      bgcolor: "primary.main",
+                      borderRadius: 999
+                    }} />
                   </Box>
-                  <Typography fontWeight={800}>
-                    {money(payer.outstandingAmount)}
-                  </Typography>
-                </Stack>
+                </Box>
               ))}
             </Stack>
           )}
         </Paper>
 
-        <Paper sx={{ p: 2 }}>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+        <Paper sx={{ p: 1.5 }}>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
             <WarningAmber fontSize="small" color="warning" />
             <Typography fontWeight={800}>Top Recovery Root Causes</Typography>
           </Stack>
@@ -364,31 +385,51 @@ export default function RevenueRecovery() {
               No recurring root causes yet.
             </Typography>
           ) : (
-            <Stack spacing={1}>
+            <Stack spacing={0.9}>
               {data.topRootCauses.map((cause) => (
-                <Stack
-                  key={cause.label}
-                  direction="row"
-                  justifyContent="space-between"
-                  spacing={2}
-                >
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography variant="body2" fontWeight={700}>
-                      {cause.label.replaceAll("_", " ")}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {cause.count} case{cause.count === 1 ? "" : "s"}
-                    </Typography>
+                <Box key={cause.label}>
+                  <Stack direction="row" justifyContent="space-between" spacing={1}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={700}>
+                        {cause.label.replaceAll("_", " ")}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {cause.count} case{cause.count === 1 ? "" : "s"}
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" fontWeight={800}>{money(cause.outstandingAmount)}</Typography>
+                  </Stack>
+                  <Box sx={{ height: 7, bgcolor: "action.hover", borderRadius: 999, overflow: "hidden", mt: 0.35 }}>
+                    <Box sx={{
+                      height: "100%",
+                      width: `${Math.max(4, (Number(cause.outstandingAmount || 0) / maxRootCauseLeakage) * 100)}%`,
+                      bgcolor: "warning.main",
+                      borderRadius: 999
+                    }} />
                   </Box>
-                  <Typography fontWeight={800}>
-                    {money(cause.outstandingAmount)}
-                  </Typography>
-                </Stack>
+                </Box>
               ))}
             </Stack>
           )}
         </Paper>
       </Box>
+
+      <Paper variant="outlined" sx={{ px: 1.5, py: 1.1, mb: 2 }}>
+        <Stack direction={{ xs: "column", sm: "row" }} alignItems={{ xs: "stretch", sm: "center" }} spacing={1.25}>
+          <Box sx={{ minWidth: 160 }}>
+            <Typography variant="caption" color="text.secondary">Recovery Financial Mix</Typography>
+            <Typography variant="body2" fontWeight={800}>
+              {money(metrics.totalRecovered)} recovered · {money(metrics.totalOutstanding)} outstanding
+            </Typography>
+          </Box>
+          <Box sx={{ flex: 1, height: 12, bgcolor: "error.light", borderRadius: 999, overflow: "hidden", display: "flex" }}>
+            <Box sx={{ width: `${recoveredPct}%`, bgcolor: "success.main" }} />
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            {financialMixTotal > 0 ? `${recoveredPct.toFixed(0)}% recovered` : "No recovery dollars yet"}
+          </Typography>
+        </Stack>
+      </Paper>
 
       <Paper sx={{ p: 2, mb: 2 }}>
         <Stack
