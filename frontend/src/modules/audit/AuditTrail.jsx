@@ -1,8 +1,8 @@
 import React from "react";
 import {
   Alert, Box, Button, Card, CardContent, Chip, Collapse, IconButton,
-  MenuItem, Pagination, Stack, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, TextField, Tooltip, Typography
+  MenuItem, Stack, Table, TableBody, TableCell, TableContainer,
+  TableHead, TableRow, TableSortLabel, TablePagination, TextField, Tooltip, Typography
 } from "@mui/material";
 import {
   Download as DownloadIcon,
@@ -88,7 +88,7 @@ function DetailLine({ label, value }) {
 export default function AuditTrail() {
   const location = useLocation();
   const initialClaimId = new URLSearchParams(location.search).get("claimId") || "";
-  const [data, setData] = React.useState({ items: [], total: 0, page: 1, pageSize: 25 });
+  const [data, setData] = React.useState({ items: [], total: 0, page: 1, pageSize: 10 });
   const [filters, setFilters] = React.useState({
     from: "",
     to: "",
@@ -104,6 +104,8 @@ export default function AuditTrail() {
     statusCode: ""
   });
   const [page, setPage] = React.useState(1);
+  const [sort, setSort] = React.useState("createdAt");
+  const [direction, setDirection] = React.useState("desc");
   const [loading, setLoading] = React.useState(true);
   const [exporting, setExporting] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -117,7 +119,7 @@ export default function AuditTrail() {
     let active = true;
     setLoading(true);
     setError("");
-    AuditApi.list({ ...apiFilters(filters), page, pageSize: 25 })
+    AuditApi.list({ ...apiFilters(filters), page, pageSize: 10, sort, direction })
       .then((result) => {
         if (active) setData(result);
       })
@@ -128,7 +130,7 @@ export default function AuditTrail() {
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [filters, page]);
+  }, [filters, page, sort, direction]);
 
   function updateFilter(key, value) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -141,6 +143,33 @@ export default function AuditTrail() {
       claimId: "", entityId: "", ipAddress: "", requestId: "", httpMethod: "", statusCode: ""
     });
     setPage(1);
+  }
+
+  function handleSort(field) {
+    setPage(1);
+    if (sort === field) {
+      setDirection((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSort(field);
+    setDirection(field === "createdAt" ? "desc" : "asc");
+  }
+
+  function sortableHeader(label, field) {
+    return (
+      <TableSortLabel
+        hideSortIcon={false}
+        sx={{
+          "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" },
+          "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" }
+        }}
+        active={sort === field}
+        direction={sort === field ? direction : "asc"}
+        onClick={() => handleSort(field)}
+      >
+        <b>{label}</b>
+      </TableSortLabel>
+    );
   }
 
   function toggleRow(id) {
@@ -336,12 +365,12 @@ export default function AuditTrail() {
                 <TableHead>
                   <TableRow>
                     <TableCell width={44} />
-                    <TableCell>When</TableCell>
-                    <TableCell>User</TableCell>
-                    <TableCell>Action</TableCell>
-                    <TableCell>Target</TableCell>
-                    <TableCell>Outcome</TableCell>
-                    <TableCell>Request</TableCell>
+                    <TableCell>{sortableHeader("When", "createdAt")}</TableCell>
+                    <TableCell>{sortableHeader("User", "actorEmail")}</TableCell>
+                    <TableCell>{sortableHeader("Action", "action")}</TableCell>
+                    <TableCell>{sortableHeader("Target", "target")}</TableCell>
+                    <TableCell>{sortableHeader("Outcome", "outcome")}</TableCell>
+                    <TableCell>{sortableHeader("Request", "request")}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -446,14 +475,16 @@ export default function AuditTrail() {
           </CardContent>
         </Card>
 
-        {data.total > data.pageSize && (
-          <Pagination
-            count={Math.ceil(data.total / data.pageSize)}
-            page={page}
-            onChange={(_event, value) => setPage(value)}
-            sx={{ alignSelf: "center" }}
-          />
-        )}
+        <TablePagination
+          component="div"
+          count={data.total}
+          page={Math.max(0, page - 1)}
+          onPageChange={(_event, value) => setPage(value + 1)}
+          rowsPerPage={10}
+          rowsPerPageOptions={[10]}
+          labelRowsPerPage="Rows per page"
+          sx={{ alignSelf: "stretch" }}
+        />
       </Stack>
     </Box>
   );
