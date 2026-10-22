@@ -101,6 +101,11 @@ const apiRateLimiter = createMemoryRateLimiter({
   max: Number(process.env.API_RATE_LIMIT_MAX || 300),
   code: "API_RATE_LIMITED"
 });
+const analyticsRateLimiter = createMemoryRateLimiter({
+  windowMs: Number(process.env.ANALYTICS_RATE_LIMIT_WINDOW_MS || 60000),
+  max: Number(process.env.ANALYTICS_RATE_LIMIT_MAX || 60),
+  code: "ANALYTICS_RATE_LIMITED"
+});
 const expensiveOperationRateLimiter = createMemoryRateLimiter({
   windowMs: Number(process.env.EXPENSIVE_RATE_LIMIT_WINDOW_MS || 60000),
   max: Number(process.env.EXPENSIVE_RATE_LIMIT_MAX || 30),
@@ -194,7 +199,12 @@ if (process.env.E2E_TEST_MODE === "true") {
 app.use("/api/denials", requireAuth, captureAsyncRouter(denialsRouter));
 app.use("/api/underpayments", requireAuth, captureAsyncRouter(underpaymentsRouter));
 app.use("/api/revenue-recovery", requireAuth, captureAsyncRouter(revenueRecoveryRouter));
-app.use("/api/analytics", requireAuth, captureAsyncRouter(analyticsRouter));
+app.use(
+  "/api/analytics",
+  analyticsRateLimiter,
+  requireAuth,
+  captureAsyncRouter(analyticsRouter)
+);
 app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectorsRouter));
 
 /**
