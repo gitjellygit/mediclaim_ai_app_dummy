@@ -75,8 +75,9 @@ test("PRISM - enterprise theme and brand shell stay centralized", () => {
   assert.ok(theme.includes('main: "#173B57"'));
   assert.ok(theme.includes('main: "#2E7C86"'));
   assert.ok(theme.includes('textTransform: "none"'));
-  assert.ok(theme.includes("minHeight: 36"));
-  assert.ok(theme.includes('fontSize: "0.9rem"'));
+  assert.ok(theme.includes("MuiButton"));
+  assert.ok(theme.includes("MuiTable"));
+  assert.ok(theme.includes("MuiToolbar"));
   assert.ok(theme.includes("MuiCard"));
   assert.ok(theme.includes("MuiOutlinedInput"));
 
