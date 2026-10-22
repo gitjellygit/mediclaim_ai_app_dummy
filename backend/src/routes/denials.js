@@ -291,6 +291,11 @@ router.get(
               priorAuthStatus: true,
               eligibilityStatus: true,
               claimForm: true,
+              payerClaimStatus: true,
+              claimStatusCheckedAt: true,
+              remittanceStatus: true,
+              remittanceReceivedAt: true,
+              paymentReference: true,
               documents: {
                 select: {
                   id: true,
@@ -887,8 +892,11 @@ router.post(
         existing.status,
         "APPEAL_SUBMITTED"
       );
+      const providedReference =
+        String(req.body.submissionReference || "").trim().slice(0, 200);
       const reference =
-        String(req.body.submissionReference || "").trim().slice(0, 200) || null;
+        providedReference ||
+        `PRISM-APL-${String(existing.id).slice(-10).toUpperCase()}`;
       const channel = String(req.body.submissionChannel || "")
         .trim()
         .toUpperCase();
@@ -906,7 +914,9 @@ router.post(
           error: "Submission date is required"
         });
       }
-      if (externalSubmittedAt.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+      const submittedDateOnly = externalSubmittedAt.toISOString().slice(0, 10);
+      const todayUtc = new Date().toISOString().slice(0, 10);
+      if (submittedDateOnly > todayUtc) {
         return res.status(400).json({
           error: "Submission date cannot be in the future"
         });

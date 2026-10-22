@@ -75,6 +75,8 @@ test("Analytics dashboard renders operational KPIs and filters", async ({ page }
   await expect(page.getByTestId("analytics-recovered")).toBeVisible();
   await expect(page.getByTestId("analytics-denial-rate")).toBeVisible();
   await expect(page.getByText("Claim Funnel")).toBeVisible();
+  await expect(page.getByTestId("analytics-disposition-donut")).toBeVisible();
+  await expect(page.getByTestId("analytics-aging-columns")).toBeVisible();
   // Use the heading role so helper/methodology text containing "A/R Aging" does not violate Playwright strict mode.
   await expect(page.getByRole("heading", { name: "A/R Aging" })).toBeVisible();
   await expect(page.getByText("Top Denial Causes")).toBeVisible();

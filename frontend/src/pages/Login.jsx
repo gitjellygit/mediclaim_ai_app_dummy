@@ -49,7 +49,6 @@ export default function Login() {
       if (!res?.user) throw new Error("No user in response");
 
       login(res.user);
-      showToast("Login successful", "success");
       setPendingRedirect(true);
     } catch (e) {
       const errorMessage = e.message || "Login failed";
