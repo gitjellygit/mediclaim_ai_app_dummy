@@ -768,9 +768,22 @@ export default function AppealWorkspace() {
                 <Alert severity="info" icon={false} sx={{ py: 0.5 }}>
                   <b>PRISM recommendation:</b> {data.recommendedAction || "Review this denial and supporting claim evidence."}
                 </Alert>
-                <Button size="small" sx={{ mt: 0.5, px: 0 }} onClick={() => setAnalysisDetailsOpen((value) => !value)}>
-                  {analysisDetailsOpen ? "Hide analysis details" : "View analysis details"}
-                </Button>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                  <Button size="small" sx={{ px: 0 }} onClick={() => setAnalysisDetailsOpen((value) => !value)}>
+                    {analysisDetailsOpen ? "Hide analysis details" : "View analysis details"}
+                  </Button>
+                  {editable && (
+                    <Button
+                      size="small"
+                      variant="text"
+                      startIcon={<FactCheck />}
+                      onClick={runAnalysis}
+                      disabled={Boolean(action)}
+                    >
+                      {action === "analysis" ? "Analyzing..." : "Re-run analysis"}
+                    </Button>
+                  )}
+                </Stack>
                 {analysisDetailsOpen && (
                   <Box sx={{ mt: 0.5, p: 1, bgcolor: "grey.50", borderRadius: 1 }}>
                     <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mb: 0.75 }}>
@@ -1007,7 +1020,7 @@ export default function AppealWorkspace() {
                 </Stack>
               </Stack>
               {packageChangedNotice && (
-                <Alert severity="warning" sx={{ mt: 1 }}>
+                <Alert severity="warning" sx={{ mt: 1 }} data-testid="appeal-package-changed">
                   The package changed after review. Preview and approve it again before recording submission.
                 </Alert>
               )}
@@ -1066,6 +1079,28 @@ export default function AppealWorkspace() {
                 <Typography variant="h6" fontWeight={850} color="success.main">{formatUSD(data.recoveredAmount)}</Typography>
               </Box>
             </Box>
+          </Paper>
+
+          <Paper variant="outlined" sx={{ p: 1.25 }}>
+            <Typography variant="subtitle2" fontWeight={800}>Recovery Assessment</Typography>
+            <Stack spacing={0.6} sx={{ mt: 0.75 }}>
+              <Chip
+                size="small"
+                label={`Appeal Eligible: ${yesNo(data.appealEligible)}`}
+                color={data.appealEligible === true ? "success" : data.appealEligible === false ? "error" : "default"}
+                variant="outlined"
+              />
+              <Chip
+                size="small"
+                label={`Correctable: ${yesNo(data.correctable)}`}
+                variant="outlined"
+              />
+              {data.assessmentOverriddenAt && (
+                <Typography variant="caption" color="warning.main">
+                  Assessment overridden {formatDate(data.assessmentOverriddenAt)}
+                </Typography>
+              )}
+            </Stack>
           </Paper>
 
           <Paper variant="outlined" sx={{ p: 1.25 }}>
