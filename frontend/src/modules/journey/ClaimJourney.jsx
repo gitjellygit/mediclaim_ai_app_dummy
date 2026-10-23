@@ -410,6 +410,12 @@ export default function ClaimJourney() {
   const [authRequired, setAuthRequired] = React.useState("");
   const [authorizationNo, setAuthorizationNo] = React.useState("");
   const [authExpiry, setAuthExpiry] = React.useState("");
+  const [priorAuthCase, setPriorAuthCase] = React.useState(null);
+  const [paSubmissionChannel, setPaSubmissionChannel] = React.useState("PAYER_PORTAL");
+  const [paPayerReference, setPaPayerReference] = React.useState("");
+  const [paResponseDueAt, setPaResponseDueAt] = React.useState("");
+  const [paRequestText, setPaRequestText] = React.useState("");
+  const [paDecisionAuthNo, setPaDecisionAuthNo] = React.useState("");
   const [payerStatus, setPayerStatus] = React.useState("ACKNOWLEDGED");
   const [remittanceStatus, setRemittanceStatus] = React.useState("AWAITING");
   const [allowedAmount, setAllowedAmount] = React.useState("");
@@ -524,6 +530,22 @@ export default function ClaimJourney() {
           recordedPatientResponsibility !== derivedPatientResponsibility
       );
       setPaymentReference(claim.paymentReference || "");
+
+      try {
+        const paResult = await ClaimsApi.getPriorAuthCase(id);
+        const paCase = paResult?.item || null;
+        setPriorAuthCase(paCase);
+        setPaSubmissionChannel(paCase?.submissionChannel || "PAYER_PORTAL");
+        setPaPayerReference(paCase?.payerReference || "");
+        setPaResponseDueAt(
+          paCase?.responseDueAt
+            ? new Date(paCase.responseDueAt).toISOString().slice(0, 10)
+            : ""
+        );
+        setPaDecisionAuthNo(paCase?.authorizationNo || claim.authorizationNo || "");
+      } catch {
+        setPriorAuthCase(null);
+      }
     } catch (error) {
       setJourney(null);
       setPageError(error.message || "Unable to load claim journey");
@@ -879,6 +901,29 @@ export default function ClaimJourney() {
   const finalPayerStatus = ["APPROVED", "PARTIALLY_APPROVED", "DENIED", "PAID"].includes(
     claim?.payerClaimStatus || ""
   );
+
+  async function syncAuthorizationCase() {
+    return runAction(
+      "pa-case-sync",
+      () => ClaimsApi.syncPriorAuthCase(claim.id),
+      "Prior authorization case updated"
+    );
+  }
+
+  async function updateAuthorizationCase(actionName, payload = {}) {
+    if (!priorAuthCase?.id) return null;
+    const result = await runAction(
+      `pa-case-${String(actionName).toLowerCase()}`,
+      () =>
+        ClaimsApi.updatePriorAuthCase(priorAuthCase.id, {
+          action: actionName,
+          ...payload
+        }),
+      "Prior authorization case updated"
+    );
+    if (result) setPaRequestText("");
+    return result;
+  }
 
   function remittanceDisplayData(result = null) {
     const response = result?.result || result || latestRemittance?.responsePayload || {};
@@ -2071,6 +2116,180 @@ export default function ClaimJourney() {
                     ? "Authorization Current"
                     : "Check Prior Auth"}
                 </Button>
+
+                {claim.priorAuthRequired != null && !workflowAdvanced && (
+                  <Paper variant="outlined" sx={{ p: 1.1, mt: 0.5 }} data-testid="prior-auth-case-panel">
+                    <Stack spacing={0.8}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                        <Typography variant="subtitle2" fontWeight={800}>Authorization Case</Typography>
+                        <Chip
+                          size="small"
+                          color={stageColor(priorAuthCase?.status || (claim.priorAuthRequired ? "REQUIRED" : "NOT_REQUIRED"))}
+                          label={humanStatus(priorAuthCase?.status || (claim.priorAuthRequired ? "REQUIRED" : "NOT_REQUIRED"))}
+                        />
+                      </Stack>
+
+                      {!priorAuthCase ? (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={action !== ""}
+                          onClick={syncAuthorizationCase}
+                        >
+                          {action === "pa-case-sync" ? "Building..." : "Build Authorization Case"}
+                        </Button>
+                      ) : (
+                        <>
+                          {Array.isArray(priorAuthCase.missingDocuments) && priorAuthCase.missingDocuments.length > 0 && (
+                            <Alert severity="warning">
+                              Missing evidence: {priorAuthCase.missingDocuments.map((item) => item.label || item.category).join(", ")}
+                            </Alert>
+                          )}
+
+                          {["REQUIRED", "READY_TO_SUBMIT"].includes(priorAuthCase.status) && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              disabled={action !== ""}
+                              onClick={syncAuthorizationCase}
+                            >
+                              Refresh Evidence Checklist
+                            </Button>
+                          )}
+
+                          {priorAuthCase.status === "READY_TO_SUBMIT" && (
+                            <Stack spacing={0.75}>
+                              <TextField
+                                size="small"
+                                label="Submission Channel"
+                                value={paSubmissionChannel}
+                                onChange={(event) => setPaSubmissionChannel(event.target.value)}
+                              />
+                              <TextField
+                                size="small"
+                                label="Payer Reference"
+                                value={paPayerReference}
+                                onChange={(event) => setPaPayerReference(event.target.value)}
+                              />
+                              <TextField
+                                size="small"
+                                type="date"
+                                label="Response Due"
+                                InputLabelProps={{ shrink: true }}
+                                value={paResponseDueAt}
+                                onChange={(event) => setPaResponseDueAt(event.target.value)}
+                              />
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={!paSubmissionChannel.trim() || action !== ""}
+                                onClick={() =>
+                                  updateAuthorizationCase("SUBMIT", {
+                                    submissionChannel: paSubmissionChannel.trim(),
+                                    payerReference: paPayerReference.trim() || null,
+                                    responseDueAt: paResponseDueAt
+                                      ? new Date(`${paResponseDueAt}T23:59:59.000Z`).toISOString()
+                                      : null
+                                  })
+                                }
+                              >
+                                Record PA Submission
+                              </Button>
+                              <Typography variant="caption" color="text.secondary">
+                                Records the payer submission/reference. PRISM does not transmit externally unless a connector explicitly supports prior authorization.
+                              </Typography>
+                            </Stack>
+                          )}
+
+                          {priorAuthCase.status === "SUBMITTED" && (
+                            <Stack spacing={0.75}>
+                              <TextField
+                                size="small"
+                                label="Additional Information Request"
+                                value={paRequestText}
+                                onChange={(event) => setPaRequestText(event.target.value)}
+                              />
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={!paRequestText.trim() || action !== ""}
+                                onClick={() =>
+                                  updateAuthorizationCase("REQUEST_ADDITIONAL_INFO", {
+                                    requestText: paRequestText.trim()
+                                  })
+                                }
+                              >
+                                Record Additional Info Request
+                              </Button>
+                              <TextField
+                                size="small"
+                                label="Authorization Number"
+                                value={paDecisionAuthNo}
+                                onChange={(event) => setPaDecisionAuthNo(event.target.value)}
+                              />
+                              <Stack direction="row" spacing={0.75}>
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  disabled={!paDecisionAuthNo.trim() || action !== ""}
+                                  onClick={() =>
+                                    updateAuthorizationCase("APPROVE", {
+                                      authorizationNo: paDecisionAuthNo.trim(),
+                                      effectiveTo: authExpiry
+                                        ? new Date(`${authExpiry}T23:59:59.000Z`).toISOString()
+                                        : null
+                                    })
+                                  }
+                                >
+                                  Record Approval
+                                </Button>
+                                <Button
+                                  size="small"
+                                  color="error"
+                                  variant="outlined"
+                                  disabled={action !== ""}
+                                  onClick={() => updateAuthorizationCase("DENY")}
+                                >
+                                  Record Denial
+                                </Button>
+                              </Stack>
+                            </Stack>
+                          )}
+
+                          {priorAuthCase.status === "ADDITIONAL_INFO_REQUESTED" && (
+                            <Stack spacing={0.75}>
+                              {(Array.isArray(priorAuthCase.additionalInfoRequests)
+                                ? priorAuthCase.additionalInfoRequests
+                                : []
+                              ).filter((item) => item?.status === "OPEN").map((item) => (
+                                <Alert key={item.id} severity="warning">{item.text}</Alert>
+                              ))}
+                              <Button
+                                size="small"
+                                variant="contained"
+                                disabled={action !== ""}
+                                onClick={() => updateAuthorizationCase("RESOLVE_ADDITIONAL_INFO")}
+                              >
+                                Mark Additional Info Resolved
+                              </Button>
+                            </Stack>
+                          )}
+
+                          {priorAuthCase.payerReference && (
+                            <Typography variant="caption" color="text.secondary">
+                              Payer reference: {priorAuthCase.payerReference}
+                            </Typography>
+                          )}
+                          {priorAuthCase.responseDueAt && (
+                            <Typography variant="caption" color="text.secondary">
+                              Response due: {date(priorAuthCase.responseDueAt)}
+                            </Typography>
+                          )}
+                        </>
+                      )}
+                    </Stack>
+                  </Paper>
+                )}
               </Stack>
             </StageCard>
 
