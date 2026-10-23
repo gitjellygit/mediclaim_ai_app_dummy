@@ -652,19 +652,19 @@ export default function ClaimJourney() {
   React.useEffect(() => {
     if (!focusedAction) return;
 
-    const target =
-      document.getElementById(`journey-stage-${focusedStage}`) ||
-      document.querySelector(`[data-testid="${focusedAction}"]`);
-    if (!target) return;
+    const clearFocus = (event) => {
+      const target = event.target?.closest?.(
+        `#journey-stage-${focusedStage}, [data-testid="${focusedAction}"]`
+      );
+      if (!target) return;
 
-    const clearFocus = () => {
       const next = new URLSearchParams(searchParams);
       next.delete("focus");
       setSearchParams(next, { replace: true });
     };
 
-    target.addEventListener("click", clearFocus, { once: true });
-    return () => target.removeEventListener("click", clearFocus);
+    document.addEventListener("click", clearFocus, true);
+    return () => document.removeEventListener("click", clearFocus, true);
   }, [focusedAction, focusedStage, claim?.id, searchParams, setSearchParams]);
 
   const focusActionSx = (key) =>
