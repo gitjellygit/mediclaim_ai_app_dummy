@@ -37,7 +37,24 @@ export function calculatePaymentVariance(expectedPayerPayment, actualPaidAmount)
   };
 }
 
-export function expectedPaymentFromClaim(claim) {
+export function expectedPaymentFromClaim(claim, contractCalculation = null) {
+  if (contractCalculation?.available === true && claim?.paidAmount != null) {
+    const variance = calculatePaymentVariance(
+      contractCalculation.expectedPayerPayment,
+      claim.paidAmount
+    );
+    if (!variance) return null;
+
+    return {
+      ...variance,
+      sourceTransactionId: null,
+      expectedPaymentSource: "CONTRACT_FEE_SCHEDULE",
+      contractId: contractCalculation.contractId,
+      calculationSnapshot: contractCalculation,
+      hasUnderpayment: variance.varianceAmount > 0
+    };
+  }
+
   const remittance = (claim?.payerTransactions || []).find(
     (tx) => tx.transactionType === "REMITTANCE"
   );
@@ -56,6 +73,22 @@ export function expectedPaymentFromClaim(claim) {
   return {
     ...variance,
     sourceTransactionId: remittance?.transactionId || null,
+    expectedPaymentSource: "REMITTANCE_EXPECTATION",
+    contractId: null,
+    calculationSnapshot: contractCalculation?.available === false
+      ? {
+          contractCalculationAvailable: false,
+          reason: contractCalculation.reason,
+          contractId: contractCalculation.contractId || null,
+          contractName: contractCalculation.contractName || null,
+          contractVersion: contractCalculation.contractVersion || null,
+          unmatchedLines: contractCalculation.unmatchedLines || []
+        }
+      : {
+          contractCalculationAvailable: false,
+          reason: "NO_APPLICABLE_CONTRACT",
+          sourceTransactionId: remittance?.transactionId || null
+        },
     hasUnderpayment: variance.varianceAmount > 0
   };
 }
