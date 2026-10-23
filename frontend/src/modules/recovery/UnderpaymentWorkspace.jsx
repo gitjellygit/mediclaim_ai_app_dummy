@@ -299,6 +299,77 @@ export default function UnderpaymentWorkspace() {
             </Box>
           </Paper>
 
+          <Paper variant="outlined" sx={{ p: 1.5 }} data-testid="expected-payment-basis">
+            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+              <Box>
+                <Typography variant="subtitle1" fontWeight={800}>Expected Payment Basis</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  The source and calculation used to determine the expected payer payment for this recovery case.
+                </Typography>
+              </Box>
+              <Chip
+                size="small"
+                color={detail.expectedPaymentSource === "CONTRACT_FEE_SCHEDULE" ? "success" : "default"}
+                variant="outlined"
+                label={
+                  detail.expectedPaymentSource === "CONTRACT_FEE_SCHEDULE"
+                    ? "Contract Fee Schedule"
+                    : "Remittance Expectation"
+                }
+              />
+            </Stack>
+
+            {detail.expectedPaymentSource === "CONTRACT_FEE_SCHEDULE" ? (
+              <Stack spacing={0.9} sx={{ mt: 1.2 }}>
+                <Typography variant="body2">
+                  <b>Contract:</b> {detail.calculationSnapshot?.contractName || "—"}{" "}
+                  {detail.calculationSnapshot?.contractVersion
+                    ? `· Version ${detail.calculationSnapshot.contractVersion}`
+                    : ""}
+                </Typography>
+                {(detail.calculationSnapshot?.calculatedLines || []).map((line) => (
+                  <Box
+                    key={line.serviceLineId || line.feeScheduleLineId}
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: { xs: "1fr", md: "1.1fr .6fr .8fr .8fr" },
+                      gap: 0.75,
+                      py: 0.65,
+                      borderBottom: "1px solid",
+                      borderColor: "divider"
+                    }}
+                  >
+                    <Typography variant="body2" fontWeight={700}>
+                      {line.cptHcpcsCode}
+                      {Array.isArray(line.modifiers) && line.modifiers.length
+                        ? ` · ${line.modifiers.join(", ")}`
+                        : ""}
+                    </Typography>
+                    <Typography variant="body2">{line.units} unit{Number(line.units) === 1 ? "" : "s"}</Typography>
+                    <Typography variant="body2">{formatUSD(line.unitRate)} / unit</Typography>
+                    <Typography variant="body2" fontWeight={800}>{formatUSD(line.expectedAmount)}</Typography>
+                  </Box>
+                ))}
+              </Stack>
+            ) : (
+              <Stack spacing={0.6} sx={{ mt: 1.2 }}>
+                <Typography variant="body2">
+                  Expected payment came from the payer/remittance expectation recorded with adjudication.
+                </Typography>
+                {detail.calculationSnapshot?.reason === "INCOMPLETE_FEE_SCHEDULE" && (
+                  <Alert severity="warning">
+                    A matching contract exists, but its fee schedule does not cover every verified service line. PRISM did not invent a contractual amount and used the payer/remittance expectation instead.
+                  </Alert>
+                )}
+                {detail.calculationSnapshot?.reason === "INSTITUTIONAL_CONTRACT_CALCULATION_NOT_SUPPORTED" && (
+                  <Alert severity="info">
+                    Contract calculation for institutional claims is not enabled in this version, so the payer/remittance expectation was preserved.
+                  </Alert>
+                )}
+              </Stack>
+            )}
+          </Paper>
+
           <Paper variant="outlined" sx={{ p: 1.5 }}>
             <Typography variant="subtitle1" fontWeight={800}>Recovery Case</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
