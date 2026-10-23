@@ -37,7 +37,7 @@ test("Rules UI exposes evidence and never claims automatic activation", () => {
   assert.match(ui, /Denial Prevention Recommendations/);
   assert.match(ui, /Recommendations never activate automatically/);
   assert.match(ui, /Approve Draft/);
-  assert.match(ui, /Draft rule created disabled/);
+  assert.match(ui, /Draft rule created\. Activation is controlled separately in Rules/);
   assert.match(ui, /Review only/);
 });
 
