@@ -227,6 +227,7 @@ model Organization {
   integrationEvents IntegrationEvent[]
   claimExternalIdentities ClaimExternalIdentity[]
   priorAuthCases PriorAuthCase[]
+  payerContracts PayerContract[]
 }
 
 model Claim {
@@ -774,6 +775,51 @@ model DenialCase {
   @@index([denialCategory])
 }
 
+model PayerContract {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name          String
+  payerName     String?
+  payerEdiId    String?
+  version       String
+  status        String @default("ACTIVE")
+  effectiveFrom DateTime @db.Date
+  effectiveTo   DateTime? @db.Date
+  sourceType    String @default("MANUAL")
+  notes         String?
+
+  feeScheduleLines FeeScheduleLine[]
+  underpaymentCases UnderpaymentCase[]
+
+  @@unique([organizationId, name, version])
+  @@index([organizationId, payerEdiId, status])
+  @@index([organizationId, payerName, status])
+  @@index([effectiveFrom, effectiveTo])
+}
+
+model FeeScheduleLine {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contractId String
+  contract   PayerContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  cptHcpcsCode String
+  modifier     String?
+  placeOfService String?
+  unitRate      Decimal @db.Decimal(14,2)
+  description   String?
+
+  @@index([contractId, cptHcpcsCode])
+  @@index([cptHcpcsCode])
+}
+
 model UnderpaymentCase {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
@@ -788,6 +834,11 @@ model UnderpaymentCase {
   varianceAmount       Decimal @db.Decimal(14,2)
   recoveredAmount      Decimal @default(0) @db.Decimal(14,2)
 
+  expectedPaymentSource String? @default("REMITTANCE_EXPECTATION")
+  contractId             String?
+  contract               PayerContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  calculationSnapshot    Json?
+
   reasonCategory     String? @default("PAYER_PAYMENT_BELOW_EXPECTED")
   sourceTransactionId String?
   notes              String?
@@ -796,6 +847,7 @@ model UnderpaymentCase {
 
   @@index([status])
   @@index([detectedAt])
+  @@index([contractId])
 }
 
 model IntegrationConnection {

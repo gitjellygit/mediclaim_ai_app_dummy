@@ -8,6 +8,10 @@ import {
   assertUnderpaymentTransition,
   expectedPaymentFromClaim
 } from "../services/underpaymentRecovery.js";
+import {
+  calculateContractExpectedPayment,
+  selectApplicableContract
+} from "../services/contractReimbursement.js";
 
 const router = express.Router();
 
@@ -79,6 +83,8 @@ function serializeCase(item) {
     actualPaidAmount: Number(item.actualPaidAmount || 0),
     varianceAmount: Number(item.varianceAmount || 0),
     recoveredAmount: Number(item.recoveredAmount || 0),
+    expectedPaymentSource: item.expectedPaymentSource || "REMITTANCE_EXPECTATION",
+    calculationSnapshot: item.calculationSnapshot || null,
     outstandingAmount: Math.max(
       0,
       Number(item.varianceAmount || 0) - Number(item.recoveredAmount || 0)
@@ -202,7 +208,8 @@ router.post("/detect/:claimId", requirePermission(PERMISSIONS.RECOVERY_EDIT), as
         deletedAt: null
       },
       include: {
-        payerTransactions: { orderBy: { createdAt: "desc" } }
+        payerTransactions: { orderBy: { createdAt: "desc" } },
+        serviceLines: { orderBy: { createdAt: "asc" } }
       }
     });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
@@ -210,7 +217,20 @@ router.post("/detect/:claimId", requirePermission(PERMISSIONS.RECOVERY_EDIT), as
       return res.status(409).json({ error: "Posted remittance is required before underpayment detection" });
     }
 
-    const detected = expectedPaymentFromClaim(claim);
+    const contracts = await prisma.payerContract.findMany({
+      where: {
+        organizationId: req.user.organizationId,
+        status: "ACTIVE"
+      },
+      include: { feeScheduleLines: true },
+      orderBy: { effectiveFrom: "desc" }
+    });
+    const applicableContract = selectApplicableContract(claim, contracts);
+    const contractCalculation = applicableContract
+      ? calculateContractExpectedPayment(claim, applicableContract)
+      : { available: false, reason: "NO_APPLICABLE_CONTRACT" };
+
+    const detected = expectedPaymentFromClaim(claim, contractCalculation);
     if (!detected) {
       return res.status(409).json({ error: "Expected and actual payer payment are required" });
     }
@@ -225,19 +245,27 @@ router.post("/detect/:claimId", requirePermission(PERMISSIONS.RECOVERY_EDIT), as
         expectedPayerPayment: detected.expectedPayerPayment,
         actualPaidAmount: detected.actualPaidAmount,
         varianceAmount: detected.varianceAmount,
-        sourceTransactionId: detected.sourceTransactionId
+        sourceTransactionId: detected.sourceTransactionId,
+        expectedPaymentSource: detected.expectedPaymentSource,
+        contractId: detected.contractId,
+        calculationSnapshot: detected.calculationSnapshot
       },
       update: {
         expectedPayerPayment: detected.expectedPayerPayment,
         actualPaidAmount: detected.actualPaidAmount,
         varianceAmount: detected.varianceAmount,
-        sourceTransactionId: detected.sourceTransactionId
+        sourceTransactionId: detected.sourceTransactionId,
+        expectedPaymentSource: detected.expectedPaymentSource,
+        contractId: detected.contractId,
+        calculationSnapshot: detected.calculationSnapshot
       }
     });
 
     await audit(req, claim.id, "UNDERPAYMENT_DETECTED", item.id, {
       varianceAmount: detected.varianceAmount,
-      sourceTransactionId: detected.sourceTransactionId
+      sourceTransactionId: detected.sourceTransactionId,
+      expectedPaymentSource: detected.expectedPaymentSource,
+      contractBased: detected.expectedPaymentSource === "CONTRACT_FEE_SCHEDULE"
     });
 
     res.status(201).json({ detected: true, item: serializeCase(item) });

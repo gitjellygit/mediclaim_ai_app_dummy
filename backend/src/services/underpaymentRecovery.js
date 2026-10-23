@@ -1,4 +1,5 @@
 import { differenceMoney, validMoney } from "../utils/money.js";
+import { calculateContractExpectedPayment, selectApplicableContract } from "./contractReimbursement.js";
 
 const TRANSITIONS = {
   OPEN: new Set(["OPEN", "REVIEWING", "WRITTEN_OFF", "CLOSED"]),
@@ -37,7 +38,24 @@ export function calculatePaymentVariance(expectedPayerPayment, actualPaidAmount)
   };
 }
 
-export function expectedPaymentFromClaim(claim) {
+export function expectedPaymentFromClaim(claim, contractCalculation = null) {
+  if (contractCalculation?.available === true && claim?.paidAmount != null) {
+    const variance = calculatePaymentVariance(
+      contractCalculation.expectedPayerPayment,
+      claim.paidAmount
+    );
+    if (!variance) return null;
+
+    return {
+      ...variance,
+      sourceTransactionId: null,
+      expectedPaymentSource: "CONTRACT_FEE_SCHEDULE",
+      contractId: contractCalculation.contractId,
+      calculationSnapshot: contractCalculation,
+      hasUnderpayment: variance.varianceAmount > 0
+    };
+  }
+
   const remittance = (claim?.payerTransactions || []).find(
     (tx) => tx.transactionType === "REMITTANCE"
   );
@@ -56,8 +74,81 @@ export function expectedPaymentFromClaim(claim) {
   return {
     ...variance,
     sourceTransactionId: remittance?.transactionId || null,
+    expectedPaymentSource: "REMITTANCE_EXPECTATION",
+    contractId: null,
+    calculationSnapshot: contractCalculation?.available === false
+      ? {
+          contractCalculationAvailable: false,
+          reason: contractCalculation.reason,
+          contractId: contractCalculation.contractId || null,
+          contractName: contractCalculation.contractName || null,
+          contractVersion: contractCalculation.contractVersion || null,
+          unmatchedLines: contractCalculation.unmatchedLines || []
+        }
+      : {
+          contractCalculationAvailable: false,
+          reason: "NO_APPLICABLE_CONTRACT",
+          sourceTransactionId: remittance?.transactionId || null
+        },
     hasUnderpayment: variance.varianceAmount > 0
   };
 }
 
 export const underpaymentTransitionMatrix = TRANSITIONS;
+
+
+export async function resolveUnderpaymentExpectation(
+  db,
+  claim,
+  {
+    payerExpectedPayment = null,
+    actualPaidAmount = null,
+    sourceTransactionId = null
+  } = {}
+) {
+  const contracts = await db.payerContract.findMany({
+    where: {
+      organizationId: claim.organizationId,
+      status: "ACTIVE"
+    },
+    include: { feeScheduleLines: true },
+    orderBy: { effectiveFrom: "desc" }
+  });
+
+  const applicableContract = selectApplicableContract(claim, contracts);
+  const contractCalculation = applicableContract
+    ? calculateContractExpectedPayment(claim, applicableContract)
+    : { available: false, reason: "NO_APPLICABLE_CONTRACT" };
+
+  const paymentClaim = {
+    ...claim,
+    paidAmount:
+      actualPaidAmount == null ? claim.paidAmount : actualPaidAmount
+  };
+
+  if (contractCalculation.available) {
+    return expectedPaymentFromClaim(paymentClaim, contractCalculation);
+  }
+
+  const remittanceClaim = {
+    ...paymentClaim,
+    approvedAmount:
+      payerExpectedPayment == null
+        ? paymentClaim.approvedAmount
+        : payerExpectedPayment,
+    payerTransactions: sourceTransactionId
+      ? [
+          {
+            transactionType: "REMITTANCE",
+            transactionId: sourceTransactionId,
+            responsePayload: {
+              expectedPayerPayment: payerExpectedPayment
+            }
+          },
+          ...(paymentClaim.payerTransactions || [])
+        ]
+      : paymentClaim.payerTransactions || []
+  };
+
+  return expectedPaymentFromClaim(remittanceClaim, contractCalculation);
+}

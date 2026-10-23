@@ -17,6 +17,7 @@ import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js
 import { assertExpectedClaimStatus } from "../services/claimStateCas.js";
 import { createPayerConnector, createPayerConnectorForClaim, payerConnectorStatusForClaim } from "../services/payerGateway.js";
 import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
+import { resolveUnderpaymentExpectation } from "../services/underpaymentRecovery.js";
 import { requirePermission } from "../middleware/auth.js";
 import { PERMISSIONS, hasPermission } from "../security/permissions.js";
 import { minimumNecessaryClaim } from "../security/phiView.js";
@@ -1099,7 +1100,8 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
         deletedAt: null
       },
       include: {
-        payerTransactions: { orderBy: { createdAt: "desc" }, take: 50 }
+        payerTransactions: { orderBy: { createdAt: "desc" }, take: 50 },
+        serviceLines: { orderBy: { createdAt: "asc" } }
       }
     });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
@@ -1222,7 +1224,14 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
       (item) => item?.reasonCode || item?.reason
     );
     const isDeniedEra = String(result.claimStatusCode || "") === "4";
-    const underpaymentAmount = Number(result.potentialUnderpayment || 0);
+    const expectation = !isDeniedEra
+      ? await resolveUnderpaymentExpectation(prisma, claim, {
+          payerExpectedPayment: result.expectedPayerPayment ?? result.approvedAmount ?? null,
+          actualPaidAmount: result.paidAmount,
+          sourceTransactionId: result.transactionId
+        })
+      : null;
+    const underpaymentAmount = Number(expectation?.varianceAmount || 0);
 
     let posted;
     try {
@@ -1355,7 +1364,7 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
 
       if (
         !isDeniedEra &&
-        result.expectedPayerPayment != null &&
+        expectation != null &&
         result.paidAmount != null &&
         underpaymentAmount <= 0.009 &&
         existingUnderpaymentCase &&
@@ -1376,7 +1385,7 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
         });
       } else if (
         !isDeniedEra &&
-        result.expectedPayerPayment != null &&
+        expectation != null &&
         result.paidAmount != null &&
         underpaymentAmount > 0.009
       ) {
@@ -1384,17 +1393,23 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
           where: { claimId: claim.id },
           create: {
             claimId: claim.id,
-            expectedPayerPayment: result.expectedPayerPayment,
-            actualPaidAmount: result.paidAmount,
+            expectedPayerPayment: expectation.expectedPayerPayment,
+            actualPaidAmount: expectation.actualPaidAmount,
             varianceAmount: underpaymentAmount,
             sourceTransactionId: result.transactionId,
+            expectedPaymentSource: expectation.expectedPaymentSource,
+            contractId: expectation.contractId,
+            calculationSnapshot: expectation.calculationSnapshot,
             reasonCategory: "PAYER_PAYMENT_BELOW_EXPECTED"
           },
           update: {
-            expectedPayerPayment: result.expectedPayerPayment,
-            actualPaidAmount: result.paidAmount,
+            expectedPayerPayment: expectation.expectedPayerPayment,
+            actualPaidAmount: expectation.actualPaidAmount,
             varianceAmount: underpaymentAmount,
             sourceTransactionId: result.transactionId,
+            expectedPaymentSource: expectation.expectedPaymentSource,
+            contractId: expectation.contractId,
+            calculationSnapshot: expectation.calculationSnapshot,
             detectedAt: now,
             status:
               existingUnderpaymentCase &&

@@ -22,6 +22,7 @@ import analyticsRouter from "./routes/analytics.js";
 import payerConnectorsRouter from "./routes/payerConnectors.js";
 import integrationsRouter from "./routes/integrations.js";
 import priorAuthCasesRouter from "./routes/priorAuthCases.js";
+import payerContractsRouter from "./routes/payerContracts.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
 import { createMemoryRateLimiter } from "./middleware/rateLimit.js";
@@ -137,6 +138,17 @@ const priorAuthRateLimiter = rateLimit({
     code: "PRIOR_AUTH_RATE_LIMITED"
   }
 });
+const payerContractsRateLimiter = rateLimit({
+  windowMs: Number(process.env.PAYER_CONTRACTS_RATE_LIMIT_WINDOW_MS || 60000),
+  limit: Number(process.env.PAYER_CONTRACTS_RATE_LIMIT_MAX || 60),
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    error: "Too many requests",
+    message: "Payer contract request rate limit exceeded. Retry after the current window resets.",
+    code: "PAYER_CONTRACTS_RATE_LIMITED"
+  }
+});
 const expensiveOperationRateLimiter = createMemoryRateLimiter({
   windowMs: Number(process.env.EXPENSIVE_RATE_LIMIT_WINDOW_MS || 60000),
   max: Number(process.env.EXPENSIVE_RATE_LIMIT_MAX || 30),
@@ -239,6 +251,7 @@ app.use(
 app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectorsRouter));
 app.use("/api/integrations", integrationsRateLimiter, requireAuth, captureAsyncRouter(integrationsRouter));
 app.use("/api/prior-auth", priorAuthRateLimiter, requireAuth, captureAsyncRouter(priorAuthCasesRouter));
+app.use("/api/payer-contracts", payerContractsRateLimiter, requireAuth, captureAsyncRouter(payerContractsRouter));
 
 /**
  * DOCUMENT ROUTES
