@@ -38,6 +38,31 @@ export const ClaimsApi = {
     return withReadRetry(() => api("/api/rules/meta"));
   },
 
+  listRuleRecommendations() {
+    return withReadRetry(() => api("/api/rules/recommendations"));
+  },
+
+  refreshRuleRecommendations(minimumOccurrences = 3) {
+    return api("/api/rules/recommendations/refresh", {
+      method: "POST",
+      body: JSON.stringify({ minimumOccurrences })
+    });
+  },
+
+  approveRuleRecommendation(id) {
+    return api(`/api/rules/recommendations/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  },
+
+  rejectRuleRecommendation(id, reason) {
+    return api(`/api/rules/recommendations/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason })
+    });
+  },
+
   getRule(id) {
     return withReadRetry(() => api("/api/rules/" + id));
   },
