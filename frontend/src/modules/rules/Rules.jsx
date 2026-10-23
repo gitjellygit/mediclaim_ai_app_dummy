@@ -391,7 +391,7 @@ export default function Rules() {
                     )}
                     {item.status === "APPROVED" && (
                       <Typography variant="caption" display="block" color="success.main">
-                        Draft rule created disabled. Review and enable it separately when ready.
+                        Draft rule created. Activation is controlled separately in Rules.
                       </Typography>
                     )}
                   </Box>
