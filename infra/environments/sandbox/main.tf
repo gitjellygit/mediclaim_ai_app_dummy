@@ -33,7 +33,10 @@ resource "aws_subnet" "data" {
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-  route { cidr_block = "0.0.0.0/0", gateway_id = aws_internet_gateway.main.id }
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
 }
 
 resource "aws_route_table_association" "public" {
@@ -97,8 +100,14 @@ resource "aws_s3_bucket_policy" "documents" {
   })
 }
 
-resource "random_password" "db" { length = 32, special = true }
-resource "random_password" "jwt" { length = 48, special = false }
+resource "random_password" "db" {
+  length  = 32
+  special = true
+}
+resource "random_password" "jwt" {
+  length  = 48
+  special = false
+}
 
 resource "aws_db_subnet_group" "main" {
   name = format("%s-db", var.name_prefix)
@@ -118,9 +127,24 @@ resource "aws_security_group" "app" {
 resource "aws_security_group" "alb" {
   name_prefix = format("%s-alb-", var.name_prefix)
   vpc_id = aws_vpc.main.id
-  ingress { from_port = 443, to_port = 443, protocol = "tcp", cidr_blocks = ["0.0.0.0/0"] }
-  ingress { from_port = 80, to_port = 80, protocol = "tcp", cidr_blocks = ["0.0.0.0/0"] }
-  egress { from_port = 0, to_port = 0, protocol = "-1", cidr_blocks = ["0.0.0.0/0"] }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 resource "aws_security_group_rule" "app_from_alb" {
@@ -262,7 +286,10 @@ resource "aws_iam_role_policy" "app_documents" {
 
 resource "aws_ecs_cluster" "main" {
   name = var.name_prefix
-  setting { name = "containerInsights", value = "enabled" }
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
 }
 
 resource "aws_ecs_task_definition" "backend" {
@@ -323,7 +350,12 @@ resource "aws_lb_target_group" "backend" {
   protocol = "HTTP"
   vpc_id = aws_vpc.main.id
   target_type = "ip"
-  health_check { path = "/health/ready", healthy_threshold = 2, unhealthy_threshold = 3, matcher = "200" }
+  health_check {
+    path                = "/health/ready"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    matcher             = "200"
+  }
 }
 
 resource "aws_lb_listener" "http" {
@@ -332,7 +364,11 @@ resource "aws_lb_listener" "http" {
   protocol = "HTTP"
   default_action {
     type = "redirect"
-    redirect { port = "443", protocol = "HTTPS", status_code = "HTTP_301" }
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
   }
 }
 
@@ -342,7 +378,10 @@ resource "aws_lb_listener" "https" {
   protocol = "HTTPS"
   ssl_policy = "ELBSecurityPolicy-TLS13-1-2-2021-06"
   certificate_arn = var.certificate_arn
-  default_action { type = "forward", target_group_arn = aws_lb_target_group.backend.arn }
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.backend.arn
+  }
 }
 
 resource "aws_ecs_service" "backend" {
