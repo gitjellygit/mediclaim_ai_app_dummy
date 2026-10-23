@@ -340,6 +340,27 @@ export const ClaimsApi = {
     });
   },
 
+  createPriorAuthCase(id, data = {}) {
+    return api(`${BASE}/${id}/journey/prior-auth/case`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+  },
+
+  updatePriorAuthCase(id, data) {
+    return api(`${BASE}/${id}/journey/prior-auth/case`, {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
+  },
+
+  submitPriorAuthCase(id, data) {
+    return api(`${BASE}/${id}/journey/prior-auth/case/submit`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+  },
+
   refreshPayerStatus(id) {
     return api(`${BASE}/${id}/journey/claim-status/refresh`, {
       method: "POST",
