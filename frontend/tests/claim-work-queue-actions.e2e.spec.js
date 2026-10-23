@@ -95,7 +95,7 @@ test("Claim Work Queue renders the renamed work queue and compact smart filters"
   await page.keyboard.press("Escape");
 
   await filters.click();
-  await page.getByRole("menuitem", { name: "Due within 7 days" }).click();
+  await page.getByRole("menuitem", { name: "Filing due within 7 days" }).click();
   await page.keyboard.press("Escape");
 
   await expect(queueRow(page, "08-FILING-URGENT")).toBeVisible();
