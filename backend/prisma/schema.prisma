@@ -228,6 +228,7 @@ model Organization {
   claimExternalIdentities ClaimExternalIdentity[]
   priorAuthCases PriorAuthCase[]
   payerContracts PayerContract[]
+  ruleRecommendations RuleRecommendation[]
 }
 
 model Claim {
@@ -588,6 +589,39 @@ model CodeDefinition {
   @@unique([releaseId, code])
   @@index([code])
   @@index([releaseId, activeFrom, activeTo])
+}
+
+model RuleRecommendation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  fingerprint     String
+  status          String @default("PENDING")
+  denialCategory  String
+  carcCode        String?
+  rarcCode        String?
+  payerName       String?
+  payerEdiId      String?
+
+  occurrenceCount Int
+  revenueAtRisk   Decimal @default(0) @db.Decimal(14,2)
+  firstObservedAt DateTime?
+  lastObservedAt  DateTime?
+
+  proposedRule    Json?
+  rationale       String
+  approvedRuleId  String?
+  reviewedByUserId String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+
+  @@unique([organizationId, fingerprint])
+  @@index([organizationId, status, updatedAt])
+  @@index([organizationId, denialCategory])
 }
 
 model Rule {
