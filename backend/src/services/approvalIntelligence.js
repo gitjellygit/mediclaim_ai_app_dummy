@@ -280,8 +280,14 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
     actionState = "READY_TO_SUBMIT";
   }
 
+  const workDueDays = daysUntil(claim?.workDueAt, now);
+  const followUpDays = daysUntil(claim?.nextFollowUpAt, now);
+  const workOverdue =
+    (workDueDays != null && workDueDays < 0) ||
+    (followUpDays != null && followUpDays < 0);
+
   let priority = "LOW";
-  if (!alreadySubmitted && (filingState === "EXPIRED" || filingState === "URGENT")) {
+  if (workOverdue || (!alreadySubmitted && (filingState === "EXPIRED" || filingState === "URGENT"))) {
     priority = "CRITICAL";
   } else if (
     !alreadySubmitted &&
@@ -367,6 +373,19 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
       connectorId: claim.payerConnectorId || null
     },
     documentsCount: Array.isArray(claim?.documents) ? claim.documents.length : 0,
+    workManagement: {
+      assignedToUser: claim.assignedToUser || null,
+      workTeam: claim.workTeam || null,
+      workDueAt: claim.workDueAt || null,
+      nextFollowUpAt: claim.nextFollowUpAt || null,
+      lastWorkedAt: claim.lastWorkedAt || null,
+      escalatedAt: claim.escalatedAt || null,
+      overdue: workOverdue,
+      dueInDays:
+        followUpDays != null
+          ? followUpDays
+          : workDueDays
+    },
     paymentOutlook: paymentOutlook(claim),
     nextActions: actions.slice(0, 5)
   };

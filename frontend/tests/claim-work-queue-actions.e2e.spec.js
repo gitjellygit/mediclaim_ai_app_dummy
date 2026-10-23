@@ -95,7 +95,7 @@ test("Claim Work Queue renders the renamed work queue and compact smart filters"
   await page.keyboard.press("Escape");
 
   await filters.click();
-  await page.getByRole("menuitem", { name: "Due within 7 days" }).click();
+  await page.getByRole("menuitem", { name: "Filing due within 7 days" }).click();
   await page.keyboard.press("Escape");
 
   await expect(queueRow(page, "08-FILING-URGENT")).toBeVisible();
@@ -322,4 +322,39 @@ test("View Claim remains available as the secondary action", async ({ page }) =>
   await queueRow(page, "01-READY").getByRole("button", { name: "View Claim" }).click();
 
   await expect(page).toHaveURL(new RegExp(`/claims/${scenario("01-READY").id}$`));
+});
+
+
+test("Claim Work Queue supports audited ownership and follow-up filtering", async ({ page }) => {
+  const usersResponse = await apiContext.get("/api/claims/work-management/users", {
+    headers: { Authorization: `Bearer ${auth.accessToken}` }
+  });
+  expect(usersResponse.ok()).toBeTruthy();
+  const users = (await usersResponse.json()).items;
+  const currentUser = users.find((item) => item.email === email);
+  expect(currentUser).toBeTruthy();
+
+  const target = scenario("01-READY");
+  const followUp = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+  const update = await apiContext.patch(`/api/claims/${target.id}/work-management`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: {
+      assignedToUserId: currentUser.id,
+      workTeam: "Billing Follow-up",
+      nextFollowUpAt: followUp,
+      escalated: false
+    }
+  });
+  expect(update.ok()).toBeTruthy();
+
+  await openQueue(page, "01-READY");
+  const row = queueRow(page, "01-READY");
+  await expect(row).toContainText(email);
+  await expect(row).toContainText("Billing Follow-up");
+
+  const filters = page.getByTestId("claim-work-queue-filters");
+  await filters.click();
+  await page.getByRole("menuitem", { name: "Assigned to me" }).click();
+  await page.keyboard.press("Escape");
+  await expect(row).toBeVisible();
 });
