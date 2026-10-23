@@ -54,6 +54,39 @@ test("payment variance - underpaid remittance automatically opens a recovery cas
     "connect payer"
   );
 
+  const claimForContract = await apiJson(
+    await apiContext.get(`/api/claims/${claimId}`, { headers }),
+    "load claim for contract"
+  );
+  const contractLinesByCode = new Map();
+  for (const line of claimForContract.serviceLines || []) {
+    if (!line.cptHcpcsCode || line.verified === false) continue;
+    const key = String(line.cptHcpcsCode).toUpperCase();
+    if (!contractLinesByCode.has(key)) {
+      contractLinesByCode.set(key, {
+        cptHcpcsCode: key,
+        unitRate: 9999.99,
+        description: "Synthetic high-rate contract test"
+      });
+    }
+  }
+  expect(contractLinesByCode.size).toBeGreaterThan(0);
+
+  const contractResponse = await apiContext.post("/api/payer-contracts", {
+    headers,
+    data: {
+      name: `E2E Contract ${Date.now()}`,
+      payerName: claimForContract.connectedPayerName || claimForContract.payerName,
+      payerEdiId: claimForContract.payerEdiId || null,
+      version: "E2E-1",
+      effectiveFrom: "2026-01-01",
+      effectiveTo: "2026-12-31",
+      sourceType: "MANUAL",
+      feeScheduleLines: [...contractLinesByCode.values()]
+    }
+  });
+  expect(contractResponse.status()).toBe(201);
+
   await apiJson(
     await apiContext.post(`/api/claims/${claimId}/payer-simulation/eligibility`, { headers }),
     "eligibility"
@@ -110,6 +143,9 @@ test("payment variance - underpaid remittance automatically opens a recovery cas
   recoveryCaseId = recoveryCase.id;
   expect(recoveryCase.status).toBe("OPEN");
   expect(recoveryCase.outstandingAmount).toBeGreaterThan(0);
+  expect(recoveryCase.expectedPaymentSource).toBe("CONTRACT_FEE_SCHEDULE");
+  expect(recoveryCase.calculationSnapshot.contractName).toContain("E2E Contract");
+  expect(recoveryCase.calculationSnapshot.calculatedLines.length).toBeGreaterThan(0);
 });
 
 test("payment variance - recovery workflow enforces ordered transitions", async () => {
@@ -176,4 +212,6 @@ test("payment variance - workspace shows the detected case", async ({ page }) =>
   await expect(page.getByText("E2E-PAYMENT-VARIANCE", { exact: true })).toBeVisible();
   await expect(page.getByText("RECOVERED", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Payment Variance", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("expected-payment-basis")).toContainText("Contract Fee Schedule");
+  await expect(page.getByTestId("expected-payment-basis")).toContainText("E2E Contract");
 });
