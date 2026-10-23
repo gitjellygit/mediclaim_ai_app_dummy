@@ -333,6 +333,13 @@ export const ClaimsApi = {
     });
   },
 
+  checkPriorAuth(id) {
+    return api(`${BASE}/${id}/journey/prior-auth/check`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  },
+
   evaluatePriorAuth(id, data) {
     return api(`${BASE}/${id}/journey/prior-auth/evaluate`, {
       method: "POST",
