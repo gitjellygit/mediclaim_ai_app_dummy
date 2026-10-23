@@ -235,6 +235,16 @@ model Claim {
   createdById    String?
   createdBy      User? @relation("ClaimCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
+  // Operational work-management ownership. These fields are organization-scoped
+  // and do not change payer/claim lifecycle state.
+  assignedToUserId String?
+  assignedToUser   User? @relation("ClaimAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  workTeam         String?
+  workDueAt        DateTime?
+  nextFollowUpAt   DateTime?
+  lastWorkedAt     DateTime?
+  escalatedAt      DateTime?
+
   patientName String
   payerName   String
   policyNo    String?
@@ -388,6 +398,9 @@ model Claim {
 
   @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
+  @@index([assignedToUserId])
+  @@index([organizationId, workDueAt])
+  @@index([organizationId, nextFollowUpAt])
   @@index([payerConnectorId])
   @@index([organizationId, status, submissionStartedAt])
 }
@@ -655,6 +668,7 @@ model User {
 
   refreshTokens RefreshToken[]
   createdClaims Claim[] @relation("ClaimCreatedBy")
+  assignedClaims Claim[] @relation("ClaimAssignedTo")
   auditEvents AuditEvent[] @relation("AuditActor")
   reviewedCodingSuggestions CodingSuggestion[] @relation("CodingSuggestionReviewer")
 
