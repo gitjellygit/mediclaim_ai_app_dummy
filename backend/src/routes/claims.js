@@ -464,6 +464,8 @@ router.get(
       const requestedStatus = String(req.query.status || "ALL").toUpperCase();
       const requestedWork = String(req.query.work || "ALL").toUpperCase();
       const requestedFiling = String(req.query.filing || "ALL").toUpperCase();
+      const requestedOwner = String(req.query.owner || "ALL").trim();
+      const requestedFollowUp = String(req.query.followUp || "ALL").toUpperCase();
       const requestedSort = String(req.query.sort || "priority").trim();
       const requestedDirection = String(req.query.direction || "asc").toLowerCase();
       const allowedSorts = new Set([
@@ -496,9 +498,15 @@ router.get(
         "PRIOR_AUTH"
       ]);
       const allowedFiling = new Set(["EXPIRED", "DUE_7", "DUE_30"]);
+      const allowedFollowUp = new Set(["OVERDUE", "DUE_TODAY", "DUE_7"]);
       const status = allowedStatuses.has(requestedStatus) ? requestedStatus : null;
       const work = allowedWork.has(requestedWork) ? requestedWork : null;
       const filing = allowedFiling.has(requestedFiling) ? requestedFiling : null;
+      const followUp = allowedFollowUp.has(requestedFollowUp) ? requestedFollowUp : null;
+      const owner =
+        ["ALL", "ME", "UNASSIGNED"].includes(requestedOwner.toUpperCase())
+          ? requestedOwner.toUpperCase()
+          : requestedOwner.slice(0, 100);
 
       const now = new Date();
       const filingRiskCutoff = new Date(now);
@@ -507,6 +515,12 @@ router.get(
       filing7.setUTCDate(filing7.getUTCDate() + 7);
       const filing30 = new Date(now);
       filing30.setUTCDate(filing30.getUTCDate() + 30);
+      const todayStart = new Date(now);
+      todayStart.setUTCHours(0, 0, 0, 0);
+      const tomorrowStart = new Date(todayStart);
+      tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
+      const followUp7 = new Date(now);
+      followUp7.setUTCDate(followUp7.getUTCDate() + 7);
       const staleSubmissionCutoff = new Date(
         now.getTime() - submissionLockTimeoutMs()
       );
@@ -551,6 +565,37 @@ router.get(
         });
       }
 
+      if (owner === "ME") {
+        filters.push({ assignedToUserId: req.user.id });
+      } else if (owner === "UNASSIGNED") {
+        filters.push({ assignedToUserId: null });
+      } else if (owner !== "ALL") {
+        filters.push({ assignedToUserId: owner });
+      }
+
+      if (followUp === "OVERDUE") {
+        filters.push({
+          OR: [
+            { nextFollowUpAt: { lt: now } },
+            { workDueAt: { lt: now } }
+          ]
+        });
+      } else if (followUp === "DUE_TODAY") {
+        filters.push({
+          OR: [
+            { nextFollowUpAt: { gte: todayStart, lt: tomorrowStart } },
+            { workDueAt: { gte: todayStart, lt: tomorrowStart } }
+          ]
+        });
+      } else if (followUp === "DUE_7") {
+        filters.push({
+          OR: [
+            { nextFollowUpAt: { gte: now, lte: followUp7 } },
+            { workDueAt: { gte: now, lte: followUp7 } }
+          ]
+        });
+      }
+
       if (q) {
         filters.push({
           OR: [
@@ -581,13 +626,17 @@ router.get(
         staleSubmitting,
         filingRisk,
         totalClaimed,
-        readyAmount
+        readyAmount,
+        unassignedCount,
+        overdueCount,
+        dueTodayCount
       ] = await Promise.all([
         prisma.claim.count({ where }),
         prisma.claim.findMany({
           where,
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           include: {
+            assignedToUser: { select: { id: true, email: true, role: true } },
             documents: { select: { id: true } },
             serviceLines: {
               select: { id: true, verified: true, cptHcpcsCode: true }
@@ -671,6 +720,36 @@ router.get(
             status: "READY"
           },
           _sum: { amount: true }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            assignedToUserId: null,
+            status: { notIn: ["PAID"] }
+          }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: { notIn: ["PAID"] },
+            OR: [
+              { nextFollowUpAt: { lt: now } },
+              { workDueAt: { lt: now } }
+            ]
+          }
+        }),
+        prisma.claim.count({
+          where: {
+            organizationId: orgId(req),
+            deletedAt: null,
+            status: { notIn: ["PAID"] },
+            OR: [
+              { nextFollowUpAt: { gte: todayStart, lt: tomorrowStart } },
+              { workDueAt: { gte: todayStart, lt: tomorrowStart } }
+            ]
+          }
         })
       ]);
 
@@ -761,6 +840,8 @@ router.get(
           status: status || "ALL",
           work: work || "ALL",
           filing: filing || "ALL",
+          owner,
+          followUp: followUp || "ALL",
           sort,
           direction
         }
@@ -782,7 +863,10 @@ router.get(
           staleSubmitting,
           filingRisk,
           totalClaimed: Number(totalClaimed._sum.amount || 0),
-          readyAmount: Number(readyAmount._sum.amount || 0)
+          readyAmount: Number(readyAmount._sum.amount || 0),
+          unassigned: unassignedCount,
+          overdue: overdueCount,
+          dueToday: dueTodayCount
         },
         submissionAlert:
           staleSubmitting > 0
@@ -811,6 +895,111 @@ router.get(
         error: "Unable to load approval intelligence"
       });
     }
+  }
+);
+
+router.get(
+  "/work-management/users",
+  requirePermission(PERMISSIONS.CLAIM_EDIT),
+  async (req, res) => {
+    const users = await prisma.user.findMany({
+      where: { organizationId: orgId(req) },
+      select: { id: true, email: true, role: true },
+      orderBy: { email: "asc" }
+    });
+    res.json({ items: users });
+  }
+);
+
+router.patch(
+  "/:id/work-management",
+  requirePermission(PERMISSIONS.CLAIM_EDIT),
+  async (req, res) => {
+    const schema = z.object({
+      assignedToUserId: z.string().trim().min(1).max(100).nullable().optional(),
+      workTeam: z.string().trim().max(100).nullable().optional(),
+      workDueAt: z.string().datetime({ offset: true }).nullable().optional(),
+      nextFollowUpAt: z.string().datetime({ offset: true }).nullable().optional(),
+      escalated: z.boolean().optional()
+    }).strict();
+
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid work-management input",
+        code: "INVALID_WORK_MANAGEMENT_INPUT"
+      });
+    }
+
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
+      select: { id: true, assignedToUserId: true, workTeam: true, workDueAt: true, nextFollowUpAt: true, escalatedAt: true }
+    });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    if (parsed.data.assignedToUserId) {
+      const assignee = await prisma.user.findFirst({
+        where: {
+          id: parsed.data.assignedToUserId,
+          organizationId: orgId(req)
+        },
+        select: { id: true }
+      });
+      if (!assignee) {
+        return res.status(400).json({
+          error: "Assignee must belong to the current organization",
+          code: "INVALID_WORK_ASSIGNEE"
+        });
+      }
+    }
+
+    const data = {
+      ...(Object.prototype.hasOwnProperty.call(parsed.data, "assignedToUserId")
+        ? { assignedToUserId: parsed.data.assignedToUserId }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(parsed.data, "workTeam")
+        ? { workTeam: parsed.data.workTeam || null }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(parsed.data, "workDueAt")
+        ? { workDueAt: parsed.data.workDueAt ? new Date(parsed.data.workDueAt) : null }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(parsed.data, "nextFollowUpAt")
+        ? { nextFollowUpAt: parsed.data.nextFollowUpAt ? new Date(parsed.data.nextFollowUpAt) : null }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(parsed.data, "escalated")
+        ? { escalatedAt: parsed.data.escalated ? new Date() : null }
+        : {}),
+      lastWorkedAt: new Date()
+    };
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data,
+      include: {
+        assignedToUser: { select: { id: true, email: true, role: true } }
+      }
+    });
+
+    await auditClaim(req, {
+      claimId: claim.id,
+      action: "CLAIM_WORK_MANAGEMENT_UPDATED",
+      metadata: {
+        assigned: Boolean(updated.assignedToUserId),
+        workTeam: updated.workTeam || null,
+        hasDueDate: Boolean(updated.workDueAt),
+        hasFollowUp: Boolean(updated.nextFollowUpAt),
+        escalated: Boolean(updated.escalatedAt)
+      }
+    });
+
+    res.json({
+      assignedToUser: updated.assignedToUser,
+      workTeam: updated.workTeam,
+      workDueAt: updated.workDueAt,
+      nextFollowUpAt: updated.nextFollowUpAt,
+      lastWorkedAt: updated.lastWorkedAt,
+      escalatedAt: updated.escalatedAt
+    });
   }
 );
 
