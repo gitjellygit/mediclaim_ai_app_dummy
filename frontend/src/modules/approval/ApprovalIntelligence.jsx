@@ -7,7 +7,13 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControl,
   InputAdornment,
+  InputLabel,
   LinearProgress,
   ListSubheader,
   Menu,
@@ -22,6 +28,7 @@ import {
   TablePagination,
   TableRow,
   TableSortLabel,
+  Select,
   TextField,
   Tooltip,
   Typography
@@ -302,6 +309,11 @@ export default function ApprovalIntelligence() {
   const [status, setStatus] = React.useState("ALL");
   const [work, setWork] = React.useState("ALL");
   const [filing, setFiling] = React.useState("ALL");
+  const [owner, setOwner] = React.useState("ALL");
+  const [followUp, setFollowUp] = React.useState("ALL");
+  const [workUsers, setWorkUsers] = React.useState([]);
+  const [workEditor, setWorkEditor] = React.useState(null);
+  const [workSaving, setWorkSaving] = React.useState(false);
   const [filterAnchor, setFilterAnchor] = React.useState(null);
   const [page, setPage] = React.useState(0);
   const [pageSize, setPageSize] = React.useState(10);
@@ -316,6 +328,20 @@ export default function ApprovalIntelligence() {
     return () => window.clearTimeout(timer);
   }, [search]);
 
+  React.useEffect(() => {
+    let active = true;
+    ClaimsApi.workManagementUsers()
+      .then((result) => {
+        if (active) setWorkUsers(Array.isArray(result?.items) ? result.items : []);
+      })
+      .catch(() => {
+        if (active) setWorkUsers([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const load = React.useCallback(async () => {
     setLoading(true);
     setError("");
@@ -328,6 +354,8 @@ export default function ApprovalIntelligence() {
         status,
         work,
         filing,
+        owner,
+        followUp,
         sort,
         direction
       });
@@ -345,7 +373,7 @@ export default function ApprovalIntelligence() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, query, status, work, filing, sort, direction]);
+  }, [page, pageSize, query, status, work, filing, owner, followUp, sort, direction]);
 
   React.useEffect(() => {
     load();
@@ -374,7 +402,10 @@ export default function ApprovalIntelligence() {
     staleSubmitting: 0,
     filingRisk: 0,
     totalClaimed: 0,
-    readyAmount: 0
+    readyAmount: 0,
+    unassigned: 0,
+    overdue: 0,
+    dueToday: 0
   };
 
   function openClaim(claim, useNextAction = false, explicitPath = null) {
@@ -388,6 +419,42 @@ export default function ApprovalIntelligence() {
         }
       }
     );
+  }
+
+  function openWorkEditor(claim) {
+    const workState = claim.workManagement || {};
+    setWorkEditor({
+      claim,
+      assignedToUserId: workState.assignedToUser?.id || "",
+      workTeam: workState.workTeam || "",
+      workDueAt: workState.workDueAt ? String(workState.workDueAt).slice(0, 10) : "",
+      nextFollowUpAt: workState.nextFollowUpAt ? String(workState.nextFollowUpAt).slice(0, 10) : "",
+      escalated: Boolean(workState.escalatedAt)
+    });
+  }
+
+  async function saveWorkManagement() {
+    if (!workEditor?.claim?.id) return;
+    setWorkSaving(true);
+    try {
+      await ClaimsApi.updateWorkManagement(workEditor.claim.id, {
+        assignedToUserId: workEditor.assignedToUserId || null,
+        workTeam: workEditor.workTeam.trim() || null,
+        workDueAt: workEditor.workDueAt
+          ? new Date(`${workEditor.workDueAt}T23:59:59.000Z`).toISOString()
+          : null,
+        nextFollowUpAt: workEditor.nextFollowUpAt
+          ? new Date(`${workEditor.nextFollowUpAt}T23:59:59.000Z`).toISOString()
+          : null,
+        escalated: Boolean(workEditor.escalated)
+      });
+      setWorkEditor(null);
+      await load();
+    } catch (error) {
+      setError(error?.message || "Work ownership could not be updated.");
+    } finally {
+      setWorkSaving(false);
+    }
   }
 
   return (
@@ -530,6 +597,14 @@ export default function ApprovalIntelligence() {
         </Card>
       </Box>
 
+      <Paper variant="outlined" sx={{ px: 1.5, py: 1, mb: 1.5 }}>
+        <Stack direction={{ xs: "column", md: "row" }} spacing={2} useFlexGap flexWrap="wrap">
+          <Typography variant="body2"><b>{metrics.unassigned}</b> unassigned</Typography>
+          <Typography variant="body2" color={metrics.overdue > 0 ? "error.main" : "text.primary"}><b>{metrics.overdue}</b> overdue</Typography>
+          <Typography variant="body2" color={metrics.dueToday > 0 ? "warning.main" : "text.primary"}><b>{metrics.dueToday}</b> due today</Typography>
+        </Stack>
+      </Paper>
+
       <Paper sx={{ p: 1.5, mb: 2 }}>
         <Stack
           direction={{ xs: "column", md: "row" }}
@@ -552,19 +627,19 @@ export default function ApprovalIntelligence() {
           />
 
           <Button
-            variant={(status !== "ALL" || work !== "ALL" || filing !== "ALL") ? "contained" : "outlined"}
+            variant={(status !== "ALL" || work !== "ALL" || filing !== "ALL" || owner !== "ALL" || followUp !== "ALL") ? "contained" : "outlined"}
             startIcon={<Tune />}
             onClick={(event) => setFilterAnchor(event.currentTarget)}
             sx={{ whiteSpace: "nowrap" }}
             data-testid="claim-work-queue-filters"
           >
             Smart Filters
-            {(status !== "ALL" || work !== "ALL" || filing !== "ALL")
-              ? ` (${[status !== "ALL", work !== "ALL", filing !== "ALL"].filter(Boolean).length})`
+            {(status !== "ALL" || work !== "ALL" || filing !== "ALL" || owner !== "ALL" || followUp !== "ALL")
+              ? ` (${[status !== "ALL", work !== "ALL", filing !== "ALL", owner !== "ALL", followUp !== "ALL"].filter(Boolean).length})`
               : ""}
           </Button>
 
-          {(status !== "ALL" || work !== "ALL" || filing !== "ALL") && (
+          {(status !== "ALL" || work !== "ALL" || filing !== "ALL" || owner !== "ALL" || followUp !== "ALL") && (
             <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
               {work !== "ALL" && (
                 <Chip
@@ -597,6 +672,20 @@ export default function ApprovalIntelligence() {
                     setFiling("ALL");
                     setPage(0);
                   }}
+                />
+              )}
+              {owner !== "ALL" && (
+                <Chip
+                  size="small"
+                  label={owner === "ME" ? "Assigned to me" : owner === "UNASSIGNED" ? "Unassigned" : "Assigned user"}
+                  onDelete={() => { setOwner("ALL"); setPage(0); }}
+                />
+              )}
+              {followUp !== "ALL" && (
+                <Chip
+                  size="small"
+                  label={{ OVERDUE: "Overdue", DUE_TODAY: "Due today", DUE_7: "Due ≤ 7 days" }[followUp] || followUp}
+                  onDelete={() => { setFollowUp("ALL"); setPage(0); }}
                 />
               )}
               {status !== "ALL" && (
@@ -658,6 +747,31 @@ export default function ApprovalIntelligence() {
             </MenuItem>
           ))}
 
+          <ListSubheader disableSticky>Ownership</ListSubheader>
+          {[
+            ["ALL", "Any owner"],
+            ["ME", "Assigned to me"],
+            ["UNASSIGNED", "Unassigned"]
+          ].map(([value, label]) => (
+            <MenuItem key={value} onClick={() => { setOwner(value); setPage(0); }}>
+              <Box sx={{ width: 28 }}>{owner === value ? <Check fontSize="small" /> : null}</Box>
+              {label}
+            </MenuItem>
+          ))}
+
+          <ListSubheader disableSticky>Follow-up</ListSubheader>
+          {[
+            ["ALL", "Any follow-up"],
+            ["OVERDUE", "Overdue"],
+            ["DUE_TODAY", "Due today"],
+            ["DUE_7", "Due within 7 days"]
+          ].map(([value, label]) => (
+            <MenuItem key={value} onClick={() => { setFollowUp(value); setPage(0); }}>
+              <Box sx={{ width: 28 }}>{followUp === value ? <Check fontSize="small" /> : null}</Box>
+              {label}
+            </MenuItem>
+          ))}
+
           <ListSubheader disableSticky>Claim status</ListSubheader>
           {[
             ["ALL", "All statuses"],
@@ -681,12 +795,14 @@ export default function ApprovalIntelligence() {
             </MenuItem>
           ))}
 
-          {(status !== "ALL" || work !== "ALL" || filing !== "ALL") && (
+          {(status !== "ALL" || work !== "ALL" || filing !== "ALL" || owner !== "ALL" || followUp !== "ALL") && (
             <MenuItem
               onClick={() => {
                 setStatus("ALL");
                 setWork("ALL");
                 setFiling("ALL");
+                setOwner("ALL");
+                setFollowUp("ALL");
                 setPage(0);
                 setFilterAnchor(null);
               }}
@@ -724,6 +840,7 @@ export default function ApprovalIntelligence() {
                   <TableCell>{sortableHeader("Readiness", "readiness", sort, direction, handleSort, "Pre-submission validation score. After submission, it is shown only as the historical score at submission.")}</TableCell>
                   <TableCell>{sortableHeader("Pre-Submit Risk", "risk", sort, direction, handleSort, "Rules-based pre-submission risk signal. It is not a payer approval or denial probability and is not actionable after submission.")}</TableCell>
                   <TableCell>{sortableHeader("Payment Outlook", "payment", sort, direction, handleSort, "Estimated reimbursement before adjudication, payer-approved amount during adjudication, revenue at risk after denial, or actual payer payment after remittance.")}</TableCell>
+                  <TableCell><b>Owner / Follow-up</b></TableCell>
                   <TableCell><b>Next Action</b></TableCell>
                 </TableRow>
               </TableHead>
@@ -978,6 +1095,29 @@ export default function ApprovalIntelligence() {
                         </Typography>
                       </TableCell>
 
+                      <TableCell sx={{ minWidth: 200 }}>
+                        <Stack spacing={0.45} alignItems="flex-start">
+                          <Typography variant="body2" fontWeight={700}>
+                            {claim.workManagement?.assignedToUser?.email || "Unassigned"}
+                          </Typography>
+                          {claim.workManagement?.workTeam && (
+                            <Typography variant="caption" color="text.secondary">{claim.workManagement.workTeam}</Typography>
+                          )}
+                          <Typography
+                            variant="caption"
+                            color={claim.workManagement?.overdue ? "error.main" : "text.secondary"}
+                          >
+                            Follow-up {date(claim.workManagement?.nextFollowUpAt || claim.workManagement?.workDueAt)}
+                          </Typography>
+                          {claim.workManagement?.escalatedAt && (
+                            <Chip size="small" color="error" variant="outlined" label="Escalated" />
+                          )}
+                          <Button size="small" variant="text" onClick={() => openWorkEditor(claim)}>
+                            Assign / Follow-up
+                          </Button>
+                        </Stack>
+                      </TableCell>
+
                       <TableCell sx={{ minWidth: 280 }}>
                         <Stack spacing={0.75} alignItems="flex-start">
                           {primaryAction && (
@@ -1055,6 +1195,71 @@ export default function ApprovalIntelligence() {
         medical-necessity, coding, enrollment, contract, and timely-filing requirements.
         The work queue does not replace payer policy or coding review.
       </Alert>
+
+      <Dialog open={Boolean(workEditor)} onClose={() => !workSaving && setWorkEditor(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Assign Work & Follow-up</DialogTitle>
+        <DialogContent>
+          {workEditor && (
+            <Stack spacing={1.25} sx={{ mt: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                {workEditor.claim.patientName} · {workEditor.claim.payerName}
+              </Typography>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Owner</InputLabel>
+                <Select
+                  label="Owner"
+                  value={workEditor.assignedToUserId}
+                  onChange={(event) => setWorkEditor((current) => ({ ...current, assignedToUserId: event.target.value }))}
+                >
+                  <MenuItem value="">Unassigned</MenuItem>
+                  {workUsers.map((user) => (
+                    <MenuItem key={user.id} value={user.id}>{user.email} · {user.role}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <TextField
+                size="small"
+                label="Team"
+                value={workEditor.workTeam}
+                onChange={(event) => setWorkEditor((current) => ({ ...current, workTeam: event.target.value }))}
+              />
+              <TextField
+                size="small"
+                type="date"
+                label="Work Due"
+                InputLabelProps={{ shrink: true }}
+                value={workEditor.workDueAt}
+                onChange={(event) => setWorkEditor((current) => ({ ...current, workDueAt: event.target.value }))}
+              />
+              <TextField
+                size="small"
+                type="date"
+                label="Next Follow-up"
+                InputLabelProps={{ shrink: true }}
+                value={workEditor.nextFollowUpAt}
+                onChange={(event) => setWorkEditor((current) => ({ ...current, nextFollowUpAt: event.target.value }))}
+              />
+              <FormControl size="small" fullWidth>
+                <InputLabel>Escalation</InputLabel>
+                <Select
+                  label="Escalation"
+                  value={workEditor.escalated ? "YES" : "NO"}
+                  onChange={(event) => setWorkEditor((current) => ({ ...current, escalated: event.target.value === "YES" }))}
+                >
+                  <MenuItem value="NO">Normal</MenuItem>
+                  <MenuItem value="YES">Escalated</MenuItem>
+                </Select>
+              </FormControl>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWorkEditor(null)} disabled={workSaving}>Cancel</Button>
+          <Button variant="contained" onClick={saveWorkManagement} disabled={workSaving}>
+            {workSaving ? "Saving..." : "Save Work"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
