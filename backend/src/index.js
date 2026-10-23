@@ -126,6 +126,17 @@ const integrationsRateLimiter = rateLimit({
     code: "INTEGRATIONS_RATE_LIMITED"
   }
 });
+const priorAuthRateLimiter = rateLimit({
+  windowMs: Number(process.env.PRIOR_AUTH_RATE_LIMIT_WINDOW_MS || 60000),
+  limit: Number(process.env.PRIOR_AUTH_RATE_LIMIT_MAX || 90),
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    error: "Too many requests",
+    message: "Prior authorization request rate limit exceeded. Retry after the current window resets.",
+    code: "PRIOR_AUTH_RATE_LIMITED"
+  }
+});
 const expensiveOperationRateLimiter = createMemoryRateLimiter({
   windowMs: Number(process.env.EXPENSIVE_RATE_LIMIT_WINDOW_MS || 60000),
   max: Number(process.env.EXPENSIVE_RATE_LIMIT_MAX || 30),
@@ -227,7 +238,7 @@ app.use(
 );
 app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectorsRouter));
 app.use("/api/integrations", integrationsRateLimiter, requireAuth, captureAsyncRouter(integrationsRouter));
-app.use("/api/prior-auth", requireAuth, captureAsyncRouter(priorAuthCasesRouter));
+app.use("/api/prior-auth", priorAuthRateLimiter, requireAuth, captureAsyncRouter(priorAuthCasesRouter));
 
 /**
  * DOCUMENT ROUTES
