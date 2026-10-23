@@ -7,7 +7,8 @@ const SAFE_METADATA_KEYS = new Set([
   "softDeleted","documentCount","riskLevel","score","hasBlockingIssues",
   "codingSystem","suggestionStatus","rulesetRevision","affectedClaims","readyClaimsReopened",
   "previousVersion","newVersion","previousSeverity","newSeverity","previousEnabled","newEnabled",
-  "previousScope","newScope","ruleCode","ruleRevision"
+  "previousScope","newScope","ruleCode","ruleRevision",
+  "integrationKind","environment","eventType","direction","errorCode","externalLinked","correlatedToClaim","duplicate"
 ]);
 
 function normalizeAuditId(value) {

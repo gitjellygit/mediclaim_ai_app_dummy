@@ -20,6 +20,7 @@ import revenueRecoveryRouter from "./routes/revenueRecovery.js";
 import auditRouter from "./routes/audit.js";
 import analyticsRouter from "./routes/analytics.js";
 import payerConnectorsRouter from "./routes/payerConnectors.js";
+import integrationsRouter from "./routes/integrations.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
 import { createMemoryRateLimiter } from "./middleware/rateLimit.js";
@@ -111,6 +112,17 @@ const analyticsRateLimiter = rateLimit({
     error: "Too many requests",
     message: "Analytics request rate limit exceeded. Retry after the current window resets.",
     code: "ANALYTICS_RATE_LIMITED"
+  }
+});
+const integrationsRateLimiter = rateLimit({
+  windowMs: Number(process.env.INTEGRATIONS_RATE_LIMIT_WINDOW_MS || 60000),
+  limit: Number(process.env.INTEGRATIONS_RATE_LIMIT_MAX || 120),
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    error: "Too many requests",
+    message: "Integration API rate limit exceeded. Retry after the current window resets.",
+    code: "INTEGRATIONS_RATE_LIMITED"
   }
 });
 const expensiveOperationRateLimiter = createMemoryRateLimiter({
@@ -213,6 +225,7 @@ app.use(
   captureAsyncRouter(analyticsRouter)
 );
 app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectorsRouter));
+app.use("/api/integrations", integrationsRateLimiter, requireAuth, captureAsyncRouter(integrationsRouter));
 
 /**
  * DOCUMENT ROUTES
