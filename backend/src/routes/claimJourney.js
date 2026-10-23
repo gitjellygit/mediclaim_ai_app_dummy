@@ -123,6 +123,7 @@ router.use((req, res, next) => {
     req.method === "GET" && /\/journey$/.test(path) ? "CLAIM_JOURNEY_VIEWED" :
     /\/payer-connection$/.test(path) ? "PAYER_CONNECTED" :
     /\/eligibility\/precheck$/.test(path) ? "ELIGIBILITY_CHECKED" :
+    /\/prior-auth\/check$/.test(path) ? "PRIOR_AUTH_EXTERNAL_CHECKED" :
     /\/prior-auth\/evaluate$/.test(path) ? "PRIOR_AUTH_EVALUATED" :
     /\/claim-status\/refresh$/.test(path) ? "PAYER_STATUS_REFRESHED" :
     /\/claim-status$/.test(path) ? "PAYER_STATUS_UPDATED" :
@@ -680,6 +681,128 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
     res.status(500).json({ error: "Eligibility pre-check failed. Please retry." });
   }
 });
+
+router.post(
+  "/:id/journey/prior-auth/check",
+  requirePermission(PERMISSIONS.PAYER_ACTION),
+  async (req, res) => {
+    try {
+      const parsedInput = parseMutation(emptyMutationSchema, req.body);
+      if (!parsedInput.ok) return res.status(400).json(parsedInput.response);
+
+      const claim = await prisma.claim.findFirst({
+        where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
+      });
+      if (!claim) return res.status(404).json({ error: "Claim not found" });
+      if (isClaimLocked(claim)) {
+        return res.status(409).json({ error: "Prior authorization is locked after claim submission", code: "CLAIM_LOCKED" });
+      }
+      if (claim.eligibilityStatus !== "VERIFIED") {
+        return res.status(409).json({ error: "Eligibility must be verified before prior authorization can be checked" });
+      }
+
+      const descriptor = payerConnectorStatusForClaim(claim);
+      if (
+        descriptor.mode !== "LIVE" ||
+        !descriptor.configured ||
+        !descriptor.capabilities.includes("requestPriorAuth")
+      ) {
+        return res.status(409).json({
+          error: "The connected payer does not support configured prior authorization requests",
+          code: "PRIOR_AUTH_CONNECTOR_UNAVAILABLE"
+        });
+      }
+
+      const connector = createPayerConnectorForClaim(claim);
+      const result = await connector.requestPriorAuth(claim, {});
+      const required = result.required === true;
+      const allowedStatuses = new Set(["NOT_REQUIRED", "REQUIRED", "APPROVED", "DENIED", "NEEDS_REVIEW"]);
+      const priorAuthStatus = allowedStatuses.has(result.status)
+        ? result.status
+        : required
+        ? "NEEDS_REVIEW"
+        : "NOT_REQUIRED";
+      const expiry = result.expiry ? new Date(result.expiry) : null;
+      if (expiry && Number.isNaN(expiry.getTime())) {
+        return res.status(502).json({ error: "Payer returned an invalid prior authorization expiry date" });
+      }
+
+      const transaction = await prisma.payerTransaction.create({
+        data: {
+          claimId: claim.id,
+          transactionId:
+            result.transactionId ||
+            `${descriptor.id}-PA-${claim.id}-${Date.now()}`,
+          mode: descriptor.environment,
+          payerCode: claim.connectedPayerCode || claim.payerEdiId || claim.payerName,
+          transactionType: "PRIOR_AUTH",
+          status: priorAuthStatus,
+          latencyMs: result.latencyMs || null,
+          requestPayload: {
+            connectorId: descriptor.id,
+            productionPayerResponse: descriptor.environment === "PRODUCTION"
+          },
+          responsePayload: stripSensitivePayerPayload(result)
+        }
+      });
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const updatedClaim = await tx.claim.update({
+          where: { id: claim.id },
+          data: {
+            priorAuthRequired: required,
+            priorAuthStatus,
+            priorAuthCheckedAt: new Date(),
+            authorizationNo: result.authorizationNo || null,
+            priorAuthExpiry: expiry
+          }
+        });
+
+        if (required) {
+          await tx.priorAuthorizationCase.upsert({
+            where: { claimId: claim.id },
+            create: {
+              claimId: claim.id,
+              status: priorAuthStatus === "APPROVED" ? "APPROVED" : priorAuthStatus === "DENIED" ? "DENIED" : "REQUIRED",
+              requirementSource: "PAYER",
+              authorizationNo: result.authorizationNo || null,
+              expiry,
+              decisionAt: ["APPROVED", "DENIED"].includes(priorAuthStatus) ? new Date() : null
+            },
+            update: {
+              status: priorAuthStatus === "APPROVED" ? "APPROVED" : priorAuthStatus === "DENIED" ? "DENIED" : "REQUIRED",
+              requirementSource: "PAYER",
+              authorizationNo: result.authorizationNo || null,
+              expiry,
+              decisionAt: ["APPROVED", "DENIED"].includes(priorAuthStatus) ? new Date() : null
+            }
+          });
+        } else {
+          await tx.priorAuthorizationCase.deleteMany({ where: { claimId: claim.id } });
+        }
+
+        await markReadinessChecksStale(tx, claim.id, "Prior authorization payer response changed");
+        return updatedClaim;
+      });
+
+      res.json({
+        message: "Prior authorization payer response recorded",
+        livePayerVerification: descriptor.environment === "PRODUCTION",
+        connector: descriptor,
+        transaction: sanitizePayerTransaction(transaction),
+        claim: updated
+      });
+    } catch (error) {
+      console.error("[claim-journey] external prior auth failed", {
+        claimId: req.params.id,
+        code: error?.code || null
+      });
+      if (sendConnectorFailure(res, error, "Prior authorization")) return;
+      if (error?.status && Number(error.status) < 500) throw error;
+      return res.status(500).json({ error: "Unable to check prior authorization with the payer" });
+    }
+  }
+);
 
 router.post("/:id/journey/prior-auth/evaluate", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
