@@ -65,7 +65,7 @@ function payerClaimWhere(rule) {
       { payerName: { equals: name, mode: "insensitive" } },
       {
         AND: [
-          { OR: [{ payerName: null }, { payerName: "" }] },
+          { payerName: "" },
           { connectedPayerName: { equals: name, mode: "insensitive" } }
         ]
       }
