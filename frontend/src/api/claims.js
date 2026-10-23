@@ -103,6 +103,8 @@ export const ClaimsApi = {
     status = "ALL",
     work = "ALL",
     filing = "ALL",
+    owner = "ALL",
+    followUp = "ALL",
     sort = "priority",
     direction = "desc"
   } = {}) {
@@ -114,11 +116,24 @@ export const ClaimsApi = {
     if (status && status !== "ALL") params.set("status", status);
     if (work && work !== "ALL") params.set("work", work);
     if (filing && filing !== "ALL") params.set("filing", filing);
+    if (owner && owner !== "ALL") params.set("owner", owner);
+    if (followUp && followUp !== "ALL") params.set("followUp", followUp);
     if (sort) params.set("sort", sort);
     if (direction) params.set("direction", direction);
     return withReadRetry(() =>
       api(`${BASE}/approval-intelligence?${params.toString()}`)
     );
+  },
+
+  workManagementUsers() {
+    return withReadRetry(() => api(`${BASE}/work-management/users`));
+  },
+
+  updateWorkManagement(id, data) {
+    return api(`${BASE}/${id}/work-management`, {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
   },
 
   create(data) {
