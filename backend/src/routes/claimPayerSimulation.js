@@ -13,6 +13,7 @@ import {
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { createPayerConnectorForClaim } from "../services/payerGateway.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
+import { resolveUnderpaymentExpectation } from "../services/underpaymentRecovery.js";
 import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
 import {
@@ -98,6 +99,7 @@ async function getSimulationClaim(id, organizationId) {
     where: { id, organizationId, deletedAt: null },
     include: {
       documents: { orderBy: { createdAt: "desc" } },
+      serviceLines: { orderBy: { createdAt: "asc" } },
       payerTransactions: { orderBy: { createdAt: "desc" } }
     }
   });
@@ -701,6 +703,12 @@ router.post("/:id/payer-simulation/remittance", requirePermission(PERMISSIONS.PA
     const result = createPayerConnectorForClaim(claim, payer.code).getRemittance(claim, { sequence: priorCount + 1 });
     await new Promise((resolve) => setTimeout(resolve, Math.min(result.latencyMs, 900)));
 
+    const expectation = await resolveUnderpaymentExpectation(prisma, claim, {
+      payerExpectedPayment: result.expectedPayerPayment,
+      actualPaidAmount: result.paidAmount,
+      sourceTransactionId: result.transactionId
+    });
+
     const { updated, transaction, underpaymentCase } = await prisma.$transaction(async (tx) => {
       const updatedClaim = await tx.claim.update({
         where: { id: claim.id },
@@ -743,21 +751,27 @@ router.post("/:id/payer-simulation/remittance", requirePermission(PERMISSIONS.PA
       );
 
       let varianceCase = null;
-      if (Number(result.potentialUnderpayment || 0) > 0) {
+      if (expectation?.hasUnderpayment) {
         varianceCase = await tx.underpaymentCase.upsert({
           where: { claimId: claim.id },
           create: {
             claimId: claim.id,
-            expectedPayerPayment: result.expectedPayerPayment,
-            actualPaidAmount: result.paidAmount,
-            varianceAmount: result.potentialUnderpayment,
-            sourceTransactionId: payerTransaction.transactionId
+            expectedPayerPayment: expectation.expectedPayerPayment,
+            actualPaidAmount: expectation.actualPaidAmount,
+            varianceAmount: expectation.varianceAmount,
+            sourceTransactionId: payerTransaction.transactionId,
+            expectedPaymentSource: expectation.expectedPaymentSource,
+            contractId: expectation.contractId,
+            calculationSnapshot: expectation.calculationSnapshot
           },
           update: {
-            expectedPayerPayment: result.expectedPayerPayment,
-            actualPaidAmount: result.paidAmount,
-            varianceAmount: result.potentialUnderpayment,
-            sourceTransactionId: payerTransaction.transactionId
+            expectedPayerPayment: expectation.expectedPayerPayment,
+            actualPaidAmount: expectation.actualPaidAmount,
+            varianceAmount: expectation.varianceAmount,
+            sourceTransactionId: payerTransaction.transactionId,
+            expectedPaymentSource: expectation.expectedPaymentSource,
+            contractId: expectation.contractId,
+            calculationSnapshot: expectation.calculationSnapshot
           }
         });
       }
