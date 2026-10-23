@@ -129,9 +129,14 @@ test("payment variance - underpaid remittance automatically opens a recovery cas
 
   expect(remittance.result.potentialUnderpayment).toBeGreaterThan(0);
   expect(remittance.underpaymentCase).toBeTruthy();
-  expect(Number(remittance.underpaymentCase.varianceAmount)).toBe(
+  expect(remittance.underpaymentCase.expectedPaymentSource).toBe("CONTRACT_FEE_SCHEDULE");
+  expect(Number(remittance.underpaymentCase.varianceAmount)).toBeGreaterThan(
     remittance.result.potentialUnderpayment
   );
+  expect(
+    Number(remittance.underpaymentCase.expectedPayerPayment) -
+      Number(remittance.underpaymentCase.actualPaidAmount)
+  ).toBeCloseTo(Number(remittance.underpaymentCase.varianceAmount), 2);
 
   const listed = await apiJson(
     await apiContext.get("/api/underpayments", { headers }),
