@@ -114,6 +114,17 @@ const analyticsRateLimiter = rateLimit({
     code: "ANALYTICS_RATE_LIMITED"
   }
 });
+const integrationsRateLimiter = rateLimit({
+  windowMs: Number(process.env.INTEGRATIONS_RATE_LIMIT_WINDOW_MS || 60000),
+  limit: Number(process.env.INTEGRATIONS_RATE_LIMIT_MAX || 120),
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    error: "Too many requests",
+    message: "Integration API rate limit exceeded. Retry after the current window resets.",
+    code: "INTEGRATIONS_RATE_LIMITED"
+  }
+});
 const expensiveOperationRateLimiter = createMemoryRateLimiter({
   windowMs: Number(process.env.EXPENSIVE_RATE_LIMIT_WINDOW_MS || 60000),
   max: Number(process.env.EXPENSIVE_RATE_LIMIT_MAX || 30),
@@ -214,7 +225,7 @@ app.use(
   captureAsyncRouter(analyticsRouter)
 );
 app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectorsRouter));
-app.use("/api/integrations", requireAuth, captureAsyncRouter(integrationsRouter));
+app.use("/api/integrations", integrationsRateLimiter, requireAuth, captureAsyncRouter(integrationsRouter));
 
 /**
  * DOCUMENT ROUTES
