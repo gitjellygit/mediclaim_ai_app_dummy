@@ -94,11 +94,16 @@ router.post(
     const checklist = evidenceChecklist(claim);
     const current = await prisma.priorAuthCase.findUnique({ where: { claimId: claim.id } });
     const terminal = new Set(["APPROVED", "DENIED", "NOT_REQUIRED"]);
-    const nextStatus = claim.priorAuthRequired === false
-      ? "NOT_REQUIRED"
-      : checklist.missingDocuments.length
-      ? "REQUIRED"
-      : "READY_TO_SUBMIT";
+    const nextStatus =
+      claim.priorAuthStatus === "APPROVED"
+        ? "APPROVED"
+        : claim.priorAuthRequired === false || claim.priorAuthStatus === "NOT_REQUIRED"
+        ? "NOT_REQUIRED"
+        : claim.priorAuthStatus === "DENIED"
+        ? "DENIED"
+        : checklist.missingDocuments.length
+        ? "REQUIRED"
+        : "READY_TO_SUBMIT";
     const status = current && terminal.has(current.status) ? current.status : nextStatus;
 
     const item = await prisma.$transaction(async (tx) => {
@@ -116,12 +121,16 @@ router.post(
               : "LOCAL_EVALUATION",
           requiredDocuments: checklist.requiredDocuments,
           missingDocuments: checklist.missingDocuments,
-          additionalInfoRequests: []
+          additionalInfoRequests: [],
+          authorizationNo: claim.authorizationNo || null,
+          effectiveTo: claim.priorAuthExpiry || null
         },
         update: {
           status,
           requiredDocuments: checklist.requiredDocuments,
-          missingDocuments: checklist.missingDocuments
+          missingDocuments: checklist.missingDocuments,
+          authorizationNo: claim.priorAuthStatus === "APPROVED" ? claim.authorizationNo || null : undefined,
+          effectiveTo: claim.priorAuthStatus === "APPROVED" ? claim.priorAuthExpiry || null : undefined
         }
       });
 
