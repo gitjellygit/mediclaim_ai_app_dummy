@@ -223,6 +223,9 @@ model Organization {
   auditEvents AuditEvent[]
   rules       Rule[]
   ruleVersions RuleVersion[]
+  integrationConnections IntegrationConnection[]
+  integrationEvents IntegrationEvent[]
+  claimExternalIdentities ClaimExternalIdentity[]
 }
 
 model Claim {
@@ -395,6 +398,8 @@ model Claim {
   auditEvents AuditEvent[]
   payerTransactions PayerTransaction[]
   codingSuggestions CodingSuggestion[]
+  externalIdentities ClaimExternalIdentity[]
+  integrationEvents IntegrationEvent[]
 
   @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
@@ -789,6 +794,83 @@ model UnderpaymentCase {
 
   @@index([status])
   @@index([detectedAt])
+}
+
+model IntegrationConnection {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name        String
+  kind        String
+  provider    String
+  environment String @default("SANDBOX")
+  status      String @default("ACTIVE")
+
+  lastHealthyAt DateTime?
+  lastErrorAt   DateTime?
+  lastErrorCode String?
+
+  externalIdentities ClaimExternalIdentity[]
+  events             IntegrationEvent[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, kind, status])
+}
+
+model ClaimExternalIdentity {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  connectionId String
+  connection   IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  claimId String
+  claim   Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  externalClaimId String
+  recordType      String @default("CLAIM")
+
+  @@unique([connectionId, externalClaimId])
+  @@index([organizationId, claimId])
+  @@index([claimId])
+}
+
+model IntegrationEvent {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  connectionId String
+  connection   IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  claimId String?
+  claim   Claim? @relation(fields: [claimId], references: [id], onDelete: SetNull)
+
+  externalEventId String
+  eventType       String
+  direction       String
+  status          String
+  sourceStatus    String?
+  correlationId   String?
+  payloadHash     String
+  occurredAt      DateTime?
+  processedAt     DateTime?
+  errorCode       String?
+  metadata        Json?
+
+  @@unique([connectionId, externalEventId])
+  @@index([organizationId, createdAt])
+  @@index([claimId, createdAt])
+  @@index([connectionId, status, createdAt])
 }
 
 model AuditEvent {
