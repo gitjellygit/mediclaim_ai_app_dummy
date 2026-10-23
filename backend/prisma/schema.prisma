@@ -226,6 +226,7 @@ model Organization {
   integrationConnections IntegrationConnection[]
   integrationEvents IntegrationEvent[]
   claimExternalIdentities ClaimExternalIdentity[]
+  priorAuthCases PriorAuthCase[]
 }
 
 model Claim {
@@ -400,6 +401,7 @@ model Claim {
   codingSuggestions CodingSuggestion[]
   externalIdentities ClaimExternalIdentity[]
   integrationEvents IntegrationEvent[]
+  priorAuthCase PriorAuthCase?
 
   @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
@@ -871,6 +873,37 @@ model IntegrationEvent {
   @@index([organizationId, createdAt])
   @@index([claimId, createdAt])
   @@index([connectionId, status, createdAt])
+}
+
+model PriorAuthCase {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  claimId String @unique
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  status            String @default("DRAFT")
+  requirementSource String?
+  payerReference    String?
+  submissionChannel String?
+  submittedAt       DateTime?
+  responseDueAt     DateTime?
+  decisionAt        DateTime?
+  authorizationNo   String?
+  effectiveFrom     DateTime?
+  effectiveTo       DateTime?
+
+  requiredDocuments       Json?
+  missingDocuments        Json?
+  additionalInfoRequests  Json?
+  notes                   String?
+
+  @@index([organizationId, status])
+  @@index([responseDueAt])
 }
 
 model AuditEvent {
