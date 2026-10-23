@@ -1,5 +1,6 @@
 import express from "express";
-import { auditOnResponse } from "../services/auditLog.js";
+import { z } from "zod";
+import { auditOnResponse, writeCriticalRequestAudit } from "../services/auditLog.js";
 import { emptyMutationSchema, parseMutation, priorAuthEvaluationSchema, payerClaimStatusSchema, remittanceMutationSchema, payerConnectorConnectionSchema } from "../validation/claimMutations.js";
 import { prisma } from "../db.js";
 import { validMoney, moneyCents, differenceMoney } from "../utils/money.js";
@@ -22,6 +23,98 @@ import { PERMISSIONS, hasPermission } from "../security/permissions.js";
 import { minimumNecessaryClaim } from "../security/phiView.js";
 
 const router = express.Router();
+
+const PRIOR_AUTH_CASE_STATUSES = new Set([
+  "REQUIRED",
+  "DRAFT",
+  "READY",
+  "SUBMITTED",
+  "PENDING",
+  "ADDITIONAL_INFO",
+  "APPROVED",
+  "DENIED"
+]);
+
+const priorAuthCaseCreateSchema = z.object({
+  urgency: z.enum(["STANDARD", "EXPEDITED"]).default("STANDARD"),
+  requiredDocuments: z.array(z.string().trim().min(1).max(80)).max(30).default([]),
+  responseDueAt: z.string().datetime({ offset: true }).nullable().optional(),
+  notes: z.string().trim().max(4000).nullable().optional()
+}).strict();
+
+const priorAuthCaseUpdateSchema = z.object({
+  status: z.enum([
+    "REQUIRED",
+    "DRAFT",
+    "READY",
+    "PENDING",
+    "ADDITIONAL_INFO",
+    "APPROVED",
+    "DENIED"
+  ]).optional(),
+  urgency: z.enum(["STANDARD", "EXPEDITED"]).optional(),
+  requiredDocuments: z.array(z.string().trim().min(1).max(80)).max(30).optional(),
+  evidenceDocumentIds: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+  responseDueAt: z.string().datetime({ offset: true }).nullable().optional(),
+  additionalInfoDueAt: z.string().datetime({ offset: true }).nullable().optional(),
+  authorizationNo: z.string().trim().max(150).nullable().optional(),
+  expiry: z.string().datetime({ offset: true }).nullable().optional(),
+  notes: z.string().trim().max(4000).nullable().optional()
+}).strict();
+
+const priorAuthSubmissionSchema = z.object({
+  confirmed: z.literal(true),
+  submissionChannel: z.enum(["PAYER_PORTAL", "FAX", "PHONE", "OTHER"]),
+  submissionDate: z.string().min(1),
+  submissionReference: z.string().trim().max(200).nullable().optional()
+}).strict();
+
+function priorAuthClaimStatus(caseStatus) {
+  if (caseStatus === "APPROVED") return "APPROVED";
+  if (caseStatus === "DENIED") return "DENIED";
+  return "REQUIRED";
+}
+
+function priorAuthTransitionAllowed(from, to) {
+  if (from === to) return true;
+  const allowed = {
+    REQUIRED: new Set(["DRAFT", "READY"]),
+    DRAFT: new Set(["REQUIRED", "READY"]),
+    READY: new Set(["DRAFT"]),
+    SUBMITTED: new Set(["PENDING", "ADDITIONAL_INFO", "APPROVED", "DENIED"]),
+    PENDING: new Set(["ADDITIONAL_INFO", "APPROVED", "DENIED"]),
+    ADDITIONAL_INFO: new Set(["PENDING", "APPROVED", "DENIED"]),
+    APPROVED: new Set([]),
+    DENIED: new Set([])
+  };
+  return Boolean(allowed[from]?.has(to));
+}
+
+async function validatePriorAuthEvidence(tx, claimId, requiredDocuments, evidenceDocumentIds) {
+  if (!Array.isArray(evidenceDocumentIds) || evidenceDocumentIds.length === 0) {
+    return {
+      valid: requiredDocuments.length === 0,
+      missingTypes: [...requiredDocuments],
+      documents: []
+    };
+  }
+
+  const documents = await tx.document.findMany({
+    where: { id: { in: evidenceDocumentIds }, claimId },
+    select: { id: true, type: true }
+  });
+  if (documents.length !== new Set(evidenceDocumentIds).size) {
+    const error = new Error("Every prior-auth evidence document must belong to this claim");
+    error.status = 400;
+    error.code = "PRIOR_AUTH_EVIDENCE_INVALID";
+    throw error;
+  }
+
+  const selectedTypes = new Set(documents.map((doc) => String(doc.type)));
+  const missingTypes = requiredDocuments.filter((type) => !selectedTypes.has(type));
+  return { valid: missingTypes.length === 0, missingTypes, documents };
+}
+
 
 router.use((req, res, next) => {
   const path = req.path;
@@ -234,7 +327,8 @@ router.get("/:id/journey", requirePermission(PERMISSIONS.INSURANCE_VIEW), async 
           orderBy: { updatedAt: "desc" },
           take: 1
         },
-        underpaymentCase: true
+        underpaymentCase: true,
+        priorAuthorizationCase: true
       }
     });
 
@@ -269,7 +363,8 @@ router.get("/:id/journey", requirePermission(PERMISSIONS.INSURANCE_VIEW), async 
       },
       livePayerConnectorConfigured:
         payerConnectorStatusForClaim(claim).mode === "LIVE" &&
-        payerConnectorStatusForClaim(claim).configured
+        payerConnectorStatusForClaim(claim).configured,
+      priorAuthCase: claim.priorAuthorizationCase || null
     });
   } catch (error) {
     if (error?.status) throw error;
@@ -704,6 +799,29 @@ router.post("/:id/journey/prior-auth/evaluate", requirePermission(PERMISSIONS.PA
         });
       }
 
+      if (required === true) {
+        await tx.priorAuthorizationCase.upsert({
+          where: { claimId: claim.id },
+          create: {
+            claimId: claim.id,
+            status: priorAuthStatus === "APPROVED" ? "APPROVED" : "REQUIRED",
+            requirementSource: "LOCAL_PRECHECK",
+            authorizationNo: authorizationNo || null,
+            expiry: expiry || null,
+            decisionAt: priorAuthStatus === "APPROVED" ? new Date() : null
+          },
+          update: {
+            status: priorAuthStatus === "APPROVED" ? "APPROVED" : "REQUIRED",
+            requirementSource: "LOCAL_PRECHECK",
+            authorizationNo: authorizationNo || null,
+            expiry: expiry || null,
+            decisionAt: priorAuthStatus === "APPROVED" ? new Date() : null
+          }
+        });
+      } else {
+        await tx.priorAuthorizationCase.deleteMany({ where: { claimId: claim.id } });
+      }
+
       return updatedClaim;
     });
 
@@ -726,6 +844,283 @@ router.post("/:id/journey/prior-auth/evaluate", requirePermission(PERMISSIONS.PA
     res.status(500).json({ error: "Prior authorization update failed. Please retry." });
   }
 });
+
+router.post(
+  "/:id/journey/prior-auth/case",
+  requirePermission(PERMISSIONS.PAYER_ACTION),
+  async (req, res) => {
+    const parsed = priorAuthCaseCreateSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid prior authorization case input", code: "INVALID_PRIOR_AUTH_CASE" });
+    }
+
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
+      include: { priorAuthorizationCase: true }
+    });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+    if (isClaimLocked(claim)) {
+      return res.status(409).json({ error: "Prior authorization is locked after claim submission", code: "CLAIM_LOCKED" });
+    }
+    if (claim.eligibilityStatus !== "VERIFIED") {
+      return res.status(409).json({ error: "Eligibility must be verified before opening a prior authorization case" });
+    }
+    if (claim.priorAuthRequired !== true) {
+      return res.status(409).json({
+        error: "Record that prior authorization is required before opening a case",
+        code: "PRIOR_AUTH_REQUIREMENT_NOT_CONFIRMED"
+      });
+    }
+    if (claim.priorAuthorizationCase) {
+      return res.json({ unchanged: true, case: claim.priorAuthorizationCase });
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const priorAuthCase = await tx.priorAuthorizationCase.create({
+        data: {
+          claimId: claim.id,
+          status: "REQUIRED",
+          urgency: parsed.data.urgency,
+          requirementSource: "USER_RECORDED",
+          requiredDocuments: parsed.data.requiredDocuments,
+          responseDueAt: parsed.data.responseDueAt ? new Date(parsed.data.responseDueAt) : null,
+          notes: parsed.data.notes || null
+        }
+      });
+
+      await writeCriticalRequestAudit(tx, req, {
+        claimId: claim.id,
+        action: "PRIOR_AUTH_CASE_CREATED",
+        entityType: "PriorAuthorizationCase",
+        entityId: priorAuthCase.id,
+        metadata: {
+          status: priorAuthCase.status,
+          source: priorAuthCase.requirementSource,
+          count: priorAuthCase.requiredDocuments.length
+        }
+      });
+      return priorAuthCase;
+    });
+
+    res.status(201).json({ case: created });
+  }
+);
+
+router.patch(
+  "/:id/journey/prior-auth/case",
+  requirePermission(PERMISSIONS.PAYER_ACTION),
+  async (req, res) => {
+    const parsed = priorAuthCaseUpdateSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid prior authorization case update", code: "INVALID_PRIOR_AUTH_CASE_UPDATE" });
+    }
+
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
+      include: { priorAuthorizationCase: true }
+    });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+    const current = claim.priorAuthorizationCase;
+    if (!current) return res.status(404).json({ error: "Prior authorization case not found" });
+
+    if (["APPROVED", "DENIED"].includes(current.status)) {
+      return res.status(409).json({ error: "Final prior authorization decision is locked" });
+    }
+
+    if (
+      ["SUBMITTED", "PENDING", "ADDITIONAL_INFO"].includes(current.status) &&
+      (parsed.data.requiredDocuments !== undefined || parsed.data.evidenceDocumentIds !== undefined)
+    ) {
+      return res.status(409).json({
+        error: "Evidence package is locked after prior authorization submission",
+        code: "PRIOR_AUTH_PACKAGE_LOCKED"
+      });
+    }
+
+    const nextStatus = parsed.data.status || current.status;
+    if (!PRIOR_AUTH_CASE_STATUSES.has(nextStatus) || nextStatus === "SUBMITTED") {
+      return res.status(400).json({ error: "Invalid prior authorization status transition" });
+    }
+    if (!priorAuthTransitionAllowed(current.status, nextStatus)) {
+      return res.status(409).json({
+        error: `Prior authorization cannot move from ${current.status} to ${nextStatus}`,
+        code: "PRIOR_AUTH_TRANSITION_INVALID"
+      });
+    }
+
+    const requiredDocuments = parsed.data.requiredDocuments ?? current.requiredDocuments;
+    const evidenceDocumentIds = parsed.data.evidenceDocumentIds ?? current.evidenceDocumentIds;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const evidence = await validatePriorAuthEvidence(
+        tx,
+        claim.id,
+        requiredDocuments,
+        evidenceDocumentIds
+      );
+      if (nextStatus === "READY" && !evidence.valid) {
+        const error = new Error(`Missing required prior-auth evidence: ${evidence.missingTypes.join(", ")}`);
+        error.status = 409;
+        error.code = "PRIOR_AUTH_EVIDENCE_MISSING";
+        throw error;
+      }
+
+      const authorizationNo =
+        Object.prototype.hasOwnProperty.call(parsed.data, "authorizationNo")
+          ? parsed.data.authorizationNo || null
+          : current.authorizationNo;
+      if (nextStatus === "APPROVED" && !authorizationNo) {
+        const error = new Error("Authorization number is required before marking prior authorization approved");
+        error.status = 409;
+        error.code = "PRIOR_AUTH_NUMBER_REQUIRED";
+        throw error;
+      }
+
+      const updatedCase = await tx.priorAuthorizationCase.update({
+        where: { id: current.id },
+        data: {
+          status: nextStatus,
+          ...(parsed.data.urgency !== undefined ? { urgency: parsed.data.urgency } : {}),
+          requiredDocuments,
+          evidenceDocumentIds,
+          ...(Object.prototype.hasOwnProperty.call(parsed.data, "responseDueAt")
+            ? { responseDueAt: parsed.data.responseDueAt ? new Date(parsed.data.responseDueAt) : null }
+            : {}),
+          ...(Object.prototype.hasOwnProperty.call(parsed.data, "additionalInfoDueAt")
+            ? { additionalInfoDueAt: parsed.data.additionalInfoDueAt ? new Date(parsed.data.additionalInfoDueAt) : null }
+            : {}),
+          ...(Object.prototype.hasOwnProperty.call(parsed.data, "authorizationNo")
+            ? { authorizationNo }
+            : {}),
+          ...(Object.prototype.hasOwnProperty.call(parsed.data, "expiry")
+            ? { expiry: parsed.data.expiry ? new Date(parsed.data.expiry) : null }
+            : {}),
+          ...(Object.prototype.hasOwnProperty.call(parsed.data, "notes")
+            ? { notes: parsed.data.notes || null }
+            : {}),
+          decisionAt: ["APPROVED", "DENIED"].includes(nextStatus) ? new Date() : current.decisionAt
+        }
+      });
+
+      await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          priorAuthRequired: true,
+          priorAuthStatus: priorAuthClaimStatus(nextStatus),
+          priorAuthCheckedAt: new Date(),
+          authorizationNo: nextStatus === "APPROVED" ? updatedCase.authorizationNo : null,
+          priorAuthExpiry: nextStatus === "APPROVED" ? updatedCase.expiry : null
+        }
+      });
+
+      await markReadinessChecksStale(tx, claim.id, "Prior authorization case changed");
+
+      await writeCriticalRequestAudit(tx, req, {
+        claimId: claim.id,
+        action: "PRIOR_AUTH_CASE_UPDATED",
+        entityType: "PriorAuthorizationCase",
+        entityId: current.id,
+        metadata: {
+          previousStatus: current.status,
+          nextStatus,
+          count: evidenceDocumentIds.length
+        }
+      });
+
+      return { updatedCase, evidence };
+    });
+
+    res.json({ case: result.updatedCase, evidence: result.evidence });
+  }
+);
+
+router.post(
+  "/:id/journey/prior-auth/case/submit",
+  requirePermission(PERMISSIONS.PAYER_ACTION),
+  async (req, res) => {
+    const parsed = priorAuthSubmissionSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Submission confirmation, channel and date are required",
+        code: "INVALID_PRIOR_AUTH_SUBMISSION"
+      });
+    }
+
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
+      include: { priorAuthorizationCase: true }
+    });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+    const current = claim.priorAuthorizationCase;
+    if (!current) return res.status(404).json({ error: "Prior authorization case not found" });
+    if (current.status !== "READY") {
+      return res.status(409).json({
+        error: "Prior authorization package must be ready before submission is recorded",
+        code: "PRIOR_AUTH_NOT_READY"
+      });
+    }
+
+    const submittedAt = new Date(`${parsed.data.submissionDate}T12:00:00.000Z`);
+    if (Number.isNaN(submittedAt.getTime())) {
+      return res.status(400).json({ error: "Invalid submission date" });
+    }
+    if (submittedAt.toISOString().slice(0, 10) > new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: "Submission date cannot be in the future" });
+    }
+
+    const connectorStatus = payerConnectorStatusForClaim(claim);
+    const externalTransmissionPerformed = false;
+    const reference =
+      parsed.data.submissionReference ||
+      `PRISM-PA-${String(current.id).slice(-10).toUpperCase()}`;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const next = await tx.priorAuthorizationCase.update({
+        where: { id: current.id },
+        data: {
+          status: "SUBMITTED",
+          submittedAt,
+          submissionChannel: parsed.data.submissionChannel,
+          externalReference: reference
+        }
+      });
+
+      await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          priorAuthRequired: true,
+          priorAuthStatus: "REQUIRED",
+          priorAuthCheckedAt: new Date()
+        }
+      });
+
+      await markReadinessChecksStale(tx, claim.id, "Prior authorization submitted and awaiting payer decision");
+
+      await writeCriticalRequestAudit(tx, req, {
+        claimId: claim.id,
+        action: "PRIOR_AUTH_SUBMISSION_RECORDED",
+        entityType: "PriorAuthorizationCase",
+        entityId: current.id,
+        metadata: {
+          status: next.status,
+          provider: connectorStatus.provider,
+          environment: connectorStatus.environment,
+          externalTransmissionPerformed
+        }
+      });
+
+      return next;
+    });
+
+    res.json({
+      case: updated,
+      externalTransmissionPerformed,
+      connector: connectorStatus,
+      message:
+        "Prior authorization submission was recorded. No external payer transmission was performed by this action."
+    });
+  }
+);
 
 router.post("/:id/journey/claim-status/refresh", requirePermission(PERMISSIONS.PAYER_ACTION), async (req, res) => {
   try {
