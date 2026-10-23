@@ -40,3 +40,10 @@ test("Rules UI exposes evidence and never claims automatic activation", () => {
   assert.match(ui, /Draft rule created disabled/);
   assert.match(ui, /Review only/);
 });
+
+
+test("payer-name scoped rule invalidation never queries required payerName as null", () => {
+  const lifecycle = read("backend/src/services/ruleLifecycle.js");
+  assert.doesNotMatch(lifecycle, /payerName: null/);
+  assert.match(lifecycle, /payerName: ""/);
+});
