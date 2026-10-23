@@ -80,6 +80,8 @@ export default function Rules() {
     unconfiguredSystemRules: []
   });
   const [meta, setMeta] = React.useState(null);
+  const [recommendations, setRecommendations] = React.useState([]);
+  const [recommendationAction, setRecommendationAction] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
   const [category, setCategory] = React.useState("ALL");
@@ -91,14 +93,15 @@ export default function Rules() {
   const [deleteTarget, setDeleteTarget] = React.useState(null);
   const [deleting, setDeleting] = React.useState(false);
   const navigate = useNavigate();
-  const { showDialog, showToast } = useToast();
+  const { showDialog, showToast, confirmDialog } = useToast();
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const [rules, metadata] = await Promise.all([
+      const [rules, metadata, recommendationData] = await Promise.all([
         ClaimsApi.listRules(),
-        ClaimsApi.getRulesMeta()
+        ClaimsApi.getRulesMeta(),
+        ClaimsApi.listRuleRecommendations()
       ]);
       setData({
         items: Array.isArray(rules?.items) ? rules.items : [],
@@ -107,6 +110,9 @@ export default function Rules() {
           : []
       });
       setMeta(metadata);
+      setRecommendations(
+        Array.isArray(recommendationData?.items) ? recommendationData.items : []
+      );
     } catch (error) {
       showDialog(error?.message || "Rules could not be loaded.", {
         title: "Unable to load rules",
@@ -182,6 +188,65 @@ export default function Rules() {
     }
     setSort(field);
     setDirection(["severity", "enabled"].includes(field) ? "desc" : "asc");
+  }
+
+  async function refreshRecommendations() {
+    setRecommendationAction("refresh");
+    try {
+      await ClaimsApi.refreshRuleRecommendations(3);
+      await load();
+    } catch (error) {
+      showDialog(error?.message || "Denial patterns could not be refreshed.", {
+        title: "Recommendation refresh failed",
+        severity: "error"
+      });
+    } finally {
+      setRecommendationAction("");
+    }
+  }
+
+  async function approveRecommendation(item) {
+    setRecommendationAction(item.id);
+    try {
+      await ClaimsApi.approveRuleRecommendation(item.id);
+      await load();
+    } catch (error) {
+      showDialog(error?.message || "Recommendation could not be approved.", {
+        title: "Recommendation approval failed",
+        severity: "error"
+      });
+    } finally {
+      setRecommendationAction("");
+    }
+  }
+
+  async function rejectRecommendation(item) {
+    const confirmed = await confirmDialog(
+      "Dismiss this denial-prevention recommendation? The denial evidence remains in Revenue Recovery, but no draft rule will be created.",
+      {
+        title: "Dismiss recommendation",
+        severity: "warning",
+        confirmLabel: "Dismiss",
+        cancelLabel: "Cancel"
+      }
+    );
+    if (!confirmed) return;
+
+    setRecommendationAction(item.id);
+    try {
+      await ClaimsApi.rejectRuleRecommendation(
+        item.id,
+        "Rejected during administrator review"
+      );
+      await load();
+    } catch (error) {
+      showDialog(error?.message || "Recommendation could not be dismissed.", {
+        title: "Recommendation update failed",
+        severity: "error"
+      });
+    } finally {
+      setRecommendationAction("");
+    }
   }
 
   async function toggleRule(rule) {
@@ -267,6 +332,97 @@ export default function Rules() {
         {summaryCard("Payer-Specific", payerCount, "Scoped by payer name / EDI ID")}
         {summaryCard("Custom Rules", customCount, "Organization-managed expectations")}
       </Box>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 3 }} data-testid="denial-prevention-recommendations">
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          justifyContent="space-between"
+          alignItems={{ xs: "stretch", md: "center" }}
+          spacing={1}
+          sx={{ mb: 1.25 }}
+        >
+          <Box>
+            <Typography variant="h6" fontWeight={850}>Denial Prevention Recommendations</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Recurring denial patterns can suggest deterministic pre-submit rules. Recommendations never activate automatically.
+            </Typography>
+          </Box>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<Refresh />}
+            disabled={Boolean(recommendationAction)}
+            onClick={refreshRecommendations}
+          >
+            {recommendationAction === "refresh" ? "Analyzing…" : "Refresh Denial Patterns"}
+          </Button>
+        </Stack>
+
+        {recommendations.length === 0 ? (
+          <Alert severity="info">
+            No recurring denial patterns have been promoted for admin review yet. Refresh after enough denial history is available.
+          </Alert>
+        ) : (
+          <Stack spacing={1}>
+            {recommendations.slice(0, 8).map((item) => (
+              <Paper key={item.id} variant="outlined" sx={{ p: 1.25 }}>
+                <Stack
+                  direction={{ xs: "column", lg: "row" }}
+                  justifyContent="space-between"
+                  spacing={1}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Stack direction="row" spacing={0.6} useFlexGap flexWrap="wrap" sx={{ mb: 0.5 }}>
+                      <Chip size="small" label={item.status} color={item.status === "PENDING" ? "warning" : item.status === "APPROVED" ? "success" : "default"} />
+                      <Chip size="small" variant="outlined" label={item.denialCategory} />
+                      {item.payerName && <Chip size="small" variant="outlined" label={item.payerName} />}
+                      <Chip size="small" variant="outlined" label={`${item.occurrenceCount} denials`} />
+                      <Chip size="small" variant="outlined" label={`${Number(item.revenueAtRisk || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} at risk`} />
+                    </Stack>
+                    <Typography variant="body2">{item.rationale}</Typography>
+                    {item.proposedRule ? (
+                      <Typography variant="caption" color="text.secondary">
+                        Proposed: {item.proposedRule.name} · {item.proposedRule.definition?.field} {item.proposedRule.definition?.operator}
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="warning.main">
+                        Review only — this pattern does not map safely to a supported deterministic rule.
+                      </Typography>
+                    )}
+                    {item.status === "APPROVED" && (
+                      <Typography variant="caption" display="block" color="success.main">
+                        Draft rule created disabled. Review and enable it separately when ready.
+                      </Typography>
+                    )}
+                  </Box>
+
+                  {item.status === "PENDING" && (
+                    <Stack direction="row" spacing={0.75} alignItems="flex-start">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        disabled={!item.proposedRule || Boolean(recommendationAction)}
+                        onClick={() => approveRecommendation(item)}
+                      >
+                        Approve Draft
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="text"
+                        color="inherit"
+                        disabled={Boolean(recommendationAction)}
+                        onClick={() => rejectRecommendation(item)}
+                      >
+                        Dismiss
+                      </Button>
+                    </Stack>
+                  )}
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        )}
+      </Paper>
 
       {meta && (
         <Paper sx={{ p: 2, mb: 3 }}>
