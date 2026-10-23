@@ -84,13 +84,14 @@ test("recurring denials become an admin-reviewed disabled prevention rule", asyn
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign In" }).click();
+  await expect(page).toHaveURL(/\/claims/);
   await page.goto("/rules");
 
   const panel = page.getByTestId("denial-prevention-recommendations");
   await expect(panel).toBeVisible();
   await expect(panel).toContainText(payerName);
   await expect(panel).toContainText("APPROVED");
-  await expect(panel).toContainText("Draft rule created disabled");
+  await expect(panel).toContainText("Draft rule created. Activation is controlled separately in Rules.");
 
   await api.dispose();
 });
