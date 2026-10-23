@@ -710,6 +710,34 @@ model RefreshToken {
 }
 
 
+model PriorAuthorizationCase {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  claimId String @unique
+  claim   Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  status            String @default("REQUIRED")
+  urgency           String @default("STANDARD")
+  requirementSource String?
+  requiredDocuments String[] @default([])
+  evidenceDocumentIds String[] @default([])
+
+  responseDueAt       DateTime?
+  additionalInfoDueAt DateTime?
+  submittedAt         DateTime?
+  decisionAt          DateTime?
+  submissionChannel   String?
+  externalReference   String?
+  authorizationNo     String?
+  expiry              DateTime?
+  notes               String?
+
+  @@index([status, responseDueAt])
+  @@index([additionalInfoDueAt])
+}
+
 model DenialCase {
   id        String   @id @default(cuid())
   createdAt DateTime @default(now())
