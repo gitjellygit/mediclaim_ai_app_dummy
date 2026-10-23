@@ -731,9 +731,9 @@ export default function ApprovalIntelligence() {
           <ListSubheader disableSticky>Timely filing</ListSubheader>
           {[
             ["ALL", "Any filing window"],
-            ["EXPIRED", "Expired"],
-            ["DUE_7", "Due within 7 days"],
-            ["DUE_30", "Due within 30 days"]
+            ["EXPIRED", "Filing expired"],
+            ["DUE_7", "Filing due within 7 days"],
+            ["DUE_30", "Filing due within 30 days"]
           ].map(([value, label]) => (
             <MenuItem
               key={value}
@@ -762,9 +762,9 @@ export default function ApprovalIntelligence() {
           <ListSubheader disableSticky>Follow-up</ListSubheader>
           {[
             ["ALL", "Any follow-up"],
-            ["OVERDUE", "Overdue"],
-            ["DUE_TODAY", "Due today"],
-            ["DUE_7", "Due within 7 days"]
+            ["OVERDUE", "Follow-up overdue"],
+            ["DUE_TODAY", "Follow-up due today"],
+            ["DUE_7", "Follow-up due within 7 days"]
           ].map(([value, label]) => (
             <MenuItem key={value} onClick={() => { setFollowUp(value); setPage(0); }}>
               <Box sx={{ width: 28 }}>{followUp === value ? <Check fontSize="small" /> : null}</Box>
