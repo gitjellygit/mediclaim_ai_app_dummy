@@ -1,0 +1,7 @@
+aws_region = "us-east-1"
+name_prefix = "prism-sandbox"
+container_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/prism-sandbox-backend:REPLACE_WITH_IMMUTABLE_TAG"
+certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE_ME"
+cors_origin = "https://sandbox.example.com"
+budget_email = "security@example.com"
+monthly_budget_usd = 20
