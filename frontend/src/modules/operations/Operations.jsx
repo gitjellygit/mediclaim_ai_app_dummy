@@ -33,19 +33,12 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import { useToast } from "../../context/ToastContext.jsx";
 import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
 import { formatUSD } from "../../utils/currency.js";
+import { humanizeEnum, roleLabel } from "../../utils/displayLabels.js";
 
 function dateTime(value) {
   if (!value) return "—";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString("en-US");
-}
-
-function roleLabel(value) {
-  return String(value || "")
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 export default function Operations() {
@@ -267,7 +260,7 @@ export default function Operations() {
                 <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={1}>
                   <Box>
                     <Stack direction="row" spacing={0.5} sx={{ mb: 0.5 }}>
-                      <Chip size="small" label={item.status} />
+                      <Chip size="small" label={humanizeEnum(item.status)} />
                       <Chip size="small" variant="outlined" label={roleLabel(item.requestType)} />
                     </Stack>
                     <Typography fontWeight={800}>{item.claim?.patientName} · {item.claim?.payerName}</Typography>
