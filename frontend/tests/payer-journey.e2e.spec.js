@@ -377,7 +377,385 @@ test("blocked payer submission offers direct Fix in Claim Details workflow", asy
       .click();
 
     await expect(page).toHaveURL(
-      new RegExp(`/claims/${claim.id}\\?section=readiness`)
+      new RegExp(`/claims/${claim.id}import { test, expect, request } from "@playwright/test";
+
+const backendURL = "http://127.0.0.1:4101";
+const email = process.env.E2E_EMAIL || "admin@hospital.com";
+const password = process.env.E2E_PASSWORD || "admin123";
+
+const payerNames = {
+  BLUE_HORIZON: "Blue Horizon Health",
+  SUMMITCARE: "SummitCare Insurance",
+  METROPLUS_DEMO: "MetroCare Health",
+  CAREFIRST_DEMO: "Cedar Health Plan",
+  APEX_BENEFIT: "Apex Benefit Network"
+};
+
+let apiContext;
+let auth;
+let scenarios = [];
+
+async function selectPayer(page, payerName) {
+  const suggested = page.getByTestId("suggested-payer-confirmation");
+  if (await suggested.count()) {
+    const suggestedInput = suggested.getByLabel("Suggested payer");
+    if ((await suggestedInput.inputValue()) === payerName) {
+      await suggested.getByRole("button", { name: "Confirm payer", exact: true }).click();
+    } else {
+      await suggested.getByRole("button", { name: "Choose different", exact: true }).click();
+    }
+  }
+
+  if ((await page.getByTestId("payer-select").count()) === 0) {
+    const connectedInput = page.getByTestId("connected-payer").locator("input");
+    if (await connectedInput.count()) {
+      const currentPayer = await connectedInput.inputValue();
+      if (currentPayer === payerName) {
+        await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
+        return;
+      }
+    }
+
+    const change = page.getByRole("button", { name: "Change payer", exact: true });
+    if (await change.count()) {
+      await change.click();
+      await expect(page.getByTestId("payer-select")).toBeVisible();
+    }
+  }
+
+  if (await page.getByTestId("payer-select").count()) {
+    const payerSelect = page.getByTestId("payer-select");
+    await payerSelect.click();
+    await page.getByRole("option", { name: payerName }).click();
+    await expect(payerSelect).toContainText(payerName);
+
+    const connect = page.getByRole("button", { name: "Connect", exact: true });
+    await expect(connect).toBeEnabled();
+    await connect.click();
+    await expect(page.getByTestId("payer-select")).toHaveCount(0);
+  }
+
+  await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
+  await expect(page.getByTestId("connected-payer").locator("input")).toHaveValue(payerName);
+  await expect(page.getByTestId("payer-select")).toHaveCount(0);
+}
+
+async function clickStageButton(stage, name) {
+  const button = stage.getByRole("button", { name, exact: true });
+  await expect(button).toBeEnabled();
+  await button.click();
+}
+
+test.beforeAll(async () => {
+  apiContext = await request.newContext({ baseURL: backendURL });
+
+  const login = await apiContext.post("/api/auth/login", {
+    data: { email, password }
+  });
+  if (!login.ok()) throw new Error(`E2E login failed: ${await login.text()}`);
+  auth = await login.json();
+
+  const seed = await apiContext.post("/api/claims/e2e/payer-journey/seed", {
+    headers: { Authorization: `Bearer ${auth.accessToken}` }
+  });
+  if (!seed.ok()) throw new Error(`Payer seed failed: ${await seed.text()}`);
+  const body = await seed.json();
+  scenarios = body.scenarios;
+  expect(scenarios).toHaveLength(6);
+});
+
+test.afterAll(async () => {
+  if (apiContext && auth?.accessToken) {
+    await apiContext.delete("/api/claims/e2e/payer-journey/cleanup", {
+      headers: { Authorization: `Bearer ${auth.accessToken}` }
+    });
+  }
+  await apiContext?.dispose();
+});
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(
+    ({ accessToken, refreshToken, user }) => {
+      localStorage.setItem("accessToken", accessToken);
+      localStorage.setItem("refreshToken", refreshToken);
+      localStorage.setItem("user", JSON.stringify(user));
+    },
+    auth
+  );
+});
+
+test("Journey landing page waits for explicit claim selection", async ({ page }) => {
+  const firstScenario = scenarios[0];
+
+  await page.goto("/journey");
+
+  await expect(page.getByRole("heading", { name: "Claim Journey" })).toBeVisible();
+  await expect(page.getByLabel("Search or Select Claim")).toBeVisible();
+  await expect(
+    page.getByText(
+      /Choose a claim above to view its complete lifecycle/i
+    )
+  ).toBeVisible();
+
+  await expect(page.getByTestId("journey-stage-eligibility")).toHaveCount(0);
+  await expect(page.getByTestId("journey-stage-claim")).toHaveCount(0);
+  await expect(page.getByText(firstScenario.patientName, { exact: true })).toHaveCount(0);
+});
+
+test("Journey deep link loads the requested claim and uses clear claim-detail labels", async ({ page }) => {
+  const scenario = scenarios[0];
+
+  await page.goto(`/journey?claimId=${scenario.id}`);
+
+  await expect(page.getByText(scenario.patientName, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "View Claim Details" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Claim" })).toHaveCount(0);
+  await expect(page.getByTestId("insurance-on-file-card")).toBeVisible();
+  await expect(page.getByText("Insurance on File", { exact: true })).toBeVisible();
+});
+
+test("Payer connection is required before eligibility and prior authorization", async ({ page }) => {
+  const scenario = scenarios[1];
+
+  await page.goto(`/journey?claimId=${scenario.id}`);
+  await expect(page.getByTestId("payer-connection-card")).toContainText(
+    "Payer connection required"
+  );
+
+  const eligibility = page.getByTestId("journey-stage-eligibility");
+  const priorAuth = page.getByTestId("journey-stage-prior-auth");
+
+  await expect(eligibility).toContainText("Connect the payer above to unlock Eligibility");
+  await expect(
+    eligibility.getByRole("button", { name: "Check Eligibility" })
+  ).toBeDisabled();
+
+  await expect(priorAuth).toContainText(
+    "Connect the payer above before checking Prior Authorization"
+  );
+  await expect(
+    priorAuth.getByRole("button", { name: "Check Prior Auth" })
+  ).toBeDisabled();
+});
+
+test("Approval Intelligence sends unevaluated editable claims directly to AI readiness", async ({ page }) => {
+  const scenario = scenarios.find((item) => item.key === "SWITCH");
+  expect(scenario).toBeTruthy();
+
+  await page.goto("/approval");
+
+  const search = page.getByPlaceholder(
+    "Search patient, payer, member, policy, claim or authorization..."
+  );
+  await search.fill(scenario.patientName);
+
+  const row = page.getByRole("row").filter({ hasText: scenario.patientName });
+  await expect(row).toBeVisible();
+  await expect(row.getByText("Not evaluated", { exact: true }).first()).toBeVisible();
+  await expect(
+    row.getByRole("button", { name: "Run Readiness Check", exact: true })
+  ).toBeVisible();
+
+  await row
+    .getByRole("button", { name: "Run Readiness Check", exact: true })
+    .click();
+
+  await expect(page).toHaveURL(new RegExp(`/claims/${scenario.id}\\?section=readiness`));
+  await expect(
+    page.getByRole("heading", { name: "Submission Readiness" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Check Readiness", exact: true })
+  ).toBeVisible();
+});
+
+test("Claim readiness Fix actions highlight the exact provider and service-line fields", async ({ page }) => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+  const created = await apiContext.post("/api/claims", {
+    headers,
+    data: {
+      patientName: "E2E-READINESS-FIX-TARGETS",
+      payerName: "Blue Horizon Health",
+      amount: 250,
+      totalBilledAmount: 250,
+      policyNo: "POL-E2E-READY",
+      memberId: "MEM-E2E-READY",
+      claimForm: "PROFESSIONAL",
+      diagnosisText: "Routine office visit",
+      icd10Codes: ["Z00.00"],
+      dateOfService: "2026-10-01"
+    }
+  });
+  expect(created.ok()).toBeTruthy();
+  const claim = await created.json();
+
+  try {
+    const connect = await apiContext.post(
+      `/api/claims/${claim.id}/payer-simulation/connect`,
+      {
+        headers,
+        data: { payerCode: "BLUE_HORIZON" }
+      }
+    );
+    expect(connect.ok()).toBeTruthy();
+    const eligibility = await apiContext.post(
+      `/api/claims/${claim.id}/payer-simulation/eligibility`,
+      { headers, data: {} }
+    );
+    expect(eligibility.ok()).toBeTruthy();
+
+    const check = await apiContext.post(`/api/claims/${claim.id}/check`, {
+      headers,
+      data: {}
+    });
+    expect(check.ok()).toBeTruthy();
+    const readiness = await check.json();
+
+    expect(readiness.score).toBeGreaterThan(0);
+    expect(
+      readiness.issues.some(
+        (issue) =>
+          issue.field === "billingProviderNpi" &&
+          issue.fixTarget === "claim"
+      )
+    ).toBeTruthy();
+    expect(
+      readiness.issues.some(
+        (issue) =>
+          issue.rule === "US_CPT_PRESENT" &&
+          issue.fixTarget === "serviceLines"
+      )
+    ).toBeTruthy();
+
+    await page.goto(`/claims/${claim.id}`);
+    await expect(
+      page.getByRole("heading", { name: "Submission Readiness" })
+    ).toBeVisible();
+
+    const billingIssue = page.getByTestId("readiness-issue-US_NPI_VALID");
+    await expect(billingIssue).toContainText(/billing provider npi/i);
+    await billingIssue.getByRole("button", { name: "Fix Field" }).click();
+
+    const billingNpi = page.getByLabel("Billing Provider NPI");
+    await expect(billingNpi).toBeVisible();
+    await expect(billingNpi).toBeFocused();
+    await expect(
+      page.getByText(/field that needs attention is highlighted below/i)
+    ).toBeVisible();
+
+    await billingNpi.fill("1234567890");
+    await page.getByRole("button", { name: "Save Changes", exact: true }).click();
+
+    await expect(
+      page.getByTestId("readiness-issue-US_NPI_VALID")
+    ).toHaveCount(0);
+    await expect(page.getByTestId("readiness-stale")).toBeVisible();
+
+    await page.getByRole("button", { name: "Recheck Readiness", exact: true }).click();
+    const cptIssue = page.getByTestId("readiness-issue-US_CPT_PRESENT");
+    await expect(cptIssue).toContainText(/CPT\/HCPCS/i);
+    await cptIssue.getByRole("button", { name: "Edit Service Line" }).click();
+
+    const cpt = page.getByLabel("CPT / HCPCS");
+    await expect(cpt).toBeVisible();
+    await expect(cpt).toBeFocused();
+  } finally {
+    await apiContext.delete(`/api/claims/${claim.id}`, { headers });
+  }
+});
+
+
+test("Journey preselects exact claim payer and asks for confirmation", async ({ page }) => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+  const created = await apiContext.post("/api/claims", {
+    headers,
+    data: {
+      patientName: "E2E-PAYER-CONFIRM",
+      payerName: "Cedar Health Plan",
+      amount: 100,
+      policyNo: "POL-CONFIRM-1",
+      memberId: "MEM-CONFIRM-1"
+    }
+  });
+  expect(created.ok()).toBeTruthy();
+  const claim = await created.json();
+
+  try {
+    await page.goto(`/journey?claimId=${claim.id}`);
+    const suggested = page.getByTestId("suggested-payer-confirmation");
+    await expect(suggested).toBeVisible();
+    await expect(suggested.getByLabel("Suggested payer")).toHaveValue("Cedar Health Plan");
+    await expect(page.getByTestId("payer-select")).toHaveCount(0);
+
+    await suggested.getByRole("button", { name: "Confirm payer", exact: true }).click();
+    await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
+    await expect(page.getByTestId("connected-payer").locator("input")).toHaveValue("Cedar Health Plan");
+  } finally {
+    await apiContext.delete(`/api/claims/${claim.id}`, { headers });
+  }
+});
+
+test("blocked payer submission offers direct Fix in Claim Details workflow", async ({ page }) => {
+  const headers = { Authorization: `Bearer ${auth.accessToken}` };
+  const created = await apiContext.post("/api/claims", {
+    headers,
+    data: {
+      patientName: "E2E-SUBMISSION-BLOCKERS",
+      payerName: "Blue Horizon Health",
+      amount: 500,
+      totalBilledAmount: 500,
+      policyNo: "POL-BLOCK-500",
+      memberId: "MEM-BLOCK-500",
+      claimForm: "PROFESSIONAL",
+      diagnosisText: "Office visit",
+      icd10Codes: ["Z00.00"],
+      dateOfService: "2026-10-01"
+    }
+  });
+  expect(created.ok()).toBeTruthy();
+  const claim = await created.json();
+
+  try {
+    const connect = await apiContext.post(
+      `/api/claims/${claim.id}/payer-simulation/connect`,
+      {
+        headers,
+        data: { payerCode: "BLUE_HORIZON" }
+      }
+    );
+    expect(connect.ok()).toBeTruthy();
+
+    await page.goto(`/journey?claimId=${claim.id}`);
+    await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
+
+    const eligibility = page.getByTestId("journey-stage-eligibility");
+    const priorAuth = page.getByTestId("journey-stage-prior-auth");
+    const claimStage = page.getByTestId("journey-stage-claim");
+
+    await clickStageButton(eligibility, "Check Eligibility");
+    await expect(eligibility).toContainText("Verified");
+
+    await clickStageButton(priorAuth, "Check Prior Auth");
+    await expect(priorAuth).toContainText("Not Required");
+
+    const submitButton = claimStage.getByRole("button", {
+      name: "Submit to Payer",
+      exact: true
+    });
+    await expect(submitButton).toBeDisabled();
+    await expect(
+      claimStage.getByTestId("readiness-required-alert")
+    ).toContainText(/run or refresh submission readiness/i);
+
+    await expect(
+      page.getByRole("button", { name: "Retry", exact: true })
+    ).toHaveCount(0);
+
+    await claimStage
+      .getByRole("button", { name: "View Claim Details", exact: true })
+      .click();
+
+)
     );
     await expect(
       page.getByRole("heading", { name: "Submission Readiness" })
@@ -589,7 +967,13 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     );
     expect(journeyAfterERA.ok()).toBeTruthy();
     const finalClaim = (await journeyAfterERA.json()).claim;
-    expect(finalClaim.status).toBe("PAID");
+    if (expectedKey === "APEX") {
+      expect(finalClaim.status).toBe("DENIED");
+      expect(finalClaim.payerClaimStatus).toBe("PARTIALLY_APPROVED");
+    } else {
+      expect(finalClaim.status).toBe("PAID");
+      expect(finalClaim.payerClaimStatus).toBe("PAID");
+    }
     expect(finalClaim.remittanceStatus).toBe("POSTED");
     expect(finalClaim.paidAmount).toBeGreaterThan(0);
     if (expectedKey === "APEX") {
