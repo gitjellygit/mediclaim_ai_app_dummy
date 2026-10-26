@@ -22,6 +22,7 @@ export default function ClaimAssignmentDialog({
   currentAssigneeId = "",
   currentTeam = "",
   title = "Assign claim",
+  loadUsers,
   saveAssignment,
   onClose,
   onSaved
@@ -39,11 +40,11 @@ export default function ClaimAssignmentDialog({
     setTeam(currentTeam || "");
     setError("");
     setLoading(true);
-    ClaimsApi.workManagementUsers()
+    (loadUsers || ClaimsApi.workManagementUsers)()
       .then((result) => setUsers(Array.isArray(result?.items) ? result.items : []))
       .catch((e) => setError(e?.message || "Assignable users could not be loaded."))
       .finally(() => setLoading(false));
-  }, [open, currentAssigneeId, currentTeam]);
+  }, [open, currentAssigneeId, currentTeam, loadUsers]);
 
   async function save() {
     if (!claimIds.length) return;
