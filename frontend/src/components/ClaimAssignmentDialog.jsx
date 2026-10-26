@@ -22,6 +22,7 @@ export default function ClaimAssignmentDialog({
   currentAssigneeId = "",
   currentTeam = "",
   title = "Assign claim",
+  saveAssignment,
   onClose,
   onSaved
 }) {
@@ -49,11 +50,16 @@ export default function ClaimAssignmentDialog({
     try {
       setSaving(true);
       setError("");
-      await OperationsApi.bulkWork({
+      const payload = {
         claimIds,
         assignedToUserId: assigneeId || null,
         workTeam: team.trim() || null
-      });
+      };
+      if (saveAssignment) {
+        await saveAssignment(payload);
+      } else {
+        await OperationsApi.bulkWork(payload);
+      }
       await onSaved?.();
       onClose?.();
     } catch (e) {
