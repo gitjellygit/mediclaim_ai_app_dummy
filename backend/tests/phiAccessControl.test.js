@@ -34,14 +34,14 @@ test("PHI permissions - role matrix follows minimum necessary", () => {
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.DENIAL_VIEW), false);
   assert.equal(hasPermission("RECEPTIONIST", PERMISSIONS.AUDIT_VIEW), false);
 
-  assert.equal(hasPermission("CASHIER", PERMISSIONS.CLINICAL_VIEW), true);
-  assert.equal(hasPermission("CASHIER", PERMISSIONS.CLINICAL_EDIT), true);
+  assert.equal(hasPermission("CASHIER", PERMISSIONS.CLINICAL_VIEW), false);
+  assert.equal(hasPermission("CASHIER", PERMISSIONS.CLINICAL_EDIT), false);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.FINANCIAL_VIEW), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.FINANCIAL_EDIT), true);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.DOCUMENT_VIEW), true);
-  assert.equal(hasPermission("CASHIER", PERMISSIONS.DOCUMENT_EDIT), true);
-  assert.equal(hasPermission("CASHIER", PERMISSIONS.CLAIM_SUBMIT), true);
-  assert.equal(hasPermission("CASHIER", PERMISSIONS.RECOVERY_EDIT), true);
+  assert.equal(hasPermission("CASHIER", PERMISSIONS.DOCUMENT_EDIT), false);
+  assert.equal(hasPermission("CASHIER", PERMISSIONS.CLAIM_SUBMIT), false);
+  assert.equal(hasPermission("CASHIER", PERMISSIONS.RECOVERY_EDIT), false);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.PAYER_CONNECT), false);
   assert.equal(hasPermission("CASHIER", PERMISSIONS.AUDIT_VIEW), false);
 
@@ -109,7 +109,7 @@ test("PHI view - receptionist receives identity and insurance but not clinical o
   assert.deepEqual(safe.documents, []);
 });
 
-test("PHI view - cashier receives billing/clinical data but raw document storage data is never exposed", () => {
+test("PHI view - cashier receives billing data without clinical detail or raw document storage data", () => {
   const document = {
     id: "doc-1",
     fileName: "clinical.pdf",
@@ -121,7 +121,7 @@ test("PHI view - cashier receives billing/clinical data but raw document storage
 
   const safeDocument = minimumNecessaryDocument(document, { role: "CASHIER" });
   assert.equal(safeDocument.fileName, "clinical.pdf");
-  assert.deepEqual(safeDocument.extracted, { diagnosisText: "Supported" });
+  assert.equal("extracted" in safeDocument, false);
   assert.equal("path" in safeDocument, false);
   assert.equal("rawText" in safeDocument, false);
   assert.equal("fileHash" in safeDocument, false);
@@ -140,11 +140,11 @@ test("PHI view - cashier receives billing/clinical data but raw document storage
     { role: "CASHIER" }
   );
 
-  assert.equal(claim.diagnosisText, "Supported");
+  assert.equal("diagnosisText" in claim, false);
   assert.equal(claim.amount, 100);
   assert.equal(claim.documents.length, 1);
-  assert.equal(claim.payerTransactions.length, 1);
-  assert.equal(claim.denialCases.length, 1);
+  assert.equal("payerTransactions" in claim, false);
+  assert.equal("denialCases" in claim, false);
   assert.equal(claim.underpaymentCase.id, "under-1");
 });
 
@@ -175,11 +175,11 @@ test("PHI mutation access - receptionist cannot change clinical or financial cla
       serviceLines: [{ cptHcpcsCode: "99213" }],
       totalBilledAmount: 200
     }),
-    []
+    ["diagnosisText", "serviceLines"]
   );
 });
 
-test("PHI permission middleware returns a safe 403 and allows authorized billing roles", () => {
+test("PHI permission middleware returns a safe 403 and keeps cashier clinical access restricted", () => {
   const guard = requirePermission(PERMISSIONS.CLINICAL_VIEW);
 
   let statusCode = null;
@@ -213,6 +213,18 @@ test("PHI permission middleware returns a safe 403 and allows authorized billing
     nextCalled = true;
   });
 
+  assert.equal(nextCalled, false);
+  assert.equal(statusCode, 403);
+  assert.equal(payload.code, "PHI_PERMISSION_DENIED");
+
+  statusCode = null;
+  payload = null;
+  nextCalled = false;
+
+  const financialGuard = requirePermission(PERMISSIONS.FINANCIAL_VIEW);
+  financialGuard({ user: { role: "CASHIER" } }, res, () => {
+    nextCalled = true;
+  });
   assert.equal(nextCalled, true);
   assert.equal(statusCode, null);
   assert.equal(payload, null);
