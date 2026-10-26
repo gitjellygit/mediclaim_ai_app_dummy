@@ -66,8 +66,16 @@ enum RoomCategory {
 
 enum UserRole {
   ADMIN
-  CASHIER
+  CLAIMS_MANAGER
+  CLAIMS_SPECIALIST
+  DENIAL_SPECIALIST
+  PRIOR_AUTH_SPECIALIST
+  ACCOUNTANT
+  CLINICAL_REVIEWER
   RECEPTIONIST
+  AUDITOR
+  PROVIDER
+  CASHIER
 }
 
 enum ClaimStatus {
@@ -229,6 +237,13 @@ model Organization {
   priorAuthCases PriorAuthCase[]
   payerContracts PayerContract[]
   ruleRecommendations RuleRecommendation[]
+  teams Team[]
+  savedQueues SavedQueue[]
+  claimComments ClaimComment[]
+  clinicalRequests ClinicalRequest[]
+  notifications Notification[]
+  approvalRequests ApprovalRequest[]
+  ownershipHistory ClaimOwnershipHistory[]
 }
 
 model Claim {
@@ -250,6 +265,10 @@ model Claim {
   nextFollowUpAt   DateTime?
   lastWorkedAt     DateTime?
   escalatedAt      DateTime?
+  managerPriority  String?
+  managerPriorityReason String?
+  holdReason       String?
+  holdUntil        DateTime?
 
   patientName String
   payerName   String
@@ -404,6 +423,10 @@ model Claim {
   externalIdentities ClaimExternalIdentity[]
   integrationEvents IntegrationEvent[]
   priorAuthCase PriorAuthCase?
+  comments ClaimComment[]
+  clinicalRequests ClinicalRequest[]
+  approvalRequests ApprovalRequest[]
+  ownershipHistory ClaimOwnershipHistory[]
 
   @@index([organizationId, deletedAt, createdAt])
   @@index([createdById])
@@ -702,6 +725,10 @@ model User {
   email        String   @unique
   passwordHash String
   role         UserRole @default(RECEPTIONIST)
+  displayName  String?
+  status       String @default("ACTIVE")
+  teamId       String?
+  team         Team? @relation(fields: [teamId], references: [id], onDelete: SetNull)
 
   // Security fields
   failedLoginAttempts Int       @default(0)
@@ -713,8 +740,161 @@ model User {
   assignedClaims Claim[] @relation("ClaimAssignedTo")
   auditEvents AuditEvent[] @relation("AuditActor")
   reviewedCodingSuggestions CodingSuggestion[] @relation("CodingSuggestionReviewer")
+  savedQueues SavedQueue[]
+  comments ClaimComment[] @relation("ClaimCommentAuthor")
+  assignedClinicalRequests ClinicalRequest[] @relation("ClinicalRequestAssignee")
+  requestedClinicalRequests ClinicalRequest[] @relation("ClinicalRequestRequester")
+  notifications Notification[]
+  requestedApprovals ApprovalRequest[] @relation("ApprovalRequester")
+  reviewedApprovals ApprovalRequest[] @relation("ApprovalReviewer")
+  ownershipChanges ClaimOwnershipHistory[] @relation("OwnershipChangedBy")
 
   @@index([organizationId])
+  @@index([teamId])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  active         Boolean @default(true)
+
+  users User[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
+}
+
+model SavedQueue {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ownerUserId    String
+  ownerUser      User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  name           String
+  filters        Json
+  sharedWithTeam Boolean @default(false)
+
+  @@unique([ownerUserId, name])
+  @@index([organizationId, ownerUserId])
+}
+
+model ClaimComment {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  claimId        String
+  claim          Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  authorUserId   String
+  authorUser     User @relation("ClaimCommentAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  body           String
+  mentionUserIds String[] @default([])
+
+  @@index([organizationId, claimId, createdAt])
+}
+
+model ClinicalRequest {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  claimId        String
+  claim          Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  requestedByUserId String
+  requestedByUser User @relation("ClinicalRequestRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  assignedToUserId String?
+  assignedToUser User? @relation("ClinicalRequestAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  requestType    String
+  requestText    String
+  status         String @default("OPEN")
+  dueAt          DateTime?
+  responseText   String?
+  resolvedAt     DateTime?
+
+  @@index([organizationId, status, dueAt])
+  @@index([assignedToUserId, status])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type           String
+  title          String
+  message        String
+  claimId        String?
+  readAt         DateTime?
+
+  @@index([userId, readAt, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+model ApprovalRequest {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  claimId        String
+  claim          Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  requestedByUserId String
+  requestedByUser User @relation("ApprovalRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  reviewedByUserId String?
+  reviewedByUser User? @relation("ApprovalReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  requestType    String
+  amount         Decimal? @db.Decimal(14,2)
+  reason         String
+  status         String @default("PENDING")
+  decisionReason String?
+  reviewedAt     DateTime?
+
+  @@index([organizationId, status, createdAt])
+  @@index([claimId, status])
+}
+
+model ClaimOwnershipHistory {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  claimId        String
+  claim          Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  changedByUserId String?
+  changedByUser User? @relation("OwnershipChangedBy", fields: [changedByUserId], references: [id], onDelete: SetNull)
+
+  previousAssigneeUserId String?
+  newAssigneeUserId      String?
+  previousTeam           String?
+  newTeam                String?
+  previousPriority       String?
+  newPriority            String?
+  reason                 String?
+
+  @@index([organizationId, claimId, createdAt])
 }
 
 model AuthRateLimit {
