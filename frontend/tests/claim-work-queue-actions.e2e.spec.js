@@ -335,12 +335,19 @@ test("Claim Work Queue supports audited ownership and follow-up filtering", asyn
   expect(currentUser).toBeTruthy();
 
   const target = scenario("01-READY");
+  const teamName = `Billing Follow-up E2E ${Date.now()}`;
+  const teamResponse = await apiContext.post("/api/operations/teams", {
+    headers: { Authorization: `Bearer ${auth.accessToken}` },
+    data: { name: teamName, description: "Work queue ownership E2E team" }
+  });
+  expect(teamResponse.ok()).toBeTruthy();
+
   const followUp = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
   const update = await apiContext.patch(`/api/claims/${target.id}/work-management`, {
     headers: { Authorization: `Bearer ${auth.accessToken}` },
     data: {
       assignedToUserId: currentUser.id,
-      workTeam: "Billing Follow-up",
+      workTeam: teamName,
       nextFollowUpAt: followUp,
       escalated: false
     }
@@ -350,7 +357,7 @@ test("Claim Work Queue supports audited ownership and follow-up filtering", asyn
   await openQueue(page, "01-READY");
   const row = queueRow(page, "01-READY");
   await expect(row).toContainText(email);
-  await expect(row).toContainText("Billing Follow-up");
+  await expect(row).toContainText(teamName);
 
   const filters = page.getByTestId("claim-work-queue-filters");
   await filters.click();
