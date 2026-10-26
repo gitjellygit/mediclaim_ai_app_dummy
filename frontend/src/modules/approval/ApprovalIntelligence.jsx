@@ -7,6 +7,7 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
@@ -45,6 +46,7 @@ import {
 } from "@mui/icons-material";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
+import { OperationsApi } from "../../api/operations.js";
 import { formatUSD } from "../../utils/currency.js";
 
 const money = formatUSD;
@@ -314,6 +316,19 @@ export default function ApprovalIntelligence() {
   const [workUsers, setWorkUsers] = React.useState([]);
   const [workEditor, setWorkEditor] = React.useState(null);
   const [workSaving, setWorkSaving] = React.useState(false);
+  const [selectedClaims, setSelectedClaims] = React.useState(new Set());
+  const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [bulkSaving, setBulkSaving] = React.useState(false);
+  const [bulkDraft, setBulkDraft] = React.useState({
+    assignedToUserId: "",
+    managerPriority: "",
+    managerPriorityReason: "",
+    nextFollowUpAt: "",
+    holdReason: "",
+    holdUntil: "",
+    escalated: false
+  });
+  const [savedQueues, setSavedQueues] = React.useState([]);
   const [filterAnchor, setFilterAnchor] = React.useState(null);
   const [page, setPage] = React.useState(0);
   const [pageSize, setPageSize] = React.useState(10);
@@ -327,6 +342,20 @@ export default function ApprovalIntelligence() {
     }, 350);
     return () => window.clearTimeout(timer);
   }, [search]);
+
+  React.useEffect(() => {
+    let active = true;
+    OperationsApi.savedQueues()
+      .then((result) => {
+        if (active) setSavedQueues(Array.isArray(result?.items) ? result.items : []);
+      })
+      .catch(() => {
+        if (active) setSavedQueues([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   React.useEffect(() => {
     let active = true;
@@ -419,6 +448,94 @@ export default function ApprovalIntelligence() {
         }
       }
     );
+  }
+
+  function toggleSelectedClaim(id) {
+    setSelectedClaims((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleCurrentPage() {
+    const ids = data.items.map((item) => item.id);
+    setSelectedClaims((current) => {
+      const next = new Set(current);
+      const allSelected = ids.every((id) => next.has(id));
+      ids.forEach((id) => allSelected ? next.delete(id) : next.add(id));
+      return next;
+    });
+  }
+
+  async function applyBulkWork() {
+    if (!selectedClaims.size) return;
+    setBulkSaving(true);
+    setError("");
+    try {
+      const payload = { claimIds: [...selectedClaims] };
+      if (bulkDraft.assignedToUserId !== "") payload.assignedToUserId = bulkDraft.assignedToUserId || null;
+      if (bulkDraft.managerPriority) {
+        payload.managerPriority = bulkDraft.managerPriority;
+        payload.managerPriorityReason = bulkDraft.managerPriorityReason.trim() || null;
+      }
+      if (bulkDraft.nextFollowUpAt) {
+        payload.nextFollowUpAt = new Date(`${bulkDraft.nextFollowUpAt}T23:59:59.000Z`).toISOString();
+      }
+      if (bulkDraft.holdReason.trim()) payload.holdReason = bulkDraft.holdReason.trim();
+      if (bulkDraft.holdUntil) {
+        payload.holdUntil = new Date(`${bulkDraft.holdUntil}T23:59:59.000Z`).toISOString();
+      }
+      if (bulkDraft.escalated) payload.escalated = true;
+      await OperationsApi.bulkWork(payload);
+      setSelectedClaims(new Set());
+      setBulkOpen(false);
+      setBulkDraft({
+        assignedToUserId: "",
+        managerPriority: "",
+        managerPriorityReason: "",
+        nextFollowUpAt: "",
+        holdReason: "",
+        holdUntil: "",
+        escalated: false
+      });
+      await load();
+    } catch (e) {
+      setError(e?.message || "Bulk work update failed.");
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  async function saveCurrentQueue() {
+    const name = window.prompt("Saved queue name");
+    if (!name?.trim()) return;
+    try {
+      await OperationsApi.saveQueue({
+        name: name.trim(),
+        sharedWithTeam: false,
+        filters: { query, status, work, filing, owner, followUp, sort, direction }
+      });
+      const result = await OperationsApi.savedQueues();
+      setSavedQueues(result?.items || []);
+    } catch (e) {
+      setError(e?.message || "Queue could not be saved.");
+    }
+  }
+
+  function applySavedQueue(item) {
+    const filters = item?.filters || {};
+    setSearch(filters.query || "");
+    setQuery(filters.query || "");
+    setStatus(filters.status || "ALL");
+    setWork(filters.work || "ALL");
+    setFiling(filters.filing || "ALL");
+    setOwner(filters.owner || "ALL");
+    setFollowUp(filters.followUp || "ALL");
+    setSort(filters.sort || "priority");
+    setDirection(filters.direction || "desc");
+    setPage(0);
   }
 
   function openWorkEditor(claim) {
@@ -700,7 +817,37 @@ export default function ApprovalIntelligence() {
               )}
             </Stack>
           )}
+          <Button size="small" variant="outlined" onClick={saveCurrentQueue}>
+            Save View
+          </Button>
+          {savedQueues.length > 0 && (
+            <FormControl size="small" sx={{ minWidth: 170 }}>
+              <InputLabel>Saved View</InputLabel>
+              <Select
+                label="Saved View"
+                value=""
+                onChange={(event) => {
+                  const item = savedQueues.find((queue) => queue.id === event.target.value);
+                  if (item) applySavedQueue(item);
+                }}
+              >
+                {savedQueues.map((queue) => (
+                  <MenuItem key={queue.id} value={queue.id}>{queue.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
         </Stack>
+
+        {selectedClaims.size > 0 && (
+          <Alert
+            severity="info"
+            sx={{ mt: 1.25 }}
+            action={<Button size="small" variant="contained" onClick={() => setBulkOpen(true)}>Bulk Actions</Button>}
+          >
+            {selectedClaims.size} claim{selectedClaims.size === 1 ? "" : "s"} selected
+          </Alert>
+        )}
 
         <Menu
           anchorEl={filterAnchor}
@@ -831,6 +978,14 @@ export default function ApprovalIntelligence() {
             <Table size="small" sx={{ minWidth: 1500 }}>
               <TableHead>
                 <TableRow>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      size="small"
+                      checked={data.items.length > 0 && data.items.every((item) => selectedClaims.has(item.id))}
+                      indeterminate={data.items.some((item) => selectedClaims.has(item.id)) && !data.items.every((item) => selectedClaims.has(item.id))}
+                      onChange={toggleCurrentPage}
+                    />
+                  </TableCell>
                   <TableCell>{sortableHeader("Priority / Claim", "priority", sort, direction, handleSort)}</TableCell>
                   <TableCell>{sortableHeader("Form / Status", "formStatus", sort, direction, handleSort)}</TableCell>
                   <TableCell>{sortableHeader("Timely Filing", "timelyFiling", sort, direction, handleSort, "Deadline urgency before submission; finalized claims show when they were filed instead of a remaining-day countdown.")}</TableCell>
@@ -858,13 +1013,30 @@ export default function ApprovalIntelligence() {
 
                   return (
                     <TableRow key={claim.id} hover>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          size="small"
+                          checked={selectedClaims.has(claim.id)}
+                          onChange={() => toggleSelectedClaim(claim.id)}
+                        />
+                      </TableCell>
                       <TableCell sx={{ minWidth: 235 }}>
                         <Stack spacing={0.7} alignItems="flex-start">
-                          <Chip
-                            size="small"
-                            color={priorityColor(claim.priority)}
-                            label={claim.priority || "LOW"}
-                          />
+                          <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                            <Chip
+                              size="small"
+                              color={priorityColor(claim.priority)}
+                              label={claim.priority || "LOW"}
+                            />
+                            {claim.managerPriority && claim.managerPriority !== "NORMAL" && (
+                              <Chip size="small" variant="outlined" color="error" label={`Manager ${claim.managerPriority}`} />
+                            )}
+                          </Stack>
+                          {claim.managerPriorityReason && (
+                            <Typography variant="caption" color="text.secondary">
+                              {claim.managerPriorityReason}
+                            </Typography>
+                          )}
                           <Typography fontWeight={700}>
                             {claim.patientName || "Unknown Patient"}
                           </Typography>
@@ -1109,6 +1281,9 @@ export default function ApprovalIntelligence() {
                           >
                             Follow-up {date(claim.workManagement?.nextFollowUpAt || claim.workManagement?.workDueAt)}
                           </Typography>
+                          {claim.workManagement?.onHold && (
+                            <Chip size="small" color="info" variant="outlined" label={`On Hold until ${date(claim.workManagement?.holdUntil)}`} />
+                          )}
                           {claim.workManagement?.escalatedAt && (
                             <Chip size="small" color="error" variant="outlined" label="Escalated" />
                           )}
@@ -1195,6 +1370,91 @@ export default function ApprovalIntelligence() {
         medical-necessity, coding, enrollment, contract, and timely-filing requirements.
         The work queue does not replace payer policy or coding review.
       </Alert>
+
+      <Dialog open={bulkOpen} onClose={() => !bulkSaving && setBulkOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Bulk Work Actions</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25} sx={{ mt: 0.5 }}>
+            <Alert severity="info">{selectedClaims.size} selected claim{selectedClaims.size === 1 ? "" : "s"}</Alert>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Assign To</InputLabel>
+              <Select
+                label="Assign To"
+                value={bulkDraft.assignedToUserId}
+                onChange={(e) => setBulkDraft((c) => ({ ...c, assignedToUserId: e.target.value }))}
+              >
+                <MenuItem value="">No assignment change</MenuItem>
+                {workUsers.map((u) => <MenuItem key={u.id} value={u.id}>{u.email} · {u.role}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Manager Priority</InputLabel>
+              <Select
+                label="Manager Priority"
+                value={bulkDraft.managerPriority}
+                onChange={(e) => setBulkDraft((c) => ({ ...c, managerPriority: e.target.value }))}
+              >
+                <MenuItem value="">No priority change</MenuItem>
+                <MenuItem value="NORMAL">Normal</MenuItem>
+                <MenuItem value="HIGH">High</MenuItem>
+                <MenuItem value="URGENT">Urgent</MenuItem>
+              </Select>
+            </FormControl>
+            {["HIGH", "URGENT"].includes(bulkDraft.managerPriority) && (
+              <TextField
+                size="small"
+                label="Priority Reason"
+                required
+                value={bulkDraft.managerPriorityReason}
+                onChange={(e) => setBulkDraft((c) => ({ ...c, managerPriorityReason: e.target.value }))}
+              />
+            )}
+            <TextField
+              size="small"
+              type="date"
+              label="Next Follow-up"
+              InputLabelProps={{ shrink: true }}
+              value={bulkDraft.nextFollowUpAt}
+              onChange={(e) => setBulkDraft((c) => ({ ...c, nextFollowUpAt: e.target.value }))}
+            />
+            <TextField
+              size="small"
+              label="Hold Reason"
+              value={bulkDraft.holdReason}
+              onChange={(e) => setBulkDraft((c) => ({ ...c, holdReason: e.target.value }))}
+            />
+            <TextField
+              size="small"
+              type="date"
+              label="Resume On"
+              InputLabelProps={{ shrink: true }}
+              value={bulkDraft.holdUntil}
+              onChange={(e) => setBulkDraft((c) => ({ ...c, holdUntil: e.target.value }))}
+            />
+            <FormControl size="small" fullWidth>
+              <InputLabel>Escalation</InputLabel>
+              <Select
+                label="Escalation"
+                value={bulkDraft.escalated ? "YES" : "NO"}
+                onChange={(e) => setBulkDraft((c) => ({ ...c, escalated: e.target.value === "YES" }))}
+              >
+                <MenuItem value="NO">No change</MenuItem>
+                <MenuItem value="YES">Escalate selected claims</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkOpen(false)} disabled={bulkSaving}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={applyBulkWork}
+            disabled={bulkSaving || (["HIGH", "URGENT"].includes(bulkDraft.managerPriority) && !bulkDraft.managerPriorityReason.trim())}
+          >
+            {bulkSaving ? "Applying..." : "Apply"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(workEditor)} onClose={() => !workSaving && setWorkEditor(null)} fullWidth maxWidth="sm">
         <DialogTitle>Assign Work & Follow-up</DialogTitle>
