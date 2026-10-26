@@ -15,6 +15,7 @@ import {
 } from "@mui/material";
 import { ClaimsApi } from "../api/claims.js";
 import { OperationsApi } from "../api/operations.js";
+import { roleLabel } from "../utils/displayLabels.js";
 
 export default function ClaimAssignmentDialog({
   open,
