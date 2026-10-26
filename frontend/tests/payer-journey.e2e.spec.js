@@ -359,33 +359,21 @@ test("blocked payer submission offers direct Fix in Claim Details workflow", asy
     await clickStageButton(priorAuth, "Check Prior Auth");
     await expect(priorAuth).toContainText("Not Required");
 
-    await clickStageButton(claimStage, "Submit to Payer");
-
-    const dialog = page.getByRole("dialog", {
-      name: "Claim needs attention before submission"
+    const submitButton = claimStage.getByRole("button", {
+      name: "Submit to Payer",
+      exact: true
     });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(/blocking issue/i).first()).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeVisible();
+    await expect(submitButton).toBeDisabled();
     await expect(
-      dialog.getByRole("button", { name: "Fix in Claim Details", exact: true })
-    ).toBeVisible();
-
-    await dialog.getByRole("button", { name: "Close", exact: true }).click();
-    await expect(dialog).toHaveCount(0);
-
-    const blockerAlert = claimStage.getByTestId("submission-blocked-alert");
-    await expect(blockerAlert).toBeVisible();
-    await expect(
-      claimStage.getByRole("button", { name: "Fix in Claim Details", exact: true })
-    ).toBeVisible();
+      claimStage.getByTestId("readiness-required-alert")
+    ).toContainText(/run or refresh submission readiness/i);
 
     await expect(
       page.getByRole("button", { name: "Retry", exact: true })
     ).toHaveCount(0);
 
     await claimStage
-      .getByRole("button", { name: "Fix in Claim Details", exact: true })
+      .getByRole("button", { name: "View Claim Details", exact: true })
       .click();
 
     await expect(page).toHaveURL(
@@ -452,9 +440,15 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
       await expect(priorAuth).toContainText("Not Required");
     }
 
-    await expect(
-      priorAuth.getByRole("button", { name: "Authorization Current" })
-    ).toBeDisabled();
+    if (expectedKey === "SUMMIT") {
+      await expect(
+        priorAuth.getByRole("button", { name: "Authorization Current" })
+      ).toBeDisabled();
+    } else {
+      await expect(
+        priorAuth.getByRole("button", { name: "No Prior Authorization Required" })
+      ).toBeDisabled();
+    }
 
     const duplicateAuth = await apiContext.post(
       `/api/claims/${scenario.id}/payer-simulation/prior-auth`,
@@ -463,7 +457,29 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     expect(duplicateAuth.ok()).toBeTruthy();
     expect((await duplicateAuth.json()).unchanged).toBe(true);
 
-    await clickStageButton(claim, "Submit to Payer");
+    const readiness = await apiContext.post(
+      `/api/claims/${scenario.id}/check`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` }, data: {} }
+    );
+    expect(readiness.ok()).toBeTruthy();
+    const readinessBody = await readiness.json();
+    expect(readinessBody.score).toBeGreaterThanOrEqual(80);
+    expect(
+      (readinessBody.issues || []).filter((issue) => issue?.severity === "BLOCK")
+    ).toHaveLength(0);
+
+    await page.reload();
+    await expect(
+      page.getByTestId("journey-stage-claim").getByRole("button", {
+        name: "Submit to Payer",
+        exact: true
+      })
+    ).toBeEnabled();
+
+    await clickStageButton(
+      page.getByTestId("journey-stage-claim"),
+      "Submit to Payer"
+    );
 
     const submissionConfirmation = page.getByRole("dialog", {
       name: "Confirm claim submission"
