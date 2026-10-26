@@ -22,11 +22,14 @@ export default function ClaimAssignmentDialog({
   currentAssigneeId = "",
   currentTeam = "",
   title = "Assign claim",
+  loadUsers,
   saveAssignment,
   onClose,
   onSaved
 }) {
   const [users, setUsers] = React.useState([]);
+  const [teams, setTeams] = React.useState([]);
+  const bulkMode = claimIds.length > 1;
   const [assigneeId, setAssigneeId] = React.useState("");
   const [team, setTeam] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -35,26 +38,34 @@ export default function ClaimAssignmentDialog({
 
   React.useEffect(() => {
     if (!open) return;
-    setAssigneeId(currentAssigneeId || "");
-    setTeam(currentTeam || "");
+    setAssigneeId(bulkMode ? "__NO_CHANGE__" : currentAssigneeId || "");
+    setTeam(bulkMode ? "__NO_CHANGE__" : currentTeam || "");
     setError("");
     setLoading(true);
-    ClaimsApi.workManagementUsers()
-      .then((result) => setUsers(Array.isArray(result?.items) ? result.items : []))
-      .catch((e) => setError(e?.message || "Assignable users could not be loaded."))
+    Promise.all([
+      (loadUsers || ClaimsApi.workManagementUsers)(),
+      OperationsApi.teams()
+    ])
+      .then(([result, teamResult]) => {
+        setUsers(Array.isArray(result?.items) ? result.items : []);
+        setTeams(Array.isArray(teamResult?.items) ? teamResult.items : []);
+      })
+      .catch((e) => setError(e?.message || "Assignment options could not be loaded."))
       .finally(() => setLoading(false));
-  }, [open, currentAssigneeId, currentTeam]);
+  }, [open, currentAssigneeId, currentTeam, bulkMode, loadUsers]);
 
   async function save() {
     if (!claimIds.length) return;
     try {
       setSaving(true);
       setError("");
-      const payload = {
-        claimIds,
-        assignedToUserId: assigneeId || null,
-        workTeam: team.trim() || null
-      };
+      const payload = { claimIds };
+      if (assigneeId !== "__NO_CHANGE__") {
+        payload.assignedToUserId = assigneeId || null;
+      }
+      if (team !== "__NO_CHANGE__") {
+        payload.workTeam = team || null;
+      }
       if (saveAssignment) {
         await saveAssignment(payload);
       } else {
@@ -81,28 +92,35 @@ export default function ClaimAssignmentDialog({
           )}
           {error && <Alert severity="error">{error}</Alert>}
           <FormControl size="small" fullWidth disabled={loading || saving}>
-            <InputLabel>Assigned Specialist</InputLabel>
+            <InputLabel>Assigned Owner</InputLabel>
             <Select
-              label="Assigned Specialist"
+              label="Assigned Owner"
               value={assigneeId}
               onChange={(event) => setAssigneeId(event.target.value)}
             >
+              {bulkMode && <MenuItem value="__NO_CHANGE__">No assignment change</MenuItem>}
               <MenuItem value="">Unassigned</MenuItem>
               {users.map((person) => (
                 <MenuItem key={person.id} value={person.id}>
-                  {person.displayName || person.email} · {person.role}
+                  {person.displayName || person.email} · {String(person.role || "").toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase())}
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
-          <TextField
-            size="small"
-            label="Work Team"
-            value={team}
-            onChange={(event) => setTeam(event.target.value)}
-            disabled={saving}
-            helperText="Optional operational team label"
-          />
+          <FormControl size="small" fullWidth disabled={loading || saving}>
+            <InputLabel>Work Team</InputLabel>
+            <Select
+              label="Work Team"
+              value={team}
+              onChange={(event) => setTeam(event.target.value)}
+            >
+              {bulkMode && <MenuItem value="__NO_CHANGE__">No team change</MenuItem>}
+              <MenuItem value="">No team</MenuItem>
+              {teams.map((item) => (
+                <MenuItem key={item.id} value={item.name}>{item.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Stack>
       </DialogContent>
       <DialogActions>
