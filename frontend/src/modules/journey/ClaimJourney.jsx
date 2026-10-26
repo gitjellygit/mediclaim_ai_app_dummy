@@ -652,6 +652,17 @@ export default function ClaimJourney() {
 
   const claim = journey?.claim;
   const stages = journey?.stages;
+  const latestJourneyCheck = Array.isArray(claim?.checks) ? claim.checks[0] : null;
+  const latestJourneyIssues = Array.isArray(latestJourneyCheck?.issues)
+    ? latestJourneyCheck.issues
+    : [];
+  const journeyReadinessClear =
+    Boolean(latestJourneyCheck) &&
+    !latestJourneyCheck?.isStale &&
+    Number(latestJourneyCheck?.score) >= 80 &&
+    !latestJourneyIssues.some((issue) => issue?.severity === "BLOCK");
+  const journeySubmissionActionable =
+    Boolean(stages?.claim?.actionable) && journeyReadinessClear;
   const focusedStage = searchParams.get("stage") || "";
   const focusedAction = searchParams.get("focus") || "";
 
@@ -2129,12 +2140,20 @@ export default function ClaimJourney() {
                     ? "Checking..."
                     : externalPayerConnected && !externalPriorAuthSupported
                     ? "Not Available"
-                    : ["APPROVED", "NOT_REQUIRED"].includes(stages.priorAuth.status)
+                    : stages.priorAuth.status === "NOT_REQUIRED"
+                    ? "No Prior Authorization Required"
+                    : stages.priorAuth.status === "APPROVED"
                     ? "Authorization Current"
                     : "Check Prior Auth"}
                 </Button>
 
-                {claim.priorAuthRequired != null && !workflowAdvanced && (
+                {claim.priorAuthRequired === false && !workflowAdvanced && (
+                  <Alert severity="success" variant="outlined">
+                    No prior authorization is required for this claim. No authorization case needs to be created.
+                  </Alert>
+                )}
+
+                {claim.priorAuthRequired === true && !workflowAdvanced && (
                   <Paper variant="outlined" sx={{ p: 1.1, mt: 0.5 }} data-testid="prior-auth-case-panel">
                     <Stack spacing={0.8}>
                       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
@@ -2316,10 +2335,20 @@ export default function ClaimJourney() {
               highlighted={focusedStage === "claim"}
               errorHighlighted={Boolean(submissionBlock)}
               status={stages.claim.status}
-              actionable={stages.claim.actionable}
-              blockedReason={stages.claim.blockedReason}
+              actionable={journeySubmissionActionable}
+              blockedReason={
+                stages.claim.blockedReason ||
+                (!journeyReadinessClear
+                  ? "Complete a current readiness check with no blocking issues before submitting."
+                  : undefined)
+              }
             >
               <Stack spacing={1.2}>
+                {!journeyReadinessClear && !internalClaimSubmitted && !submissionBlock && (
+                  <Alert severity="warning" data-testid="readiness-required-alert">
+                    Run or refresh Submission Readiness and resolve all blocking issues before sending this claim to the payer.
+                  </Alert>
+                )}
                 {submissionBlock && (
                   <Alert
                     severity="error"
@@ -2391,7 +2420,7 @@ export default function ClaimJourney() {
                       <Button
                         variant="contained"
                         size="small"
-                        disabled={action !== "" || !stages.claim.actionable}
+                        disabled={action !== "" || !journeySubmissionActionable}
                         onClick={submitConnectedClaim}
                         data-testid="submit-action"
                         sx={focusActionSx("submit-action")}
@@ -2405,7 +2434,7 @@ export default function ClaimJourney() {
                   variant="outlined"
                   color={submissionBlock ? "error" : "primary"}
                   size="small"
-                  disabled={!stages.claim.actionable}
+                  disabled={false}
                   onClick={() =>
                     submissionBlock
                       ? goToClaimFixes()
