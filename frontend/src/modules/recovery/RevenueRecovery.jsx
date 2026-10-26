@@ -102,7 +102,9 @@ function summaryCard(label, value, caption, tone = "text.primary", highlight = f
 
 export default function RevenueRecovery() {
   const user = AuthApi.getUser();
-  const canManageAssignments = hasPermission(user, PERMISSIONS.CLAIM_EDIT);
+  const canManageAssignments =
+    hasPermission(user, PERMISSIONS.RECOVERY_EDIT) ||
+    hasPermission(user, PERMISSIONS.CLAIM_EDIT);
   const [assignmentTarget, setAssignmentTarget] = React.useState(null);
   const [data, setData] = React.useState({
     items: [],
@@ -719,6 +721,9 @@ export default function RevenueRecovery() {
         currentAssigneeId={assignmentTarget?.currentAssigneeId || ""}
         currentTeam={assignmentTarget?.currentTeam || ""}
         title={assignmentTarget?.title || "Assign recovery work"}
+        saveAssignment={({ claimIds, assignedToUserId, workTeam }) =>
+          RevenueRecoveryApi.assignClaim(claimIds[0], { assignedToUserId, workTeam })
+        }
         onClose={() => setAssignmentTarget(null)}
         onSaved={load}
       />
