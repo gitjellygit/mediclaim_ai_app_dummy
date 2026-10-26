@@ -215,7 +215,7 @@ export default function ClaimCollaboration({ claimId, canEdit = false }) {
               {history.slice(0, 10).map((item) => (
                 <Box key={item.id} sx={{ borderLeft: "2px solid", borderColor: "divider", pl: 1 }}>
                   <Typography variant="body2">
-                    {item.previousAssigneeUserId || "Unassigned"} → {item.newAssigneeUserId || "Unassigned"}
+                    {item.previousAssigneeName || "Unassigned"} → {item.newAssigneeName || "Unassigned"}
                     {item.newPriority ? ` · Priority ${item.newPriority}` : ""}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
