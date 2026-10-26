@@ -14,7 +14,6 @@ import {
   isAssignableUser,
   isManagerRole,
   mentionsAreValid,
-  savedQueueVisibilityWhere,
   shouldNotifyUser,
   validatePriorityOverride,
   validateUserAdministrationMutation,
@@ -36,6 +35,19 @@ const ROLE_TEMPLATES = Object.freeze([
   "AUDITOR",
   "PROVIDER",
   "CASHIER"
+]);
+
+const CLAIM_ASSIGNABLE_ROLES = new Set([
+  "ADMIN",
+  "CLAIMS_MANAGER",
+  "CLAIMS_SPECIALIST",
+  "DENIAL_SPECIALIST",
+  "PRIOR_AUTH_SPECIALIST"
+]);
+
+const CLINICAL_ASSIGNEE_ROLES = new Set([
+  "PROVIDER",
+  "CLINICAL_REVIEWER"
 ]);
 
 const CLINICAL_TYPES = new Set([
@@ -289,8 +301,40 @@ router.post("/claims/bulk-work", requirePermission(PERMISSIONS.CLAIM_EDIT), asyn
   const assignee = parsed.data.assignedToUserId
     ? await userFor(req, parsed.data.assignedToUserId)
     : null;
-  if (parsed.data.assignedToUserId && !isAssignableUser(assignee)) {
-    return res.status(400).json({ error: "Assignee must be an active user in this organization" });
+  if (
+    parsed.data.assignedToUserId &&
+    (!isAssignableUser(assignee) || !CLAIM_ASSIGNABLE_ROLES.has(assignee.role))
+  ) {
+    return res.status(400).json({
+      error: "Assignee must be an active claim-work user in this organization"
+    });
+  }
+
+  if (parsed.data.workTeam) {
+    const team = await prisma.team.findFirst({
+      where: {
+        organizationId: orgId(req),
+        name: parsed.data.workTeam,
+        active: true
+      },
+      select: { id: true }
+    });
+    if (!team) {
+      return res.status(400).json({ error: "Work team must match an active team" });
+    }
+  }
+
+  const now = Date.now();
+  for (const [label, value] of [
+    ["Next follow-up", parsed.data.nextFollowUpAt],
+    ["Resume date", parsed.data.holdUntil]
+  ]) {
+    if (value && new Date(value).getTime() < now) {
+      return res.status(400).json({ error: `${label} cannot be in the past` });
+    }
+  }
+  if (parsed.data.holdUntil && !parsed.data.holdReason?.trim()) {
+    return res.status(400).json({ error: "A hold reason is required when a resume date is set" });
   }
 
   await prisma.$transaction(async (tx) => {
@@ -437,7 +481,17 @@ router.post("/clinical-requests", requirePermission(PERMISSIONS.CLAIM_EDIT), asy
   const claim = await claimFor(req, parsed.data.claimId);
   if (!claim) return res.status(404).json({ error: "Claim not found" });
   const assignee = parsed.data.assignedToUserId ? await userFor(req, parsed.data.assignedToUserId) : null;
-  if (parsed.data.assignedToUserId && !assignee) return res.status(400).json({ error: "Clinical assignee not found" });
+  if (
+    parsed.data.assignedToUserId &&
+    (!assignee || assignee.status !== "ACTIVE" || !CLINICAL_ASSIGNEE_ROLES.has(assignee.role))
+  ) {
+    return res.status(400).json({
+      error: "Clinical assignee must be an active Provider or Clinical Reviewer"
+    });
+  }
+  if (parsed.data.dueAt && new Date(parsed.data.dueAt).getTime() < Date.now()) {
+    return res.status(400).json({ error: "Clinical request due date cannot be in the past" });
+  }
 
   const item = await prisma.$transaction(async (tx) => {
     const created = await tx.clinicalRequest.create({
@@ -513,27 +567,67 @@ router.get("/saved-queues", requirePermission(PERMISSIONS.CLAIM_VIEW), async (re
     where: { id: req.user.id, organizationId: orgId(req) },
     select: { teamId: true }
   });
-  const items = await prisma.savedQueue.findMany({
-    where: savedQueueVisibilityWhere({
+  const candidates = await prisma.savedQueue.findMany({
+    where: {
       organizationId: orgId(req),
-      userId: req.user.id,
-      teamId: currentUser?.teamId || null
-    }),
+      OR: [
+        { ownerUserId: req.user.id },
+        { sharedWithTeam: true }
+      ]
+    },
     orderBy: { updatedAt: "desc" }
+  });
+  const items = candidates.filter((item) => {
+    if (item.ownerUserId === req.user.id) return true;
+    const filters = item.filters && typeof item.filters === "object" ? item.filters : {};
+    return Boolean(
+      currentUser?.teamId &&
+      filters._sharedTeamId &&
+      filters._sharedTeamId === currentUser.teamId
+    );
   });
   res.json({ items });
 });
 
 router.post("/saved-queues", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
+  const filtersSchema = z.object({
+    query: z.string().max(100).optional(),
+    status: z.string().max(80).optional(),
+    work: z.string().max(80).optional(),
+    filing: z.string().max(80).optional(),
+    owner: z.string().max(120).optional(),
+    followUp: z.string().max(80).optional(),
+    sort: z.string().max(80).optional(),
+    direction: z.enum(["asc", "desc"]).optional()
+  }).strict();
   const schema = z.object({
     name: z.string().trim().min(1).max(100),
-    filters: z.record(z.any()),
+    filters: filtersSchema,
     sharedWithTeam: z.boolean().default(false)
   }).strict();
   const parsed = schema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid saved queue" });
+
+  const currentUser = await prisma.user.findFirst({
+    where: { id: req.user.id, organizationId: orgId(req) },
+    select: { teamId: true }
+  });
+  if (parsed.data.sharedWithTeam && !currentUser?.teamId) {
+    return res.status(400).json({ error: "Join a team before sharing a saved queue with that team" });
+  }
+
+  const filters = {
+    ...parsed.data.filters,
+    ...(parsed.data.sharedWithTeam ? { _sharedTeamId: currentUser.teamId } : {})
+  };
   const item = await prisma.savedQueue.create({
-    data: { organizationId: orgId(req), ownerUserId: req.user.id, ...parsed.data }
+    data: {
+      organizationId: orgId(req),
+      ownerUserId: req.user.id,
+      name: parsed.data.name,
+      filters,
+      sharedWithTeam: parsed.data.sharedWithTeam
+    }
   });
   res.status(201).json(item);
 });
@@ -553,7 +647,13 @@ router.get("/notifications", requirePermission(PERMISSIONS.OPERATIONS_VIEW), asy
     orderBy: { createdAt: "desc" },
     take: 100
   });
-  const unread = items.filter((item) => !item.readAt).length;
+  const unread = await prisma.notification.count({
+    where: {
+      organizationId: orgId(req),
+      userId: req.user.id,
+      readAt: null
+    }
+  });
   res.json({ items, unread });
 });
 
@@ -586,18 +686,108 @@ router.post("/approvals", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req,
   const schema = z.object({
     claimId: z.string().min(1),
     requestType: z.enum(["WRITE_OFF", "LARGE_ADJUSTMENT", "CLOSE_RECOVERY", "ABANDON_APPEAL", "EXCEPTION_OVERRIDE"]),
-    amount: z.number().nonnegative().nullable().optional(),
+    amount: z.number().positive().nullable().optional(),
     reason: z.string().trim().min(3).max(2000)
-  }).strict();
+  }).strict().superRefine((value, ctx) => {
+    if (["WRITE_OFF", "LARGE_ADJUSTMENT"].includes(value.requestType) && !(Number(value.amount) > 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["amount"],
+        message: "Amount is required for write-off and large-adjustment approvals"
+      });
+    }
+  });
   const parsed = schema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid approval request" });
-  const claim = await claimFor(req, parsed.data.claimId);
-  if (!claim) return res.status(404).json({ error: "Claim not found" });
-  const item = await prisma.approvalRequest.create({
-    data: {
-      organizationId: orgId(req), claimId: claim.id, requestedByUserId: req.user.id,
-      requestType: parsed.data.requestType, amount: parsed.data.amount ?? null, reason: parsed.data.reason
+
+  const activeDenialStatuses = [
+    "OPEN", "ANALYZED", "CORRECTION_REQUIRED", "APPEAL_PREPARED", "APPEAL_SUBMITTED", "RESUBMITTED"
+  ];
+  const activeUnderpaymentStatuses = ["OPEN", "REVIEWING", "DISPUTE_PREPARED", "DISPUTE_SUBMITTED"];
+  const claim = await prisma.claim.findFirst({
+    where: { id: parsed.data.claimId, organizationId: orgId(req), deletedAt: null },
+    include: {
+      denialCases: {
+        where: { status: { in: activeDenialStatuses } },
+        select: { id: true, status: true }
+      },
+      underpaymentCase: { select: { id: true, status: true } }
     }
+  });
+  if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+  if (
+    parsed.data.amount != null &&
+    claim.amount != null &&
+    Number(parsed.data.amount) > Number(claim.amount)
+  ) {
+    return res.status(400).json({ error: "Approval amount cannot exceed the claim amount" });
+  }
+
+  const hasActiveUnderpayment =
+    claim.underpaymentCase &&
+    activeUnderpaymentStatuses.includes(claim.underpaymentCase.status);
+  const hasActiveRecovery = claim.denialCases.length > 0 || hasActiveUnderpayment;
+  if (parsed.data.requestType === "CLOSE_RECOVERY" && !hasActiveRecovery) {
+    return res.status(409).json({ error: "There is no active recovery case to close" });
+  }
+  if (parsed.data.requestType === "ABANDON_APPEAL" && claim.denialCases.length === 0) {
+    return res.status(409).json({ error: "There is no active denial appeal to abandon" });
+  }
+
+  const duplicate = await prisma.approvalRequest.findFirst({
+    where: {
+      organizationId: orgId(req),
+      claimId: claim.id,
+      requestType: parsed.data.requestType,
+      status: "PENDING"
+    },
+    select: { id: true }
+  });
+  if (duplicate) {
+    return res.status(409).json({ error: "A matching approval request is already pending" });
+  }
+
+  const managers = await prisma.user.findMany({
+    where: {
+      organizationId: orgId(req),
+      status: "ACTIVE",
+      role: { in: ["ADMIN", "CLAIMS_MANAGER"] }
+    },
+    select: { id: true }
+  });
+
+  const item = await prisma.$transaction(async (tx) => {
+    const created = await tx.approvalRequest.create({
+      data: {
+        organizationId: orgId(req),
+        claimId: claim.id,
+        requestedByUserId: req.user.id,
+        requestType: parsed.data.requestType,
+        amount: parsed.data.amount ?? null,
+        reason: parsed.data.reason
+      }
+    });
+    for (const manager of managers) {
+      await notify(tx, req, manager.id, {
+        type: "APPROVAL_REQUEST",
+        title: "Manager approval requested",
+        message: `${parsed.data.requestType.toLowerCase().replaceAll("_", " ")} requires review.`,
+        claimId: claim.id
+      });
+    }
+    await writeCriticalRequestAudit(tx, req, {
+      claimId: claim.id,
+      action: "APPROVAL_REQUEST_CREATED",
+      entityType: "ApprovalRequest",
+      entityId: created.id,
+      metadata: {
+        requestType: parsed.data.requestType,
+        amount: parsed.data.amount ?? null,
+        operation: "create"
+      }
+    });
+    return created;
   });
   res.status(201).json(item);
 });
@@ -609,11 +799,68 @@ router.patch("/approvals/:id/decision", managerOnly, async (req, res) => {
   }).strict();
   const parsed = schema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid approval decision" });
+  if (
+    ["REJECTED", "RETURNED"].includes(parsed.data.decision) &&
+    !parsed.data.reason?.trim()
+  ) {
+    return res.status(400).json({ error: "A decision reason is required when rejecting or returning a request" });
+  }
+
   const existing = await prisma.approvalRequest.findFirst({
     where: { id: req.params.id, organizationId: orgId(req), status: "PENDING" }
   });
   if (!existing) return res.status(404).json({ error: "Pending approval request not found" });
+  if (
+    parsed.data.decision === "APPROVED" &&
+    ["WRITE_OFF", "LARGE_ADJUSTMENT"].includes(existing.requestType) &&
+    !(Number(existing.amount) > 0)
+  ) {
+    return res.status(409).json({ error: "This financial approval has no executable amount" });
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
+    if (parsed.data.decision === "APPROVED") {
+      if (["WRITE_OFF", "LARGE_ADJUSTMENT"].includes(existing.requestType)) {
+        const claim = await tx.claim.findUnique({
+          where: { id: existing.claimId },
+          select: { amount: true, deductionAmount: true }
+        });
+        const nextDeduction = Math.min(
+          Number(claim?.amount || 0),
+          Number(claim?.deductionAmount || 0) + Number(existing.amount || 0)
+        );
+        await tx.claim.update({
+          where: { id: existing.claimId },
+          data: { deductionAmount: nextDeduction }
+        });
+      } else if (existing.requestType === "CLOSE_RECOVERY") {
+        await tx.denialCase.updateMany({
+          where: {
+            claimId: existing.claimId,
+            status: {
+              in: ["OPEN", "ANALYZED", "CORRECTION_REQUIRED", "APPEAL_PREPARED", "APPEAL_SUBMITTED", "RESUBMITTED"]
+            }
+          },
+          data: { status: "CLOSED" }
+        });
+        await tx.underpaymentCase.updateMany({
+          where: {
+            claimId: existing.claimId,
+            status: { in: ["OPEN", "REVIEWING", "DISPUTE_PREPARED", "DISPUTE_SUBMITTED"] }
+          },
+          data: { status: "CLOSED", resolvedAt: new Date() }
+        });
+      } else if (existing.requestType === "ABANDON_APPEAL") {
+        await tx.denialCase.updateMany({
+          where: {
+            claimId: existing.claimId,
+            status: { in: ["ANALYZED", "APPEAL_PREPARED", "APPEAL_SUBMITTED", "RESUBMITTED"] }
+          },
+          data: { status: "CLOSED" }
+        });
+      }
+    }
+
     const item = await tx.approvalRequest.update({
       where: { id: existing.id },
       data: {
@@ -630,9 +877,15 @@ router.patch("/approvals/:id/decision", managerOnly, async (req, res) => {
       claimId: existing.claimId
     });
     await writeCriticalRequestAudit(tx, req, {
-      claimId: existing.claimId, action: "APPROVAL_REQUEST_DECIDED",
-      entityType: "ApprovalRequest", entityId: existing.id,
-      metadata: { status: parsed.data.decision, operation: "decision" }
+      claimId: existing.claimId,
+      action: "APPROVAL_REQUEST_DECIDED",
+      entityType: "ApprovalRequest",
+      entityId: existing.id,
+      metadata: {
+        status: parsed.data.decision,
+        requestType: existing.requestType,
+        operation: parsed.data.decision === "APPROVED" ? "decision_and_execute" : "decision"
+      }
     });
     return item;
   });

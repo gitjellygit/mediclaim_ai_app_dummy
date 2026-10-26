@@ -815,9 +815,9 @@ export function documentsRouter(prisma, uploadDir) {
   }
   }
 
-  router.post("/upload", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
+  router.post("/upload", requirePermission(PERMISSIONS.DOCUMENT_EDIT), requirePermission(PERMISSIONS.CLAIM_EDIT), upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
   // Compatibility for callers using POST /api/claims/documents.
-  router.post("/", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
+  router.post("/", requirePermission(PERMISSIONS.DOCUMENT_EDIT), requirePermission(PERMISSIONS.CLAIM_EDIT), upload.single("file"), verifyUploadSignature, handleClaimDocumentUpload);
 
   // List documents for the current organization without bloating the claims list.
   router.get("/", requirePermission(PERMISSIONS.DOCUMENT_VIEW), async (req, res) => {
@@ -951,12 +951,12 @@ export function documentsRouter(prisma, uploadDir) {
   router.get("/:id/preview", requirePermission(PERMISSIONS.DOCUMENT_VIEW), (req, res) => serveAuditedDocument(req, res, false));
 
   // DELETE doc
-  router.delete("/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), (req, res) =>
+  router.delete("/:id", requirePermission(PERMISSIONS.DOCUMENT_DELETE), (req, res) =>
     deleteStoredDocument(prisma, req, res, { uploadDir })
   );
 
   // Process document with AI
-  router.post("/:id/process", requirePermission(PERMISSIONS.DOCUMENT_VIEW), requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => {
+  router.post("/:id/process", requirePermission(PERMISSIONS.DOCUMENT_EDIT), requirePermission(PERMISSIONS.CLAIM_EDIT), async (req, res) => {
     try {
       const doc = await prisma.document.findFirst({
         where: { id: req.params.id, claim: { organizationId: req.user.organizationId, deletedAt: null } },

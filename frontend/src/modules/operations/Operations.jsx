@@ -143,8 +143,16 @@ export default function Operations() {
   }
 
   async function decideApproval(id, decision) {
+    const reason =
+      decision === "APPROVED"
+        ? null
+        : window.prompt(decision === "REJECTED" ? "Reason for rejection" : "Reason for return");
+    if (decision !== "APPROVED" && !reason?.trim()) return;
     try {
-      await OperationsApi.decideApproval(id, { decision, reason: null });
+      await OperationsApi.decideApproval(id, {
+        decision,
+        reason: reason?.trim() || null
+      });
       await load();
     } catch (error) {
       showDialog(error?.message || "Approval decision failed.", { title: "Approval", severity: "error" });

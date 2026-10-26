@@ -108,7 +108,12 @@ export default function ClaimCollaboration({ claimId, canEdit = false }) {
   }
 
   async function requestApproval() {
+    const financialApproval = ["WRITE_OFF", "LARGE_ADJUSTMENT"].includes(approvalDraft.requestType);
     if (!approvalDraft.reason.trim()) return;
+    if (financialApproval && !(Number(approvalDraft.amount) > 0)) {
+      setMessage("Enter a positive amount for this financial approval.");
+      return;
+    }
     await OperationsApi.createApproval({
       claimId,
       requestType: approvalDraft.requestType,
@@ -195,10 +200,10 @@ export default function ClaimCollaboration({ claimId, canEdit = false }) {
                       <InputLabel>Clinical Assignee</InputLabel>
                       <Select label="Clinical Assignee" value={clinicalDraft.assignedToUserId} onChange={(e) => setClinicalDraft((c) => ({ ...c, assignedToUserId: e.target.value }))}>
                         <MenuItem value="">Unassigned</MenuItem>
-                        {users.filter((u) => ["CLINICAL_REVIEWER","PROVIDER","ADMIN"].includes(u.role)).map((u) => <MenuItem key={u.id} value={u.id}>{u.email}</MenuItem>)}
+                        {users.filter((u) => ["CLINICAL_REVIEWER","PROVIDER"].includes(u.role)).map((u) => <MenuItem key={u.id} value={u.id}>{u.email}</MenuItem>)}
                       </Select>
                     </FormControl>
-                    <TextField size="small" type="date" label="Due" InputLabelProps={{ shrink: true }} value={clinicalDraft.dueAt} onChange={(e) => setClinicalDraft((c) => ({ ...c, dueAt: e.target.value }))} />
+                    <TextField size="small" type="date" label="Due" InputLabelProps={{ shrink: true }} inputProps={{ min: new Date().toISOString().slice(0, 10) }} value={clinicalDraft.dueAt} onChange={(e) => setClinicalDraft((c) => ({ ...c, dueAt: e.target.value }))} />
                     <Button variant="outlined" onClick={createClinical} disabled={!clinicalDraft.requestText.trim()}>Request</Button>
                   </Stack>
                 </Stack>
@@ -242,9 +247,25 @@ export default function ClaimCollaboration({ claimId, canEdit = false }) {
                       {["WRITE_OFF","LARGE_ADJUSTMENT","CLOSE_RECOVERY","ABANDON_APPEAL","EXCEPTION_OVERRIDE"].map((v) => <MenuItem key={v} value={v}>{label(v)}</MenuItem>)}
                     </Select>
                   </FormControl>
-                  <TextField size="small" type="number" label="Amount (optional)" value={approvalDraft.amount} onChange={(e) => setApprovalDraft((c) => ({ ...c, amount: e.target.value }))} />
+                  <TextField
+                    size="small"
+                    type="number"
+                    label={["WRITE_OFF", "LARGE_ADJUSTMENT"].includes(approvalDraft.requestType) ? "Amount *" : "Amount (optional)"}
+                    inputProps={{ min: 0.01, step: 0.01 }}
+                    value={approvalDraft.amount}
+                    onChange={(e) => setApprovalDraft((c) => ({ ...c, amount: e.target.value }))}
+                  />
                   <TextField size="small" multiline minRows={2} label="Reason" value={approvalDraft.reason} onChange={(e) => setApprovalDraft((c) => ({ ...c, reason: e.target.value }))} />
-                  <Button variant="outlined" onClick={requestApproval} disabled={!approvalDraft.reason.trim()}>Request Approval</Button>
+                  <Button
+                    variant="outlined"
+                    onClick={requestApproval}
+                    disabled={
+                      !approvalDraft.reason.trim() ||
+                      (["WRITE_OFF", "LARGE_ADJUSTMENT"].includes(approvalDraft.requestType) && !(Number(approvalDraft.amount) > 0))
+                    }
+                  >
+                    Request Approval
+                  </Button>
                 </Stack>
               </Box>
             </>

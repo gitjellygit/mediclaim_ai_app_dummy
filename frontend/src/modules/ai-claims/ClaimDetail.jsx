@@ -100,11 +100,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const user = AuthApi.getUser();
   const isAdmin = user?.role === "ADMIN";
   const canRunAI = hasPermission(user, PERMISSIONS.CLINICAL_VIEW);
-  const canDeleteDoc = hasPermission(user, PERMISSIONS.CLAIM_DELETE);
+  const canDeleteClaim = hasPermission(user, PERMISSIONS.CLAIM_DELETE);
+  const canDeleteDoc = hasPermission(user, PERMISSIONS.DOCUMENT_DELETE);
   const canEditDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_EDIT);
   const canEditClinical = hasPermission(user, PERMISSIONS.CLINICAL_EDIT);
-  const canEditClaim =
-    hasPermission(user, PERMISSIONS.CLAIM_EDIT) && canEditClinical;
+  const canEditClaim = hasPermission(user, PERMISSIONS.CLAIM_EDIT);
   const canEditFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_EDIT);
   const canManageAssignments = hasPermission(user, PERMISSIONS.CLAIM_EDIT);
   const canViewAudit = hasPermission(user, PERMISSIONS.AUDIT_VIEW);
@@ -675,15 +675,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   }
 
   async function deleteClaim() {
-    if (!isAdmin) {
+    if (!canDeleteClaim) {
       return showDialog(
-        "Only an ADMIN can permanently delete a claim.",
+        "You do not have permission to remove this claim.",
         { title: "Permission required", severity: "warning" }
       );
     }
 
     const confirmed = await confirmDialog(
-      "This will permanently delete the claim and its associated documents. This action cannot be undone.",
+      "This will remove the claim from active views. The record is retained for audit and recovery purposes.",
       {
         title: "Delete claim?",
         severity: "warning",
@@ -1553,11 +1553,6 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         <Button onClick={onBack}>← {backLabel}</Button>
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          {canManageAssignments && (
-            <Button variant="outlined" onClick={() => setAssignmentOpen(true)}>
-              {claim.assignedToUser ? "Reassign Owner" : "Assign Owner"}
-            </Button>
-          )}
           {isAdmin && claim.status === "SUBMITTING" && (
             <Button
               variant="contained"
@@ -1590,7 +1585,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
               View Audit Trail
             </Button>
           )}
-          {isAdmin && !claimFinalized && (
+          {canDeleteClaim && !claimFinalized && (
             <Button color="error" startIcon={<DeleteForever />} onClick={deleteClaim}>
               Delete Claim
             </Button>

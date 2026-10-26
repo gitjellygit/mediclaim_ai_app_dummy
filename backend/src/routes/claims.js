@@ -903,12 +903,24 @@ router.get(
   }
 );
 
+const CLAIM_ASSIGNABLE_ROLES = [
+  "ADMIN",
+  "CLAIMS_MANAGER",
+  "CLAIMS_SPECIALIST",
+  "DENIAL_SPECIALIST",
+  "PRIOR_AUTH_SPECIALIST"
+];
+
 router.get(
   "/work-management/users",
   requirePermission(PERMISSIONS.CLAIM_EDIT),
   async (req, res) => {
     const users = await prisma.user.findMany({
-      where: { organizationId: orgId(req), status: "ACTIVE" },
+      where: {
+        organizationId: orgId(req),
+        status: "ACTIVE",
+        role: { in: CLAIM_ASSIGNABLE_ROLES }
+      },
       select: { id: true, email: true, displayName: true, role: true, teamId: true },
       orderBy: { email: "asc" }
     });
@@ -946,14 +958,46 @@ router.patch(
       const assignee = await prisma.user.findFirst({
         where: {
           id: parsed.data.assignedToUserId,
-          organizationId: orgId(req)
+          organizationId: orgId(req),
+          status: "ACTIVE",
+          role: { in: CLAIM_ASSIGNABLE_ROLES }
         },
         select: { id: true }
       });
       if (!assignee) {
         return res.status(400).json({
-          error: "Assignee must belong to the current organization",
+          error: "Assignee must be an active claim-work user in the current organization",
           code: "INVALID_WORK_ASSIGNEE"
+        });
+      }
+    }
+
+    if (parsed.data.workTeam) {
+      const team = await prisma.team.findFirst({
+        where: {
+          organizationId: orgId(req),
+          name: parsed.data.workTeam,
+          active: true
+        },
+        select: { id: true }
+      });
+      if (!team) {
+        return res.status(400).json({
+          error: "Work team must match an active team in this organization",
+          code: "INVALID_WORK_TEAM"
+        });
+      }
+    }
+
+    const now = Date.now();
+    for (const [field, value] of [
+      ["workDueAt", parsed.data.workDueAt],
+      ["nextFollowUpAt", parsed.data.nextFollowUpAt]
+    ]) {
+      if (value && new Date(value).getTime() < now) {
+        return res.status(400).json({
+          error: `${field === "workDueAt" ? "Work due date" : "Next follow-up"} cannot be in the past`,
+          code: "PAST_WORK_DATE"
         });
       }
     }
@@ -1746,7 +1790,7 @@ router.get("/:id/download", requirePermission(PERMISSIONS.DOCUMENT_DOWNLOAD), (r
 
 
 
-router.delete("/documents/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), (req, res) =>
+router.delete("/documents/:id", requirePermission(PERMISSIONS.DOCUMENT_DELETE), (req, res) =>
   deleteStoredDocument(prisma, req, res, { legacy: true })
 );
 
