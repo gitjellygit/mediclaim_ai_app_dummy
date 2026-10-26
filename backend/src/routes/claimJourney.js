@@ -9,6 +9,7 @@ import {
   mergeProvenance,
   systemProvenance
 } from "../services/claimFieldProvenance.js";
+import { syncDenialRecoveryFromPayment } from "../services/recoverySettlement.js";
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { buildClaimCompleteness } from "../services/claimCompleteness.js";
 import { getMockPayer, payerInputFingerprint } from "../services/payerSimulator.js";
@@ -1637,7 +1638,8 @@ router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTI
       )
     };
 
-    const updated = await prisma.claim.update({
+    const updated = await prisma.$transaction(async (tx) => {
+      const savedClaim = await tx.claim.update({
       where: { id: claim.id },
       data: {
         remittanceStatus,
@@ -1663,6 +1665,15 @@ router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTI
             : claim.status
         )
       }
+    });
+
+      if (remittanceStatus === "POSTED" && connectorPaidAmount != null && connectorPaidAmount > 0) {
+        await syncDenialRecoveryFromPayment(tx, {
+          claimId: claim.id,
+          paidAmount: connectorPaidAmount
+        });
+      }
+      return savedClaim;
     });
 
     logJourneyEvent(claim.id, "remittance-recorded", remittanceStatus);
