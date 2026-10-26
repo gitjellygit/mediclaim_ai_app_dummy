@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { requirePermission } from "../middleware/auth.js";
-import { PERMISSIONS, hasPermission } from "../security/permissions.js";
+import { PERMISSIONS } from "../security/permissions.js";
 import { generateSecureToken, hashPassword } from "../utils/security.js";
 import {
   writeCriticalRequestAudit,
@@ -28,7 +28,6 @@ const ROLE_TEMPLATES = Object.freeze([
 ]);
 
 const MANAGER_ROLES = new Set(["ADMIN", "CLAIMS_MANAGER"]);
-const PRIORITIES = new Set(["NORMAL", "HIGH", "URGENT"]);
 const CLINICAL_TYPES = new Set([
   "MISSING_DOCUMENTATION",
   "DIAGNOSIS_CLARIFICATION",
@@ -207,7 +206,7 @@ router.patch("/users/:id", requirePermission(PERMISSIONS.USER_ADMIN), async (req
   res.json(updated);
 });
 
-router.get("/teams", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
+router.get("/teams", requirePermission(PERMISSIONS.OPERATIONS_VIEW), async (req, res) => {
   const items = await prisma.team.findMany({
     where: { organizationId: orgId(req), active: true },
     include: { _count: { select: { users: true } } },
@@ -480,12 +479,25 @@ router.patch("/clinical-requests/:id/respond", requirePermission(PERMISSIONS.CLI
 });
 
 router.get("/saved-queues", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
+  const currentUser = await prisma.user.findFirst({
+    where: { id: req.user.id, organizationId: orgId(req) },
+    select: { teamId: true }
+  });
+  const sharedTeamClause = currentUser?.teamId
+    ? {
+        AND: [
+          { sharedWithTeam: true },
+          { ownerUser: { is: { teamId: currentUser.teamId } } }
+        ]
+      }
+    : null;
+
   const items = await prisma.savedQueue.findMany({
     where: {
       organizationId: orgId(req),
       OR: [
         { ownerUserId: req.user.id },
-        { sharedWithTeam: true }
+        ...(sharedTeamClause ? [sharedTeamClause] : [])
       ]
     },
     orderBy: { updatedAt: "desc" }
@@ -516,7 +528,7 @@ router.delete("/saved-queues/:id", requirePermission(PERMISSIONS.CLAIM_VIEW), as
   res.json({ success: true });
 });
 
-router.get("/notifications", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
+router.get("/notifications", requirePermission(PERMISSIONS.OPERATIONS_VIEW), async (req, res) => {
   const items = await prisma.notification.findMany({
     where: { organizationId: orgId(req), userId: req.user.id },
     orderBy: { createdAt: "desc" },
@@ -526,7 +538,7 @@ router.get("/notifications", requirePermission(PERMISSIONS.CLAIM_VIEW), async (r
   res.json({ items, unread });
 });
 
-router.patch("/notifications/:id/read", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
+router.patch("/notifications/:id/read", requirePermission(PERMISSIONS.OPERATIONS_VIEW), async (req, res) => {
   const existing = await prisma.notification.findFirst({
     where: { id: req.params.id, organizationId: orgId(req), userId: req.user.id }
   });
@@ -648,7 +660,31 @@ router.get("/claims/:id/ownership-history", requirePermission(PERMISSIONS.CLAIM_
     orderBy: { createdAt: "desc" },
     take: 100
   });
-  res.json({ items });
+  const userIds = [...new Set(items.flatMap((item) => [
+    item.previousAssigneeUserId,
+    item.newAssigneeUserId
+  ]).filter(Boolean))];
+  const users = userIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: userIds }, organizationId: orgId(req) },
+        select: { id: true, email: true, displayName: true }
+      })
+    : [];
+  const names = new Map(users.map((user) => [
+    user.id,
+    user.displayName || user.email
+  ]));
+  res.json({
+    items: items.map((item) => ({
+      ...item,
+      previousAssigneeName: item.previousAssigneeUserId
+        ? names.get(item.previousAssigneeUserId) || "Former user"
+        : "Unassigned",
+      newAssigneeName: item.newAssigneeUserId
+        ? names.get(item.newAssigneeUserId) || "Former user"
+        : "Unassigned"
+    }))
+  });
 });
 
 export default router;
