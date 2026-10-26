@@ -1,8 +1,9 @@
 import express from "express";
+import { z } from "zod";
 import { prisma } from "../db.js";
 import { requirePermission } from "../middleware/auth.js";
 import { PERMISSIONS } from "../security/permissions.js";
-import { auditOnResponse } from "../services/auditLog.js";
+import { auditOnResponse, writeCriticalRequestAudit } from "../services/auditLog.js";
 
 const router = express.Router();
 
@@ -231,6 +232,124 @@ function aggregateBy(items, key, max = 5) {
     .sort((a, b) => b.outstandingAmount - a.outstandingAmount)
     .slice(0, max);
 }
+
+router.patch(
+  "/claims/:claimId/assignment",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  async (req, res) => {
+    const schema = z.object({
+      assignedToUserId: z.string().trim().min(1).nullable().optional(),
+      workTeam: z.string().trim().max(100).nullable().optional()
+    }).strict();
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid recovery assignment" });
+    }
+
+    const claim = await prisma.claim.findFirst({
+      where: {
+        id: req.params.claimId,
+        organizationId: req.user.organizationId,
+        deletedAt: null
+      },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        workTeam: true
+      }
+    });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+    const [denialCount, underpaymentCount] = await Promise.all([
+      prisma.denialCase.count({ where: { claimId: claim.id } }),
+      prisma.underpaymentCase.count({ where: { claimId: claim.id } })
+    ]);
+    if (denialCount + underpaymentCount === 0) {
+      return res.status(404).json({ error: "Claim is not part of Revenue Recovery" });
+    }
+
+    let assignee = null;
+    if (parsed.data.assignedToUserId) {
+      assignee = await prisma.user.findFirst({
+        where: {
+          id: parsed.data.assignedToUserId,
+          organizationId: req.user.organizationId,
+          status: "ACTIVE"
+        },
+        select: { id: true, email: true, displayName: true, role: true }
+      });
+      if (!assignee) {
+        return res.status(400).json({
+          error: "Recovery assignee must be an active user in this organization"
+        });
+      }
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const item = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          assignedToUserId: parsed.data.assignedToUserId ?? null,
+          workTeam: parsed.data.workTeam || null,
+          lastWorkedAt: new Date()
+        },
+        select: {
+          id: true,
+          assignedToUserId: true,
+          workTeam: true
+        }
+      });
+
+      await tx.claimOwnershipHistory.create({
+        data: {
+          organizationId: req.user.organizationId,
+          claimId: claim.id,
+          changedByUserId: req.user.id,
+          previousAssigneeUserId: claim.assignedToUserId,
+          newAssigneeUserId: item.assignedToUserId,
+          previousTeam: claim.workTeam,
+          newTeam: item.workTeam,
+          previousPriority: null,
+          newPriority: null,
+          reason: "Revenue Recovery assignment"
+        }
+      });
+
+      if (item.assignedToUserId && item.assignedToUserId !== req.user.id) {
+        await tx.notification.create({
+          data: {
+            organizationId: req.user.organizationId,
+            userId: item.assignedToUserId,
+            type: "RECOVERY_ASSIGNED",
+            title: "Recovery work assigned to you",
+            message: "A Revenue Recovery case was assigned to your work queue.",
+            claimId: claim.id
+          }
+        });
+      }
+
+      await writeCriticalRequestAudit(tx, req, {
+        claimId: claim.id,
+        action: "RECOVERY_ASSIGNMENT_UPDATED",
+        entityType: "Claim",
+        entityId: claim.id,
+        metadata: {
+          operation: "recovery_assignment",
+          assigned: Boolean(item.assignedToUserId),
+          workTeam: item.workTeam || null
+        }
+      });
+
+      return item;
+    });
+
+    res.json({
+      claimId: updated.id,
+      assignedToUser: assignee,
+      workTeam: updated.workTeam
+    });
+  }
+);
 
 router.get("/", async (req, res) => {
   try {
