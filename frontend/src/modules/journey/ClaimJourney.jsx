@@ -151,6 +151,12 @@ function journeyStepState(key, stages) {
 
   if (key === "remittance") {
     const status = stages.remittance?.status;
+    if (
+      stages.claimStatus?.status === "DENIED" &&
+      ["RECEIVED", "POSTED"].includes(status)
+    ) {
+      return "attention";
+    }
     if (["RECEIVED", "POSTED"].includes(status)) return "complete";
     return ["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(
       stages.claimStatus?.status
