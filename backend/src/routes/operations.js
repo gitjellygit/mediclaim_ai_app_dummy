@@ -687,18 +687,108 @@ router.post("/approvals", requirePermission(PERMISSIONS.CLAIM_EDIT), async (req,
   const schema = z.object({
     claimId: z.string().min(1),
     requestType: z.enum(["WRITE_OFF", "LARGE_ADJUSTMENT", "CLOSE_RECOVERY", "ABANDON_APPEAL", "EXCEPTION_OVERRIDE"]),
-    amount: z.number().nonnegative().nullable().optional(),
+    amount: z.number().positive().nullable().optional(),
     reason: z.string().trim().min(3).max(2000)
-  }).strict();
+  }).strict().superRefine((value, ctx) => {
+    if (["WRITE_OFF", "LARGE_ADJUSTMENT"].includes(value.requestType) && !(Number(value.amount) > 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["amount"],
+        message: "Amount is required for write-off and large-adjustment approvals"
+      });
+    }
+  });
   const parsed = schema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid approval request" });
-  const claim = await claimFor(req, parsed.data.claimId);
-  if (!claim) return res.status(404).json({ error: "Claim not found" });
-  const item = await prisma.approvalRequest.create({
-    data: {
-      organizationId: orgId(req), claimId: claim.id, requestedByUserId: req.user.id,
-      requestType: parsed.data.requestType, amount: parsed.data.amount ?? null, reason: parsed.data.reason
+
+  const activeDenialStatuses = [
+    "OPEN", "ANALYZED", "CORRECTION_REQUIRED", "APPEAL_PREPARED", "APPEAL_SUBMITTED", "RESUBMITTED"
+  ];
+  const activeUnderpaymentStatuses = ["OPEN", "REVIEWING", "DISPUTE_PREPARED", "DISPUTE_SUBMITTED"];
+  const claim = await prisma.claim.findFirst({
+    where: { id: parsed.data.claimId, organizationId: orgId(req), deletedAt: null },
+    include: {
+      denialCases: {
+        where: { status: { in: activeDenialStatuses } },
+        select: { id: true, status: true }
+      },
+      underpaymentCase: { select: { id: true, status: true } }
     }
+  });
+  if (!claim) return res.status(404).json({ error: "Claim not found" });
+
+  if (
+    parsed.data.amount != null &&
+    claim.amount != null &&
+    Number(parsed.data.amount) > Number(claim.amount)
+  ) {
+    return res.status(400).json({ error: "Approval amount cannot exceed the claim amount" });
+  }
+
+  const hasActiveUnderpayment =
+    claim.underpaymentCase &&
+    activeUnderpaymentStatuses.includes(claim.underpaymentCase.status);
+  const hasActiveRecovery = claim.denialCases.length > 0 || hasActiveUnderpayment;
+  if (parsed.data.requestType === "CLOSE_RECOVERY" && !hasActiveRecovery) {
+    return res.status(409).json({ error: "There is no active recovery case to close" });
+  }
+  if (parsed.data.requestType === "ABANDON_APPEAL" && claim.denialCases.length === 0) {
+    return res.status(409).json({ error: "There is no active denial appeal to abandon" });
+  }
+
+  const duplicate = await prisma.approvalRequest.findFirst({
+    where: {
+      organizationId: orgId(req),
+      claimId: claim.id,
+      requestType: parsed.data.requestType,
+      status: "PENDING"
+    },
+    select: { id: true }
+  });
+  if (duplicate) {
+    return res.status(409).json({ error: "A matching approval request is already pending" });
+  }
+
+  const managers = await prisma.user.findMany({
+    where: {
+      organizationId: orgId(req),
+      status: "ACTIVE",
+      role: { in: ["ADMIN", "CLAIMS_MANAGER"] }
+    },
+    select: { id: true }
+  });
+
+  const item = await prisma.$transaction(async (tx) => {
+    const created = await tx.approvalRequest.create({
+      data: {
+        organizationId: orgId(req),
+        claimId: claim.id,
+        requestedByUserId: req.user.id,
+        requestType: parsed.data.requestType,
+        amount: parsed.data.amount ?? null,
+        reason: parsed.data.reason
+      }
+    });
+    for (const manager of managers) {
+      await notify(tx, req, manager.id, {
+        type: "APPROVAL_REQUEST",
+        title: "Manager approval requested",
+        message: `${parsed.data.requestType.toLowerCase().replaceAll("_", " ")} requires review.`,
+        claimId: claim.id
+      });
+    }
+    await writeCriticalRequestAudit(tx, req, {
+      claimId: claim.id,
+      action: "APPROVAL_REQUEST_CREATED",
+      entityType: "ApprovalRequest",
+      entityId: created.id,
+      metadata: {
+        requestType: parsed.data.requestType,
+        amount: parsed.data.amount ?? null,
+        operation: "create"
+      }
+    });
+    return created;
   });
   res.status(201).json(item);
 });
@@ -710,11 +800,68 @@ router.patch("/approvals/:id/decision", managerOnly, async (req, res) => {
   }).strict();
   const parsed = schema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid approval decision" });
+  if (
+    ["REJECTED", "RETURNED"].includes(parsed.data.decision) &&
+    !parsed.data.reason?.trim()
+  ) {
+    return res.status(400).json({ error: "A decision reason is required when rejecting or returning a request" });
+  }
+
   const existing = await prisma.approvalRequest.findFirst({
     where: { id: req.params.id, organizationId: orgId(req), status: "PENDING" }
   });
   if (!existing) return res.status(404).json({ error: "Pending approval request not found" });
+  if (
+    parsed.data.decision === "APPROVED" &&
+    ["WRITE_OFF", "LARGE_ADJUSTMENT"].includes(existing.requestType) &&
+    !(Number(existing.amount) > 0)
+  ) {
+    return res.status(409).json({ error: "This financial approval has no executable amount" });
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
+    if (parsed.data.decision === "APPROVED") {
+      if (["WRITE_OFF", "LARGE_ADJUSTMENT"].includes(existing.requestType)) {
+        const claim = await tx.claim.findUnique({
+          where: { id: existing.claimId },
+          select: { amount: true, deductionAmount: true }
+        });
+        const nextDeduction = Math.min(
+          Number(claim?.amount || 0),
+          Number(claim?.deductionAmount || 0) + Number(existing.amount || 0)
+        );
+        await tx.claim.update({
+          where: { id: existing.claimId },
+          data: { deductionAmount: nextDeduction }
+        });
+      } else if (existing.requestType === "CLOSE_RECOVERY") {
+        await tx.denialCase.updateMany({
+          where: {
+            claimId: existing.claimId,
+            status: {
+              in: ["OPEN", "ANALYZED", "CORRECTION_REQUIRED", "APPEAL_PREPARED", "APPEAL_SUBMITTED", "RESUBMITTED"]
+            }
+          },
+          data: { status: "CLOSED" }
+        });
+        await tx.underpaymentCase.updateMany({
+          where: {
+            claimId: existing.claimId,
+            status: { in: ["OPEN", "REVIEWING", "DISPUTE_PREPARED", "DISPUTE_SUBMITTED"] }
+          },
+          data: { status: "CLOSED", resolvedAt: new Date() }
+        });
+      } else if (existing.requestType === "ABANDON_APPEAL") {
+        await tx.denialCase.updateMany({
+          where: {
+            claimId: existing.claimId,
+            status: { in: ["ANALYZED", "APPEAL_PREPARED", "APPEAL_SUBMITTED", "RESUBMITTED"] }
+          },
+          data: { status: "CLOSED" }
+        });
+      }
+    }
+
     const item = await tx.approvalRequest.update({
       where: { id: existing.id },
       data: {
@@ -731,9 +878,15 @@ router.patch("/approvals/:id/decision", managerOnly, async (req, res) => {
       claimId: existing.claimId
     });
     await writeCriticalRequestAudit(tx, req, {
-      claimId: existing.claimId, action: "APPROVAL_REQUEST_DECIDED",
-      entityType: "ApprovalRequest", entityId: existing.id,
-      metadata: { status: parsed.data.decision, operation: "decision" }
+      claimId: existing.claimId,
+      action: "APPROVAL_REQUEST_DECIDED",
+      entityType: "ApprovalRequest",
+      entityId: existing.id,
+      metadata: {
+        status: parsed.data.decision,
+        requestType: existing.requestType,
+        operation: parsed.data.decision === "APPROVED" ? "decision_and_execute" : "decision"
+      }
     });
     return item;
   });
