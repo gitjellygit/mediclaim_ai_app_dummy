@@ -643,11 +643,27 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       setSavingEdit(true);
       const updated = await ClaimsApi.update(id, payload);
       setClaim(updated);
+
+      const canRefreshReadiness =
+        canRunAI &&
+        updated?.eligibilityStatus === "VERIFIED" &&
+        ["APPROVED", "NOT_REQUIRED"].includes(updated?.priorAuthStatus) &&
+        !["SUBMITTING", "SUBMITTED", "DENIED", "PAID"].includes(updated?.status);
+
+      if (canRefreshReadiness) {
+        await ClaimsApi.runCheck(id);
+      }
+
       await load();
       setEditMode(false);
       setFixFocus("");
       setFixFields([]);
-      showToast("Claim details updated", "success");
+      showToast(
+        canRefreshReadiness
+          ? "Claim details updated and readiness refreshed"
+          : "Claim details updated",
+        "success"
+      );
     } catch (e) {
       showDialog(
         e.message || "The claim could not be updated. Please try again.",

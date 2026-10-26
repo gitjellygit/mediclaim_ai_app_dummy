@@ -43,6 +43,7 @@ import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
 import { buildApprovalIntelligenceItem } from "../services/approvalIntelligence.js";
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
 import { evaluateUsReadinessRules } from "../services/usReadinessRules.js";
+import { liveMandatorySubmissionBlockers } from "../services/submissionReadinessGate.js";
 import { evaluateCodeSetReadiness } from "../services/codeSetReadiness.js";
 import { findLikelyDuplicateClaim } from "../services/duplicateClaimScrub.js";
 import { evaluateConfiguredRules } from "../services/configurableRuleEngine.js";
@@ -2535,6 +2536,31 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
           rulesFreshness.reason ||
           "Readiness rules changed after the last AI Check. Refresh AI readiness before submitting.",
         code: "READINESS_RULESET_STALE"
+      });
+    }
+
+    const liveRules = await prisma.rule.findMany({
+      where: {
+        organizationId: orgId(req),
+        deletedAt: null
+      }
+    });
+    const liveMandatoryBlockers = liveMandatorySubmissionBlockers(
+      claim,
+      liveRules
+    );
+    if (liveMandatoryBlockers.length > 0) {
+      return res.status(400).json({
+        error: "Claim has current blocking issues. Fix them and refresh readiness before submission.",
+        message: liveMandatoryBlockers[0]?.message || "A mandatory submission rule is failing.",
+        code: "LIVE_READINESS_BLOCKED",
+        blockers: liveMandatoryBlockers.map((issue) => ({
+          rule: issue.rule || null,
+          severity: issue.severity,
+          message: issue.message,
+          field: issue.field || null,
+          fixTarget: issue.fixTarget || null
+        }))
       });
     }
 

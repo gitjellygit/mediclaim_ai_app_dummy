@@ -151,6 +151,12 @@ function journeyStepState(key, stages) {
 
   if (key === "remittance") {
     const status = stages.remittance?.status;
+    if (
+      stages.claimStatus?.status === "DENIED" &&
+      ["RECEIVED", "POSTED"].includes(status)
+    ) {
+      return "attention";
+    }
     if (["RECEIVED", "POSTED"].includes(status)) return "complete";
     return ["APPROVED", "PARTIALLY_APPROVED", "PAID"].includes(
       stages.claimStatus?.status
@@ -814,6 +820,17 @@ export default function ClaimJourney() {
   const activeDenialCase = claim?.denialCases?.[0] || null;
   const denialRecoveryActive =
     claim?.status === "DENIED" || Boolean(activeDenialCase);
+  const remittanceEvidenceReceived = ["RECEIVED", "POSTED"].includes(
+    String(stages?.remittance?.status || "").toUpperCase()
+  );
+  const deniedRemittanceEvidence =
+    denialRecoveryActive && remittanceEvidenceReceived;
+  const remittanceStageStatus = deniedRemittanceEvidence
+    ? "DENIED"
+    : stages?.remittance?.status;
+  const remittanceStageLabel = deniedRemittanceEvidence
+    ? "Denial ERA Received"
+    : undefined;
   const underpaymentCase =
     claim?.underpaymentCase &&
     !["RECOVERED", "WRITTEN_OFF", "CLOSED"].includes(claim.underpaymentCase.status)
@@ -2332,7 +2349,11 @@ export default function ClaimJourney() {
                           <Button
                             color="inherit"
                             size="small"
-                            onClick={() => navigate("/revenue-recovery")}
+                            onClick={() =>
+                              activeDenialCase?.id
+                                ? navigate(`/revenue-recovery/appeals/${activeDenialCase.id}`)
+                                : navigate(`/revenue-recovery?claimId=${encodeURIComponent(claim.id)}`)
+                            }
                           >
                             Work Denial
                           </Button>
@@ -2480,15 +2501,18 @@ export default function ClaimJourney() {
               title={STAGE_LABELS.remittance}
               stageId="journey-stage-remittance"
               highlighted={focusedStage === "remittance"}
-              status={stages.remittance.status}
+              status={remittanceStageStatus}
+              statusLabel={remittanceStageLabel}
               actionable={stages.remittance.actionable}
               blockedReason={stages.remittance.blockedReason}
             >
               <Stack spacing={1.5}>
                 {claim.remittanceStatus === "POSTED" ? (
                   <>
-                    <Alert severity="success">
-                      {payerConnected
+                    <Alert severity={denialRecoveryActive ? "error" : "success"}>
+                      {denialRecoveryActive
+                        ? "835 ERA received for a denied claim. This is denial evidence, not a successful payment outcome. Continue in Revenue Recovery."
+                        : payerConnected
                         ? "Remittance received and posted. Payer-reported values are locked."
                         : "Remittance posted. Posted payment values are locked."}
                     </Alert>

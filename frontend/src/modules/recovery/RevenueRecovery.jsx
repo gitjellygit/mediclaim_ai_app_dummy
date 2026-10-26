@@ -1,4 +1,5 @@
 import React from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Alert,
   Box,
@@ -101,6 +102,8 @@ function summaryCard(label, value, caption, tone = "text.primary", highlight = f
 }
 
 export default function RevenueRecovery() {
+  const [searchParams] = useSearchParams();
+  const focusedClaimId = searchParams.get("claimId") || "";
   const user = AuthApi.getUser();
   const canManageAssignments =
     hasPermission(user, PERMISSIONS.RECOVERY_EDIT) ||
@@ -117,8 +120,8 @@ export default function RevenueRecovery() {
     pageSize: 10,
     totalPages: 1
   });
-  const [search, setSearch] = React.useState("");
-  const [query, setQuery] = React.useState("");
+  const [search, setSearch] = React.useState(focusedClaimId);
+  const [query, setQuery] = React.useState(focusedClaimId);
   const [type, setType] = React.useState("ALL");
   const [status, setStatus] = React.useState("ACTIVE");
   const [page, setPage] = React.useState(0);
@@ -543,7 +546,25 @@ export default function RevenueRecovery() {
             </TableHead>
             <TableBody>
               {data.items.map((item) => (
-                <TableRow key={item.type + ":" + item.id} hover>
+                <TableRow
+                  key={item.type + ":" + item.id}
+                  hover
+                  data-testid={
+                    focusedClaimId && item.claimId === focusedClaimId
+                      ? "focused-recovery-row"
+                      : undefined
+                  }
+                  sx={
+                    focusedClaimId && item.claimId === focusedClaimId
+                      ? {
+                          backgroundColor: "rgba(237,108,2,0.08)",
+                          outline: "2px solid",
+                          outlineColor: "warning.main",
+                          outlineOffset: -2
+                        }
+                      : undefined
+                  }
+                >
                   <TableCell>
                     <Stack spacing={0.4} alignItems="flex-start">
                       <Tooltip title={data.methodology?.priority || ""}>

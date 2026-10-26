@@ -546,7 +546,12 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     await expect(remittanceDialog).toContainText("Payer Paid");
     await remittanceDialog.getByRole("button", { name: "Done" }).click();
 
-    await expect(remittance).toContainText("Posted");
+    if (expectedKey === "APEX") {
+      await expect(remittance).toContainText("Denial ERA Received");
+      await expect(remittance).toContainText("not a successful payment outcome");
+    } else {
+      await expect(remittance).toContainText("Posted");
+    }
     await expect(remittance).toContainText("Payer Paid");
     const remittanceDetailsButton = remittance.getByRole("button", {
       name: "View Remittance Details"
