@@ -19,6 +19,7 @@ import AICheckProgress from "../../components/AICheckProgress.jsx";
 import { api } from "../../api/client.js";
 import ClaimSummaryCard from "./claim-detail/ClaimSummaryCard.jsx";
 import ClaimCompletenessCard from "./claim-detail/ClaimCompletenessCard.jsx";
+import ClaimCollaboration from "../operations/ClaimCollaboration.jsx";
 import { useClaimDetailData } from "./claim-detail/useClaimDetailData.js";
 import {
   DOC_TYPES,
@@ -1581,6 +1582,10 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       )}
 
       <ClaimSummaryCard claim={claim} />
+
+      <Box sx={{ mt: 1.5, mb: 2 }}>
+        <ClaimCollaboration claimId={claim.id} canEdit={canEditClaim} />
+      </Box>
 
       {!claimFinalized && (
         <ClaimCompletenessCard
