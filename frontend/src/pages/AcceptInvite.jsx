@@ -6,7 +6,8 @@ import { api } from "../api/client.js";
 export default function AcceptInvite() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const [token, setToken] = React.useState(params.get("token") || "");
+  const invitationToken = params.get("token") || "";
+  const [token, setToken] = React.useState(invitationToken);
   const [password, setPassword] = React.useState("");
   const [confirm, setConfirm] = React.useState("");
   const [error, setError] = React.useState("");
@@ -45,7 +46,11 @@ export default function AcceptInvite() {
         ) : (
           <Stack spacing={1.25}>
             {error && <Alert severity="error">{error}</Alert>}
-            <TextField label="Setup Token" value={token} onChange={(e) => setToken(e.target.value)} />
+            {invitationToken ? (
+              <Alert severity="info">Secure invitation link detected. Choose your password to activate the account.</Alert>
+            ) : (
+              <TextField label="Setup Token" value={token} onChange={(e) => setToken(e.target.value)} />
+            )}
             <TextField label="New Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
             <TextField label="Confirm Password" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             <Button variant="contained" onClick={submit} disabled={!token.trim() || !password || !confirm}>Activate Account</Button>

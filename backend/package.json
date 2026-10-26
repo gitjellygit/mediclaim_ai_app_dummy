@@ -13,7 +13,8 @@
     "postinstall": "prisma generate",
     "db:prepare:dev": "node scripts/guardDevMigrations.js && npm run db:prepare",
     "seed:demo-uat": "node scripts/seed-demo-uat.js",
-    "reset-lockout": "node scripts/reset-lockout.js"
+    "reset-lockout": "node scripts/reset-lockout.js",
+    "admin:reactivate": "node scripts/reactivate-admin.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1038.0",
