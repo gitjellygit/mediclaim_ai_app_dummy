@@ -722,10 +722,16 @@ router.post("/:id/payer-simulation/remittance", requirePermission(PERMISSIONS.PA
           paymentReference: result.paymentReference,
           status: assertClaimTransition(
             claim.status,
-            result.paidAmount > 0 ? "PAID" : claim.status
+            result.paidAmount > 0 && !expectation?.hasUnderpayment
+              ? "PAID"
+              : claim.status
           ),
           payerClaimStatus:
-            result.paidAmount > 0 ? "PAID" : claim.payerClaimStatus,
+            result.paidAmount > 0
+              ? expectation?.hasUnderpayment
+                ? "PARTIALLY_APPROVED"
+                : "PAID"
+              : claim.payerClaimStatus,
           fieldProvenance: mergeProvenance(
             claim.fieldProvenance,
             systemProvenance(
