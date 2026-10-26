@@ -12,6 +12,7 @@ import {
 } from "@mui/icons-material";
 import { AuditApi } from "../../api/audit.js";
 import { useLocation } from "react-router-dom";
+import { humanizeEnum, roleLabel } from "../../utils/displayLabels.js";
 
 const OUTCOMES = ["", "SUCCESS", "DENIED", "FAILURE"];
 const ENTITY_TYPES = ["", "Claim", "Document", "Session", "User", "Rule", "DenialCase", "UnderpaymentCase", "AuditEvent"];
@@ -398,7 +399,7 @@ export default function AuditTrail() {
                             {item.actor?.email || "System"}
                             {item.actor?.role && (
                               <Typography variant="caption" display="block" color="text.secondary">
-                                {item.actor.role}
+                                {roleLabel(item.actor.role)}
                               </Typography>
                             )}
                           </TableCell>
@@ -412,7 +413,7 @@ export default function AuditTrail() {
                           <TableCell>
                             <Chip
                               size="small"
-                              label={item.outcome}
+                              label={humanizeEnum(item.outcome)}
                               color={item.outcome === "SUCCESS" ? "success" : item.outcome === "DENIED" ? "warning" : "error"}
                               variant="outlined"
                             />
