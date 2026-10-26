@@ -39,6 +39,7 @@ import { AuthApi } from "../../api/auth.js";
 import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
 import ClaimAssignmentDialog from "../../components/ClaimAssignmentDialog.jsx";
 import { formatUSD } from "../../utils/currency.js";
+import { humanizeEnum } from "../../utils/displayLabels.js";
 
 const money = formatUSD;
 
@@ -404,7 +405,7 @@ export default function RevenueRecovery() {
                   <Stack direction="row" justifyContent="space-between" spacing={1}>
                     <Box sx={{ minWidth: 0 }}>
                       <Typography variant="body2" fontWeight={700}>
-                        {cause.label.replaceAll("_", " ")}
+                        {humanizeEnum(cause.label, "Unclassified")}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {cause.count} case{cause.count === 1 ? "" : "s"}
@@ -605,7 +606,7 @@ export default function RevenueRecovery() {
 
                   <TableCell sx={{ minWidth: 180 }}>
                     <Typography variant="body2" fontWeight={600}>
-                      {String(item.rootCause || "Unclassified").replaceAll("_", " ")}
+                      {humanizeEnum(item.rootCause, "Unclassified")}
                     </Typography>
                     {item.codeSummary && (
                       <Typography variant="caption" color="text.secondary">
@@ -669,7 +670,7 @@ export default function RevenueRecovery() {
                     <Chip
                       size="small"
                       variant="outlined"
-                      label={String(item.status).replaceAll("_", " ")}
+                      label={humanizeEnum(item.status)}
                     />
                   </TableCell>
 
