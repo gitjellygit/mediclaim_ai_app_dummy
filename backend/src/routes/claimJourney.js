@@ -1585,6 +1585,20 @@ router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTI
     const connectorPaidAmount = remittance.paidAmount;
     const connectorPatientResponsibility = remittance.patientResponsibility;
     const connectorPaymentReference = remittance.paymentReference;
+    const expectedPayerPayment =
+      connectorAllowedAmount != null
+        ? Math.max(
+            0,
+            Number(connectorAllowedAmount) -
+              Number(connectorPatientResponsibility || 0)
+          )
+        : null;
+    const financiallySettled =
+      remittanceStatus === "POSTED" &&
+      connectorPaidAmount != null &&
+      Number(connectorPaidAmount) > 0 &&
+      expectedPayerPayment != null &&
+      Number(connectorPaidAmount) + 0.01 >= expectedPayerPayment;
 
     const remittanceUnchanged =
       claim.remittanceStatus === remittanceStatus &&
@@ -1658,12 +1672,18 @@ router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTI
         ),
         status: assertClaimTransition(
           claim.status,
-          remittanceStatus === "POSTED" && connectorPaidAmount != null && connectorPaidAmount > 0
+          financiallySettled
             ? "PAID"
             : claim.payerClaimStatus === "DENIED"
             ? "DENIED"
             : claim.status
-        )
+        ),
+        payerClaimStatus:
+          remittanceStatus === "POSTED" && connectorPaidAmount != null && connectorPaidAmount > 0
+            ? financiallySettled
+              ? "PAID"
+              : "PARTIALLY_APPROVED"
+            : claim.payerClaimStatus
       }
     });
 
