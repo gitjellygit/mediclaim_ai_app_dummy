@@ -568,27 +568,67 @@ router.get("/saved-queues", requirePermission(PERMISSIONS.CLAIM_VIEW), async (re
     where: { id: req.user.id, organizationId: orgId(req) },
     select: { teamId: true }
   });
-  const items = await prisma.savedQueue.findMany({
-    where: savedQueueVisibilityWhere({
+  const candidates = await prisma.savedQueue.findMany({
+    where: {
       organizationId: orgId(req),
-      userId: req.user.id,
-      teamId: currentUser?.teamId || null
-    }),
+      OR: [
+        { ownerUserId: req.user.id },
+        { sharedWithTeam: true }
+      ]
+    },
     orderBy: { updatedAt: "desc" }
+  });
+  const items = candidates.filter((item) => {
+    if (item.ownerUserId === req.user.id) return true;
+    const filters = item.filters && typeof item.filters === "object" ? item.filters : {};
+    return Boolean(
+      currentUser?.teamId &&
+      filters._sharedTeamId &&
+      filters._sharedTeamId === currentUser.teamId
+    );
   });
   res.json({ items });
 });
 
 router.post("/saved-queues", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
+  const filtersSchema = z.object({
+    query: z.string().max(100).optional(),
+    status: z.string().max(80).optional(),
+    work: z.string().max(80).optional(),
+    filing: z.string().max(80).optional(),
+    owner: z.string().max(120).optional(),
+    followUp: z.string().max(80).optional(),
+    sort: z.string().max(80).optional(),
+    direction: z.enum(["asc", "desc"]).optional()
+  }).strict();
   const schema = z.object({
     name: z.string().trim().min(1).max(100),
-    filters: z.record(z.any()),
+    filters: filtersSchema,
     sharedWithTeam: z.boolean().default(false)
   }).strict();
   const parsed = schema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid saved queue" });
+
+  const currentUser = await prisma.user.findFirst({
+    where: { id: req.user.id, organizationId: orgId(req) },
+    select: { teamId: true }
+  });
+  if (parsed.data.sharedWithTeam && !currentUser?.teamId) {
+    return res.status(400).json({ error: "Join a team before sharing a saved queue with that team" });
+  }
+
+  const filters = {
+    ...parsed.data.filters,
+    ...(parsed.data.sharedWithTeam ? { _sharedTeamId: currentUser.teamId } : {})
+  };
   const item = await prisma.savedQueue.create({
-    data: { organizationId: orgId(req), ownerUserId: req.user.id, ...parsed.data }
+    data: {
+      organizationId: orgId(req),
+      ownerUserId: req.user.id,
+      name: parsed.data.name,
+      filters,
+      sharedWithTeam: parsed.data.sharedWithTeam
+    }
   });
   res.status(201).json(item);
 });
