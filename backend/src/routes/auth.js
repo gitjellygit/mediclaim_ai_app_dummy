@@ -4,7 +4,9 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import {
   comparePassword,
-  generateSecureToken
+  generateSecureToken,
+  hashPassword,
+  validatePassword
 } from "../utils/security.js";
 import {
   checkAuthRateLimit,
@@ -178,6 +180,57 @@ async function revokeSession(prisma, userId, sessionId) {
 export function authRouter(prisma) {
   const router = express.Router();
 
+  router.post("/accept-invite", async (req, res) => {
+    try {
+      const { setupToken, password } = req.body || {};
+      if (!setupToken || !password) {
+        return res.status(400).json({ error: "Setup token and password are required" });
+      }
+      const validation = validatePassword(String(password));
+      if (!validation.valid) {
+        return res.status(400).json({
+          error: "Password does not meet requirements",
+          details: validation.errors
+        });
+      }
+
+      const tokenHash = crypto.createHash("sha256").update(String(setupToken)).digest("hex");
+      const invite = await prisma.userInvite.findUnique({
+        where: { tokenHash },
+        include: { user: true }
+      });
+      if (!invite || invite.acceptedAt || new Date(invite.expiresAt) <= new Date()) {
+        return res.status(400).json({ error: "Invite is invalid or expired" });
+      }
+
+      const passwordHash = await hashPassword(String(password));
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: invite.userId },
+          data: { passwordHash, status: "ACTIVE" }
+        });
+        await tx.userInvite.update({
+          where: { id: invite.id },
+          data: { acceptedAt: new Date() }
+        });
+        await writeAuditEvent(tx, {
+          organizationId: invite.user.organizationId,
+          actorUserId: invite.userId,
+          ...authAuditContext(req, 200),
+          action: "USER_INVITE_ACCEPTED",
+          entityType: "User",
+          entityId: invite.userId,
+          metadata: { status: "ACTIVE" }
+        });
+      });
+
+      res.json({ success: true, message: "Account activated. You can now sign in." });
+    } catch (error) {
+      console.error("Invite acceptance error:", { name: error?.name || "Error", code: error?.code || null });
+      res.status(500).json({ error: "Unable to activate account" });
+    }
+  });
+
   router.post("/login", async (req, res) => {
     try {
       const { email, password } = req.body || {};
@@ -224,6 +277,16 @@ export function authRouter(prisma) {
       const user = await prisma.user.findUnique({
         where: { email: emailKey }
       });
+
+      if (user && user.status !== "ACTIVE") {
+        return res.status(403).json({
+          error: "Account unavailable",
+          message: user.status === "INVITED"
+            ? "Complete your invitation before signing in."
+            : "This account is suspended.",
+          code: "ACCOUNT_INACTIVE"
+        });
+      }
 
       if (!user) {
         await Promise.all([
