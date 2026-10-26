@@ -169,7 +169,7 @@ test("hospital operations workflow supports users, assignment, clinical response
   await page.goto("/operations");
   await expect(page).toHaveURL(/\/operations/);
   await expect(page.getByRole("heading", { name: "Operations & Team Management" })).toBeVisible();
-  await expect(page.getByText(team.name)).toBeVisible();
+  await expect(page.getByText(`${team.name} · 2 users`, { exact: true })).toBeVisible();
 
   await page.goto("/approval");
   await page.getByPlaceholder(/Search patient, payer/).fill("Operations Synthetic");
