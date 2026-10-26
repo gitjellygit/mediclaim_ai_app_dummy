@@ -14,7 +14,6 @@ import {
   isAssignableUser,
   isManagerRole,
   mentionsAreValid,
-  savedQueueVisibilityWhere,
   shouldNotifyUser,
   validatePriorityOverride,
   validateUserAdministrationMutation,
