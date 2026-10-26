@@ -9,6 +9,7 @@ import {
   mergeProvenance,
   systemProvenance
 } from "../services/claimFieldProvenance.js";
+import { syncDenialRecoveryFromPayment } from "../services/recoverySettlement.js";
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { buildClaimCompleteness } from "../services/claimCompleteness.js";
 import { getMockPayer, payerInputFingerprint } from "../services/payerSimulator.js";
@@ -1584,6 +1585,20 @@ router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTI
     const connectorPaidAmount = remittance.paidAmount;
     const connectorPatientResponsibility = remittance.patientResponsibility;
     const connectorPaymentReference = remittance.paymentReference;
+    const expectedPayerPayment =
+      connectorAllowedAmount != null
+        ? Math.max(
+            0,
+            Number(connectorAllowedAmount) -
+              Number(connectorPatientResponsibility || 0)
+          )
+        : null;
+    const financiallySettled =
+      remittanceStatus === "POSTED" &&
+      connectorPaidAmount != null &&
+      Number(connectorPaidAmount) > 0 &&
+      expectedPayerPayment != null &&
+      Number(connectorPaidAmount) + 0.01 >= expectedPayerPayment;
 
     const remittanceUnchanged =
       claim.remittanceStatus === remittanceStatus &&
@@ -1637,7 +1652,8 @@ router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTI
       )
     };
 
-    const updated = await prisma.claim.update({
+    const updated = await prisma.$transaction(async (tx) => {
+      const savedClaim = await tx.claim.update({
       where: { id: claim.id },
       data: {
         remittanceStatus,
@@ -1656,13 +1672,28 @@ router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTI
         ),
         status: assertClaimTransition(
           claim.status,
-          remittanceStatus === "POSTED" && connectorPaidAmount != null && connectorPaidAmount > 0
+          financiallySettled
             ? "PAID"
             : claim.payerClaimStatus === "DENIED"
             ? "DENIED"
             : claim.status
-        )
+        ),
+        payerClaimStatus:
+          remittanceStatus === "POSTED" && connectorPaidAmount != null && connectorPaidAmount > 0
+            ? financiallySettled
+              ? "PAID"
+              : "PARTIALLY_APPROVED"
+            : claim.payerClaimStatus
       }
+    });
+
+      if (remittanceStatus === "POSTED" && connectorPaidAmount != null && connectorPaidAmount > 0) {
+        await syncDenialRecoveryFromPayment(tx, {
+          claimId: claim.id,
+          paidAmount: connectorPaidAmount
+        });
+      }
+      return savedClaim;
     });
 
     logJourneyEvent(claim.id, "remittance-recorded", remittanceStatus);
