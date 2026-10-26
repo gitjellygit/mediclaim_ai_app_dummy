@@ -224,7 +224,7 @@ test("Appeal Workspace uses a new tab and syncs submitted status back to Revenue
   const refreshedRow = page.getByRole("row").filter({
     hasText: denial.patientName
   });
-  await expect(refreshedRow).toContainText("APPEAL SUBMITTED", {
+  await expect(refreshedRow).toContainText("Appeal Submitted", {
     timeout: 30_000
   });
 });
