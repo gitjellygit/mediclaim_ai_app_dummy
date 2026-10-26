@@ -12,6 +12,8 @@ import {
 import { PERMISSIONS } from "./security/permissions.js";
 
 const Login = lazy(() => import("./pages/Login.jsx"));
+const AcceptInvite = lazy(() => import("./pages/AcceptInvite.jsx"));
+const Operations = lazy(() => import("./modules/operations/Operations.jsx"));
 const NewClaim = lazy(() => import("./pages/NewClaim.jsx"));
 const ClaimsList = lazy(() => import("./modules/ai-claims/ClaimsList.jsx"));
 const ClaimDetail = lazy(() => import("./modules/ai-claims/ClaimDetail.jsx"));
@@ -61,7 +63,8 @@ const protectedRoutes = [
   { path: "/medical-ai", Component: MedicalConsistency, permission: PERMISSIONS.CLINICAL_VIEW },
   { path: "/documents", Component: DocumentIntelligence, permission: PERMISSIONS.DOCUMENT_VIEW },
   { path: "/approval", Component: ApprovalIntelligence, permission: PERMISSIONS.CLINICAL_VIEW },
-  { path: "/analytics", Component: AnalyticsDashboard, permission: PERMISSIONS.FINANCIAL_VIEW }
+  { path: "/analytics", Component: AnalyticsDashboard, permission: PERMISSIONS.FINANCIAL_VIEW },
+  { path: "/operations", Component: Operations, permission: PERMISSIONS.CLAIM_VIEW }
 ];
 
 const adminRoutes = [
@@ -93,6 +96,7 @@ function AppRoutes() {
     <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/accept-invite" element={<AcceptInvite />} />
 
         <Route
           element={
