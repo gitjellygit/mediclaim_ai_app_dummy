@@ -40,5 +40,12 @@ export const RevenueRecoveryApi = {
     });
     if (query.trim()) params.set("q", query.trim());
     return withReadRetry(() => api(`${BASE}?${params.toString()}`));
+  },
+
+  assignClaim(claimId, data) {
+    return api(`${BASE}/claims/${claimId}/assignment`, {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
   }
 };

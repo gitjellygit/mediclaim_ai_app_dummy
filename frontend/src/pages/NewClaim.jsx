@@ -413,9 +413,7 @@ export default function NewClaim() {
                 Step {activeStep + 1} of {steps.length} · {steps[activeStep]}
               </Typography>
             </Box>
-            <Button color="inherit" onClick={cancelClaimCreation} disabled={submitting}>
-              Cancel
-            </Button>
+
           </Stack>
 
           <Stepper activeStep={activeStep} sx={{ my: 3 }}>

@@ -20,6 +20,7 @@ import { api } from "../../api/client.js";
 import ClaimSummaryCard from "./claim-detail/ClaimSummaryCard.jsx";
 import ClaimCompletenessCard from "./claim-detail/ClaimCompletenessCard.jsx";
 import ClaimCollaboration from "../operations/ClaimCollaboration.jsx";
+import ClaimAssignmentDialog from "../../components/ClaimAssignmentDialog.jsx";
 import { useClaimDetailData } from "./claim-detail/useClaimDetailData.js";
 import {
   DOC_TYPES,
@@ -105,6 +106,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const canEditClaim =
     hasPermission(user, PERMISSIONS.CLAIM_EDIT) && canEditClinical;
   const canEditFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_EDIT);
+  const canManageAssignments = hasPermission(user, PERMISSIONS.CLAIM_EDIT);
   const canViewAudit = hasPermission(user, PERMISSIONS.AUDIT_VIEW);
   const canViewDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_VIEW);
   const canDownloadDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_DOWNLOAD);
@@ -131,6 +133,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const [icdReviewOpen, setIcdReviewOpen] = React.useState(false);
   const [identityReviewDoc, setIdentityReviewDoc] = React.useState(null);
   const [identityReviewBusy, setIdentityReviewBusy] = React.useState(false);
+  const [assignmentOpen, setAssignmentOpen] = React.useState(false);
   const [fixFocus, setFixFocus] = React.useState("");
   const [fixFields, setFixFields] = React.useState([]);
   const [readinessHistoryExpanded, setReadinessHistoryExpanded] = React.useState(false);
@@ -1534,6 +1537,11 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         <Button onClick={onBack}>← {backLabel}</Button>
 
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {canManageAssignments && (
+            <Button variant="outlined" onClick={() => setAssignmentOpen(true)}>
+              {claim.assignedToUser ? "Reassign Owner" : "Assign Owner"}
+            </Button>
+          )}
           {isAdmin && claim.status === "SUBMITTING" && (
             <Button
               variant="contained"
@@ -1580,6 +1588,25 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           document changes, readiness checks, and resubmission until the submission is resolved.
         </Alert>
       )}
+
+      <Paper variant="outlined" sx={{ p: 1.25, mb: 1.5 }}>
+        <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Current Owner</Typography>
+            <Typography fontWeight={800}>
+              {claim.assignedToUser?.displayName || claim.assignedToUser?.email || "Unassigned"}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {claim.workTeam ? `Team: ${claim.workTeam}` : "No work team assigned"}
+            </Typography>
+          </Box>
+          {canManageAssignments && (
+            <Button size="small" onClick={() => setAssignmentOpen(true)}>
+              Change assignment
+            </Button>
+          )}
+        </Stack>
+      </Paper>
 
       <ClaimSummaryCard claim={claim} />
 
@@ -3296,6 +3323,16 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           )}
         </CardContent>
       </Card>
+
+      <ClaimAssignmentDialog
+        open={assignmentOpen}
+        claimIds={claim?.id ? [claim.id] : []}
+        currentAssigneeId={claim?.assignedToUser?.id || ""}
+        currentTeam={claim?.workTeam || ""}
+        title={`Assign ${claim?.patientName || "claim"}`}
+        onClose={() => setAssignmentOpen(false)}
+        onSaved={load}
+      />
 
       <Dialog
         open={Boolean(identityReviewDoc)}

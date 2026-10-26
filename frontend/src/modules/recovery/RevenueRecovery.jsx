@@ -34,6 +34,9 @@ import {
   WarningAmber
 } from "@mui/icons-material";
 import { RevenueRecoveryApi } from "../../api/revenueRecovery.js";
+import { AuthApi } from "../../api/auth.js";
+import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
+import ClaimAssignmentDialog from "../../components/ClaimAssignmentDialog.jsx";
 import { formatUSD } from "../../utils/currency.js";
 
 const money = formatUSD;
@@ -98,6 +101,11 @@ function summaryCard(label, value, caption, tone = "text.primary", highlight = f
 }
 
 export default function RevenueRecovery() {
+  const user = AuthApi.getUser();
+  const canManageAssignments =
+    hasPermission(user, PERMISSIONS.RECOVERY_EDIT) ||
+    hasPermission(user, PERMISSIONS.CLAIM_EDIT);
+  const [assignmentTarget, setAssignmentTarget] = React.useState(null);
   const [data, setData] = React.useState({
     items: [],
     metrics: null,
@@ -529,6 +537,7 @@ export default function RevenueRecovery() {
                 {sortableHeader("Recovered", "recovered")}
                 {sortableHeader("Deadline", "deadline")}
                 <TableCell><b>Workflow</b></TableCell>
+                <TableCell><b>Recovery Owner</b></TableCell>
                 <TableCell><b>Next Action</b></TableCell>
               </TableRow>
             </TableHead>
@@ -643,6 +652,33 @@ export default function RevenueRecovery() {
                     />
                   </TableCell>
 
+                  <TableCell sx={{ minWidth: 180 }}>
+                    <Typography variant="body2" fontWeight={700}>
+                      {item.assignedToUser?.displayName || item.assignedToUser?.email || "Unassigned"}
+                    </Typography>
+                    {item.workTeam && (
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {item.workTeam}
+                      </Typography>
+                    )}
+                    {canManageAssignments && (
+                      <Button
+                        size="small"
+                        sx={{ px: 0, mt: 0.25 }}
+                        onClick={() =>
+                          setAssignmentTarget({
+                            claimIds: [item.claimId],
+                            currentAssigneeId: item.assignedToUser?.id || "",
+                            currentTeam: item.workTeam || "",
+                            title: `Assign recovery work · ${item.patientName}`
+                          })
+                        }
+                      >
+                        {item.assignedToUser ? "Reassign" : "Assign"}
+                      </Button>
+                    )}
+                  </TableCell>
+
                   <TableCell sx={{ minWidth: 240 }}>
                     <Button
                       size="small"
@@ -678,6 +714,19 @@ export default function RevenueRecovery() {
           />
         </Paper>
       )}
+
+      <ClaimAssignmentDialog
+        open={Boolean(assignmentTarget)}
+        claimIds={assignmentTarget?.claimIds || []}
+        currentAssigneeId={assignmentTarget?.currentAssigneeId || ""}
+        currentTeam={assignmentTarget?.currentTeam || ""}
+        title={assignmentTarget?.title || "Assign recovery work"}
+        saveAssignment={({ claimIds, assignedToUserId, workTeam }) =>
+          RevenueRecoveryApi.assignClaim(claimIds[0], { assignedToUserId, workTeam })
+        }
+        onClose={() => setAssignmentTarget(null)}
+        onSaved={load}
+      />
 
       <Typography
         variant="caption"

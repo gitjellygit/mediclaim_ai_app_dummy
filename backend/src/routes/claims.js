@@ -211,6 +211,10 @@ router.get("/", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) => {
           payerEdiId: true,
           status: true,
           amount: true,
+          workTeam: true,
+          assignedToUser: {
+            select: { id: true, email: true, displayName: true, role: true }
+          },
           createdAt: true
         },
         orderBy: [{ [sort]: direction }, { id: "desc" }],
@@ -1043,6 +1047,7 @@ router.get("/:id", requirePermission(PERMISSIONS.CLAIM_VIEW), async (req, res) =
   const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null },
     include: {
+      assignedToUser: { select: { id: true, email: true, displayName: true, role: true } },
       documents: true,
       serviceLines: { orderBy: { createdAt: "asc" } },
       codingSuggestions: {

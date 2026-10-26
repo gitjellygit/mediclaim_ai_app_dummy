@@ -44,6 +44,7 @@ import { useToast } from "../../context/ToastContext.jsx";
 import { AuthApi } from "../../api/auth.js";
 import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
 import { formatUSD } from "../../utils/currency.js";
+import ClaimAssignmentDialog from "../../components/ClaimAssignmentDialog.jsx";
 
 const statusColor = {
   DRAFT: "default",
@@ -61,6 +62,8 @@ export default function ClaimsList() {
     hasPermission(user, PERMISSIONS.DOCUMENT_VIEW) &&
     hasPermission(user, PERMISSIONS.CLAIM_EDIT);
   const canDeleteClaims = hasPermission(user, PERMISSIONS.CLAIM_DELETE);
+  const canManageAssignments = hasPermission(user, PERMISSIONS.CLAIM_EDIT);
+  const canSelectClaims = canDeleteClaims || canManageAssignments;
   const canViewFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_VIEW);
   const [claims, setClaims] = useState([]);
   const [totalClaims, setTotalClaims] = useState(0);
@@ -78,6 +81,7 @@ export default function ClaimsList() {
   const [aiCreating, setAiCreating] = useState(false);
   const [aiResults, setAiResults] = useState([]);
   const [aiCreatedClaimId, setAiCreatedClaimId] = useState("");
+  const [assignmentTarget, setAssignmentTarget] = useState(null);
   const navigate = useNavigate();
   const { showToast, showDialog, confirmDialog } = useToast();
 
@@ -515,6 +519,22 @@ export default function ClaimsList() {
           </Button>
         )}
 
+        {canManageAssignments && selected.length > 0 && (
+          <Button
+            variant="outlined"
+            onClick={() =>
+              setAssignmentTarget({
+                claimIds: selected,
+                currentAssigneeId: "",
+                currentTeam: "",
+                title: `Assign ${selected.length} selected claim${selected.length === 1 ? "" : "s"}`
+              })
+            }
+          >
+            Assign Selected ({selected.length})
+          </Button>
+        )}
+
         {/* ✅ BULK DELETE BUTTON */}
         {canDeleteClaims && selected.length > 0 && (
           <Button
@@ -531,7 +551,7 @@ export default function ClaimsList() {
         <Table size="small" sx={{ minWidth: 1120, tableLayout: "auto" }}>
           <TableHead>
             <TableRow>
-              {canDeleteClaims && (
+              {canSelectClaims && (
                 <TableCell padding="checkbox">
                   <Checkbox
                     checked={allSelected}
@@ -547,6 +567,7 @@ export default function ClaimsList() {
               {canViewFinancial && <TableCell sortDirection={sort === "amount" ? direction : false}><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "amount"} direction={sort === "amount" ? direction : "desc"} onClick={() => handleSort("amount")}><strong>Amount</strong></TableSortLabel></TableCell>}
               <TableCell sortDirection={sort === "status" ? direction : false}><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "status"} direction={sort === "status" ? direction : "asc"} onClick={() => handleSort("status")}><strong>Status</strong></TableSortLabel></TableCell>
               <TableCell sortDirection={sort === "createdAt" ? direction : false}><TableSortLabel hideSortIcon={false} sx={{ "& .MuiTableSortLabel-icon": { opacity: "0.35 !important" }, "&.Mui-active .MuiTableSortLabel-icon": { opacity: "1 !important" } }} active={sort === "createdAt"} direction={sort === "createdAt" ? direction : "desc"} onClick={() => handleSort("createdAt")}><strong>Created Date</strong></TableSortLabel></TableCell>
+              <TableCell><strong>Assignee</strong></TableCell>
               <TableCell><strong>Actions</strong></TableCell>
             </TableRow>
           </TableHead>
@@ -554,7 +575,7 @@ export default function ClaimsList() {
           <TableBody>
             {filteredClaims.map((claim) => (
               <TableRow key={claim.id}>
-                {canDeleteClaims && (
+                {canSelectClaims && (
                   <TableCell padding="checkbox">
                     <Checkbox
                       checked={selected.includes(claim.id)}
@@ -623,7 +644,33 @@ export default function ClaimsList() {
                     : "-"}
                 </TableCell>
 
-                <TableCell>
+                <TableCell sx={{ minWidth: 170 }}>
+                  <Typography variant="body2" fontWeight={700}>
+                    {claim.assignedToUser?.displayName || claim.assignedToUser?.email || "Unassigned"}
+                  </Typography>
+                  {claim.workTeam && (
+                    <Typography variant="caption" color="text.secondary">
+                      {claim.workTeam}
+                    </Typography>
+                  )}
+                </TableCell>
+
+                <TableCell sx={{ whiteSpace: "nowrap" }}>
+                  {canManageAssignments && (
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        setAssignmentTarget({
+                          claimIds: [claim.id],
+                          currentAssigneeId: claim.assignedToUser?.id || "",
+                          currentTeam: claim.workTeam || "",
+                          title: `Assign ${claim.patientName || "claim"}`
+                        })
+                      }
+                    >
+                      {claim.assignedToUser ? "Reassign" : "Assign"}
+                    </Button>
+                  )}
                   <IconButton onClick={() => navigate(`/claims/${claim.id}`)}>
                     <Visibility />
                   </IconButton>
@@ -642,7 +689,7 @@ export default function ClaimsList() {
 
             {filteredClaims.length === 0 && (
               <TableRow>
-                <TableCell colSpan={(canDeleteClaims ? 1 : 0) + 6 + (canViewFinancial ? 1 : 0)} align="center">
+                <TableCell colSpan={(canSelectClaims ? 1 : 0) + 7 + (canViewFinancial ? 1 : 0)} align="center">
                   No claims found
                 </TableCell>
               </TableRow>
@@ -666,6 +713,19 @@ export default function ClaimsList() {
         showFirstButton
         showLastButton
         sx={{ mt: 1 }}
+      />
+
+      <ClaimAssignmentDialog
+        open={Boolean(assignmentTarget)}
+        claimIds={assignmentTarget?.claimIds || []}
+        currentAssigneeId={assignmentTarget?.currentAssigneeId || ""}
+        currentTeam={assignmentTarget?.currentTeam || ""}
+        title={assignmentTarget?.title || "Assign claim"}
+        onClose={() => setAssignmentTarget(null)}
+        onSaved={async () => {
+          setSelected([]);
+          await loadClaims();
+        }}
       />
 
       <Dialog
