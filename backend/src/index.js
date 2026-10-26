@@ -23,6 +23,7 @@ import payerConnectorsRouter from "./routes/payerConnectors.js";
 import integrationsRouter from "./routes/integrations.js";
 import priorAuthCasesRouter from "./routes/priorAuthCases.js";
 import payerContractsRouter from "./routes/payerContracts.js";
+import operationsRouter from "./routes/operations.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
 import { createMemoryRateLimiter } from "./middleware/rateLimit.js";
