@@ -184,7 +184,7 @@ export default function Operations() {
           </Stack>
           {setupToken && (
             <Alert severity="success" action={
-              <Button size="small" startIcon={<ContentCopy />} onClick={() => navigator.clipboard?.writeText(setupToken)}>Copy token</Button>
+              <Button size="small" startIcon={<ContentCopy />} onClick={() => window.navigator.clipboard?.writeText(setupToken)}>Copy token</Button>
             }>
               User created in Invited status. One-time setup token: <b>{setupToken}</b>
             </Alert>
