@@ -750,6 +750,11 @@ router.post("/:id/payer-simulation/remittance", requirePermission(PERMISSIONS.PA
         tx
       );
 
+      await syncDenialRecoveryFromPayment(tx, {
+        claimId: claim.id,
+        paidAmount: result.paidAmount
+      });
+
       let varianceCase = null;
       if (expectation?.hasUnderpayment) {
         varianceCase = await tx.underpaymentCase.upsert({
