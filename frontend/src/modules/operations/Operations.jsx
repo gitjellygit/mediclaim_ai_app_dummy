@@ -74,7 +74,7 @@ export default function Operations() {
   const [notifications, setNotifications] = React.useState([]);
   const [inviteOpen, setInviteOpen] = React.useState(false);
   const [teamOpen, setTeamOpen] = React.useState(false);
-  const [setupToken, setSetupToken] = React.useState("");
+  const [inviteLink, setInviteLink] = React.useState("");
   const [invite, setInvite] = React.useState({ email: "", displayName: "", role: "CLAIMS_SPECIALIST", teamId: "" });
   const [teamDraft, setTeamDraft] = React.useState({ name: "", description: "" });
 
@@ -112,7 +112,9 @@ export default function Operations() {
         role: invite.role,
         teamId: invite.teamId || null
       });
-      setSetupToken(result.setupToken || "");
+      const activationUrl = new URL("/accept-invite", window.location.origin);
+      activationUrl.searchParams.set("token", result.setupToken || "");
+      setInviteLink(activationUrl.toString());
       setInviteOpen(false);
       await load();
     } catch (error) {
@@ -182,11 +184,11 @@ export default function Operations() {
             <Button variant="contained" onClick={() => setInviteOpen(true)}>Invite User</Button>
             <Button variant="outlined" onClick={() => setTeamOpen(true)}>Create Team</Button>
           </Stack>
-          {setupToken && (
+          {inviteLink && (
             <Alert severity="success" action={
-              <Button size="small" startIcon={<ContentCopy />} onClick={() => window.navigator.clipboard?.writeText(setupToken)}>Copy token</Button>
+              <Button size="small" startIcon={<ContentCopy />} onClick={() => window.navigator.clipboard?.writeText(inviteLink)}>Copy activation link</Button>
             }>
-              User created in Invited status. One-time setup token: <b>{setupToken}</b>
+              Invitation created. Share the secure activation link with the invited user. The one-time token is not displayed on screen.
             </Alert>
           )}
           <TableContainer component={Paper}>
@@ -211,7 +213,7 @@ export default function Operations() {
                       </Select>
                     </TableCell>
                     <TableCell>
-                      <Select size="small" value={item.status} disabled={item.status === "INVITED"} onChange={(e) => updateUser(item.id, { status: e.target.value })}>
+                      <Select size="small" value={item.status} disabled={item.status === "INVITED" || item.id === user?.id} onChange={(e) => updateUser(item.id, { status: e.target.value })}>
                         {item.status === "INVITED" && <MenuItem value="INVITED">Invited</MenuItem>}
                         <MenuItem value="ACTIVE">Active</MenuItem><MenuItem value="SUSPENDED">Suspended</MenuItem>
                       </Select>

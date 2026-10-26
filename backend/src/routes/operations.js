@@ -9,6 +9,17 @@ import {
   writeCriticalRequestAudit,
   writeRequestAudit
 } from "../services/auditLog.js";
+import {
+  canRespondToClinicalRequest,
+  isAssignableUser,
+  isManagerRole,
+  mentionsAreValid,
+  savedQueueVisibilityWhere,
+  shouldNotifyUser,
+  validatePriorityOverride,
+  validateUserAdministrationMutation,
+  wouldRemoveActiveAdmin
+} from "../services/operationsPolicy.js";
 
 const router = express.Router();
 const orgId = (req) => req.user.organizationId;
@@ -27,7 +38,6 @@ const ROLE_TEMPLATES = Object.freeze([
   "CASHIER"
 ]);
 
-const MANAGER_ROLES = new Set(["ADMIN", "CLAIMS_MANAGER"]);
 const CLINICAL_TYPES = new Set([
   "MISSING_DOCUMENTATION",
   "DIAGNOSIS_CLARIFICATION",
@@ -41,7 +51,7 @@ const CLINICAL_TYPES = new Set([
 ]);
 
 function managerOnly(req, res, next) {
-  if (!MANAGER_ROLES.has(String(req.user?.role || ""))) {
+  if (!isManagerRole(req.user?.role)) {
     return res.status(403).json({ error: "Manager permission required" });
   }
   next();
@@ -62,7 +72,7 @@ async function userFor(req, userId) {
 }
 
 async function notify(tx, req, userId, payload) {
-  if (!userId || userId === req.user.id) return;
+  if (!shouldNotifyUser(req.user.id, userId)) return;
   await tx.notification.create({
     data: {
       organizationId: orgId(req),
@@ -180,6 +190,22 @@ router.patch("/users/:id", requirePermission(PERMISSIONS.USER_ADMIN), async (req
     if (!team) return res.status(400).json({ error: "Team not found" });
   }
 
+  let activeAdminCount = null;
+  if (wouldRemoveActiveAdmin(existing, parsed.data)) {
+    activeAdminCount = await prisma.user.count({
+      where: { organizationId: orgId(req), role: "ADMIN", status: "ACTIVE" }
+    });
+  }
+  const administrationError = validateUserAdministrationMutation({
+    actorId: req.user.id,
+    target: existing,
+    patch: parsed.data,
+    activeAdminCount
+  });
+  if (administrationError) {
+    return res.status(administrationError.status).json({ error: administrationError.error });
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     const user = await tx.user.update({
       where: { id: existing.id },
@@ -246,12 +272,12 @@ router.post("/claims/bulk-work", requirePermission(PERMISSIONS.CLAIM_EDIT), asyn
   const parsed = schema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid bulk work update" });
 
-  if (parsed.data.managerPriority && parsed.data.managerPriority !== "NORMAL" && !parsed.data.managerPriorityReason) {
-    return res.status(400).json({ error: "A reason is required for High or Urgent manager priority" });
-  }
-  if (parsed.data.managerPriority && !MANAGER_ROLES.has(String(req.user.role))) {
-    return res.status(403).json({ error: "Only a claims manager or admin can override priority" });
-  }
+  const priorityError = validatePriorityOverride({
+    role: req.user.role,
+    managerPriority: parsed.data.managerPriority,
+    managerPriorityReason: parsed.data.managerPriorityReason
+  });
+  if (priorityError) return res.status(priorityError.status).json({ error: priorityError.error });
 
   const claims = await prisma.claim.findMany({
     where: { id: { in: parsed.data.claimIds }, organizationId: orgId(req), deletedAt: null }
@@ -263,7 +289,7 @@ router.post("/claims/bulk-work", requirePermission(PERMISSIONS.CLAIM_EDIT), asyn
   const assignee = parsed.data.assignedToUserId
     ? await userFor(req, parsed.data.assignedToUserId)
     : null;
-  if (parsed.data.assignedToUserId && (!assignee || assignee.status !== "ACTIVE")) {
+  if (parsed.data.assignedToUserId && !isAssignableUser(assignee)) {
     return res.status(400).json({ error: "Assignee must be an active user in this organization" });
   }
 
@@ -353,7 +379,7 @@ router.post("/claims/:id/comments", requirePermission(PERMISSIONS.CLAIM_EDIT), a
         select: { id: true }
       })
     : [];
-  if (mentions.length !== new Set(parsed.data.mentionUserIds).size) {
+  if (!mentionsAreValid(parsed.data.mentionUserIds, mentions.map((item) => item.id))) {
     return res.status(400).json({ error: "All mentioned users must belong to this organization" });
   }
 
@@ -449,7 +475,11 @@ router.patch("/clinical-requests/:id/respond", requirePermission(PERMISSIONS.CLI
     where: { id: req.params.id, organizationId: orgId(req) }
   });
   if (!existing) return res.status(404).json({ error: "Clinical request not found" });
-  if (existing.assignedToUserId && existing.assignedToUserId !== req.user.id && !MANAGER_ROLES.has(req.user.role)) {
+  if (!canRespondToClinicalRequest({
+    actorId: req.user.id,
+    actorRole: req.user.role,
+    assignedToUserId: existing.assignedToUserId
+  })) {
     return res.status(403).json({ error: "This clinical request is assigned to another user" });
   }
 
@@ -483,23 +513,12 @@ router.get("/saved-queues", requirePermission(PERMISSIONS.CLAIM_VIEW), async (re
     where: { id: req.user.id, organizationId: orgId(req) },
     select: { teamId: true }
   });
-  const sharedTeamClause = currentUser?.teamId
-    ? {
-        AND: [
-          { sharedWithTeam: true },
-          { ownerUser: { is: { teamId: currentUser.teamId } } }
-        ]
-      }
-    : null;
-
   const items = await prisma.savedQueue.findMany({
-    where: {
+    where: savedQueueVisibilityWhere({
       organizationId: orgId(req),
-      OR: [
-        { ownerUserId: req.user.id },
-        ...(sharedTeamClause ? [sharedTeamClause] : [])
-      ]
-    },
+      userId: req.user.id,
+      teamId: currentUser?.teamId || null
+    }),
     orderBy: { updatedAt: "desc" }
   });
   res.json({ items });
