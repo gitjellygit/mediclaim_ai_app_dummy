@@ -15,6 +15,14 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
+import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import HowToRegIcon from "@mui/icons-material/HowToReg";
+import MedicalServicesIcon from "@mui/icons-material/MedicalServices";
+import LocalHospitalIcon from "@mui/icons-material/LocalHospital";
+import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
+import PaymentsIcon from "@mui/icons-material/Payments";
+import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { hasPermission, PERMISSIONS } from "../security/permissions.js";
@@ -42,10 +50,11 @@ export default function LeftNav({
     onMobileClose();
   }
 
-  function NavItem({ icon, label, path, isActive = false }) {
+  function NavItem({ icon, label, path, isActive = false, planned = false }) {
     return (
       <ListItemButton
-        onClick={() => go(path)}
+        onClick={planned ? undefined : () => go(path)}
+        disabled={planned}
         sx={{
           mx: 0.75,
           my: 0.15,
@@ -70,6 +79,14 @@ export default function LeftNav({
         </ListItemIcon>
         <ListItemText
           primary={label}
+          secondary={planned ? "Planned" : undefined}
+          secondaryTypographyProps={{
+            fontSize: 9,
+            lineHeight: 1,
+            color: "rgba(255,255,255,0.46)",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em"
+          }}
           primaryTypographyProps={{
             noWrap: true,
             fontSize: 12.5,
@@ -187,6 +204,31 @@ export default function LeftNav({
             isActive={isActivePath("/rules")}
           />
         )}
+
+        <Box
+          sx={{
+            px: 1.5,
+            pt: 1.5,
+            pb: 0.45,
+            mt: 0.75,
+            borderTop: "1px solid rgba(255,255,255,0.10)",
+            fontSize: 9,
+            fontWeight: 800,
+            letterSpacing: "0.08em",
+            color: "rgba(255,255,255,0.5)",
+            textTransform: "uppercase"
+          }}
+        >
+          Future Billing Suite
+        </Box>
+        <NavItem icon={<PeopleAltIcon />} label="Patients" planned />
+        <NavItem icon={<CalendarMonthIcon />} label="Scheduling" planned />
+        <NavItem icon={<HowToRegIcon />} label="Check-In / Check-Out" planned />
+        <NavItem icon={<MedicalServicesIcon />} label="Encounters" planned />
+        <NavItem icon={<LocalHospitalIcon />} label="Charge Capture & Coding" planned />
+        <NavItem icon={<RequestQuoteIcon />} label="Patient Billing" planned />
+        <NavItem icon={<PaymentsIcon />} label="Payments & Collections" planned />
+        <NavItem icon={<PersonOutlineIcon />} label="Patient Portal" planned />
       </List>
 
       <Box sx={{ p: 0.75, borderTop: "1px solid rgba(255,255,255,0.2)" }}>
