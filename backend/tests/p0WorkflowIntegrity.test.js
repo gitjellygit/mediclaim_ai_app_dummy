@@ -101,3 +101,22 @@ test("assignment dialog supports a scoped user loader", () => {
   assert.match(dialog, /loadUsers/);
   assert.match(dialog, /loadUsers \|\| ClaimsApi\.workManagementUsers/);
 });
+
+
+const simulatedPayer = read("backend/src/routes/claimPayerSimulation.js");
+const claimJourney = read("backend/src/routes/claimJourney.js");
+
+test("underpayment does not mark the claim fully paid", () => {
+  assert.match(simulatedPayer, /!expectation\?\.hasUnderpayment/);
+  assert.match(simulatedPayer, /"PARTIALLY_APPROVED"/);
+});
+
+test("manual remittance distinguishes partial from fully settled payment", () => {
+  assert.match(claimJourney, /const financiallySettled/);
+  assert.match(claimJourney, /"PARTIALLY_APPROVED"/);
+});
+
+test("posted partial payer outcome is terminal for refresh but retains remaining recovery", () => {
+  assert.match(appeal, /\["PAID", "PARTIALLY_APPROVED"\]\.includes\(effectivePayerStatus\)/);
+  assert.match(appeal, /Continue recovery work for the remaining balance/);
+});
