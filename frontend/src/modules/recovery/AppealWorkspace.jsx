@@ -137,6 +137,27 @@ export default function AppealWorkspace() {
   const [analysisDetailsOpen, setAnalysisDetailsOpen] = React.useState(false);
   const [payerOutcome, setPayerOutcome] = React.useState(null);
 
+  const effectivePayerStatus = String(
+    payerOutcome?.payerClaimStatus || data?.claim?.payerClaimStatus || ""
+  ).toUpperCase();
+  const effectiveRemittanceStatus = String(
+    payerOutcome?.remittanceStatus || data?.claim?.remittanceStatus || ""
+  ).toUpperCase();
+  const effectivePaidAmount = Number(
+    payerOutcome?.paidAmount ?? data?.claim?.paidAmount ?? 0
+  );
+  const payerOutcomeFinal =
+    ["PAID", "PARTIALLY_APPROVED"].includes(effectivePayerStatus) &&
+    effectiveRemittanceStatus === "POSTED";
+  const displayedRecoveredAmount = Math.max(
+    Number(data?.recoveredAmount || 0),
+    payerOutcomeFinal ? effectivePaidAmount : 0
+  );
+  const remainingRecoveryAmount = Math.max(
+    0,
+    Number(data?.revenueAtRisk || 0) - displayedRecoveredAmount
+  );
+
   const [submissionOpen, setSubmissionOpen] = React.useState(false);
   const [submission, setSubmission] = React.useState({
     channel: "PAYER_PORTAL",
@@ -149,7 +170,7 @@ export default function AppealWorkspace() {
     try {
       const result = await DenialsApi.getAppealWorkspace(id);
       setData(result);
-      setPayerOutcome((current) => current || {
+      setPayerOutcome({
         payerClaimStatus: result.claim?.payerClaimStatus || null,
         claimStatusCheckedAt: result.claim?.claimStatusCheckedAt || null,
         remittanceStatus: result.claim?.remittanceStatus || "NOT_AVAILABLE",
@@ -1174,14 +1195,18 @@ export default function AppealWorkspace() {
 
           <Paper variant="outlined" sx={{ p: 1.25 }}>
             <Typography variant="subtitle2" fontWeight={800}>Recovery Summary</Typography>
-            <Box sx={{ mt: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75 }}>
+            <Box sx={{ mt: 1, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0.75 }}>
               <Box>
                 <Typography variant="caption" color="text.secondary">At risk</Typography>
                 <Typography variant="h6" fontWeight={850}>{formatUSD(data.revenueAtRisk)}</Typography>
               </Box>
               <Box>
                 <Typography variant="caption" color="text.secondary">Recovered</Typography>
-                <Typography variant="h6" fontWeight={850} color="success.main">{formatUSD(data.recoveredAmount)}</Typography>
+                <Typography variant="h6" fontWeight={850} color="success.main">{formatUSD(displayedRecoveredAmount)}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Remaining</Typography>
+                <Typography variant="h6" fontWeight={850}>{formatUSD(remainingRecoveryAmount)}</Typography>
               </Box>
             </Box>
           </Paper>
@@ -1221,6 +1246,10 @@ export default function AppealWorkspace() {
                 ? "Preview and approve the appeal package."
                 : !submissionRecorded
                 ? "Submit externally and record the submission."
+                : payerOutcomeFinal
+                ? remainingRecoveryAmount > 0
+                  ? "Payment is posted. Continue recovery work for the remaining balance."
+                  : "Payment is posted and the recovery opportunity is fully recovered."
                 : "Refresh the payer outcome here or continue tracking in Revenue Recovery."}
             </Typography>
           </Paper>
@@ -1241,14 +1270,16 @@ export default function AppealWorkspace() {
             <Paper variant="outlined" sx={{ p: 1.25 }} data-testid="appeal-payer-outcome">
               <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                 <Typography variant="subtitle2" fontWeight={800}>Payer Outcome</Typography>
-                <IconButton
-                  size="small"
-                  aria-label="Refresh payer outcome"
-                  onClick={refreshPayerOutcome}
-                  disabled={!canRefreshPayerOutcome || Boolean(action)}
-                >
-                  {action === "payer-outcome" ? <CircularProgress size={16} /> : <Refresh fontSize="small" />}
-                </IconButton>
+                {!payerOutcomeFinal && (
+                  <IconButton
+                    size="small"
+                    aria-label="Refresh payer outcome"
+                    onClick={refreshPayerOutcome}
+                    disabled={!canRefreshPayerOutcome || Boolean(action)}
+                  >
+                    {action === "payer-outcome" ? <CircularProgress size={16} /> : <Refresh fontSize="small" />}
+                  </IconButton>
+                )}
               </Stack>
               <Stack spacing={0.6} sx={{ mt: 0.75 }}>
                 <Stack direction="row" justifyContent="space-between" spacing={1}>
@@ -1276,16 +1307,18 @@ export default function AppealWorkspace() {
                   <Typography variant="caption" color="text.secondary">{payerOutcome.message}</Typography>
                 )}
               </Stack>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<Refresh />}
-                onClick={refreshPayerOutcome}
-                disabled={!canRefreshPayerOutcome || Boolean(action)}
-                sx={{ mt: 0.9 }}
-              >
-                {action === "payer-outcome" ? "Refreshing..." : "Refresh Payer Outcome"}
-              </Button>
+              {!payerOutcomeFinal && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<Refresh />}
+                  onClick={refreshPayerOutcome}
+                  disabled={!canRefreshPayerOutcome || Boolean(action)}
+                  sx={{ mt: 0.9 }}
+                >
+                  {action === "payer-outcome" ? "Refreshing..." : "Refresh Payer Outcome"}
+                </Button>
+              )}
             </Paper>
           )}
 
