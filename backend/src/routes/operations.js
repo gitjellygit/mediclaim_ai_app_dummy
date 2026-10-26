@@ -899,7 +899,37 @@ router.get("/workload", managerOnly, async (req, res) => {
     select: {
       id: true, email: true, displayName: true, role: true, team: { select: { name: true } },
       assignedClaims: {
-        where: { deletedAt: null, status: { notIn: ["PAID"] } },
+        where: {
+          deletedAt: null,
+          OR: [
+            { status: { not: "PAID" } },
+            {
+              denialCases: {
+                some: {
+                  status: {
+                    in: [
+                      "OPEN",
+                      "ANALYZED",
+                      "CORRECTION_REQUIRED",
+                      "APPEAL_PREPARED",
+                      "APPEAL_SUBMITTED",
+                      "RESUBMITTED"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              underpaymentCase: {
+                is: {
+                  status: {
+                    in: ["OPEN", "REVIEWING", "DISPUTE_PREPARED", "DISPUTE_SUBMITTED"]
+                  }
+                }
+              }
+            }
+          ]
+        },
         select: {
           id: true, managerPriority: true, workDueAt: true, nextFollowUpAt: true,
           escalatedAt: true, status: true
