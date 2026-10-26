@@ -90,6 +90,12 @@ router.post(
         code: "PRIOR_AUTH_REQUIREMENT_NOT_EVALUATED"
       });
     }
+    if (claim.priorAuthRequired === false || claim.priorAuthStatus === "NOT_REQUIRED") {
+      return res.status(409).json({
+        error: "This claim does not require prior authorization",
+        code: "PRIOR_AUTH_NOT_REQUIRED"
+      });
+    }
 
     const checklist = evidenceChecklist(claim);
     const current = await prisma.priorAuthCase.findUnique({ where: { claimId: claim.id } });
