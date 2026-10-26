@@ -903,8 +903,8 @@ router.get(
   requirePermission(PERMISSIONS.CLAIM_EDIT),
   async (req, res) => {
     const users = await prisma.user.findMany({
-      where: { organizationId: orgId(req) },
-      select: { id: true, email: true, role: true },
+      where: { organizationId: orgId(req), status: "ACTIVE" },
+      select: { id: true, email: true, displayName: true, role: true, teamId: true },
       orderBy: { email: "asc" }
     });
     res.json({ items: users });
