@@ -129,6 +129,8 @@ function normalizeDenial(item, now) {
     patientName: item.claim?.patientName || "Unknown Patient",
     payerName: item.claim?.payerName || "Unknown Payer",
     insurerClaimNo: item.claim?.insurerClaimNo || null,
+    assignedToUser: item.claim?.assignedToUser || null,
+    workTeam: item.claim?.workTeam || null,
     status: item.status,
     rootCause: item.denialCategory || "UNCLASSIFIED",
     codeSummary: [item.groupCode, item.carcCode, item.rarcCode]
@@ -286,7 +288,11 @@ router.get("/", async (req, res) => {
                 select: {
                   patientName: true,
                   payerName: true,
-                  insurerClaimNo: true
+                  insurerClaimNo: true,
+                  workTeam: true,
+                  assignedToUser: {
+                    select: { id: true, email: true, displayName: true, role: true }
+                  }
                 }
               }
             },
@@ -317,7 +323,11 @@ router.get("/", async (req, res) => {
                 select: {
                   patientName: true,
                   payerName: true,
-                  insurerClaimNo: true
+                  insurerClaimNo: true,
+                  workTeam: true,
+                  assignedToUser: {
+                    select: { id: true, email: true, displayName: true, role: true }
+                  }
                 }
               }
             },
