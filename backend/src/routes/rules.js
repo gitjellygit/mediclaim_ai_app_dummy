@@ -16,6 +16,7 @@ import {
   bumpRulesetAndInvalidate,
   writeRuleVersion
 } from "../services/ruleLifecycle.js";
+import { detectDenialPreventionPatterns } from "../services/denialPrevention.js";
 
 const router = express.Router();
 
@@ -281,6 +282,299 @@ router.post("/simulate", async (req, res) => {
     warnCount: affected.filter((item) => item.severity === "WARN").length,
     infoCount: affected.filter((item) => item.severity === "INFO").length,
     samples: affected.slice(0, 10)
+  });
+});
+
+const rejectRecommendationSchema = z.object({
+  reason: z.string().trim().min(3).max(1000)
+}).strict();
+
+router.get("/recommendations", async (req, res) => {
+  const items = await prisma.ruleRecommendation.findMany({
+    where: { organizationId: orgId(req) },
+    orderBy: [
+      { status: "asc" },
+      { occurrenceCount: "desc" },
+      { revenueAtRisk: "desc" },
+      { updatedAt: "desc" }
+    ]
+  });
+
+  res.json({
+    items: items.map((item) => ({
+      ...item,
+      revenueAtRisk: Number(item.revenueAtRisk || 0)
+    }))
+  });
+});
+
+router.post("/recommendations/refresh", async (req, res) => {
+  const requestedMinimum = Number(req.body?.minimumOccurrences || 3);
+  const minimumOccurrences = Math.max(
+    2,
+    Math.min(Number.isFinite(requestedMinimum) ? Math.trunc(requestedMinimum) : 3, 25)
+  );
+
+  const patterns = await detectDenialPreventionPatterns(
+    prisma,
+    orgId(req),
+    { minimumOccurrences }
+  );
+
+  const items = [];
+  for (const pattern of patterns) {
+    const existing = await prisma.ruleRecommendation.findUnique({
+      where: {
+        organizationId_fingerprint: {
+          organizationId: orgId(req),
+          fingerprint: pattern.fingerprint
+        }
+      }
+    });
+
+    const saved = await prisma.ruleRecommendation.upsert({
+      where: {
+        organizationId_fingerprint: {
+          organizationId: orgId(req),
+          fingerprint: pattern.fingerprint
+        }
+      },
+      create: {
+        organizationId: orgId(req),
+        fingerprint: pattern.fingerprint,
+        status: "PENDING",
+        denialCategory: pattern.denialCategory,
+        carcCode: pattern.carcCode,
+        rarcCode: pattern.rarcCode,
+        payerName: pattern.payerName,
+        payerEdiId: pattern.payerEdiId,
+        occurrenceCount: pattern.occurrenceCount,
+        revenueAtRisk: pattern.revenueAtRisk,
+        firstObservedAt: pattern.firstObservedAt,
+        lastObservedAt: pattern.lastObservedAt,
+        proposedRule: pattern.proposedRule,
+        rationale: pattern.rationale
+      },
+      update: {
+        denialCategory: pattern.denialCategory,
+        carcCode: pattern.carcCode,
+        rarcCode: pattern.rarcCode,
+        payerName: pattern.payerName,
+        payerEdiId: pattern.payerEdiId,
+        occurrenceCount: pattern.occurrenceCount,
+        revenueAtRisk: pattern.revenueAtRisk,
+        firstObservedAt: pattern.firstObservedAt,
+        lastObservedAt: pattern.lastObservedAt,
+        proposedRule:
+          existing?.status === "APPROVED"
+            ? existing.proposedRule
+            : pattern.proposedRule,
+        rationale: pattern.rationale
+      }
+    });
+    items.push(saved);
+  }
+
+  await writeCriticalRequestAudit(prisma, req, {
+    action: "DENIAL_PREVENTION_RECOMMENDATIONS_REFRESHED",
+    entityType: "RuleRecommendation",
+    metadata: {
+      count: items.length,
+      operation: "refresh",
+      source: "DENIAL_PATTERN"
+    }
+  });
+
+  res.json({
+    minimumOccurrences,
+    detectedPatterns: patterns.length,
+    items: items.map((item) => ({
+      ...item,
+      revenueAtRisk: Number(item.revenueAtRisk || 0)
+    }))
+  });
+});
+
+router.post("/recommendations/:id/approve", async (req, res) => {
+  const recommendation = await prisma.ruleRecommendation.findFirst({
+    where: {
+      id: req.params.id,
+      organizationId: orgId(req)
+    }
+  });
+  if (!recommendation) {
+    return res.status(404).json({ error: "Rule recommendation not found" });
+  }
+  if (recommendation.status !== "PENDING") {
+    return res.status(409).json({
+      error: "Only pending recommendations can be approved"
+    });
+  }
+  if (!recommendation.proposedRule || typeof recommendation.proposedRule !== "object") {
+    return res.status(409).json({
+      error: "This denial pattern does not map safely to a supported deterministic rule",
+      code: "RECOMMENDATION_REVIEW_ONLY"
+    });
+  }
+
+  const proposal = {
+    ...recommendation.proposedRule,
+    enabled: false
+  };
+  const parsed = createRuleSchema.safeParse(proposal);
+  if (!parsed.success) {
+    return res.status(409).json({
+      error: "Recommended rule no longer satisfies current rule governance",
+      code: "RECOMMENDATION_RULE_INVALID"
+    });
+  }
+  const definitionCheck = validateDefinition(parsed.data.definition);
+  if (!definitionCheck.ok) {
+    return res.status(409).json({
+      error: definitionCheck.error,
+      code: "RECOMMENDATION_RULE_INVALID"
+    });
+  }
+
+  const existingRule = await prisma.rule.findFirst({
+    where: {
+      organizationId: orgId(req),
+      code: parsed.data.code
+    }
+  });
+  if (existingRule) {
+    return res.status(409).json({
+      error: "A rule with this recommendation identity already exists",
+      code: "RECOMMENDATION_RULE_EXISTS"
+    });
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const rule = await tx.rule.create({
+      data: {
+        organizationId: orgId(req),
+        code: parsed.data.code,
+        name: parsed.data.name,
+        description: parsed.data.description || null,
+        category: parsed.data.category,
+        severity: parsed.data.severity,
+        enabled: false,
+        ruleType: "CUSTOM",
+        systemManaged: false,
+        mandatory: false,
+        scope: parsed.data.scope,
+        payerName:
+          parsed.data.scope === "PAYER"
+            ? parsed.data.payerName || null
+            : null,
+        payerEdiId:
+          parsed.data.scope === "PAYER"
+            ? parsed.data.payerEdiId || null
+            : null,
+        definition: parsed.data.definition,
+        source: "DENIAL_PATTERN",
+        version: parsed.data.version,
+        revision: 1,
+        effectiveFrom: null,
+        effectiveTo: null
+      }
+    });
+
+    await writeRuleVersion(
+      tx,
+      rule,
+      "CREATED_FROM_DENIAL_RECOMMENDATION",
+      req.user?.id || null
+    );
+
+    const updatedRecommendation = await tx.ruleRecommendation.update({
+      where: { id: recommendation.id },
+      data: {
+        status: "APPROVED",
+        approvedRuleId: rule.id,
+        reviewedByUserId: req.user?.id || null,
+        reviewedAt: new Date(),
+        rejectionReason: null
+      }
+    });
+
+    await writeCriticalRequestAudit(tx, req, {
+      action: "DENIAL_PREVENTION_RECOMMENDATION_APPROVED",
+      entityType: "RuleRecommendation",
+      entityId: recommendation.id,
+      metadata: {
+        category: recommendation.denialCategory,
+        source: "DENIAL_PATTERN",
+        operation: "approve",
+        ruleCode: rule.code,
+        newEnabled: false
+      }
+    });
+
+    return { rule, recommendation: updatedRecommendation };
+  });
+
+  res.status(201).json({
+    recommendation: {
+      ...result.recommendation,
+      revenueAtRisk: Number(result.recommendation.revenueAtRisk || 0)
+    },
+    rule: publicRule(result.rule),
+    activationRequired: true
+  });
+});
+
+router.post("/recommendations/:id/reject", async (req, res) => {
+  const parsed = rejectRecommendationSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Rejection reason is required"
+    });
+  }
+
+  const recommendation = await prisma.ruleRecommendation.findFirst({
+    where: {
+      id: req.params.id,
+      organizationId: orgId(req)
+    }
+  });
+  if (!recommendation) {
+    return res.status(404).json({ error: "Rule recommendation not found" });
+  }
+  if (recommendation.status !== "PENDING") {
+    return res.status(409).json({
+      error: "Only pending recommendations can be rejected"
+    });
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const item = await tx.ruleRecommendation.update({
+      where: { id: recommendation.id },
+      data: {
+        status: "REJECTED",
+        reviewedByUserId: req.user?.id || null,
+        reviewedAt: new Date(),
+        rejectionReason: parsed.data.reason
+      }
+    });
+
+    await writeCriticalRequestAudit(tx, req, {
+      action: "DENIAL_PREVENTION_RECOMMENDATION_REJECTED",
+      entityType: "RuleRecommendation",
+      entityId: recommendation.id,
+      metadata: {
+        category: recommendation.denialCategory,
+        source: "DENIAL_PATTERN",
+        operation: "reject"
+      }
+    });
+
+    return item;
+  });
+
+  res.json({
+    ...updated,
+    revenueAtRisk: Number(updated.revenueAtRisk || 0)
   });
 });
 
