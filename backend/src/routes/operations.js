@@ -38,6 +38,19 @@ const ROLE_TEMPLATES = Object.freeze([
   "CASHIER"
 ]);
 
+const CLAIM_ASSIGNABLE_ROLES = new Set([
+  "ADMIN",
+  "CLAIMS_MANAGER",
+  "CLAIMS_SPECIALIST",
+  "DENIAL_SPECIALIST",
+  "PRIOR_AUTH_SPECIALIST"
+]);
+
+const CLINICAL_ASSIGNEE_ROLES = new Set([
+  "PROVIDER",
+  "CLINICAL_REVIEWER"
+]);
+
 const CLINICAL_TYPES = new Set([
   "MISSING_DOCUMENTATION",
   "DIAGNOSIS_CLARIFICATION",
@@ -289,8 +302,40 @@ router.post("/claims/bulk-work", requirePermission(PERMISSIONS.CLAIM_EDIT), asyn
   const assignee = parsed.data.assignedToUserId
     ? await userFor(req, parsed.data.assignedToUserId)
     : null;
-  if (parsed.data.assignedToUserId && !isAssignableUser(assignee)) {
-    return res.status(400).json({ error: "Assignee must be an active user in this organization" });
+  if (
+    parsed.data.assignedToUserId &&
+    (!isAssignableUser(assignee) || !CLAIM_ASSIGNABLE_ROLES.has(assignee.role))
+  ) {
+    return res.status(400).json({
+      error: "Assignee must be an active claim-work user in this organization"
+    });
+  }
+
+  if (parsed.data.workTeam) {
+    const team = await prisma.team.findFirst({
+      where: {
+        organizationId: orgId(req),
+        name: parsed.data.workTeam,
+        active: true
+      },
+      select: { id: true }
+    });
+    if (!team) {
+      return res.status(400).json({ error: "Work team must match an active team" });
+    }
+  }
+
+  const now = Date.now();
+  for (const [label, value] of [
+    ["Next follow-up", parsed.data.nextFollowUpAt],
+    ["Resume date", parsed.data.holdUntil]
+  ]) {
+    if (value && new Date(value).getTime() < now) {
+      return res.status(400).json({ error: `${label} cannot be in the past` });
+    }
+  }
+  if (parsed.data.holdUntil && !parsed.data.holdReason?.trim()) {
+    return res.status(400).json({ error: "A hold reason is required when a resume date is set" });
   }
 
   await prisma.$transaction(async (tx) => {
@@ -437,7 +482,17 @@ router.post("/clinical-requests", requirePermission(PERMISSIONS.CLAIM_EDIT), asy
   const claim = await claimFor(req, parsed.data.claimId);
   if (!claim) return res.status(404).json({ error: "Claim not found" });
   const assignee = parsed.data.assignedToUserId ? await userFor(req, parsed.data.assignedToUserId) : null;
-  if (parsed.data.assignedToUserId && !assignee) return res.status(400).json({ error: "Clinical assignee not found" });
+  if (
+    parsed.data.assignedToUserId &&
+    (!assignee || assignee.status !== "ACTIVE" || !CLINICAL_ASSIGNEE_ROLES.has(assignee.role))
+  ) {
+    return res.status(400).json({
+      error: "Clinical assignee must be an active Provider or Clinical Reviewer"
+    });
+  }
+  if (parsed.data.dueAt && new Date(parsed.data.dueAt).getTime() < Date.now()) {
+    return res.status(400).json({ error: "Clinical request due date cannot be in the past" });
+  }
 
   const item = await prisma.$transaction(async (tx) => {
     const created = await tx.clinicalRequest.create({
@@ -553,7 +608,13 @@ router.get("/notifications", requirePermission(PERMISSIONS.OPERATIONS_VIEW), asy
     orderBy: { createdAt: "desc" },
     take: 100
   });
-  const unread = items.filter((item) => !item.readAt).length;
+  const unread = await prisma.notification.count({
+    where: {
+      organizationId: orgId(req),
+      userId: req.user.id,
+      readAt: null
+    }
+  });
   res.json({ items, unread });
 });
 
