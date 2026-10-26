@@ -235,6 +235,23 @@ function aggregateBy(items, key, max = 5) {
     .slice(0, max);
 }
 
+router.get(
+  "/assignment-users",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  async (req, res) => {
+    const users = await prisma.user.findMany({
+      where: {
+        organizationId: req.user.organizationId,
+        status: "ACTIVE",
+        role: { in: ["DENIAL_SPECIALIST", "CLAIMS_SPECIALIST", "CLAIMS_MANAGER", "ADMIN"] }
+      },
+      select: { id: true, email: true, displayName: true, role: true, teamId: true },
+      orderBy: [{ displayName: "asc" }, { email: "asc" }]
+    });
+    res.json({ items: users });
+  }
+);
+
 router.patch(
   "/claims/:claimId/assignment",
   requirePermission(PERMISSIONS.RECOVERY_EDIT),
