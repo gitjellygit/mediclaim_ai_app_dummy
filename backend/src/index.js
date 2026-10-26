@@ -253,6 +253,7 @@ app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectors
 app.use("/api/integrations", integrationsRateLimiter, requireAuth, captureAsyncRouter(integrationsRouter));
 app.use("/api/prior-auth", priorAuthRateLimiter, requireAuth, captureAsyncRouter(priorAuthCasesRouter));
 app.use("/api/payer-contracts", payerContractsRateLimiter, requireAuth, captureAsyncRouter(payerContractsRouter));
+app.use("/api/operations", requireAuth, captureAsyncRouter(operationsRouter));
 
 /**
  * DOCUMENT ROUTES
