@@ -742,6 +742,7 @@ export default function RevenueRecovery() {
         currentAssigneeId={assignmentTarget?.currentAssigneeId || ""}
         currentTeam={assignmentTarget?.currentTeam || ""}
         title={assignmentTarget?.title || "Assign recovery work"}
+        loadUsers={RevenueRecoveryApi.assignmentUsers}
         saveAssignment={({ claimIds, assignedToUserId, workTeam }) =>
           RevenueRecoveryApi.assignClaim(claimIds[0], { assignedToUserId, workTeam })
         }
