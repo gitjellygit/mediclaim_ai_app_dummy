@@ -163,7 +163,7 @@ export default function LeftNav({
             isActive={isActivePath("/analytics")}
           />
         )}
-        {hasPermission(user, PERMISSIONS.CLAIM_VIEW) && (
+        {hasPermission(user, PERMISSIONS.OPERATIONS_VIEW) && (
           <NavItem
             icon={<GroupsIcon />}
             label="Operations"
