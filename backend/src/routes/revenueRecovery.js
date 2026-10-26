@@ -166,6 +166,8 @@ function normalizeUnderpayment(item) {
     patientName: item.claim?.patientName || "Unknown Patient",
     payerName: item.claim?.payerName || "Unknown Payer",
     insurerClaimNo: item.claim?.insurerClaimNo || null,
+    assignedToUser: item.claim?.assignedToUser || null,
+    workTeam: item.claim?.workTeam || null,
     status: item.status,
     rootCause: item.reasonCategory || "PAYMENT_VARIANCE",
     codeSummary: null,
