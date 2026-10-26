@@ -147,7 +147,7 @@ export default function AppealWorkspace() {
     payerOutcome?.paidAmount ?? data?.claim?.paidAmount ?? 0
   );
   const payerOutcomeFinal =
-    effectivePayerStatus === "PAID" &&
+    ["PAID", "PARTIALLY_APPROVED"].includes(effectivePayerStatus) &&
     effectiveRemittanceStatus === "POSTED";
   const displayedRecoveredAmount = Math.max(
     Number(data?.recoveredAmount || 0),
