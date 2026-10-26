@@ -748,6 +748,7 @@ model User {
   requestedApprovals ApprovalRequest[] @relation("ApprovalRequester")
   reviewedApprovals ApprovalRequest[] @relation("ApprovalReviewer")
   ownershipChanges ClaimOwnershipHistory[] @relation("OwnershipChangedBy")
+  invite UserInvite?
 
   @@index([organizationId])
   @@index([teamId])
@@ -895,6 +896,19 @@ model ClaimOwnershipHistory {
   reason                 String?
 
   @@index([organizationId, claimId, createdAt])
+}
+
+model UserInvite {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  userId    String @unique
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String @unique
+  expiresAt DateTime
+  acceptedAt DateTime?
+
+  @@index([expiresAt])
 }
 
 model AuthRateLimit {
