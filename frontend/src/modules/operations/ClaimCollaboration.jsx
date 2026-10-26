@@ -16,6 +16,7 @@ import {
 } from "@mui/material";
 import { ClaimsApi } from "../../api/claims.js";
 import { OperationsApi } from "../../api/operations.js";
+import { humanizeEnum } from "../../utils/displayLabels.js";
 
 function dt(value) {
   if (!value) return "—";
@@ -169,7 +170,7 @@ export default function ClaimCollaboration({ claimId, canEdit = false }) {
               {clinical.map((item) => (
                 <Box key={item.id} sx={{ p: 0.9, bgcolor: "grey.50", borderRadius: 1 }}>
                   <Stack direction="row" spacing={0.5} sx={{ mb: 0.4 }}>
-                    <Chip size="small" label={item.status} />
+                    <Chip size="small" label={humanizeEnum(item.status)} />
                     <Chip size="small" variant="outlined" label={label(item.requestType)} />
                   </Stack>
                   <Typography variant="body2">{item.requestText}</Typography>
