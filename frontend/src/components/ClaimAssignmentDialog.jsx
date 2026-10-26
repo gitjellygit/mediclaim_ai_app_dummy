@@ -103,7 +103,7 @@ export default function ClaimAssignmentDialog({
               <MenuItem value="">Unassigned</MenuItem>
               {users.map((person) => (
                 <MenuItem key={person.id} value={person.id}>
-                  {person.displayName || person.email} · {String(person.role || "").toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase())}
+                  {person.displayName || person.email} · {roleLabel(person.role)}
                 </MenuItem>
               ))}
             </Select>
