@@ -1746,7 +1746,7 @@ router.get("/:id/download", requirePermission(PERMISSIONS.DOCUMENT_DOWNLOAD), (r
 
 
 
-router.delete("/documents/:id", requirePermission(PERMISSIONS.CLAIM_DELETE), (req, res) =>
+router.delete("/documents/:id", requirePermission(PERMISSIONS.DOCUMENT_DELETE), (req, res) =>
   deleteStoredDocument(prisma, req, res, { legacy: true })
 );
 
