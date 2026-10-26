@@ -10,6 +10,7 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import MonetizationOnIcon from "@mui/icons-material/MonetizationOn";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import SettingsIcon from "@mui/icons-material/Settings";
+import GroupsIcon from "@mui/icons-material/Groups";
 import LogoutIcon from "@mui/icons-material/Logout";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
@@ -160,6 +161,14 @@ export default function LeftNav({
             label="Analytics"
             path="/analytics"
             isActive={isActivePath("/analytics")}
+          />
+        )}
+        {hasPermission(user, PERMISSIONS.OPERATIONS_VIEW) && (
+          <NavItem
+            icon={<GroupsIcon />}
+            label="Operations"
+            path="/operations"
+            isActive={isActivePath("/operations")}
           />
         )}
         {hasPermission(user, PERMISSIONS.AUDIT_VIEW) && (

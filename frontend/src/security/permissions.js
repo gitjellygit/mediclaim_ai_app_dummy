@@ -20,7 +20,8 @@ export const PERMISSIONS = Object.freeze({
   RECOVERY_EDIT: "RECOVERY_EDIT",
   AUDIT_VIEW: "AUDIT_VIEW",
   AUDIT_EXPORT: "AUDIT_EXPORT",
-  USER_ADMIN: "USER_ADMIN"
+  USER_ADMIN: "USER_ADMIN",
+  OPERATIONS_VIEW: "OPERATIONS_VIEW"
 });
 
 export function hasPermission(user, permission) {

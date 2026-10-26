@@ -2,7 +2,7 @@ import React, { Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import MainLayout from "./layout/MainLayout.jsx";
-import { AuthProvider } from "./context/AuthContext.jsx";
+import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import { ToastProvider } from "./context/ToastContext.jsx";
 import {
   ProtectedRoute,
@@ -12,6 +12,8 @@ import {
 import { PERMISSIONS } from "./security/permissions.js";
 
 const Login = lazy(() => import("./pages/Login.jsx"));
+const AcceptInvite = lazy(() => import("./pages/AcceptInvite.jsx"));
+const Operations = lazy(() => import("./modules/operations/Operations.jsx"));
 const NewClaim = lazy(() => import("./pages/NewClaim.jsx"));
 const ClaimsList = lazy(() => import("./modules/ai-claims/ClaimsList.jsx"));
 const ClaimDetail = lazy(() => import("./modules/ai-claims/ClaimDetail.jsx"));
@@ -61,7 +63,8 @@ const protectedRoutes = [
   { path: "/medical-ai", Component: MedicalConsistency, permission: PERMISSIONS.CLINICAL_VIEW },
   { path: "/documents", Component: DocumentIntelligence, permission: PERMISSIONS.DOCUMENT_VIEW },
   { path: "/approval", Component: ApprovalIntelligence, permission: PERMISSIONS.CLINICAL_VIEW },
-  { path: "/analytics", Component: AnalyticsDashboard, permission: PERMISSIONS.FINANCIAL_VIEW }
+  { path: "/analytics", Component: AnalyticsDashboard, permission: PERMISSIONS.FINANCIAL_VIEW },
+  { path: "/operations", Component: Operations, permission: PERMISSIONS.OPERATIONS_VIEW }
 ];
 
 const adminRoutes = [
@@ -73,6 +76,28 @@ const adminRoutes = [
 const permissionRoutes = [
   { path: "/audit", Component: AuditTrail, permission: PERMISSIONS.AUDIT_VIEW }
 ];
+
+function RoleHome() {
+  const { user } = useAuth();
+  const role = user?.role;
+  const target =
+    role === "PROVIDER" || role === "CLINICAL_REVIEWER"
+      ? "/operations"
+      : role === "CLAIMS_MANAGER" || role === "CLAIMS_SPECIALIST" || role === "CASHIER"
+      ? "/approval"
+      : role === "DENIAL_SPECIALIST"
+      ? "/revenue-recovery"
+      : role === "PRIOR_AUTH_SPECIALIST"
+      ? "/journey"
+      : role === "ACCOUNTANT"
+      ? "/payments"
+      : role === "AUDITOR"
+      ? "/audit"
+      : role === "ADMIN"
+      ? "/operations"
+      : "/claims";
+  return <Navigate to={target} replace />;
+}
 
 function RouteFallback() {
   return (
@@ -93,6 +118,7 @@ function AppRoutes() {
     <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/accept-invite" element={<AcceptInvite />} />
 
         <Route
           element={
@@ -101,7 +127,7 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate to="/claims" replace />} />
+          <Route index element={<RoleHome />} />
 
           {protectedRoutes.map(({ path, Component, permission }) => (
             <Route

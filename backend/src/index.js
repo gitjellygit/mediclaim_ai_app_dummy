@@ -23,6 +23,7 @@ import payerConnectorsRouter from "./routes/payerConnectors.js";
 import integrationsRouter from "./routes/integrations.js";
 import priorAuthCasesRouter from "./routes/priorAuthCases.js";
 import payerContractsRouter from "./routes/payerContracts.js";
+import operationsRouter from "./routes/operations.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
 import { createMemoryRateLimiter } from "./middleware/rateLimit.js";
@@ -252,6 +253,7 @@ app.use("/api/payer-connectors", requireAuth, captureAsyncRouter(payerConnectors
 app.use("/api/integrations", integrationsRateLimiter, requireAuth, captureAsyncRouter(integrationsRouter));
 app.use("/api/prior-auth", priorAuthRateLimiter, requireAuth, captureAsyncRouter(priorAuthCasesRouter));
 app.use("/api/payer-contracts", payerContractsRateLimiter, requireAuth, captureAsyncRouter(payerContractsRouter));
+app.use("/api/operations", requireAuth, captureAsyncRouter(operationsRouter));
 
 /**
  * DOCUMENT ROUTES

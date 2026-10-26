@@ -282,9 +282,13 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
 
   const workDueDays = daysUntil(claim?.workDueAt, now);
   const followUpDays = daysUntil(claim?.nextFollowUpAt, now);
+  const onHold =
+    Boolean(claim?.holdUntil) &&
+    new Date(claim.holdUntil).getTime() > now.getTime();
   const workOverdue =
-    (workDueDays != null && workDueDays < 0) ||
-    (followUpDays != null && followUpDays < 0);
+    !onHold &&
+    ((workDueDays != null && workDueDays < 0) ||
+      (followUpDays != null && followUpDays < 0));
 
   let priority = "LOW";
   if (workOverdue || (!alreadySubmitted && (filingState === "EXPIRED" || filingState === "URGENT"))) {
@@ -304,6 +308,17 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
     (isStale || !check || filingState === "DUE_SOON" || warnings.length > 0)
   ) {
     priority = "MEDIUM";
+  }
+
+  const systemPriority = priority;
+  if (claim?.managerPriority === "URGENT") {
+    priority = "CRITICAL";
+  } else if (claim?.managerPriority === "HIGH" && priority !== "CRITICAL") {
+    priority = "HIGH";
+  }
+
+  if (onHold && !alreadySubmitted) {
+    actionState = "ON_HOLD";
   }
 
   const pendingCodingSuggestions = Array.isArray(claim?.codingSuggestions)
@@ -328,6 +343,9 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
     amount: asNumber(claim.amount),
     actionState,
     priority,
+    systemPriority,
+    managerPriority: claim.managerPriority || null,
+    managerPriorityReason: claim.managerPriorityReason || null,
     readiness: {
       score,
       state: !check ? "NOT_EVALUATED" : isStale ? "STALE" : "CURRENT",
@@ -380,6 +398,9 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
       nextFollowUpAt: claim.nextFollowUpAt || null,
       lastWorkedAt: claim.lastWorkedAt || null,
       escalatedAt: claim.escalatedAt || null,
+      holdReason: claim.holdReason || null,
+      holdUntil: claim.holdUntil || null,
+      onHold,
       overdue: workOverdue,
       dueInDays:
         followUpDays != null
