@@ -7,62 +7,62 @@ const password = process.env.E2E_PASSWORD || "admin123";
 const scenarios = [
   {
     patient: "E2E-MC-01-CLEAN",
-    status: "CONSISTENT",
+    status: "Consistent",
     finding: null
   },
   {
     patient: "E2E-MC-02-DATE-ORDER",
-    status: "BLOCKED",
+    status: "Blocked",
     finding: "Admission is after discharge"
   },
   {
     patient: "E2E-MC-03-DOS-OUTSIDE",
-    status: "NEEDS REVIEW",
+    status: "Needs Review",
     finding: "Service date outside encounter"
   },
   {
     patient: "E2E-MC-04-PROCEDURE-OUTSIDE",
-    status: "BLOCKED",
+    status: "Blocked",
     finding: "Procedure date outside encounter"
   },
   {
     patient: "E2E-MC-05-ICU-EXCEEDS-STAY",
-    status: "BLOCKED",
+    status: "Blocked",
     finding: "ICU days exceed length of stay"
   },
   {
     patient: "E2E-MC-06-ICU-ROOM-CONFLICT",
-    status: "NEEDS REVIEW",
+    status: "Needs Review",
     finding: "ICU utilization conflicts with room category"
   },
   {
     patient: "E2E-MC-07-ICU-DAYS-MISSING",
-    status: "NEEDS REVIEW",
+    status: "Needs Review",
     finding: "ICU days not confirmed"
   },
   {
     patient: "E2E-MC-08-MISSING-DISCHARGE",
-    status: "NEEDS REVIEW",
+    status: "Needs Review",
     finding: "Discharge summary not found"
   },
   {
     patient: "E2E-MC-09-PROCEDURE-NO-SUPPORT",
-    status: "NEEDS REVIEW",
+    status: "Needs Review",
     finding: "Procedure lacks supporting clinical document"
   },
   {
     patient: "E2E-MC-10-CONFLICTING-DOS",
-    status: "NEEDS REVIEW",
+    status: "Needs Review",
     finding: "Documents disagree on date of service"
   },
   {
     patient: "E2E-MC-11-CONFLICTING-ADMISSION",
-    status: "NEEDS REVIEW",
+    status: "Needs Review",
     finding: "Documents disagree on admission date"
   },
   {
     patient: "E2E-MC-12-CONFLICTING-DIAGNOSIS",
-    status: "NEEDS REVIEW",
+    status: "Needs Review",
     finding: "Diagnosis text differs across documents"
   }
 ];
@@ -331,7 +331,7 @@ test("12 medical consistency scenarios run end-to-end in the browser", async ({
       hasText: "E2E-MC-08-MISSING-DISCHARGE"
     });
     await expect(refreshedRow).toBeVisible();
-    await expect(refreshedRow).toContainText("CONSISTENT");
+    await expect(refreshedRow).toContainText("Consistent");
 
     await refreshedRow.click();
     const refreshedDrawer = page.getByTestId("medical-consistency-drawer");

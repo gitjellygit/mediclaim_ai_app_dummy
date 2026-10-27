@@ -22,6 +22,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import FactCheckIcon from "@mui/icons-material/FactCheck";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import { humanizeEnum } from "../../utils/displayLabels.js";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -42,7 +43,7 @@ function statusColor(status) {
 }
 
 function human(value) {
-  return String(value || "—").replaceAll("_", " ");
+  return humanizeEnum(value);
 }
 
 function MetricCard({ title, value, subtitle, icon, color = "primary" }) {

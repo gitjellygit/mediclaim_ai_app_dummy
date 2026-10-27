@@ -44,6 +44,7 @@ import { useToast } from "../../context/ToastContext.jsx";
 import { AuthApi } from "../../api/auth.js";
 import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
 import { formatUSD } from "../../utils/currency.js";
+import { humanizeEnum } from "../../utils/displayLabels.js";
 import ClaimAssignmentDialog from "../../components/ClaimAssignmentDialog.jsx";
 
 const statusColor = {
@@ -632,7 +633,7 @@ export default function ClaimsList() {
 
                 <TableCell>
                   <Chip
-                    label={claim.status || "DRAFT"}
+                    label={humanizeEnum(claim.status, "Draft")}
                     color={statusColor[claim.status] || "default"}
                     size="small"
                   />

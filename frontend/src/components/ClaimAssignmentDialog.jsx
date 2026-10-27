@@ -15,6 +15,7 @@ import {
 } from "@mui/material";
 import { ClaimsApi } from "../api/claims.js";
 import { OperationsApi } from "../api/operations.js";
+import { roleLabel } from "../utils/displayLabels.js";
 
 export default function ClaimAssignmentDialog({
   open,
@@ -102,7 +103,7 @@ export default function ClaimAssignmentDialog({
               <MenuItem value="">Unassigned</MenuItem>
               {users.map((person) => (
                 <MenuItem key={person.id} value={person.id}>
-                  {person.displayName || person.email} · {String(person.role || "").toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase())}
+                  {person.displayName || person.email} · {roleLabel(person.role)}
                 </MenuItem>
               ))}
             </Select>
