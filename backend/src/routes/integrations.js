@@ -11,6 +11,12 @@ import {
   supportedIntegrationResourceTypes
 } from "../services/integrationAdapters.js";
 import { materializeCanonicalClaim } from "../services/integrationClaimMaterializer.js";
+import {
+  epicConfig,
+  epicConfigurationStatus,
+  fetchEpicPatientSnapshot,
+  requestEpicAccessToken
+} from "../services/epicFhirConnector.js";
 
 const router = express.Router();
 const kinds = ["EHR", "PMS", "CLEARINGHOUSE", "PAYER", "HIE", "DATA_WAREHOUSE", "OTHER"];
@@ -57,6 +63,10 @@ const ingestSchema = z.object({
   materializeClaims: z.boolean().default(false)
 }).strict();
 
+const epicSyncSchema = z.object({
+  patientId: z.string().trim().min(1).max(250).optional()
+}).strict();
+
 const orgId = (req) => req.user.organizationId;
 function stableJson(value) {
   if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
@@ -77,6 +87,24 @@ function connectionFor(req, id) {
   });
 }
 
+
+function assertEpicConnection(connection) {
+  const provider = String(connection?.provider || "").trim().toLowerCase();
+  if (connection?.kind !== "EHR" || !provider.includes("epic")) {
+    const error = new Error("This operation requires an Epic EHR connection");
+    error.code = "EPIC_CONNECTION_REQUIRED";
+    error.status = 409;
+    throw error;
+  }
+}
+
+function epicHttpStatus(error) {
+  if (error?.code === "EPIC_CONFIGURATION_REQUIRED") return 409;
+  if (error?.code === "EPIC_OAUTH_FAILED") return 502;
+  if (error?.code === "EPIC_FHIR_REQUEST_FAILED") return 502;
+  return Number.isInteger(error?.status) ? error.status : 500;
+}
+
 async function claimFor(req, id) {
   if (!id) return null;
   return prisma.claim.findFirst({
@@ -90,6 +118,260 @@ router.get("/adapters/catalog", requirePermission(PERMISSIONS.INTEGRATION_VIEW),
   res.json({
     adapters: integrationAdapterCatalog(),
     resourceTypes: supportedIntegrationResourceTypes()
+  });
+});
+
+
+router.get("/:id/epic/status", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertEpicConnection(connection);
+
+  res.json({
+    connectionId: connection.id,
+    provider: connection.provider,
+    environment: connection.environment,
+    oauthMode: "SMART_BACKEND_SERVICES_PRIVATE_KEY_JWT",
+    config: epicConfigurationStatus(connection.environment)
+  });
+});
+
+router.post("/:id/epic/test", requirePermission(PERMISSIONS.INTEGRATION_MANAGE), async (req, res) => {
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertEpicConnection(connection);
+  if (connection.status === "DISABLED") {
+    return res.status(409).json({
+      error: "Integration connection is disabled",
+      code: "INTEGRATION_CONNECTION_DISABLED"
+    });
+  }
+
+  const config = epicConfig(connection.environment);
+  try {
+    const token = await requestEpicAccessToken(config);
+    const now = new Date();
+    await prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: {
+        status: "ACTIVE",
+        lastHealthyAt: now,
+        lastErrorAt: null,
+        lastErrorCode: null
+      }
+    });
+    await writeRequestAudit(prisma, req, {
+      action: "EPIC_CONNECTION_TESTED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      metadata: {
+        provider: "Epic",
+        environment: connection.environment,
+        success: true,
+        tokenScopePresent: Boolean(token.scope)
+      }
+    });
+    return res.json({
+      ok: true,
+      environment: connection.environment,
+      expiresIn: token.expiresIn,
+      scope: token.scope
+    });
+  } catch (error) {
+    await prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: {
+        status: "ERROR",
+        lastErrorAt: new Date(),
+        lastErrorCode: error.code || "EPIC_CONNECTION_TEST_FAILED"
+      }
+    });
+    await writeRequestAudit(prisma, req, {
+      action: "EPIC_CONNECTION_TESTED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      outcome: "FAILURE",
+      metadata: {
+        provider: "Epic",
+        environment: connection.environment,
+        success: false,
+        errorCode: error.code || "EPIC_CONNECTION_TEST_FAILED"
+      }
+    });
+    return res.status(epicHttpStatus(error)).json({
+      error: error.message,
+      code: error.code || "EPIC_CONNECTION_TEST_FAILED"
+    });
+  }
+});
+
+router.post("/:id/epic/sync", requirePermission(PERMISSIONS.INTEGRATION_INGEST), async (req, res) => {
+  const parsed = epicSyncSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid Epic sync request",
+      code: "INVALID_EPIC_SYNC_REQUEST"
+    });
+  }
+
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertEpicConnection(connection);
+  if (connection.status === "DISABLED") {
+    return res.status(409).json({
+      error: "Integration connection is disabled",
+      code: "INTEGRATION_CONNECTION_DISABLED"
+    });
+  }
+
+  const config = epicConfig(connection.environment);
+  const patientId = parsed.data.patientId || config.testPatientId;
+  if (!patientId) {
+    return res.status(409).json({
+      error: "Configure an Epic synthetic test patient ID or provide patientId",
+      code: "EPIC_TEST_PATIENT_REQUIRED"
+    });
+  }
+
+  let snapshot;
+  try {
+    snapshot = await fetchEpicPatientSnapshot(config, patientId);
+  } catch (error) {
+    await prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: {
+        status: "ERROR",
+        lastErrorAt: new Date(),
+        lastErrorCode: error.code || "EPIC_SYNC_FAILED"
+      }
+    });
+    return res.status(epicHttpStatus(error)).json({
+      error: error.message,
+      code: error.code || "EPIC_SYNC_FAILED"
+    });
+  }
+
+  const normalized = [];
+  for (const payload of snapshot.resources) {
+    normalized.push(...normalizeIntegrationPayload("FHIR_R4", payload));
+  }
+
+  const now = new Date();
+  const externalEventId = "epic-sync-" + crypto.randomUUID();
+  const records = await prisma.$transaction(async (tx) => {
+    const saved = [];
+    for (const item of normalized) {
+      const dataHash = hashEvent(item.data);
+      const existing = await tx.integrationRecord.findUnique({
+        where: {
+          connectionId_resourceType_externalId: {
+            connectionId: connection.id,
+            resourceType: item.resourceType,
+            externalId: item.externalId
+          }
+        }
+      });
+      const record = await tx.integrationRecord.upsert({
+        where: {
+          connectionId_resourceType_externalId: {
+            connectionId: connection.id,
+            resourceType: item.resourceType,
+            externalId: item.externalId
+          }
+        },
+        create: {
+          organizationId: orgId(req),
+          connectionId: connection.id,
+          resourceType: item.resourceType,
+          externalId: item.externalId,
+          sourceFormat: "FHIR_R4",
+          sourceType: item.sourceType || null,
+          dataHash,
+          data: item.data,
+          provenance: {
+            sourceFormat: "FHIR_R4",
+            sourceType: item.sourceType || null,
+            vendor: "Epic",
+            environment: connection.environment,
+            externalEventId
+          }
+        },
+        update: {
+          sourceFormat: "FHIR_R4",
+          sourceType: item.sourceType || null,
+          dataHash,
+          data: item.data,
+          lastSeenAt: now,
+          provenance: {
+            sourceFormat: "FHIR_R4",
+            sourceType: item.sourceType || null,
+            vendor: "Epic",
+            environment: connection.environment,
+            externalEventId
+          }
+        }
+      });
+      saved.push({
+        id: record.id,
+        resourceType: record.resourceType,
+        changed: existing ? existing.dataHash !== dataHash : true
+      });
+    }
+
+    await tx.integrationEvent.create({
+      data: {
+        organizationId: orgId(req),
+        connectionId: connection.id,
+        externalEventId,
+        eventType: "EPIC_FHIR_PATIENT_SYNC",
+        direction: "INBOUND",
+        status: "PROCESSED",
+        sourceStatus: connection.environment,
+        correlationId: req.auditRequestId || null,
+        payloadHash: hashEvent(normalized),
+        occurredAt: now,
+        processedAt: now,
+        metadata: {
+          vendor: "Epic",
+          resourceCount: saved.length,
+          resourceTypes: [...new Set(saved.map((item) => item.resourceType))],
+          apiCallCount: snapshot.calls.length,
+          skippedCallCount: snapshot.calls.filter((item) => item.status === "SKIPPED").length
+        }
+      }
+    });
+
+    await tx.integrationConnection.update({
+      where: { id: connection.id },
+      data: {
+        status: "ACTIVE",
+        lastHealthyAt: now,
+        lastErrorAt: null,
+        lastErrorCode: null
+      }
+    });
+
+    await writeCriticalRequestAudit(tx, req, {
+      action: "EPIC_SYNTHETIC_PATIENT_SYNCED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      metadata: {
+        provider: "Epic",
+        environment: connection.environment,
+        resourceCount: saved.length,
+        resourceTypes: [...new Set(saved.map((item) => item.resourceType))],
+        skippedCallCount: snapshot.calls.filter((item) => item.status === "SKIPPED").length
+      }
+    });
+
+    return saved;
+  });
+
+  res.json({
+    ok: true,
+    environment: connection.environment,
+    records,
+    calls: snapshot.calls
   });
 });
 

@@ -26,6 +26,7 @@ import payerContractsRouter from "./routes/payerContracts.js";
 import operationsRouter from "./routes/operations.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
+import { epicPublicJwks } from "./services/epicFhirConnector.js";
 import { createMemoryRateLimiter } from "./middleware/rateLimit.js";
 dotenv.config();
 
@@ -172,6 +173,20 @@ if (
 }
 
 let shuttingDown = false;
+app.get("/.well-known/jwks.json", (_req, res) => {
+  try {
+    const jwks = epicPublicJwks();
+    res.setHeader("Cache-Control", "public, max-age=300");
+    return res.json(jwks);
+  } catch (error) {
+    console.error("[epic-jwks] unable to publish key set", {
+      code: error?.code || null,
+      name: error?.name || "Error"
+    });
+    return res.status(503).json({ keys: [] });
+  }
+});
+
 app.get("/health", (_, res) => res.json({ ok: true }));
 app.get("/health/live", (_, res) => res.json({ ok: true }));
 app.get("/health/ready", async (_req, res) => {

@@ -167,7 +167,7 @@ function fhirRecord(resource) {
     };
   }
 
-  if (["DocumentReference", "DiagnosticReport", "Observation", "Procedure"].includes(type)) {
+  if (["DocumentReference", "DiagnosticReport", "Observation", "Procedure", "Condition"].includes(type)) {
     return {
       ...base,
       resourceType: "CLINICAL_EVIDENCE",

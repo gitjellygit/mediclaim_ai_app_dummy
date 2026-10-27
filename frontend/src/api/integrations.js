@@ -25,6 +25,24 @@ export const IntegrationsApi = {
     });
   },
 
+  epicStatus(id) {
+    return api(`${BASE}/${id}/epic/status`);
+  },
+
+  testEpic(id) {
+    return api(`${BASE}/${id}/epic/test`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  },
+
+  syncEpic(id, patientId = "") {
+    return api(`${BASE}/${id}/epic/sync`, {
+      method: "POST",
+      body: JSON.stringify(patientId ? { patientId } : {})
+    });
+  },
+
   records(id, { resourceType = "", limit = 50 } = {}) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (resourceType) params.set("resourceType", resourceType);

@@ -53,6 +53,7 @@ export default function IntegrationHub() {
   const { user } = useAuth();
   const { showToast } = useToast();
   const canManage = hasPermission(user, PERMISSIONS.INTEGRATION_MANAGE);
+  const canIngest = hasPermission(user, PERMISSIONS.INTEGRATION_INGEST);
 
   const [connections, setConnections] = React.useState([]);
   const [adapters, setAdapters] = React.useState([]);
@@ -65,6 +66,9 @@ export default function IntegrationHub() {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [saving, setSaving] = React.useState(false);
+  const [epicStatus, setEpicStatus] = React.useState(null);
+  const [epicBusy, setEpicBusy] = React.useState(false);
+  const [epicPatientId, setEpicPatientId] = React.useState("");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -90,16 +94,60 @@ export default function IntegrationHub() {
   async function loadRecords(connection, nextType = recordType) {
     setSelected(connection);
     setRecordsLoading(true);
+    setEpicStatus(null);
     try {
       const data = await IntegrationsApi.records(connection.id, {
         resourceType: nextType,
         limit: 50
       });
       setRecords(data.items || []);
+      if (String(connection.provider || "").toLowerCase().includes("epic")) {
+        try {
+          setEpicStatus(await IntegrationsApi.epicStatus(connection.id));
+        } catch {
+          setEpicStatus(null);
+        }
+      }
     } catch (error) {
       showToast(error?.message || "Unable to load integration records.", "error");
     } finally {
       setRecordsLoading(false);
+    }
+  }
+
+  async function testEpicConnection() {
+    if (!selected) return;
+    setEpicBusy(true);
+    try {
+      const result = await IntegrationsApi.testEpic(selected.id);
+      showToast(
+        "Epic OAuth connection succeeded" + (result.scope ? " with configured scopes." : "."),
+        "success"
+      );
+      setEpicStatus(await IntegrationsApi.epicStatus(selected.id));
+      await load();
+    } catch (error) {
+      showToast(error?.message || "Epic connection test failed.", "error");
+    } finally {
+      setEpicBusy(false);
+    }
+  }
+
+  async function syncEpicPatient() {
+    if (!selected) return;
+    setEpicBusy(true);
+    try {
+      const result = await IntegrationsApi.syncEpic(selected.id, epicPatientId.trim());
+      showToast(
+        "Epic sync completed: " + (result.records?.length || 0) + " normalized records.",
+        "success"
+      );
+      await loadRecords(selected, recordType);
+      await load();
+    } catch (error) {
+      showToast(error?.message || "Epic patient sync failed.", "error");
+    } finally {
+      setEpicBusy(false);
     }
   }
 
@@ -239,6 +287,61 @@ export default function IntegrationHub() {
 
         <Card sx={{ flex: 1.4 }}>
           <CardContent>
+            {selected && String(selected.provider || "").toLowerCase().includes("epic") && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="h6" fontWeight={800}>
+                  Epic FHIR Connection
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
+                  Uses Epic SMART Backend Services OAuth and FHIR R4. Sandbox and production
+                  use the same connector; only endpoints and credentials change.
+                </Typography>
+
+                {epicStatus && (
+                  <Alert severity={epicStatus.config?.ready ? "success" : "warning"} sx={{ mb: 1.25 }}>
+                    {epicStatus.config?.ready
+                      ? "Epic backend OAuth configuration is present."
+                      : "Epic credentials are not fully configured on the backend yet."}
+                  </Alert>
+                )}
+
+                <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ md: "center" }}>
+                  <TextField
+                    size="small"
+                    label="Synthetic Epic Patient ID"
+                    placeholder="Uses backend test patient when blank"
+                    value={epicPatientId}
+                    onChange={(event) => setEpicPatientId(event.target.value)}
+                    sx={{ minWidth: 260 }}
+                  />
+                  {canManage && (
+                    <Button
+                      variant="outlined"
+                      disabled={epicBusy || !epicStatus?.config?.ready}
+                      onClick={testEpicConnection}
+                    >
+                      Test Epic Connection
+                    </Button>
+                  )}
+                  {canIngest && (
+                    <Button
+                      variant="contained"
+                      disabled={epicBusy || !epicStatus?.config?.ready}
+                      onClick={syncEpicPatient}
+                    >
+                      Sync Synthetic Patient
+                    </Button>
+                  )}
+                </Stack>
+
+                {epicStatus?.config && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                    FHIR: {epicStatus.config.fhirBaseUrl || "Not configured"} • OAuth: {epicStatus.oauthMode}
+                  </Typography>
+                )}
+                <Divider sx={{ mt: 2 }} />
+              </Box>
+            )}
             <Stack
               direction={{ xs: "column", sm: "row" }}
               justifyContent="space-between"
