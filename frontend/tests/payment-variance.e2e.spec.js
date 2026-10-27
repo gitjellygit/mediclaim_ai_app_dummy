@@ -54,6 +54,16 @@ test("payment variance - underpaid remittance automatically opens a recovery cas
     "connect payer"
   );
 
+  await apiJson(
+    await apiContext.post(`/api/claims/${claimId}/payer-reconciliation`, {
+      headers,
+      data: {
+        reason: "E2E confirms Apex Benefit Network is the current verified payer."
+      }
+    }),
+    "reconcile payer identity"
+  );
+
   const claimForContract = await apiJson(
     await apiContext.get(`/api/claims/${claimId}`, { headers }),
     "load claim for contract"
