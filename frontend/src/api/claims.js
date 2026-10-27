@@ -161,6 +161,13 @@ export const ClaimsApi = {
     });
   },
 
+  reconcilePayerIdentity(id, reason) {
+    return api(`${BASE}/${id}/payer-reconciliation`, {
+      method: "POST",
+      body: JSON.stringify({ reason })
+    });
+  },
+
   create(data) {
     return api(BASE, {
       method: "POST",
