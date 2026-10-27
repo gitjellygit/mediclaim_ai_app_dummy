@@ -158,10 +158,10 @@ test("Integration Hub persistence is tenant scoped and idempotent by canonical i
   const route = read("backend/src/routes/integrations.js");
 
   assert.match(schema, /model IntegrationRecord/);
-  assert.match(schema, /@@unique\\(\\[connectionId, resourceType, externalId\\]\\)/);
+  assert.match(schema, /@@unique\(\[connectionId, resourceType, externalId\]\)/);
   assert.match(migration, /IntegrationRecord_connectionId_resourceType_externalId_key/);
   assert.match(route, /connectionId_resourceType_externalId/);
-  assert.match(route, /organizationId: orgId\\(req\\)/);
+  assert.match(route, /organizationId: orgId\(req\)/);
   assert.match(route, /externalEventId/);
   assert.match(route, /duplicate: true/);
 });
