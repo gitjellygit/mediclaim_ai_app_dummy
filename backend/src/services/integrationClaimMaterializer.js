@@ -1,4 +1,8 @@
-import { mergeProvenance, systemProvenance } from "./claimFieldProvenance.js";
+import {
+  changedFields,
+  mergeProvenance,
+  systemProvenance
+} from "./claimFieldProvenance.js";
 import { markReadinessChecksStale } from "./readinessHistory.js";
 
 function positiveMoney(value) {
@@ -77,25 +81,70 @@ export async function materializeCanonicalClaim(tx, {
     include: { claim: true }
   });
 
-  const provenanceFields = Object.keys(patch);
-  const provenance = systemProvenance(provenanceFields, {
+  if (identity?.claim) {
+    const existingProvenance =
+      identity.claim.fieldProvenance &&
+      typeof identity.claim.fieldProvenance === "object" &&
+      !Array.isArray(identity.claim.fieldProvenance)
+        ? identity.claim.fieldProvenance
+        : {};
+
+    const safePatch = Object.fromEntries(
+      Object.entries(patch).filter(([field]) => {
+        const source = existingProvenance[field];
+        return !(source?.source === "USER" && source?.verified === true);
+      })
+    );
+    const changed = changedFields(identity.claim, safePatch);
+    if (!changed.length) {
+      return {
+        materialized: true,
+        created: false,
+        unchanged: true,
+        protectedManualFields: Object.keys(patch).filter((field) => {
+          const source = existingProvenance[field];
+          return source?.source === "USER" && source?.verified === true;
+        }),
+        claim: identity.claim
+      };
+    }
+
+    const changedPatch = Object.fromEntries(
+      Object.entries(safePatch).filter(([field]) => changed.includes(field))
+    );
+    const provenance = systemProvenance(changed, {
+      source: "INTEGRATION",
+      label: "Imported from Integration Hub",
+      sourceDetail: "Connection " + connectionId,
+      verified: false
+    });
+
+    const claim = await tx.claim.update({
+      where: { id: identity.claim.id },
+      data: {
+        ...changedPatch,
+        fieldProvenance: mergeProvenance(existingProvenance, provenance)
+      }
+    });
+    await markReadinessChecksStale(tx, claim.id, "Source integration updated claim data");
+    return {
+      materialized: true,
+      created: false,
+      unchanged: false,
+      protectedManualFields: Object.keys(patch).filter((field) => {
+        const source = existingProvenance[field];
+        return source?.source === "USER" && source?.verified === true;
+      }),
+      claim
+    };
+  }
+
+  const provenance = systemProvenance(Object.keys(patch), {
     source: "INTEGRATION",
     label: "Imported from Integration Hub",
     sourceDetail: "Connection " + connectionId,
     verified: false
   });
-
-  if (identity?.claim) {
-    const claim = await tx.claim.update({
-      where: { id: identity.claim.id },
-      data: {
-        ...patch,
-        fieldProvenance: mergeProvenance(identity.claim.fieldProvenance, provenance)
-      }
-    });
-    await markReadinessChecksStale(tx, claim.id, "Source integration updated claim data");
-    return { materialized: true, created: false, claim };
-  }
 
   const claim = await tx.claim.create({
     data: {
