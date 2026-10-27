@@ -67,6 +67,19 @@ async function clickStageButton(stage, name) {
   await button.click();
 }
 
+async function reconcileConnectedPayer(claimId) {
+  const response = await apiContext.post(
+    `/api/claims/${claimId}/payer-reconciliation`,
+    {
+      headers: { Authorization: `Bearer ${auth.accessToken}` },
+      data: {
+        reason: "E2E confirms the connected payer is the current verified coverage payer."
+      }
+    }
+  );
+  expect(response.ok()).toBeTruthy();
+}
+
 test.beforeAll(async () => {
   apiContext = await request.newContext({ baseURL: backendURL });
 
@@ -402,6 +415,9 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     await expect(page.getByText(/Mock Payer/i)).toHaveCount(0);
 
     await selectPayer(page, payerNames[scenario.payerCode]);
+    await reconcileConnectedPayer(scenario.id);
+    await page.reload();
+    await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
 
     // Payer status cannot be queried until the payer has accepted/received
     // transmission. Validate this in the API, not just the disabled button.
@@ -725,6 +741,7 @@ test("submitted claim exposes status shortcut and separates payer transmission f
     }
   );
   expect(connect.ok()).toBeTruthy();
+  await reconcileConnectedPayer(scenario.id);
 
   const eligibility = await apiContext.post(
     `/api/claims/${scenario.id}/payer-simulation/eligibility`,

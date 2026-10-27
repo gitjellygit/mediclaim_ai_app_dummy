@@ -204,6 +204,7 @@ function codingReviewPresentation(claim) {
 }
 
 function paymentKindLabel(kind) {
+  if (kind === "UNDERPAID") return "Underpaid";
   if (kind === "PAID") return "Paid";
   if (kind === "AT_RISK") return "Revenue at risk";
   if (kind === "EXPECTED") return "Payer approved";
@@ -212,6 +213,7 @@ function paymentKindLabel(kind) {
 }
 
 function paymentKindColor(kind) {
+  if (kind === "UNDERPAID") return "warning";
   if (kind === "PAID") return "success";
   if (kind === "AT_RISK") return "error";
   if (kind === "EXPECTED") return "info";
@@ -232,6 +234,15 @@ function actionButtonLabel(action) {
 }
 
 function lifecycleAction(claim) {
+  if (claim?.underpayment?.id) {
+    return {
+      code: "REVIEW_UNDERPAYMENT",
+      label: `Underpaid by ${money(claim.underpayment.varianceAmount)} — review recovery`,
+      buttonLabel: "Review Underpayment",
+      path: `/revenue-recovery/underpayments/${claim.underpayment.id}`
+    };
+  }
+
   if (claim?.status === "DENIED") {
     return {
       code: "REVIEW_DENIAL",
@@ -1265,6 +1276,16 @@ export default function ApprovalIntelligence() {
                         >
                           {claim.paymentOutlook?.source}
                         </Typography>
+                        {claim.underpayment && (
+                          <Stack spacing={0.15} sx={{ mt: 0.5 }}>
+                            <Typography variant="caption" color="warning.dark" fontWeight={700}>
+                              Underpayment {money(claim.underpayment.varianceAmount)}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Expected {money(claim.underpayment.expectedPayerPayment)} • Paid {money(claim.underpayment.actualPaidAmount)}
+                            </Typography>
+                          </Stack>
+                        )}
                       </TableCell>
 
                       <TableCell sx={{ minWidth: 200 }}>

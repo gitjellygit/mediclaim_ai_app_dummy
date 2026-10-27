@@ -23,6 +23,22 @@ export function daysUntil(value, now = new Date()) {
 export function paymentOutlook(claim) {
   const status = String(claim?.status || "");
   const paid = asNumber(claim?.paidAmount);
+  const underpayment = claim?.underpaymentCase;
+  const activeUnderpayment =
+    underpayment &&
+    ["OPEN", "REVIEWING", "DISPUTE_PREPARED", "DISPUTE_SUBMITTED"].includes(
+      String(underpayment.status || "")
+    );
+
+  if (activeUnderpayment) {
+    return {
+      amount: asNumber(underpayment.actualPaidAmount) ?? paid,
+      expectedAmount: asNumber(underpayment.expectedPayerPayment),
+      varianceAmount: asNumber(underpayment.varianceAmount),
+      kind: "UNDERPAID",
+      source: "Actual payer payment is below expected payer payment"
+    };
+  }
   const approved = asNumber(claim?.approvedAmount);
   const claimed = asNumber(claim?.amount);
 
@@ -290,17 +306,35 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
     ((workDueDays != null && workDueDays < 0) ||
       (followUpDays != null && followUpDays < 0));
 
+  const activeUnderpayment =
+    claim?.underpaymentCase &&
+    ["OPEN", "REVIEWING", "DISPUTE_PREPARED", "DISPUTE_SUBMITTED"].includes(
+      String(claim.underpaymentCase.status || "")
+    );
+
+  if (activeUnderpayment) {
+    addAction(
+      actions,
+      "REVIEW_UNDERPAYMENT",
+      `Review payer underpayment of ${Number(claim.underpaymentCase.varianceAmount || 0).toFixed(2)}`,
+      "underpayment",
+      "warning",
+      { underpaymentCaseId: claim.underpaymentCase.id }
+    );
+  }
+
   let priority = "LOW";
   if (workOverdue || (!alreadySubmitted && (filingState === "EXPIRED" || filingState === "URGENT"))) {
     priority = "CRITICAL";
   } else if (
-    !alreadySubmitted &&
+    activeUnderpayment ||
+    (!alreadySubmitted &&
     (
       blockers.length > 0 ||
       ["FAILED", "NEEDS_REVIEW"].includes(claim?.eligibilityStatus) ||
       claim?.priorAuthStatus === "DENIED" ||
       (claim?.priorAuthRequired === true && !priorAuthResolved)
-    )
+    ))
   ) {
     priority = "HIGH";
   } else if (
@@ -408,6 +442,15 @@ export function buildApprovalIntelligenceItem(claim, { now = new Date() } = {}) 
           : workDueDays
     },
     paymentOutlook: paymentOutlook(claim),
+    underpayment: activeUnderpayment
+      ? {
+          id: claim.underpaymentCase.id,
+          status: claim.underpaymentCase.status,
+          expectedPayerPayment: asNumber(claim.underpaymentCase.expectedPayerPayment),
+          actualPaidAmount: asNumber(claim.underpaymentCase.actualPaidAmount),
+          varianceAmount: asNumber(claim.underpaymentCase.varianceAmount)
+        }
+      : null,
     nextActions: actions.slice(0, 5)
   };
 }

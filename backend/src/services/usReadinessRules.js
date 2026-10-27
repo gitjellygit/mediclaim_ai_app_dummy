@@ -32,6 +32,12 @@ export const US_READINESS_RULE_DEFAULTS = Object.freeze([
     enabled: true
   },
   {
+    code: "US_PAYER_SOURCE_MATCH",
+    name: "Connected payer matches claim insurance identity",
+    severity: "BLOCK",
+    enabled: true
+  },
+  {
     code: "US_COVERAGE_DOS",
     name: "Coverage dates include date of service",
     severity: "BLOCK",
@@ -204,6 +210,23 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
       "US_MEMBER_ID",
       "Member ID is required",
       { field: "memberId", fixTarget: "claim" }
+    );
+  }
+
+  const claimPayer = String(claim.payerName || "").trim();
+  const connectedPayer = String(claim.connectedPayerName || "").trim();
+  if (
+    claimPayer &&
+    connectedPayer &&
+    claimPayer.localeCompare(connectedPayer, undefined, { sensitivity: "accent" }) !== 0
+  ) {
+    addIssue(
+      issues,
+      configured,
+      defaults,
+      "US_PAYER_SOURCE_MATCH",
+      `Connected payer "${connectedPayer}" does not match payer on the claim/source evidence "${claimPayer}". Reconcile payer identity before submission.`,
+      { field: "payerName", fixTarget: "claim" }
     );
   }
 
