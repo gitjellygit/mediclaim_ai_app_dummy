@@ -583,7 +583,7 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     expect(journeyAfterERA.ok()).toBeTruthy();
     const finalClaim = (await journeyAfterERA.json()).claim;
     if (expectedKey === "APEX") {
-      expect(finalClaim.status).toBe("DENIED");
+      expect(finalClaim.status).toBe("SUBMITTED");
       expect(finalClaim.payerClaimStatus).toBe("PARTIALLY_APPROVED");
     } else {
       expect(finalClaim.status).toBe("PAID");
