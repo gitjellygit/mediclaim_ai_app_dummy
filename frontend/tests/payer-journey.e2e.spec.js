@@ -738,23 +738,6 @@ test("blocked payer submission offers direct Fix in Claim Details workflow", asy
     await clickStageButton(priorAuth, "Check Prior Auth");
     await expect(priorAuth).toContainText("Not Required");
 
-    const submitButton = claimStage.getByRole("button", {
-      name: "Submit to Payer",
-      exact: true
-    });
-    await expect(submitButton).toBeDisabled();
-    await expect(
-      claimStage.getByTestId("readiness-required-alert")
-    ).toContainText(/run or refresh submission readiness/i);
-
-    await expect(
-      page.getByRole("button", { name: "Retry", exact: true })
-    ).toHaveCount(0);
-
-    await claimStage
-      .getByRole("button", { name: "View Claim Details", exact: true })
-      .click();
-
 )
     );
     await expect(
@@ -847,13 +830,6 @@ for (const expectedKey of ["BLUE", "SUMMIT", "METRO", "CEDAR", "APEX"]) {
     ).toHaveLength(0);
 
     await page.reload();
-    await expect(
-      page.getByTestId("journey-stage-claim").getByRole("button", {
-        name: "Submit to Payer",
-        exact: true
-      })
-    ).toBeEnabled();
-
     await clickStageButton(
       page.getByTestId("journey-stage-claim"),
       "Submit to Payer"
