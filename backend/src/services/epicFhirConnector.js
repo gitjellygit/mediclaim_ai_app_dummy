@@ -69,6 +69,36 @@ export function epicConfigurationStatus(environment = "SANDBOX") {
   };
 }
 
+
+export function epicPublicJwks() {
+  const keys = [];
+  const seen = new Set();
+
+  for (const environment of ["SANDBOX", "PRODUCTION"]) {
+    const config = epicConfig(environment);
+    if (!config.privateKey || !config.keyId || seen.has(config.keyId)) continue;
+
+    try {
+      const privateKey = crypto.createPrivateKey(config.privateKey);
+      const publicKey = crypto.createPublicKey(privateKey);
+      const jwk = publicKey.export({ format: "jwk" });
+      keys.push({
+        ...jwk,
+        kid: config.keyId,
+        use: "sig",
+        alg: "RS384"
+      });
+      seen.add(config.keyId);
+    } catch {
+      const error = new Error("Epic signing key is invalid for " + environment);
+      error.code = "EPIC_SIGNING_KEY_INVALID";
+      throw error;
+    }
+  }
+
+  return { keys };
+}
+
 export function createEpicClientAssertion(config, now = Date.now()) {
   const clientId = required(config.clientId, "Epic client ID");
   const tokenUrl = required(config.tokenUrl, "Epic token URL");
