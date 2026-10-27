@@ -131,7 +131,11 @@ router.post("/:id/ingest", requirePermission(PERMISSIONS.INTEGRATION_INGEST), as
   try {
     normalized = normalizeIntegrationPayload(parsed.data.format, parsed.data.payload);
   } catch (error) {
-    if (String(error?.code || "").startsWith("INTEGRATION_") || error?.code === "INVALID_HL7_MESSAGE") {
+    if (
+      String(error?.code || "").startsWith("INTEGRATION_") ||
+      error?.code === "INVALID_HL7_MESSAGE" ||
+      error?.code === "INVALID_INTEGRATION_PAYLOAD"
+    ) {
       return res.status(400).json({
         error: error.message,
         code: error.code || "INVALID_INTEGRATION_PAYLOAD"
@@ -312,8 +316,6 @@ router.get("/:id/records", requirePermission(PERMISSIONS.INTEGRATION_VIEW), asyn
 
   const requestedLimit = Number(req.query.limit || 50);
   const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 50, 200));
-  const includeData = String(req.query.includeData || "").toLowerCase() === "true";
-
   const items = await prisma.integrationRecord.findMany({
     where: {
       organizationId: orgId(req),
@@ -330,14 +332,13 @@ router.get("/:id/records", requirePermission(PERMISSIONS.INTEGRATION_VIEW), asyn
       dataHash: true,
       firstSeenAt: true,
       lastSeenAt: true,
-      sourceUpdatedAt: true,
-      ...(includeData ? { data: true, provenance: true } : {})
+      sourceUpdatedAt: true
     },
     orderBy: { lastSeenAt: "desc" },
     take: limit
   });
 
-  res.json({ items, limit, includeData });
+  res.json({ items, limit });
 });
 
 router.get("/", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
