@@ -134,6 +134,7 @@ export async function requestEpicAccessToken(config, fetchImpl = fetch) {
   const assertion = createEpicClientAssertion(config);
   const body = new URLSearchParams({
     grant_type: "client_credentials",
+    client_id: required(config.clientId, "Epic client ID"),
     client_assertion_type:
       "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
     client_assertion: assertion

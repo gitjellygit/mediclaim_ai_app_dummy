@@ -97,6 +97,7 @@ test("Epic OAuth exchange sends client_credentials JWT bearer request", async ()
   assert.equal(seen.url, config.tokenUrl);
   assert.equal(seen.options.method, "POST");
   assert.match(String(seen.options.body), /grant_type=client_credentials/);
+  assert.match(String(seen.options.body), /client_id=synthetic-client-id/);
   assert.match(String(seen.options.body), /client_assertion_type=/);
   assert.equal(token.accessToken, "synthetic-access-token");
   assert.equal(token.expiresIn, 3600);
