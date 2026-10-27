@@ -18,7 +18,9 @@ test("integration foundation is organization scoped and idempotent by external e
   assert.match(schema, /@@unique\(\[connectionId, externalClaimId\]\)/);
 
   assert.match(route, /organizationId: orgId\(req\)/);
-  assert.match(route, /requirePermission\(PERMISSIONS\.PAYER_CONNECT\)/);
+  assert.match(route, /requirePermission\(PERMISSIONS\.INTEGRATION_VIEW\)/);
+  assert.match(route, /requirePermission\(PERMISSIONS\.INTEGRATION_MANAGE\)/);
+  assert.match(route, /requirePermission\(PERMISSIONS\.INTEGRATION_INGEST\)/);
   assert.match(route, /connectionId_externalEventId/);
   assert.match(route, /duplicate: true/);
   assert.match(route, /INTEGRATION_CLAIM_CORRELATION_CONFLICT/);
