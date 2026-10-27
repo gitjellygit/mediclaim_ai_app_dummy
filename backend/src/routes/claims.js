@@ -650,6 +650,15 @@ router.get(
               where: { status: "PENDING" },
               select: { id: true }
             },
+            underpaymentCase: {
+              select: {
+                id: true,
+                status: true,
+                expectedPayerPayment: true,
+                actualPaidAmount: true,
+                varianceAmount: true
+              }
+            },
             checks: {
               orderBy: { createdAt: "desc" },
               take: 1,
@@ -900,6 +909,79 @@ router.get(
         error: "Unable to load approval intelligence"
       });
     }
+  }
+);
+
+router.post(
+  "/:id/payer-reconciliation",
+  requirePermission(PERMISSIONS.CLAIM_EDIT),
+  requirePermission(PERMISSIONS.PAYER_CONNECT),
+  async (req, res) => {
+    const schema = z.object({
+      reason: z.string().trim().min(10).max(1000)
+    }).strict();
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "A reconciliation reason of at least 10 characters is required",
+        code: "INVALID_PAYER_RECONCILIATION"
+      });
+    }
+
+    const claim = await prisma.claim.findFirst({
+      where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
+    });
+    if (!claim) return res.status(404).json({ error: "Claim not found" });
+    if (isClaimLocked(claim)) {
+      return res.status(409).json({
+        error: "Payer identity cannot be reconciled after submission",
+        code: "CLAIM_LOCKED"
+      });
+    }
+    if (!claim.connectedPayerName) {
+      return res.status(409).json({
+        error: "Connect a payer before reconciling payer identity",
+        code: "PAYER_NOT_CONNECTED"
+      });
+    }
+
+    const previousPayerName = claim.payerName;
+    if (
+      String(previousPayerName || "").trim().toLowerCase() ===
+      String(claim.connectedPayerName || "").trim().toLowerCase()
+    ) {
+      return res.json({ unchanged: true, claim });
+    }
+
+    const updated = await prisma.claim.update({
+      where: { id: claim.id },
+      data: {
+        payerName: claim.connectedPayerName,
+        fieldProvenance: mergeProvenance(
+          claim.fieldProvenance,
+          manualProvenance(["payerName"], "Reconciled to Connected Payer")
+        )
+      }
+    });
+
+    await markReadinessChecksStale(prisma, claim.id, "Payer identity reconciled");
+    await auditClaim(req, {
+      claimId: claim.id,
+      action: "PAYER_IDENTITY_RECONCILED",
+      metadata: {
+        previousPayerName,
+        connectedPayerName: claim.connectedPayerName,
+        reason: parsed.data.reason,
+        sourceDocumentPreserved: true
+      }
+    });
+
+    res.json({
+      claim: updated,
+      previousPayerName,
+      connectedPayerName: claim.connectedPayerName,
+      sourceDocumentPreserved: true
+    });
   }
 );
 
