@@ -158,6 +158,7 @@ export async function requestEpicAccessToken(config, fetchImpl = fetch) {
     error.code = "EPIC_OAUTH_FAILED";
     error.status = response.status;
     error.epicError = payload?.error || null;
+    error.epicErrorDescription = payload?.error_description || payload?.message || null;
     throw error;
   }
 
