@@ -347,7 +347,7 @@ router.get("/", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res
       id: true, name: true, kind: true, provider: true, environment: true,
       status: true, lastHealthyAt: true, lastErrorAt: true, lastErrorCode: true,
       createdAt: true, updatedAt: true,
-      _count: { select: { externalIdentities: true, events: true } }
+      _count: { select: { externalIdentities: true, events: true, records: true } }
     },
     orderBy: [{ kind: "asc" }, { name: "asc" }]
   });
