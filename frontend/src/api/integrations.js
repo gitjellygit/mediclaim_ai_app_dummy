@@ -8,7 +8,7 @@ export const IntegrationsApi = {
   },
 
   adapters() {
-    return api(\`\${BASE}/adapters/catalog\`);
+    return api(`${BASE}/adapters/catalog`);
   },
 
   create(data) {
@@ -19,7 +19,7 @@ export const IntegrationsApi = {
   },
 
   updateHealth(id, data) {
-    return api(\`\${BASE}/\${id}/health\`, {
+    return api(`${BASE}/${id}/health`, {
       method: "PATCH",
       body: JSON.stringify(data)
     });
@@ -28,6 +28,6 @@ export const IntegrationsApi = {
   records(id, { resourceType = "", limit = 50 } = {}) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (resourceType) params.set("resourceType", resourceType);
-    return api(\`\${BASE}/\${id}/records?\${params.toString()}\`);
+    return api(`${BASE}/${id}/records?${params.toString()}`);
   }
 };
