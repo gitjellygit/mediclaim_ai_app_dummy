@@ -194,7 +194,7 @@ export default function IntegrationHub() {
                       <Chip size="small" color={statusColor(item.status)} label={item.status} />
                     </TableCell>
                     <TableCell align="right">
-                      {(item._count?.externalIdentities || 0) + " links / " +
+                      {(item._count?.records || 0) + " records / " +
                         (item._count?.events || 0) + " events"}
                     </TableCell>
                     <TableCell align="right">
