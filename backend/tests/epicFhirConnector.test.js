@@ -10,6 +10,7 @@ import {
   createEpicClientAssertion,
   epicConfigurationStatus,
   epicPatientSyncPlan,
+  epicPublicJwks,
   fetchEpicPatientSnapshot,
   requestEpicAccessToken
 } from "../src/services/epicFhirConnector.js";
@@ -201,4 +202,43 @@ test("Integration Hub exposes Epic test/sync routes and UI controls", () => {
   assert.match(ui, /Sync Synthetic Patient/);
   assert.match(env, /EPIC_SANDBOX_CLIENT_ID=/);
   assert.match(env, /EPIC_PRODUCTION_CLIENT_ID=/);
+});
+
+
+test("Epic public JWKS publishes only public signing material", () => {
+  const original = {
+    privateKey: process.env.EPIC_SANDBOX_PRIVATE_KEY,
+    kid: process.env.EPIC_SANDBOX_JWK_KID
+  };
+  const { config } = rsaConfig();
+
+  process.env.EPIC_SANDBOX_PRIVATE_KEY = String(config.privateKey);
+  process.env.EPIC_SANDBOX_JWK_KID = "sandbox-public-kid";
+  try {
+    const jwks = epicPublicJwks();
+    const key = jwks.keys.find((item) => item.kid === "sandbox-public-kid");
+    assert.ok(key);
+    assert.equal(key.kty, "RSA");
+    assert.equal(key.alg, "RS384");
+    assert.equal(key.use, "sig");
+    assert.equal("d" in key, false);
+    assert.equal("p" in key, false);
+    assert.equal("q" in key, false);
+  } finally {
+    if (original.privateKey == null) delete process.env.EPIC_SANDBOX_PRIVATE_KEY;
+    else process.env.EPIC_SANDBOX_PRIVATE_KEY = original.privateKey;
+    if (original.kid == null) delete process.env.EPIC_SANDBOX_JWK_KID;
+    else process.env.EPIC_SANDBOX_JWK_KID = original.kid;
+  }
+});
+
+test("PRISM exposes the Epic JWKS endpoint before authenticated API routes", () => {
+  const index = read("backend/src/index.js");
+  assert.match(index, /\.well-known\/jwks\.json/);
+  assert.match(index, /epicPublicJwks\(\)/);
+  assert.match(index, /Cache-Control/);
+  assert.ok(
+    index.indexOf('/.well-known/jwks.json') <
+      index.indexOf('app.use("/api/auth"')
+  );
 });
