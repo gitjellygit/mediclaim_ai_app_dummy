@@ -178,6 +178,13 @@ router.post("/:id/epic/test", requirePermission(PERMISSIONS.INTEGRATION_MANAGE),
       scope: token.scope
     });
   } catch (error) {
+    console.error("[epic-oauth] connection test failed", {
+      environment: connection.environment,
+      httpStatus: error.status || null,
+      code: error.code || null,
+      epicError: error.epicError || null,
+      epicErrorDescription: error.epicErrorDescription || null
+    });
     await prisma.integrationConnection.update({
       where: { id: connection.id },
       data: {
