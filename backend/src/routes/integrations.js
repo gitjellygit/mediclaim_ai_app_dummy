@@ -5,9 +5,15 @@ import { prisma } from "../db.js";
 import { requirePermission } from "../middleware/auth.js";
 import { PERMISSIONS } from "../security/permissions.js";
 import { writeCriticalRequestAudit, writeRequestAudit } from "../services/auditLog.js";
+import {
+  integrationAdapterCatalog,
+  normalizeIntegrationPayload,
+  supportedIntegrationResourceTypes
+} from "../services/integrationAdapters.js";
+import { materializeCanonicalClaim } from "../services/integrationClaimMaterializer.js";
 
 const router = express.Router();
-const kinds = ["EHR", "PMS", "CLEARINGHOUSE", "PAYER"];
+const kinds = ["EHR", "PMS", "CLEARINGHOUSE", "PAYER", "HIE", "DATA_WAREHOUSE", "OTHER"];
 const environments = ["SANDBOX", "TEST", "PRODUCTION"];
 const healthStates = ["ACTIVE", "DEGRADED", "ERROR", "DISABLED"];
 
@@ -42,9 +48,28 @@ const eventSchema = z.object({
   errorCode: z.string().trim().max(100).nullable().optional()
 }).strict();
 
+
+const ingestSchema = z.object({
+  format: z.enum(["FHIR_R4", "HL7_V2", "CANONICAL_JSON"]),
+  externalEventId: z.string().trim().min(1).max(200),
+  payload: z.any(),
+  sourceUpdatedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  materializeClaims: z.boolean().default(false)
+}).strict();
+
 const orgId = (req) => req.user.organizationId;
+function stableJson(value) {
+  if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
+  if (value && typeof value === "object") {
+    return "{" + Object.keys(value).sort().map((key) =>
+      JSON.stringify(key) + ":" + stableJson(value[key])
+    ).join(",") + "}";
+  }
+  return JSON.stringify(value);
+}
+
 const hashEvent = (value) =>
-  crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  crypto.createHash("sha256").update(stableJson(value)).digest("hex");
 
 function connectionFor(req, id) {
   return prisma.integrationConnection.findFirst({
@@ -60,7 +85,262 @@ async function claimFor(req, id) {
   });
 }
 
-router.get("/", requirePermission(PERMISSIONS.PAYER_CONNECT), async (req, res) => {
+
+router.get("/adapters/catalog", requirePermission(PERMISSIONS.INTEGRATION_VIEW), (_req, res) => {
+  res.json({
+    adapters: integrationAdapterCatalog(),
+    resourceTypes: supportedIntegrationResourceTypes()
+  });
+});
+
+router.post("/:id/ingest", requirePermission(PERMISSIONS.INTEGRATION_INGEST), async (req, res) => {
+  const parsed = ingestSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid integration ingestion request",
+      code: "INVALID_INTEGRATION_INGESTION"
+    });
+  }
+
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  if (connection.status === "DISABLED") {
+    return res.status(409).json({
+      error: "Integration connection is disabled",
+      code: "INTEGRATION_CONNECTION_DISABLED"
+    });
+  }
+
+  const existingEvent = await prisma.integrationEvent.findUnique({
+    where: {
+      connectionId_externalEventId: {
+        connectionId: connection.id,
+        externalEventId: parsed.data.externalEventId
+      }
+    }
+  });
+  if (existingEvent) {
+    return res.json({
+      duplicate: true,
+      eventId: existingEvent.id,
+      status: existingEvent.status
+    });
+  }
+
+  let normalized;
+  try {
+    normalized = normalizeIntegrationPayload(parsed.data.format, parsed.data.payload);
+  } catch (error) {
+    if (String(error?.code || "").startsWith("INTEGRATION_") || error?.code === "INVALID_HL7_MESSAGE") {
+      return res.status(400).json({
+        error: error.message,
+        code: error.code || "INVALID_INTEGRATION_PAYLOAD"
+      });
+    }
+    throw error;
+  }
+
+  if (normalized.length > 500) {
+    return res.status(413).json({
+      error: "Integration ingestion supports at most 500 canonical records per request",
+      code: "INTEGRATION_BATCH_TOO_LARGE"
+    });
+  }
+
+  const now = new Date();
+  const sourceUpdatedAt = parsed.data.sourceUpdatedAt
+    ? new Date(parsed.data.sourceUpdatedAt)
+    : null;
+
+  const result = await prisma.$transaction(async (tx) => {
+    const records = [];
+    const materializedClaims = [];
+
+    for (const item of normalized) {
+      const dataHash = hashEvent(item.data);
+      let claimId = null;
+
+      if (item.resourceType === "CLAIM" && parsed.data.materializeClaims) {
+        const materialized = await materializeCanonicalClaim(tx, {
+          organizationId: orgId(req),
+          connectionId: connection.id,
+          externalClaimId: item.externalId,
+          data: item.data,
+          actorUserId: req.user.id
+        });
+        if (materialized.materialized) {
+          claimId = materialized.claim.id;
+          materializedClaims.push({
+            claimId,
+            externalId: item.externalId,
+            created: materialized.created
+          });
+        }
+      } else if (item.resourceType === "CLAIM") {
+        const identity = await tx.claimExternalIdentity.findUnique({
+          where: {
+            connectionId_externalClaimId: {
+              connectionId: connection.id,
+              externalClaimId: item.externalId
+            }
+          }
+        });
+        claimId = identity?.claimId || null;
+      }
+
+      const existing = await tx.integrationRecord.findUnique({
+        where: {
+          connectionId_resourceType_externalId: {
+            connectionId: connection.id,
+            resourceType: item.resourceType,
+            externalId: item.externalId
+          }
+        }
+      });
+
+      const record = await tx.integrationRecord.upsert({
+        where: {
+          connectionId_resourceType_externalId: {
+            connectionId: connection.id,
+            resourceType: item.resourceType,
+            externalId: item.externalId
+          }
+        },
+        create: {
+          organizationId: orgId(req),
+          connectionId: connection.id,
+          claimId,
+          resourceType: item.resourceType,
+          externalId: item.externalId,
+          sourceFormat: parsed.data.format,
+          sourceType: item.sourceType || null,
+          dataHash,
+          data: item.data,
+          sourceUpdatedAt,
+          provenance: {
+            sourceFormat: parsed.data.format,
+            sourceType: item.sourceType || null,
+            externalEventId: parsed.data.externalEventId
+          }
+        },
+        update: {
+          claimId: claimId || existing?.claimId || null,
+          sourceFormat: parsed.data.format,
+          sourceType: item.sourceType || null,
+          dataHash,
+          data: item.data,
+          lastSeenAt: now,
+          sourceUpdatedAt,
+          provenance: {
+            sourceFormat: parsed.data.format,
+            sourceType: item.sourceType || null,
+            externalEventId: parsed.data.externalEventId
+          }
+        }
+      });
+
+      records.push({
+        id: record.id,
+        resourceType: record.resourceType,
+        externalId: record.externalId,
+        claimId: record.claimId,
+        changed: existing ? existing.dataHash !== dataHash : true
+      });
+    }
+
+    const event = await tx.integrationEvent.create({
+      data: {
+        organizationId: orgId(req),
+        connectionId: connection.id,
+        claimId: materializedClaims.length === 1 ? materializedClaims[0].claimId : null,
+        externalEventId: parsed.data.externalEventId,
+        eventType: "CANONICAL_INGESTION",
+        direction: "INBOUND",
+        status: "PROCESSED",
+        sourceStatus: parsed.data.format,
+        correlationId: req.auditRequestId || null,
+        payloadHash: hashEvent(normalized),
+        occurredAt: sourceUpdatedAt,
+        processedAt: now,
+        metadata: {
+          format: parsed.data.format,
+          recordCount: records.length,
+          resourceTypes: [...new Set(records.map((item) => item.resourceType))],
+          materializedClaimCount: materializedClaims.length
+        }
+      }
+    });
+
+    await writeCriticalRequestAudit(tx, req, {
+      claimId: materializedClaims.length === 1 ? materializedClaims[0].claimId : null,
+      action: "INTEGRATION_BATCH_INGESTED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      metadata: {
+        integrationKind: connection.kind,
+        provider: connection.provider,
+        format: parsed.data.format,
+        recordCount: records.length,
+        resourceTypes: [...new Set(records.map((item) => item.resourceType))],
+        materializedClaimCount: materializedClaims.length
+      }
+    });
+
+    return { event, records, materializedClaims };
+  });
+
+  res.status(201).json({
+    duplicate: false,
+    eventId: result.event.id,
+    records: result.records,
+    materializedClaims: result.materializedClaims
+  });
+});
+
+router.get("/:id/records", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+
+  const requestedType = String(req.query.resourceType || "").trim().toUpperCase();
+  const allowedTypes = new Set(supportedIntegrationResourceTypes());
+  if (requestedType && !allowedTypes.has(requestedType)) {
+    return res.status(400).json({
+      error: "Unsupported integration resource type",
+      code: "INTEGRATION_RESOURCE_TYPE_UNSUPPORTED"
+    });
+  }
+
+  const requestedLimit = Number(req.query.limit || 50);
+  const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? requestedLimit : 50, 200));
+  const includeData = String(req.query.includeData || "").toLowerCase() === "true";
+
+  const items = await prisma.integrationRecord.findMany({
+    where: {
+      organizationId: orgId(req),
+      connectionId: connection.id,
+      ...(requestedType ? { resourceType: requestedType } : {})
+    },
+    select: {
+      id: true,
+      claimId: true,
+      resourceType: true,
+      externalId: true,
+      sourceFormat: true,
+      sourceType: true,
+      dataHash: true,
+      firstSeenAt: true,
+      lastSeenAt: true,
+      sourceUpdatedAt: true,
+      ...(includeData ? { data: true, provenance: true } : {})
+    },
+    orderBy: { lastSeenAt: "desc" },
+    take: limit
+  });
+
+  res.json({ items, limit, includeData });
+});
+
+router.get("/", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
   const items = await prisma.integrationConnection.findMany({
     where: { organizationId: orgId(req) },
     select: {
@@ -79,7 +359,7 @@ router.get("/", requirePermission(PERMISSIONS.PAYER_CONNECT), async (req, res) =
   res.json({ items });
 });
 
-router.post("/", requirePermission(PERMISSIONS.PAYER_CONNECT), async (req, res) => {
+router.post("/", requirePermission(PERMISSIONS.INTEGRATION_MANAGE), async (req, res) => {
   const parsed = connectionSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid integration connection", code: "INVALID_INTEGRATION_CONNECTION" });
@@ -106,7 +386,7 @@ router.post("/", requirePermission(PERMISSIONS.PAYER_CONNECT), async (req, res) 
   res.status(201).json(connection);
 });
 
-router.patch("/:id/health", requirePermission(PERMISSIONS.PAYER_CONNECT), async (req, res) => {
+router.patch("/:id/health", requirePermission(PERMISSIONS.INTEGRATION_MANAGE), async (req, res) => {
   const parsed = healthSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid integration health update", code: "INVALID_INTEGRATION_HEALTH" });
@@ -140,7 +420,7 @@ router.patch("/:id/health", requirePermission(PERMISSIONS.PAYER_CONNECT), async 
   res.json(updated);
 });
 
-router.post("/:id/claim-links", requirePermission(PERMISSIONS.PAYER_CONNECT), async (req, res) => {
+router.post("/:id/claim-links", requirePermission(PERMISSIONS.INTEGRATION_MANAGE), async (req, res) => {
   const parsed = linkSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid external claim link", code: "INVALID_EXTERNAL_CLAIM_LINK" });
@@ -186,7 +466,7 @@ router.post("/:id/claim-links", requirePermission(PERMISSIONS.PAYER_CONNECT), as
   res.status(existing ? 200 : 201).json(link);
 });
 
-router.post("/:id/events", requirePermission(PERMISSIONS.PAYER_CONNECT), async (req, res) => {
+router.post("/:id/events", requirePermission(PERMISSIONS.INTEGRATION_MANAGE), async (req, res) => {
   const parsed = eventSchema.safeParse(req.body || {});
   if (!parsed.success) {
     return res.status(400).json({
@@ -328,7 +608,7 @@ router.post("/:id/events", requirePermission(PERMISSIONS.PAYER_CONNECT), async (
   });
 });
 
-router.get("/:id/events", requirePermission(PERMISSIONS.PAYER_CONNECT), async (req, res) => {
+router.get("/:id/events", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
   const connection = await connectionFor(req, req.params.id);
   if (!connection) return res.status(404).json({ error: "Integration connection not found" });
   const requestedLimit = Number(req.query.limit || 50);
