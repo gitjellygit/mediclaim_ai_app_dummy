@@ -49,6 +49,7 @@ const UnderpaymentWorkspace = lazy(() =>
   import("./modules/recovery/UnderpaymentWorkspace.jsx")
 );
 const AuditTrail = lazy(() => import("./modules/audit/AuditTrail.jsx"));
+const IntegrationHub = lazy(() => import("./modules/integrations/IntegrationHub.jsx"));
 
 const protectedRoutes = [
   { path: "/claims", Component: ClaimsList, permission: PERMISSIONS.CLAIM_VIEW },
@@ -64,7 +65,8 @@ const protectedRoutes = [
   { path: "/documents", Component: DocumentIntelligence, permission: PERMISSIONS.DOCUMENT_VIEW },
   { path: "/approval", Component: ApprovalIntelligence, permission: PERMISSIONS.CLINICAL_VIEW },
   { path: "/analytics", Component: AnalyticsDashboard, permission: PERMISSIONS.FINANCIAL_VIEW },
-  { path: "/operations", Component: Operations, permission: PERMISSIONS.OPERATIONS_VIEW }
+  { path: "/operations", Component: Operations, permission: PERMISSIONS.OPERATIONS_VIEW },
+  { path: "/integrations", Component: IntegrationHub, permission: PERMISSIONS.INTEGRATION_VIEW }
 ];
 
 const adminRoutes = [

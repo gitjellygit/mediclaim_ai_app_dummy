@@ -23,6 +23,7 @@ import LocalHospitalIcon from "@mui/icons-material/LocalHospital";
 import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
+import SettingsInputComponentIcon from "@mui/icons-material/SettingsInputComponent";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { hasPermission, PERMISSIONS } from "../security/permissions.js";
@@ -186,6 +187,14 @@ export default function LeftNav({
             label="Operations"
             path="/operations"
             isActive={isActivePath("/operations")}
+          />
+        )}
+        {hasPermission(user, PERMISSIONS.INTEGRATION_VIEW) && (
+          <NavItem
+            icon={<SettingsInputComponentIcon />}
+            label="Integrations"
+            path="/integrations"
+            isActive={isActivePath("/integrations")}
           />
         )}
         {hasPermission(user, PERMISSIONS.AUDIT_VIEW) && (

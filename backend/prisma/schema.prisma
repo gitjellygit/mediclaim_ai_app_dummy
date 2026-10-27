@@ -233,6 +233,7 @@ model Organization {
   ruleVersions RuleVersion[]
   integrationConnections IntegrationConnection[]
   integrationEvents IntegrationEvent[]
+  integrationRecords IntegrationRecord[]
   claimExternalIdentities ClaimExternalIdentity[]
   priorAuthCases PriorAuthCase[]
   payerContracts PayerContract[]
@@ -422,6 +423,7 @@ model Claim {
   codingSuggestions CodingSuggestion[]
   externalIdentities ClaimExternalIdentity[]
   integrationEvents IntegrationEvent[]
+  integrationRecords IntegrationRecord[]
   priorAuthCase PriorAuthCase?
   comments ClaimComment[]
   clinicalRequests ClinicalRequest[]
@@ -1098,9 +1100,41 @@ model IntegrationConnection {
 
   externalIdentities ClaimExternalIdentity[]
   events             IntegrationEvent[]
+  records            IntegrationRecord[]
 
   @@unique([organizationId, name])
   @@index([organizationId, kind, status])
+}
+
+model IntegrationRecord {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  connectionId String
+  connection   IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  claimId String?
+  claim   Claim? @relation(fields: [claimId], references: [id], onDelete: SetNull)
+
+  resourceType String
+  externalId   String
+  sourceFormat String
+  sourceType   String?
+  dataHash     String
+  data         Json
+  firstSeenAt  DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  sourceUpdatedAt DateTime?
+  provenance   Json?
+
+  @@unique([connectionId, resourceType, externalId])
+  @@index([organizationId, resourceType, updatedAt])
+  @@index([claimId, resourceType])
+  @@index([connectionId, lastSeenAt])
 }
 
 model ClaimExternalIdentity {
