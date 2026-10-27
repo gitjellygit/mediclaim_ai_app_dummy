@@ -14,6 +14,7 @@ import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { createPayerConnectorForClaim } from "../services/payerGateway.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { resolveUnderpaymentExpectation } from "../services/underpaymentRecovery.js";
+import { syncDenialRecoveryFromPayment } from "../services/recoverySettlement.js";
 import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
 import {
@@ -722,10 +723,16 @@ router.post("/:id/payer-simulation/remittance", requirePermission(PERMISSIONS.PA
           paymentReference: result.paymentReference,
           status: assertClaimTransition(
             claim.status,
-            result.paidAmount > 0 ? "PAID" : claim.status
+            result.paidAmount > 0 && !expectation?.hasUnderpayment
+              ? "PAID"
+              : claim.status
           ),
           payerClaimStatus:
-            result.paidAmount > 0 ? "PAID" : claim.payerClaimStatus,
+            result.paidAmount > 0
+              ? expectation?.hasUnderpayment
+                ? "PARTIALLY_APPROVED"
+                : "PAID"
+              : claim.payerClaimStatus,
           fieldProvenance: mergeProvenance(
             claim.fieldProvenance,
             systemProvenance(
@@ -749,6 +756,11 @@ router.post("/:id/payer-simulation/remittance", requirePermission(PERMISSIONS.PA
         { transaction: "835-style", payerClaimNo: claim.insurerClaimNo || null },
         tx
       );
+
+      await syncDenialRecoveryFromPayment(tx, {
+        claimId: claim.id,
+        paidAmount: result.paidAmount
+      });
 
       let varianceCase = null;
       if (expectation?.hasUnderpayment) {

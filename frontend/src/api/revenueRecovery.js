@@ -42,6 +42,10 @@ export const RevenueRecoveryApi = {
     return withReadRetry(() => api(`${BASE}?${params.toString()}`));
   },
 
+  assignmentUsers() {
+    return api(`${BASE}/assignment-users`);
+  },
+
   assignClaim(claimId, data) {
     return api(`${BASE}/claims/${claimId}/assignment`, {
       method: "PATCH",
