@@ -107,12 +107,18 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const canEditClaim = hasPermission(user, PERMISSIONS.CLAIM_EDIT);
   const canEditFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_EDIT);
   const canManageAssignments = hasPermission(user, PERMISSIONS.CLAIM_EDIT);
+  const canReconcilePayer =
+    canEditClaim && hasPermission(user, PERMISSIONS.PAYER_CONNECT);
   const canViewAudit = hasPermission(user, PERMISSIONS.AUDIT_VIEW);
   const canViewDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_VIEW);
   const canDownloadDocuments = hasPermission(user, PERMISSIONS.DOCUMENT_DOWNLOAD);
   const aiCheckLocked =
     ["SUBMITTING", "SUBMITTED", "DENIED", "PAID"].includes(claim?.status) ||
     Boolean(claim?.claimSubmissionDate);
+  const payerMismatch =
+    Boolean(claim?.payerName && claim?.connectedPayerName) &&
+    String(claim.payerName).trim().toLowerCase() !==
+      String(claim.connectedPayerName).trim().toLowerCase();
 
   const [docType, setDocType] = React.useState("AUTO");
   const [aiRunning, setAiRunning] = React.useState(false);
@@ -1091,6 +1097,25 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     return item.bucket === "missing" ? "Add / Fix" : "Review / Fix";
   }
 
+  async function reconcilePayerIdentity() {
+    const reason = window.prompt(
+      `Why should the claim payer change from "${claim?.payerName || "unknown"}" to "${claim?.connectedPayerName || "unknown"}"?`
+    );
+    if (!reason?.trim()) return;
+    if (reason.trim().length < 10) {
+      showToast("Please enter a reconciliation reason of at least 10 characters.", "warning");
+      return;
+    }
+    try {
+      await ClaimsApi.reconcilePayerIdentity(id, reason.trim());
+      await load();
+      showToast("Claim payer reconciled. The original insurance-card document was preserved.", "success");
+    } catch (error) {
+      showToast(error?.message || "Payer reconciliation failed.", "error");
+    }
+  }
+
+
   async function runAICheck() {
     if (!canRunAI) return showToast("Only CASHIER/ADMIN can check claim readiness", "error");
     if (claim?.eligibilityStatus !== "VERIFIED") {
@@ -1620,6 +1645,26 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       </Paper>
 
       <ClaimSummaryCard claim={claim} />
+
+      {payerMismatch && (
+        <Alert
+          severity="error"
+          sx={{ mt: 1.5, mb: 1.5 }}
+          data-testid="payer-source-mismatch"
+          action={
+            canReconcilePayer && !aiCheckLocked ? (
+              <Button color="inherit" size="small" onClick={reconcilePayerIdentity}>
+                Reconcile Payer
+              </Button>
+            ) : null
+          }
+        >
+          <b>Payer mismatch:</b> source claim/insurance evidence shows <b>{claim.payerName}</b>,
+          while the connected payer is <b>{claim.connectedPayerName}</b>. The uploaded insurance
+          document is preserved and is not rewritten. Reconcile the claim payer or upload updated
+          coverage evidence before submission.
+        </Alert>
+      )}
 
       <Box sx={{ mt: 1.5, mb: 2 }}>
         <ClaimCollaboration claimId={claim.id} canEdit={canEditClaim} />
