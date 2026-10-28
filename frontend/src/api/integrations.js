@@ -60,6 +60,22 @@ export const IntegrationsApi = {
       body: JSON.stringify(patientId ? { patientId } : {})
     });
   },
+  claimDraftPreview(id, patientId, encounterId = "") {
+    const params = new URLSearchParams({ patientId });
+    if (encounterId) params.set("encounterId", encounterId);
+    return api(`${BASE}/${id}/claim-draft/preview?${params.toString()}`);
+  },
+
+  createClaimDraft(id, patientId, encounterId = "") {
+    return api(`${BASE}/${id}/claim-draft`, {
+      method: "POST",
+      body: JSON.stringify({
+        patientId,
+        ...(encounterId ? { encounterId } : {})
+      })
+    });
+  },
+
   records(id, { resourceType = "", limit = 50 } = {}) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (resourceType) params.set("resourceType", resourceType);
