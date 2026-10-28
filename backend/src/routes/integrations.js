@@ -19,6 +19,7 @@ import {
   requestEpicAccessToken
 } from "../services/epicFhirConnector.js";
 import {
+  discoverOracleHealthBillableEncounters,
   fetchOracleHealthPatientSnapshot,
   oracleHealthConfig,
   oracleHealthConfigurationStatus,
@@ -95,6 +96,11 @@ const patientSearchSchema = z.object({
   postalCode: z.string().trim().max(30).optional(),
   gender: z.enum(["male", "female", "other", "unknown"]).optional(),
   exactName: z.boolean().optional(),
+  count: z.number().int().min(1).max(50).optional()
+}).strict();
+
+const billableEncounterSchema = z.object({
+  patientId: z.string().trim().min(1).max(250),
   count: z.number().int().min(1).max(50).optional()
 }).strict();
 
@@ -256,6 +262,43 @@ router.post("/:id/patients/search", requirePermission(PERMISSIONS.INTEGRATION_VI
     return res.status(Number.isInteger(error.status) ? error.status : 502).json({
       error: error.message || "Patient search failed",
       code: error.code || "EHR_PATIENT_SEARCH_FAILED"
+    });
+  }
+});
+
+router.post("/:id/patients/billable-encounters", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
+  const parsed = billableEncounterSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid billable encounter request", code: "INVALID_BILLABLE_ENCOUNTER_REQUEST" });
+  }
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertOracleHealthConnection(connection);
+  if (connection.status !== "ACTIVE") {
+    return res.status(409).json({ error: "Connection must be active", code: "INTEGRATION_CONNECTION_NOT_ACTIVE" });
+  }
+  try {
+    const result = await discoverOracleHealthBillableEncounters(
+      oracleHealthConfig(connection.environment),
+      parsed.data.patientId,
+      { count: parsed.data.count || 25 }
+    );
+    await writeRequestAudit(prisma, req, {
+      action: "EHR_BILLABLE_ENCOUNTERS_DISCOVERED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      metadata: {
+        provider: connection.provider,
+        environment: connection.environment,
+        encounterCount: result.encounterCount,
+        billableCount: result.billableCount
+      }
+    });
+    return res.json(result);
+  } catch (error) {
+    return res.status(oracleHealthHttpStatus(error)).json({
+      error: error.message || "Unable to discover billable encounters",
+      code: error.code || "EHR_BILLABLE_ENCOUNTER_DISCOVERY_FAILED"
     });
   }
 });

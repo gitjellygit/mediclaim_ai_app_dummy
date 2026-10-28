@@ -7,6 +7,7 @@ const RESOURCE_TYPES = Object.freeze([
   "PROVIDER",
   "CLINICAL_EVIDENCE",
   "CHARGE",
+  "ACCOUNT",
   "CLAIM"
 ]);
 
@@ -131,6 +132,11 @@ function fhirRecord(resource) {
         subscriberId: resource.subscriberId || null,
         beneficiaryRef: fhirReference(resource.beneficiary),
         subscriberRef: fhirReference(resource.subscriber),
+        encounterRef: fhirReference(
+          (resource.extension || []).find((item) =>
+            String(item?.url || "").toLowerCase().endsWith("coverage-encounter")
+          )?.valueReference
+        ),
         payorRefs: (resource.payor || []).map(fhirReference).filter(Boolean),
         payors: (resource.payor || []).map(fhirReferenceDetail).filter(Boolean),
         period: resource.period || null,
@@ -220,6 +226,33 @@ function fhirRecord(resource) {
         category: (resource.category || []).map(firstCoding).filter(Boolean),
         presentedForm: resource.presentedForm || [],
         content: resource.content || []
+      })
+    };
+  }
+
+  if (type === "Account") {
+    const balance = (resource.extension || []).find((item) =>
+      String(item?.url || "").toLowerCase().endsWith("account-balance")
+    )?.valueMoney || null;
+    const state = (resource.extension || []).find((item) =>
+      String(item?.url || "").toLowerCase().endsWith("account-state")
+    )?.valueCodeableConcept || null;
+    const associatedEncounter = (resource.extension || []).find((item) =>
+      String(item?.url || "").toLowerCase().endsWith("associated-encounter")
+    )?.valueReference || null;
+    return {
+      ...base,
+      resourceType: "ACCOUNT",
+      data: compactObject({
+        status: resource.status || null,
+        type: resource.type?.text || firstCoding(resource.type),
+        subjects: (resource.subject || []).map(fhirReference).filter(Boolean),
+        identifiers: identifierMap(resource),
+        servicePeriod: resource.servicePeriod || null,
+        ownerRef: fhirReference(resource.owner),
+        associatedEncounterRef: fhirReference(associatedEncounter),
+        balance: balance ? { value: balance.value ?? null, currency: balance.currency || null } : null,
+        state: firstCoding(state)
       })
     };
   }

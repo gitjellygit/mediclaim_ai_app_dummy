@@ -70,6 +70,13 @@ export const IntegrationsApi = {
       })
     });
   },
+  billableEncounters(id, patientId, count = 25) {
+    return api(`${BASE}/${id}/patients/billable-encounters`, {
+      method: "POST",
+      body: JSON.stringify({ patientId, count })
+    });
+  },
+
   claimDraftPreview(id, patientId, encounterId = "") {
     const params = new URLSearchParams({ patientId });
     if (encounterId) params.set("encounterId", encounterId);
