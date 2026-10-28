@@ -239,7 +239,7 @@ export function oracleHealthPatientSearchPath(criteria = {}) {
 
 export async function searchOracleHealthPatients(config, criteria = {}, fetchImpl = fetch) {
   const path = oracleHealthPatientSearchPath(criteria);
-  const payload = await oracleHealthFhirGet(config, path, fetchImpl, signal);
+  const payload = await oracleHealthFhirGet(config, path, fetchImpl);
   if (payload?.resourceType !== "Bundle") {
     const error = new Error("Oracle Health patient search returned an unexpected response");
     error.code = "ORACLE_HEALTH_PATIENT_SEARCH_INVALID_RESPONSE";
