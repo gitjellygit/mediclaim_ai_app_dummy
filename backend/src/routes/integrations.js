@@ -22,6 +22,7 @@ import {
   fetchOracleHealthPatientSnapshot,
   oracleHealthConfig,
   oracleHealthConfigurationStatus,
+  searchOracleHealthPatients,
   testOracleHealthConnection
 } from "../services/oracleHealthFhirConnector.js";
 
@@ -77,6 +78,24 @@ const epicSyncSchema = z.object({
 const oracleHealthSyncSchema = z.object({
   patientId: z.string().trim().min(1).max(250).optional(),
   encounterId: z.string().trim().min(1).max(250).optional()
+}).strict();
+
+const patientSearchSchema = z.object({
+  patientId: z.string().trim().max(250).optional(),
+  identifier: z.string().trim().max(250).optional(),
+  identifierSystem: z.string().trim().max(500).optional(),
+  name: z.string().trim().max(200).optional(),
+  family: z.string().trim().max(120).optional(),
+  given: z.string().trim().max(120).optional(),
+  birthdate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  birthdateFrom: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  birthdateTo: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  phone: z.string().trim().max(50).optional(),
+  email: z.string().trim().email().max(254).optional(),
+  postalCode: z.string().trim().max(30).optional(),
+  gender: z.enum(["male", "female", "other", "unknown"]).optional(),
+  exactName: z.boolean().optional(),
+  count: z.number().int().min(1).max(50).optional()
 }).strict();
 
 const claimDraftSchema = z.object({
@@ -157,6 +176,89 @@ router.get("/adapters/catalog", requirePermission(PERMISSIONS.INTEGRATION_VIEW),
   });
 });
 
+
+router.post("/:id/patients/search", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
+  const parsed = patientSearchSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid patient search criteria",
+      code: "INVALID_PATIENT_SEARCH"
+    });
+  }
+
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  if (connection.kind !== "EHR") {
+    return res.status(409).json({
+      error: "Patient search requires an EHR connection",
+      code: "EHR_CONNECTION_REQUIRED"
+    });
+  }
+  if (connection.status !== "ACTIVE") {
+    return res.status(409).json({
+      error: "Patient search requires an active EHR connection",
+      code: "INTEGRATION_CONNECTION_NOT_ACTIVE"
+    });
+  }
+
+  const provider = String(connection.provider || "").trim().toLowerCase();
+  try {
+    let result;
+    if (provider.includes("oracle") || provider.includes("cerner")) {
+      result = await searchOracleHealthPatients(
+        oracleHealthConfig(connection.environment),
+        parsed.data
+      );
+    } else if (provider.includes("epic")) {
+      return res.status(501).json({
+        error: "Patient search is not yet enabled for Epic",
+        code: "EPIC_PATIENT_SEARCH_NOT_IMPLEMENTED"
+      });
+    } else {
+      return res.status(501).json({
+        error: "Patient search is not implemented for this EHR provider",
+        code: "EHR_PATIENT_SEARCH_NOT_IMPLEMENTED"
+      });
+    }
+
+    await writeRequestAudit(prisma, req, {
+      action: "EHR_PATIENT_SEARCHED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      metadata: {
+        provider: connection.provider,
+        environment: connection.environment,
+        resultCount: result.count,
+        hasMore: result.hasMore
+      }
+    });
+
+    return res.json({
+      provider: connection.provider,
+      environment: connection.environment,
+      ...result
+    });
+  } catch (error) {
+    console.error("[ehr-search] patient search failed", {
+      connectionId: connection.id,
+      provider: connection.provider,
+      httpStatus: error.status || null,
+      code: error.code || null
+    });
+
+    if (error.status === 422) {
+      return res.status(422).json({
+        error: "Too many patients matched. Add more search criteria and try again.",
+        code: "PATIENT_SEARCH_TOO_BROAD"
+      });
+    }
+
+    return res.status(Number.isInteger(error.status) ? error.status : 502).json({
+      error: error.message || "Patient search failed",
+      code: error.code || "EHR_PATIENT_SEARCH_FAILED"
+    });
+  }
+});
 
 router.get("/:id/oracle-health/status", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
   const connection = await connectionFor(req, req.params.id);
