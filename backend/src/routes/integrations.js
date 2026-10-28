@@ -75,7 +75,8 @@ const epicSyncSchema = z.object({
 }).strict();
 
 const oracleHealthSyncSchema = z.object({
-  patientId: z.string().trim().min(1).max(250).optional()
+  patientId: z.string().trim().min(1).max(250).optional(),
+  encounterId: z.string().trim().min(1).max(250).optional()
 }).strict();
 
 const claimDraftSchema = z.object({
@@ -248,7 +249,9 @@ router.post("/:id/oracle-health/sync", requirePermission(PERMISSIONS.INTEGRATION
   });
   let snapshot;
   try {
-    snapshot = await fetchOracleHealthPatientSnapshot(config, patientId);
+    snapshot = await fetchOracleHealthPatientSnapshot(config, patientId, {
+      encounterId: parsed.data.encounterId || null
+    });
     console.info("[oracle-health] patient sync FHIR calls completed", {
       connectionId: connection.id,
       patientId,
