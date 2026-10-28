@@ -919,6 +919,7 @@ export default function ClaimsList() {
                 value={ehrConnectionId}
                 onChange={(event) => {
                   setEhrConnectionId(event.target.value);
+                  setEhrEncounterId("");
                   setEhrPreview(null);
                   setEhrResult(null);
                   setEhrCreatedClaimId("");
@@ -939,6 +940,7 @@ export default function ClaimsList() {
               value={ehrPatientId}
               onChange={(event) => {
                 setEhrPatientId(event.target.value);
+                setEhrEncounterId("");
                 setEhrPreview(null);
                 setEhrCreatedClaimId("");
               }}
