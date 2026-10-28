@@ -43,6 +43,23 @@ export const IntegrationsApi = {
     });
   },
 
+  oracleHealthStatus(id) {
+    return api(`${BASE}/${id}/oracle-health/status`);
+  },
+
+  testOracleHealth(id) {
+    return api(`${BASE}/${id}/oracle-health/test`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  },
+
+  syncOracleHealth(id, patientId = "") {
+    return api(`${BASE}/${id}/oracle-health/sync`, {
+      method: "POST",
+      body: JSON.stringify(patientId ? { patientId } : {})
+    });
+  },
   records(id, { resourceType = "", limit = 50 } = {}) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (resourceType) params.set("resourceType", resourceType);
