@@ -96,6 +96,7 @@ export default function ClaimsList() {
   const [ehrConnections, setEhrConnections] = useState([]);
   const [ehrConnectionId, setEhrConnectionId] = useState("");
   const [ehrPatientId, setEhrPatientId] = useState("");
+  const [ehrEncounterId, setEhrEncounterId] = useState("");
   const [ehrBusy, setEhrBusy] = useState(false);
   const [ehrPreview, setEhrPreview] = useState(null);
   const [ehrResult, setEhrResult] = useState(null);
@@ -317,6 +318,7 @@ export default function ClaimsList() {
     setEhrResult(null);
     setEhrCreatedClaimId("");
     setEhrPatientId("");
+    setEhrEncounterId("");
     try {
       const data = await IntegrationsApi.list();
       const supported = (data.items || []).filter((item) => {
@@ -357,7 +359,7 @@ export default function ClaimsList() {
   async function syncSelectedEhr(connection, patientId) {
     const provider = String(connection?.provider || "").toLowerCase();
     if (provider.includes("oracle") || provider.includes("cerner")) {
-      return IntegrationsApi.syncOracleHealth(connection.id, patientId);
+      return IntegrationsApi.syncOracleHealth(connection.id, patientId, ehrEncounterId);
     }
     if (provider.includes("epic")) {
       return IntegrationsApi.syncEpic(connection.id, patientId);
@@ -390,7 +392,11 @@ export default function ClaimsList() {
 
     try {
       await syncSelectedEhr(connection, patientId);
-      const preview = await IntegrationsApi.claimDraftPreview(connection.id, patientId);
+      const preview = await IntegrationsApi.claimDraftPreview(
+        connection.id,
+        patientId,
+        ehrEncounterId
+      );
       setEhrPreview(preview);
 
       if (!preview.ready) {
@@ -940,7 +946,7 @@ export default function ClaimsList() {
               helperText={
                 selectedEhrConnection()?.environment === "SANDBOX" &&
                 /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || ""))
-                  ? "Oracle sandbox test patient: 12724067"
+                  ? "Use the billing demo below for an Oracle patient with a documented billable ChargeItem."
                   : "Enter the patient ID exactly as it appears in the selected EHR."
               }
             />
@@ -951,14 +957,15 @@ export default function ClaimsList() {
                   variant="text"
                   sx={{ alignSelf: "flex-start", mt: -1 }}
                   onClick={() => {
-                    setEhrPatientId("12724067");
+                    setEhrPatientId("12742419");
+                    setEhrEncounterId("97953601");
                     setEhrPreview(null);
                     setEhrResult(null);
                     setEhrCreatedClaimId("");
                   }}
                   disabled={ehrBusy}
                 >
-                  Use Oracle test patient 12724067
+                  Use Oracle billing demo patient 12742419
                 </Button>
               )}
 
@@ -981,7 +988,7 @@ export default function ClaimsList() {
                     <strong>Patient:</strong> {ehrPreview.summary?.patientName || "Missing"}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Payer:</strong> {ehrPreview.summary?.payerName || "Missing"}
+                    <strong>Payer:</strong> {ehrPreview.summary?.payerName || "Not returned by EHR"}
                   </Typography>
                   <Typography variant="body2">
                     <strong>Encounter:</strong> {ehrPreview.summary?.encounterId || "Missing"}
@@ -996,10 +1003,20 @@ export default function ClaimsList() {
                       : "Not available from EHR"}
                   </Typography>
                 </Stack>
+                {ehrEncounterId && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                    Target encounter: {ehrEncounterId}
+                  </Typography>
+                )}
                 {ehrPreview.missing?.length > 0 && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
                     Claim cannot be created yet. Missing required data: {ehrPreview.missing.join(", ")}.
                   </Typography>
+                )}
+                {ehrPreview.warnings?.length > 0 && (
+                  <Alert severity="warning" sx={{ mt: 1 }}>
+                    Draft can be created, but complete before submission: {ehrPreview.warnings.join(", ")}.
+                  </Alert>
                 )}
               </Paper>
             )}
