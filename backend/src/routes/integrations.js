@@ -11,6 +11,7 @@ import {
   supportedIntegrationResourceTypes
 } from "../services/integrationAdapters.js";
 import { materializeCanonicalClaim } from "../services/integrationClaimMaterializer.js";
+import { buildIntegrationClaimDraft } from "../services/integrationClaimDraft.js";
 import {
   epicConfig,
   epicConfigurationStatus,
@@ -75,6 +76,11 @@ const epicSyncSchema = z.object({
 
 const oracleHealthSyncSchema = z.object({
   patientId: z.string().trim().min(1).max(250).optional()
+}).strict();
+
+const claimDraftSchema = z.object({
+  patientId: z.string().trim().min(1).max(250),
+  encounterId: z.string().trim().min(1).max(250).optional()
 }).strict();
 
 const orgId = (req) => req.user.organizationId;
@@ -393,6 +399,201 @@ router.post("/:id/oracle-health/sync", requirePermission(PERMISSIONS.INTEGRATION
     patientId,
     records,
     calls: snapshot.calls
+  });
+});
+
+async function integrationClaimDraft(req, connection, patientId, encounterId = null) {
+  const records = await prisma.integrationRecord.findMany({
+    where: {
+      organizationId: orgId(req),
+      connectionId: connection.id
+    },
+    select: {
+      id: true,
+      claimId: true,
+      resourceType: true,
+      externalId: true,
+      sourceFormat: true,
+      sourceType: true,
+      data: true,
+      lastSeenAt: true
+    },
+    orderBy: { lastSeenAt: "desc" },
+    take: 2000
+  });
+  return buildIntegrationClaimDraft(records, { patientId, encounterId });
+}
+
+router.get("/:id/claim-draft/preview", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+
+  const patientId = String(req.query.patientId || "").trim();
+  const encounterId = String(req.query.encounterId || "").trim() || null;
+  if (!patientId) {
+    return res.status(400).json({
+      error: "patientId is required",
+      code: "INTEGRATION_CLAIM_PATIENT_REQUIRED"
+    });
+  }
+
+  const preview = await integrationClaimDraft(req, connection, patientId, encounterId);
+  return res.json(preview);
+});
+
+router.post("/:id/claim-draft", requirePermission(PERMISSIONS.INTEGRATION_INGEST), async (req, res) => {
+  const parsed = claimDraftSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid claim draft request",
+      code: "INVALID_INTEGRATION_CLAIM_DRAFT_REQUEST"
+    });
+  }
+
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  if (connection.status === "DISABLED") {
+    return res.status(409).json({
+      error: "Integration connection is disabled",
+      code: "INTEGRATION_CONNECTION_DISABLED"
+    });
+  }
+
+  const preview = await integrationClaimDraft(
+    req,
+    connection,
+    parsed.data.patientId,
+    parsed.data.encounterId || null
+  );
+
+  if (!preview.ready) {
+    return res.status(409).json({
+      error: preview.message,
+      code: "INTEGRATION_CLAIM_NOT_READY",
+      missing: preview.missing,
+      preview
+    });
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const materialized = await materializeCanonicalClaim(tx, {
+      organizationId: orgId(req),
+      connectionId: connection.id,
+      externalClaimId: preview.externalClaimId,
+      data: preview.claimData,
+      actorUserId: req.user.id
+    });
+
+    if (!materialized.materialized) {
+      const error = new Error(materialized.reason || "Claim could not be materialized");
+      error.code = "INTEGRATION_CLAIM_NOT_READY";
+      error.status = 409;
+      throw error;
+    }
+
+    const claimId = materialized.claim.id;
+
+    await tx.serviceLine.deleteMany({
+      where: { claimId, source: "INTEGRATION" }
+    });
+
+    if (preview.serviceLines.length) {
+      await tx.serviceLine.createMany({
+        data: preview.serviceLines.map((line) => ({
+          claimId,
+          cptHcpcsCode: line.cptHcpcsCode,
+          modifiers: line.modifiers || [],
+          units: line.units,
+          charge: line.charge,
+          diagnosisPointers: [],
+          placeOfService: null,
+          serviceDateFrom: line.serviceDateFrom ? new Date(line.serviceDateFrom) : null,
+          serviceDateTo: line.serviceDateTo ? new Date(line.serviceDateTo) : null,
+          revenueCode: line.revenueCode || null,
+          poaIndicator: null,
+          verified: false,
+          source: "INTEGRATION"
+        }))
+      });
+    }
+
+    await tx.integrationRecord.updateMany({
+      where: {
+        organizationId: orgId(req),
+        connectionId: connection.id,
+        id: { in: preview.recordIds }
+      },
+      data: { claimId }
+    });
+
+    const externalEventId = "integration-claim-draft-" + crypto.randomUUID();
+    await tx.integrationEvent.create({
+      data: {
+        organizationId: orgId(req),
+        connectionId: connection.id,
+        claimId,
+        externalEventId,
+        eventType: "INTEGRATION_CLAIM_DRAFT_CREATED",
+        direction: "INBOUND",
+        status: "PROCESSED",
+        sourceStatus: connection.environment,
+        correlationId: req.auditRequestId || null,
+        payloadHash: hashEvent({
+          patientId: preview.patientId,
+          encounterId: preview.encounterId,
+          externalClaimId: preview.externalClaimId
+        }),
+        occurredAt: new Date(),
+        processedAt: new Date(),
+        metadata: {
+          provider: connection.provider,
+          patientId: preview.patientId,
+          encounterId: preview.encounterId,
+          chargeCount: preview.serviceLines.length,
+          totalBilledAmount: preview.claimData.totalBilledAmount,
+          created: Boolean(materialized.created)
+        }
+      }
+    });
+
+    await writeCriticalRequestAudit(tx, req, {
+      claimId,
+      action: "INTEGRATION_DRAFT_CLAIM_MATERIALIZED",
+      entityType: "Claim",
+      entityId: claimId,
+      metadata: {
+        provider: connection.provider,
+        connectionId: connection.id,
+        patientId: preview.patientId,
+        encounterId: preview.encounterId,
+        sourceRecordCount: preview.recordIds.length,
+        serviceLineCount: preview.serviceLines.length,
+        created: Boolean(materialized.created)
+      }
+    });
+
+    return {
+      claimId,
+      created: Boolean(materialized.created),
+      status: materialized.claim.status,
+      linkedRecordCount: preview.recordIds.length,
+      serviceLineCount: preview.serviceLines.length
+    };
+  });
+
+  console.info("[integration-claim] draft materialized", {
+    connectionId: connection.id,
+    provider: connection.provider,
+    patientId: preview.patientId,
+    encounterId: preview.encounterId,
+    claimId: result.claimId,
+    created: result.created
+  });
+
+  return res.status(result.created ? 201 : 200).json({
+    ok: true,
+    ...result,
+    preview
   });
 });
 
