@@ -90,3 +90,49 @@ test("Oracle Health sync fetches billable ChargeItems for returned encounters", 
   assert.ok(seen.some((url) => url.includes("/ChargeItem?context=enc-1&-status=billable")));
   assert.equal(snapshot.calls.find((item) => item.resource === "ChargeItem").status, "SUCCESS");
 });
+
+
+test("Oracle Health targeted billing demo fetches exact encounter and billable charges", async () => {
+  const seen = [];
+  const snapshot = await fetchOracleHealthPatientSnapshot(
+    { fhirBaseUrl: ORACLE_HEALTH_OPEN_SANDBOX.fhirBaseUrl },
+    "12742419",
+    {
+      encounterId: "97953601",
+      fetchImpl: async (url) => {
+        seen.push(url);
+        if (url.includes("/Patient/12742419")) {
+          return response(200, { resourceType: "Patient", id: "12742419" });
+        }
+        if (url.includes("/Encounter/97953601")) {
+          return response(200, {
+            resourceType: "Encounter",
+            id: "97953601",
+            subject: { reference: "Patient/12742419" }
+          });
+        }
+        if (url.includes("/ChargeItem?context=97953601&-status=billable")) {
+          return response(200, {
+            resourceType: "Bundle",
+            type: "searchset",
+            entry: [{
+              resource: {
+                resourceType: "ChargeItem",
+                id: "292870306",
+                subject: { reference: "Patient/12742419" },
+                context: { reference: "Encounter/97953601" }
+              }
+            }]
+          });
+        }
+        return response(200, { resourceType: "Bundle", type: "searchset", entry: [] });
+      }
+    }
+  );
+
+  assert.ok(seen.some((url) => url.includes("/Encounter/97953601")));
+  assert.ok(seen.some((url) => url.includes("/ChargeItem?context=97953601&-status=billable")));
+  assert.ok(snapshot.resources.some((resource) =>
+    resource?.resourceType === "Encounter" && resource.id === "97953601"
+  ));
+});
