@@ -652,6 +652,9 @@ export default function ClaimJourney() {
 
   const claim = journey?.claim;
   const stages = journey?.stages;
+  const selfPay = ["self pay", "selfpay", "patient pay", "patient responsibility"].includes(
+    normalizePayerName(claim?.payerName)
+  );
   const latestJourneyCheck = Array.isArray(claim?.checks) ? claim.checks[0] : null;
   const latestJourneyIssues = Array.isArray(latestJourneyCheck?.issues)
     ? latestJourneyCheck.issues
@@ -662,7 +665,7 @@ export default function ClaimJourney() {
     Number(latestJourneyCheck?.score) >= 80 &&
     !latestJourneyIssues.some((issue) => issue?.severity === "BLOCK");
   const journeySubmissionActionable =
-    Boolean(stages?.claim?.actionable) && journeyReadinessClear;
+    !selfPay && Boolean(stages?.claim?.actionable) && journeyReadinessClear;
   const focusedStage = searchParams.get("stage") || "";
   const focusedAction = searchParams.get("focus") || "";
 
@@ -696,9 +699,6 @@ export default function ClaimJourney() {
         }
       : undefined;
 
-  const selfPay = ["self pay", "selfpay", "patient pay", "patient responsibility"].includes(
-    normalizePayerName(claim?.payerName)
-  );
   const eligibilityComplete = selfPay || stages?.eligibility?.status === "VERIFIED";
 
   const authFormMatchesSaved = Boolean(claim) &&
@@ -1884,6 +1884,8 @@ export default function ClaimJourney() {
                     <Typography variant="body2" color="text.secondary">
                       {journeyNextActions.length > 0
                         ? journeyNextActions.join(" • ")
+                        : selfPay
+                        ? "No insurance workflow applies. Complete readiness for patient billing review."
                         : "No payer-workflow blockers remain before submission."}
                     </Typography>
                     {(claim.automationSummary.reviewFields > 0 ||
@@ -2362,7 +2364,14 @@ export default function ClaimJourney() {
               <Stack spacing={1.2}>
                 {!journeyReadinessClear && !internalClaimSubmitted && !submissionBlock && (
                   <Alert severity="warning" data-testid="readiness-required-alert">
-                    Run or refresh Submission Readiness and resolve all blocking issues before sending this claim to the payer.
+                    {selfPay
+                      ? "Run or refresh readiness and resolve the remaining coding/billing issues before patient billing."
+                      : "Run or refresh Submission Readiness and resolve all blocking issues before sending this claim to the payer."}
+                  </Alert>
+                )}
+                {selfPay && journeyReadinessClear && (
+                  <Alert severity="success" data-testid="self-pay-ready-alert">
+                    Self-pay claim is ready for patient billing review. Insurance eligibility, prior authorization, and payer submission do not apply.
                   </Alert>
                 )}
                 {submissionBlock && (
@@ -2384,7 +2393,7 @@ export default function ClaimJourney() {
                 <Typography variant="caption" color="text.secondary">
                   Submitted: {date(stages.claim.submissionDate)}
                 </Typography>
-                {(simulatedPayerConnected || externalSubmissionSupported) && (
+                {!selfPay && (simulatedPayerConnected || externalSubmissionSupported) && (
                   <>
                     {denialRecoveryActive ? (
                       <Alert
