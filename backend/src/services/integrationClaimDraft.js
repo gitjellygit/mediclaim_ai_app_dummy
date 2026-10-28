@@ -195,6 +195,12 @@ export function buildIntegrationClaimDraft(records, { patientId, encounterId = n
       .map((record) => record.id)
   ].filter(Boolean);
 
+  const existingClaimId =
+    records
+      .filter((record) => recordIds.includes(record.id))
+      .map((record) => record.claimId)
+      .find(Boolean) || null;
+
   return {
     ready: missing.length === 0,
     missing,
@@ -206,6 +212,7 @@ export function buildIntegrationClaimDraft(records, { patientId, encounterId = n
     externalClaimId: encounter
       ? "ehr:" + id + ":encounter:" + encounter.externalId
       : "ehr:" + id,
+    existingClaimId,
     claimData,
     serviceLines,
     recordIds: [...new Set(recordIds)],
