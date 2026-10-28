@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Box,
   Button,
@@ -101,6 +101,8 @@ export default function ClaimsList() {
   const [ehrEncounterSearchBusy, setEhrEncounterSearchBusy] = useState(false);
   const [ehrEncounterInfo, setEhrEncounterInfo] = useState(null);
   const [ehrBusy, setEhrBusy] = useState(false);
+  const [ehrCancelable, setEhrCancelable] = useState(false);
+  const ehrFetchAbortRef = useRef(null);
   const [ehrPatientSearchBusy, setEhrPatientSearchBusy] = useState(false);
   const [ehrAdvancedSearch, setEhrAdvancedSearch] = useState(false);
   const [ehrPatientResults, setEhrPatientResults] = useState([]);
@@ -596,10 +598,10 @@ export default function ClaimsList() {
     }
   }
 
-  async function syncSelectedEhr(connection, patientId, encounterId = ehrEncounterId) {
+  async function syncSelectedEhr(connection, patientId, encounterId = ehrEncounterId, { signal } = {}) {
     const provider = String(connection?.provider || "").toLowerCase();
     if (provider.includes("oracle") || provider.includes("cerner")) {
-      return IntegrationsApi.syncOracleHealth(connection.id, patientId, encounterId);
+      return IntegrationsApi.syncOracleHealth(connection.id, patientId, encounterId, { signal });
     }
     if (provider.includes("epic")) {
       return IntegrationsApi.syncEpic(connection.id, patientId);
@@ -622,7 +624,11 @@ export default function ClaimsList() {
       return;
     }
 
+    ehrFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    ehrFetchAbortRef.current = controller;
     setEhrBusy(true);
+    setEhrCancelable(true);
     setEhrPreview(null);
     setEhrCreatedClaimId("");
     setEhrResult({
@@ -631,11 +637,12 @@ export default function ClaimsList() {
     });
 
     try {
-      await syncSelectedEhr(connection, patientId, encounterOverride);
+      await syncSelectedEhr(connection, patientId, encounterOverride, { signal: controller.signal });
       const preview = await IntegrationsApi.claimDraftPreview(
         connection.id,
         patientId,
-        encounterOverride
+        encounterOverride,
+        { signal: controller.signal }
       );
       setEhrPreview(preview);
 
@@ -654,13 +661,29 @@ export default function ClaimsList() {
           : "EHR data fetched, but a claim cannot be created yet because required billing data is missing."
       });
     } catch (error) {
-      setEhrResult({
-        severity: "error",
-        message: error?.message || "Unable to fetch claim data from the EHR."
-      });
+      if (error?.name === "AbortError" || controller.signal.aborted) {
+        setEhrResult({
+          severity: "info",
+          message: "EHR fetch cancelled."
+        });
+      } else {
+        setEhrResult({
+          severity: "error",
+          message: error?.message || "Unable to fetch claim data from the EHR."
+        });
+      }
     } finally {
+      if (ehrFetchAbortRef.current === controller) {
+        ehrFetchAbortRef.current = null;
+      }
+      setEhrCancelable(false);
       setEhrBusy(false);
     }
+  }
+
+  function cancelEhrFetch() {
+    ehrFetchAbortRef.current?.abort();
+    setEhrCancelable(false);
   }
 
   async function createEhrDraftFromPreview() {
@@ -1510,15 +1533,25 @@ export default function ClaimsList() {
                         >
                           {ehrEncounterSearchBusy ? "Checking…" : "Find Billable Visits"}
                         </Button>
+                      ) : ehrBusy && ehrCancelable ? (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="error"
+                          onClick={cancelEhrFetch}
+                          sx={{ minWidth: 112 }}
+                        >
+                          Cancel Fetch
+                        </Button>
                       ) : !ehrPreview ? (
                         <Button
                           size="small"
                           variant="contained"
                           onClick={() => fetchEhrClaimData(ehrEncounterId)}
-                          disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
+                          disabled={!ehrConnectionId || !ehrPatientId.trim()}
                           sx={{ minWidth: 128 }}
                         >
-                          {ehrBusy ? "Fetching…" : "Fetch Claim Data"}
+                          Fetch Claim Data
                         </Button>
                       ) : null}
                     </Stack>
@@ -1661,14 +1694,25 @@ export default function ClaimsList() {
                   </Box>
 
                   <Stack spacing={0.75} sx={{ minWidth: { sm: 140 } }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={fetchEhrClaimData}
-                      disabled={ehrBusy}
-                    >
-                      {ehrBusy ? "Refreshing…" : "Refresh"}
-                    </Button>
+                    {ehrBusy && ehrCancelable ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        onClick={cancelEhrFetch}
+                      >
+                        Cancel Fetch
+                      </Button>
+                    ) : (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={fetchEhrClaimData}
+                        disabled={ehrBusy}
+                      >
+                        Refresh
+                      </Button>
+                    )}
                     <Button
                       size="small"
                       variant="contained"
