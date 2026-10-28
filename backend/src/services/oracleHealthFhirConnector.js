@@ -109,7 +109,7 @@ export function oracleHealthPatientSyncPlan(patientId) {
   const id = required(patientId, "Oracle Health test patient ID");
   return [
     { name: "Patient", path: "Patient/" + encoded(id), required: true },
-    { name: "Coverage", path: "Coverage?beneficiary=Patient%2F" + encoded(id), required: false },
+    { name: "Coverage", path: "Coverage?patient=" + encoded(id), required: false },
     { name: "Appointment", path: "Appointment?patient=" + encoded(id), required: false },
     { name: "Encounter", path: "Encounter?patient=" + encoded(id), required: false },
     { name: "Condition", path: "Condition?patient=" + encoded(id), required: false },
@@ -120,11 +120,20 @@ export function oracleHealthPatientSyncPlan(patientId) {
 export async function fetchOracleHealthPatientSnapshot(config, patientId, fetchImpl = fetch) {
   const resources = [];
   const calls = [];
+  const encounterIds = [];
 
   for (const item of oracleHealthPatientSyncPlan(patientId)) {
     try {
       const payload = await oracleHealthFhirGet(config, item.path, fetchImpl);
-      resources.push(payload);
+      if (payload?.resourceType !== "Bundle" || (payload.entry || []).length > 0) {
+        resources.push(payload);
+      }
+      if (item.name === "Encounter" && payload?.resourceType === "Bundle") {
+        for (const entry of payload.entry || []) {
+          const id = String(entry?.resource?.id || "").trim();
+          if (id) encounterIds.push(id);
+        }
+      }
       calls.push({
         resource: item.name,
         status: "SUCCESS",
@@ -134,6 +143,30 @@ export async function fetchOracleHealthPatientSnapshot(config, patientId, fetchI
       if (item.required) throw error;
       calls.push({
         resource: item.name,
+        status: "SKIPPED",
+        httpStatus: error.status || null,
+        code: error.code || "ORACLE_HEALTH_FHIR_REQUEST_FAILED"
+      });
+    }
+  }
+
+  for (const encounterId of [...new Set(encounterIds)].slice(0, 25)) {
+    const path = "ChargeItem?context=" + encoded(encounterId) + "&-status=billable";
+    try {
+      const payload = await oracleHealthFhirGet(config, path, fetchImpl);
+      if (payload?.resourceType !== "Bundle" || (payload.entry || []).length > 0) {
+        resources.push(payload);
+      }
+      calls.push({
+        resource: "ChargeItem",
+        encounterId,
+        status: "SUCCESS",
+        count: payload?.resourceType === "Bundle" ? (payload.entry || []).length : (payload ? 1 : 0)
+      });
+    } catch (error) {
+      calls.push({
+        resource: "ChargeItem",
+        encounterId,
         status: "SKIPPED",
         httpStatus: error.status || null,
         code: error.code || "ORACLE_HEALTH_FHIR_REQUEST_FAILED"
