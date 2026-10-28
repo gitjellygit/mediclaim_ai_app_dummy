@@ -54,10 +54,13 @@ export const IntegrationsApi = {
     });
   },
 
-  syncOracleHealth(id, patientId = "") {
+  syncOracleHealth(id, patientId = "", encounterId = "") {
     return api(`${BASE}/${id}/oracle-health/sync`, {
       method: "POST",
-      body: JSON.stringify(patientId ? { patientId } : {})
+      body: JSON.stringify({
+        ...(patientId ? { patientId } : {}),
+        ...(encounterId ? { encounterId } : {})
+      })
     });
   },
   claimDraftPreview(id, patientId, encounterId = "") {
