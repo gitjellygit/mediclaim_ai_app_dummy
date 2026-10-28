@@ -162,6 +162,25 @@ export function oracleHealthPatientSearchPath(criteria = {}) {
   const gender = String(criteria.gender || "").trim().toLowerCase();
   const exactName = Boolean(criteria.exactName);
 
+  if (name && (family || given)) {
+    const error = new Error("Use either full name or first/last name fields, not both");
+    error.code = "ORACLE_HEALTH_PATIENT_SEARCH_INVALID";
+    error.status = 400;
+    throw error;
+  }
+  if (birthdate && (birthdateFrom || birthdateTo)) {
+    const error = new Error("Use either exact birth date or a birth date range, not both");
+    error.code = "ORACLE_HEALTH_PATIENT_SEARCH_INVALID";
+    error.status = 400;
+    throw error;
+  }
+  if (identifier && !identifierSystem && !identifier.includes("|")) {
+    const error = new Error("Oracle Health identifier search requires an identifier system / assigning authority");
+    error.code = "ORACLE_HEALTH_PATIENT_SEARCH_INVALID";
+    error.status = 400;
+    throw error;
+  }
+
   if (patientId) params.set("_id", patientId);
   if (identifier) {
     params.set("identifier", identifierSystem ? identifierSystem + "|" + identifier : identifier);
