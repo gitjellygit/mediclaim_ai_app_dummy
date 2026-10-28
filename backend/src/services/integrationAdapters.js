@@ -132,6 +132,11 @@ function fhirRecord(resource) {
         subscriberId: resource.subscriberId || null,
         beneficiaryRef: fhirReference(resource.beneficiary),
         subscriberRef: fhirReference(resource.subscriber),
+        encounterRef: fhirReference(
+          (resource.extension || []).find((item) =>
+            String(item?.url || "").toLowerCase().endsWith("coverage-encounter")
+          )?.valueReference
+        ),
         payorRefs: (resource.payor || []).map(fhirReference).filter(Boolean),
         payors: (resource.payor || []).map(fhirReferenceDetail).filter(Boolean),
         period: resource.period || null,
