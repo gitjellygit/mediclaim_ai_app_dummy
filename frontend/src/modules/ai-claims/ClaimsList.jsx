@@ -1504,7 +1504,7 @@ export default function ClaimsList() {
                       >
                         Change
                       </Button>
-                      {!ehrEncounterId && (
+                      {!ehrEncounterId ? (
                         <Button
                           size="small"
                           variant="contained"
@@ -1514,7 +1514,17 @@ export default function ClaimsList() {
                         >
                           {ehrEncounterSearchBusy ? "Checking…" : "Find Billable Visits"}
                         </Button>
-                      )}
+                      ) : !ehrPreview ? (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => fetchEhrClaimData(ehrEncounterId)}
+                          disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
+                          sx={{ minWidth: 128 }}
+                        >
+                          {ehrBusy ? "Fetching…" : "Fetch Claim Data"}
+                        </Button>
+                      ) : null}
                     </Stack>
                   </Stack>
                 </Paper>
