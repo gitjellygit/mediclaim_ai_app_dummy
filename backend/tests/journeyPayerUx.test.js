@@ -63,3 +63,16 @@ test("payer connection identity stays separate from insurance on file", () => {
   assert.match(journeySource, /Not Verified Against File/);
   assert.match(journeySource, /Connecting a payer does not update the source insurance record/);
 });
+
+
+test("Journey treats self-pay as patient responsibility, not a payer connection", () => {
+  const source = fs.readFileSync(journeyPath, "utf8");
+
+  assert.match(source, /const selfPay = \["self pay", "selfpay", "patient pay", "patient responsibility"\]/);
+  assert.match(source, /payerConnectionRequired = !selfPay && !payerConnected/);
+  assert.match(source, /Payment Responsibility/);
+  assert.match(source, /Patient is responsible for payment/);
+  assert.match(source, /Insurance eligibility and payer prior authorization do not apply/);
+  assert.match(source, /Self-pay claim is ready for patient billing review/);
+  assert.match(source, /!selfPay && \(simulatedPayerConnected \|\| externalSubmissionSupported\)/);
+});
