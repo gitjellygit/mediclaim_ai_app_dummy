@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import {
   ORACLE_HEALTH_OPEN_SANDBOX,
   fetchOracleHealthPatientSnapshot,
+  oracleHealthPatientSearchPath,
   oracleHealthPatientSyncPlan,
+  searchOracleHealthPatients,
   testOracleHealthConnection
 } from "../src/services/oracleHealthFhirConnector.js";
 
@@ -89,4 +91,151 @@ test("Oracle Health sync fetches billable ChargeItems for returned encounters", 
   );
   assert.ok(seen.some((url) => url.includes("/ChargeItem?context=enc-1&-status=billable")));
   assert.equal(snapshot.calls.find((item) => item.resource === "ChargeItem").status, "SUCCESS");
+});
+
+
+test("Oracle Health targeted billing demo fetches exact encounter and billable charges", async () => {
+  const seen = [];
+  const snapshot = await fetchOracleHealthPatientSnapshot(
+    { fhirBaseUrl: ORACLE_HEALTH_OPEN_SANDBOX.fhirBaseUrl },
+    "12742419",
+    {
+      encounterId: "97953601",
+      fetchImpl: async (url) => {
+        seen.push(url);
+        if (url.includes("/Patient/12742419")) {
+          return response(200, { resourceType: "Patient", id: "12742419" });
+        }
+        if (url.includes("/Encounter/97953601")) {
+          return response(200, {
+            resourceType: "Encounter",
+            id: "97953601",
+            subject: { reference: "Patient/12742419" }
+          });
+        }
+        if (url.includes("/ChargeItem?context=97953601&-status=billable")) {
+          return response(200, {
+            resourceType: "Bundle",
+            type: "searchset",
+            entry: [{
+              resource: {
+                resourceType: "ChargeItem",
+                id: "292870306",
+                subject: { reference: "Patient/12742419" },
+                context: { reference: "Encounter/97953601" }
+              }
+            }]
+          });
+        }
+        return response(200, { resourceType: "Bundle", type: "searchset", entry: [] });
+      }
+    }
+  );
+
+  assert.ok(seen.some((url) => url.includes("/Encounter/97953601")));
+  assert.ok(seen.some((url) => url.includes("/ChargeItem?context=97953601&-status=billable")));
+  assert.ok(snapshot.resources.some((resource) =>
+    resource?.resourceType === "Encounter" && resource.id === "97953601"
+  ));
+});
+
+
+test("Oracle patient search supports production identity filters", () => {
+  const path = oracleHealthPatientSearchPath({
+    family: "Smith",
+    given: "Jane",
+    birthdateFrom: "1980-01-01",
+    birthdateTo: "1980-12-31",
+    phone: "5551234567",
+    email: "jane@example.com",
+    postalCode: "12345",
+    gender: "female",
+    exactName: true,
+    count: 50
+  });
+  const query = new URL("https://example.test/" + path).searchParams;
+  assert.equal(query.get("family:exact"), "Smith");
+  assert.equal(query.get("given:exact"), "Jane");
+  assert.deepEqual(query.getAll("birthdate"), ["ge1980-01-01", "le1980-12-31"]);
+  assert.equal(query.get("phone"), "5551234567");
+  assert.equal(query.get("email"), "jane@example.com");
+  assert.equal(query.get("address-postalcode"), "12345");
+  assert.equal(query.get("gender"), "female");
+  assert.equal(query.get("_count"), "50");
+});
+
+test("Oracle patient search supports FHIR id and system-qualified identifier", () => {
+  const path = oracleHealthPatientSearchPath({
+    patientId: "12742419",
+    identifier: "MRN-100",
+    identifierSystem: "urn:oid:1.2.3"
+  });
+  const query = new URL("https://example.test/" + path).searchParams;
+  assert.equal(query.get("_id"), "12742419");
+  assert.equal(query.get("identifier"), "urn:oid:1.2.3|MRN-100");
+});
+
+test("Oracle patient search rejects unsupported ambiguous combinations", () => {
+  assert.throws(
+    () => oracleHealthPatientSearchPath({ given: "Jane" }),
+    /requires family name/
+  );
+  assert.throws(
+    () => oracleHealthPatientSearchPath({ name: "Jane Smith", family: "Smith" }),
+    /either full name or first\/last name/
+  );
+  assert.throws(
+    () => oracleHealthPatientSearchPath({ identifier: "MRN-100" }),
+    /identifier system/
+  );
+  assert.throws(
+    () => oracleHealthPatientSearchPath({
+      birthdate: "1980-01-01",
+      birthdateFrom: "1979-01-01"
+    }),
+    /either exact birth date or a birth date range/
+  );
+});
+
+test("Oracle patient search returns compact selectable patient results", async () => {
+  const result = await searchOracleHealthPatients(
+    { fhirBaseUrl: ORACLE_HEALTH_OPEN_SANDBOX.fhirBaseUrl },
+    { name: "Jane", count: 20 },
+    async () => response(200, {
+      resourceType: "Bundle",
+      type: "searchset",
+      total: 1,
+      entry: [{
+        resource: {
+          resourceType: "Patient",
+          id: "p-1",
+          active: true,
+          name: [{ use: "official", given: ["Jane"], family: "Smith" }],
+          birthDate: "1980-01-01",
+          gender: "female",
+          identifier: [{
+            system: "urn:oid:1.2.3",
+            value: "MRN-100",
+            type: { text: "MRN" }
+          }],
+          telecom: [
+            { system: "phone", value: "5551234567" },
+            { system: "email", value: "jane@example.com" }
+          ],
+          address: [{
+            use: "home",
+            line: ["1 Main St"],
+            city: "Denver",
+            state: "CO",
+            postalCode: "80202"
+          }]
+        }
+      }]
+    })
+  );
+  assert.equal(result.count, 1);
+  assert.equal(result.items[0].name, "Jane Smith");
+  assert.equal(result.items[0].identifiers[0].value, "MRN-100");
+  assert.equal(result.items[0].phones[0], "5551234567");
+  assert.equal(result.items[0].address.city, "Denver");
 });

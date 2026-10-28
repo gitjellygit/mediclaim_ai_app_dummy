@@ -96,7 +96,30 @@ export default function ClaimsList() {
   const [ehrConnections, setEhrConnections] = useState([]);
   const [ehrConnectionId, setEhrConnectionId] = useState("");
   const [ehrPatientId, setEhrPatientId] = useState("");
+  const [ehrEncounterId, setEhrEncounterId] = useState("");
   const [ehrBusy, setEhrBusy] = useState(false);
+  const [ehrPatientSearchBusy, setEhrPatientSearchBusy] = useState(false);
+  const [ehrAdvancedSearch, setEhrAdvancedSearch] = useState(false);
+  const [ehrPatientResults, setEhrPatientResults] = useState([]);
+  const [ehrPatientSearchInfo, setEhrPatientSearchInfo] = useState(null);
+  const [ehrSearch, setEhrSearch] = useState({
+    smart: "",
+    patientId: "",
+    identifier: "",
+    identifierSystem: "",
+    name: "",
+    family: "",
+    given: "",
+    birthdate: "",
+    birthdateFrom: "",
+    birthdateTo: "",
+    phone: "",
+    email: "",
+    postalCode: "",
+    gender: "",
+    exactName: false,
+    count: 20
+  });
   const [ehrPreview, setEhrPreview] = useState(null);
   const [ehrResult, setEhrResult] = useState(null);
   const [ehrCreatedClaimId, setEhrCreatedClaimId] = useState("");
@@ -317,6 +340,28 @@ export default function ClaimsList() {
     setEhrResult(null);
     setEhrCreatedClaimId("");
     setEhrPatientId("");
+    setEhrEncounterId("");
+    setEhrPatientResults([]);
+    setEhrPatientSearchInfo(null);
+    setEhrAdvancedSearch(false);
+    setEhrSearch({
+      smart: "",
+      patientId: "",
+      identifier: "",
+      identifierSystem: "",
+      name: "",
+      family: "",
+      given: "",
+      birthdate: "",
+      birthdateFrom: "",
+      birthdateTo: "",
+      phone: "",
+      email: "",
+      postalCode: "",
+      gender: "",
+      exactName: false,
+      count: 20
+    });
     try {
       const data = await IntegrationsApi.list();
       const supported = (data.items || []).filter((item) => {
@@ -354,10 +399,141 @@ export default function ClaimsList() {
     return ehrConnections.find((item) => item.id === ehrConnectionId) || null;
   }
 
+  function updateEhrSearch(field, value) {
+    setEhrSearch((current) => ({ ...current, [field]: value }));
+    setEhrPatientSearchInfo(null);
+  }
+
+  function patientSearchCriteria() {
+    const criteria = {
+      patientId: ehrSearch.patientId.trim(),
+      identifier: ehrSearch.identifier.trim(),
+      identifierSystem: ehrSearch.identifierSystem.trim(),
+      name: ehrSearch.name.trim(),
+      family: ehrSearch.family.trim(),
+      given: ehrSearch.given.trim(),
+      birthdate: ehrSearch.birthdate,
+      birthdateFrom: ehrSearch.birthdateFrom,
+      birthdateTo: ehrSearch.birthdateTo,
+      phone: ehrSearch.phone.trim(),
+      email: ehrSearch.email.trim(),
+      postalCode: ehrSearch.postalCode.trim(),
+      gender: ehrSearch.gender || undefined,
+      exactName: Boolean(ehrSearch.exactName),
+      count: Number(ehrSearch.count) || 20
+    };
+
+    const smart = ehrSearch.smart.trim();
+    if (smart) {
+      if (/^id:/i.test(smart) && !criteria.patientId) {
+        criteria.patientId = smart.replace(/^id:/i, "").trim();
+      } else if (/^mrn:/i.test(smart) && !criteria.identifier) {
+        criteria.identifier = smart.replace(/^mrn:/i, "").trim();
+      } else if (smart.includes("@") && !criteria.email) {
+        criteria.email = smart;
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(smart) && !criteria.birthdate) {
+        criteria.birthdate = smart;
+      } else if (/^[+()0-9 .-]{7,}$/.test(smart) && !criteria.phone) {
+        criteria.phone = smart;
+      } else if (!criteria.name && !criteria.family && !criteria.given) {
+        criteria.name = smart;
+      }
+    }
+
+    return Object.fromEntries(
+      Object.entries(criteria).filter(([, value]) =>
+        value !== "" && value !== undefined && value !== null
+      )
+    );
+  }
+
+  async function searchEhrPatients() {
+    const connection = selectedEhrConnection();
+    if (!connection) {
+      setEhrPatientSearchInfo({ severity: "warning", message: "Select an active EHR connection first." });
+      return;
+    }
+
+    const criteria = patientSearchCriteria();
+    const meaningful = Object.keys(criteria).filter((key) => !["count", "exactName"].includes(key));
+    if (!meaningful.length) {
+      setEhrPatientSearchInfo({ severity: "warning", message: "Enter at least one patient search criterion." });
+      return;
+    }
+    if (criteria.given && !criteria.family) {
+      setEhrPatientSearchInfo({
+        severity: "warning",
+        message: "Oracle Health requires last/family name when searching by first/given name."
+      });
+      return;
+    }
+    if (criteria.identifier && !criteria.identifierSystem && !criteria.identifier.includes("|")) {
+      setEhrPatientSearchInfo({
+        severity: "warning",
+        message: "For MRN/identifier search, enter the identifier system / assigning authority."
+      });
+      return;
+    }
+    if (criteria.birthdate && (criteria.birthdateFrom || criteria.birthdateTo)) {
+      setEhrPatientSearchInfo({
+        severity: "warning",
+        message: "Use either exact DOB or a DOB range, not both."
+      });
+      return;
+    }
+
+    setEhrPatientSearchBusy(true);
+    setEhrPatientResults([]);
+    setEhrPatientSearchInfo({ severity: "info", message: "Searching the selected EHR…" });
+    setEhrPatientId("");
+    setEhrEncounterId("");
+    setEhrPreview(null);
+    setEhrCreatedClaimId("");
+
+    try {
+      const result = await IntegrationsApi.searchPatients(connection.id, criteria);
+      setEhrPatientResults(result.items || []);
+      if (!(result.items || []).length) {
+        setEhrPatientSearchInfo({
+          severity: "warning",
+          message: "No matching patients found. Adjust the search criteria and try again."
+        });
+      } else {
+        setEhrPatientSearchInfo({
+          severity: "success",
+          message:
+            (result.items || []).length +
+            " patient" +
+            ((result.items || []).length === 1 ? "" : "s") +
+            " found" +
+            (result.hasMore ? ". More matches exist; narrow the search to find the correct patient." : ".")
+        });
+      }
+    } catch (error) {
+      setEhrPatientSearchInfo({
+        severity: "error",
+        message: error?.message || "Patient search failed."
+      });
+    } finally {
+      setEhrPatientSearchBusy(false);
+    }
+  }
+
+  function selectEhrPatient(patient) {
+    setEhrPatientId(String(patient.id));
+    setEhrEncounterId("");
+    setEhrPreview(null);
+    setEhrCreatedClaimId("");
+    setEhrPatientSearchInfo({
+      severity: "success",
+      message: "Selected " + (patient.name || "patient") + " (EHR ID " + patient.id + ")."
+    });
+  }
+
   async function syncSelectedEhr(connection, patientId) {
     const provider = String(connection?.provider || "").toLowerCase();
     if (provider.includes("oracle") || provider.includes("cerner")) {
-      return IntegrationsApi.syncOracleHealth(connection.id, patientId);
+      return IntegrationsApi.syncOracleHealth(connection.id, patientId, ehrEncounterId);
     }
     if (provider.includes("epic")) {
       return IntegrationsApi.syncEpic(connection.id, patientId);
@@ -390,7 +566,11 @@ export default function ClaimsList() {
 
     try {
       await syncSelectedEhr(connection, patientId);
-      const preview = await IntegrationsApi.claimDraftPreview(connection.id, patientId);
+      const preview = await IntegrationsApi.claimDraftPreview(
+        connection.id,
+        patientId,
+        ehrEncounterId
+      );
       setEhrPreview(preview);
 
       if (!preview.ready) {
@@ -895,14 +1075,14 @@ export default function ClaimsList() {
         open={ehrDialogOpen}
         onClose={closeEhrImport}
         fullWidth
-        maxWidth="sm"
+        maxWidth="md"
       >
         <DialogTitle>Create Claim from EHR</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Choose an active EHR connection and enter the patient ID from that EHR.
-            PRISM will fetch the available patient, insurance, encounter, diagnosis, and billing data.
-            You can review what was found before creating the draft claim.
+            Find the patient in the selected EHR, confirm the correct record, then fetch the
+            clinical and billing data needed for the claim. Patient ID is available under
+            Advanced Search, but normal users can search by name, DOB, contact details, or MRN.
           </Typography>
 
           <Stack spacing={2}>
@@ -913,6 +1093,10 @@ export default function ClaimsList() {
                 value={ehrConnectionId}
                 onChange={(event) => {
                   setEhrConnectionId(event.target.value);
+                  setEhrPatientId("");
+                  setEhrEncounterId("");
+                  setEhrPatientResults([]);
+                  setEhrPatientSearchInfo(null);
                   setEhrPreview(null);
                   setEhrResult(null);
                   setEhrCreatedClaimId("");
@@ -927,41 +1111,303 @@ export default function ClaimsList() {
               </Select>
             </FormControl>
 
-            <TextField
-              size="small"
-              label="EHR Patient ID"
-              value={ehrPatientId}
-              onChange={(event) => {
-                setEhrPatientId(event.target.value);
-                setEhrPreview(null);
-                setEhrCreatedClaimId("");
-              }}
-              disabled={ehrBusy}
-              helperText={
-                selectedEhrConnection()?.environment === "SANDBOX" &&
-                /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || ""))
-                  ? "Oracle sandbox test patient: 12724067"
-                  : "Enter the patient ID exactly as it appears in the selected EHR."
-              }
-            />
-            {selectedEhrConnection()?.environment === "SANDBOX" &&
-              /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || "")) && (
-                <Button
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography fontWeight={800} sx={{ mb: 1 }}>
+                Find Patient
+              </Typography>
+
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <TextField
+                  fullWidth
                   size="small"
-                  variant="text"
-                  sx={{ alignSelf: "flex-start", mt: -1 }}
-                  onClick={() => {
-                    setEhrPatientId("12724067");
-                    setEhrPreview(null);
-                    setEhrResult(null);
-                    setEhrCreatedClaimId("");
+                  label="Smart Search"
+                  placeholder="Name, email, phone, DOB, id:123, mrn:system|value"
+                  value={ehrSearch.smart}
+                  onChange={(event) => updateEhrSearch("smart", event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") searchEhrPatients();
                   }}
-                  disabled={ehrBusy}
+                  disabled={ehrPatientSearchBusy || ehrBusy}
+                  helperText="Examples: Smith, jane@example.com, 5551234567, 1980-01-20, id:12742419"
+                />
+                <Button
+                  variant="contained"
+                  startIcon={<SearchIcon />}
+                  onClick={searchEhrPatients}
+                  disabled={ehrPatientSearchBusy || ehrBusy || !ehrConnectionId}
+                  sx={{ minWidth: 120, alignSelf: "flex-start" }}
                 >
-                  Use Oracle test patient 12724067
+                  {ehrPatientSearchBusy ? "Searching…" : "Search"}
                 </Button>
+              </Stack>
+
+              <Button
+                size="small"
+                variant="text"
+                sx={{ mt: 0.5 }}
+                onClick={() => setEhrAdvancedSearch((value) => !value)}
+                disabled={ehrPatientSearchBusy || ehrBusy}
+              >
+                {ehrAdvancedSearch ? "Hide Advanced Search" : "Advanced Search"}
+              </Button>
+
+              {ehrAdvancedSearch && (
+                <Box
+                  sx={{
+                    mt: 1,
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" },
+                    gap: 1.25
+                  }}
+                >
+                  <TextField
+                    size="small"
+                    label="Patient / FHIR ID"
+                    value={ehrSearch.patientId}
+                    onChange={(event) => updateEhrSearch("patientId", event.target.value)}
+                  />
+                  <TextField
+                    size="small"
+                    label="MRN / Identifier"
+                    value={ehrSearch.identifier}
+                    onChange={(event) => updateEhrSearch("identifier", event.target.value)}
+                  />
+                  <TextField
+                    size="small"
+                    label="Identifier System / Assigning Authority"
+                    value={ehrSearch.identifierSystem}
+                    onChange={(event) => updateEhrSearch("identifierSystem", event.target.value)}
+                    helperText="Required for an MRN/identifier search"
+                  />
+                  <TextField
+                    size="small"
+                    label="Full / Partial Name"
+                    value={ehrSearch.name}
+                    onChange={(event) => updateEhrSearch("name", event.target.value)}
+                  />
+                  <TextField
+                    size="small"
+                    label="Last / Family Name"
+                    value={ehrSearch.family}
+                    onChange={(event) => updateEhrSearch("family", event.target.value)}
+                  />
+                  <TextField
+                    size="small"
+                    label="First / Given Name"
+                    value={ehrSearch.given}
+                    onChange={(event) => updateEhrSearch("given", event.target.value)}
+                    helperText="Oracle requires family name with given name"
+                  />
+                  <TextField
+                    size="small"
+                    type="date"
+                    label="DOB (Exact)"
+                    InputLabelProps={{ shrink: true }}
+                    value={ehrSearch.birthdate}
+                    onChange={(event) => updateEhrSearch("birthdate", event.target.value)}
+                  />
+                  <TextField
+                    size="small"
+                    type="date"
+                    label="DOB From"
+                    InputLabelProps={{ shrink: true }}
+                    value={ehrSearch.birthdateFrom}
+                    onChange={(event) => updateEhrSearch("birthdateFrom", event.target.value)}
+                  />
+                  <TextField
+                    size="small"
+                    type="date"
+                    label="DOB To"
+                    InputLabelProps={{ shrink: true }}
+                    value={ehrSearch.birthdateTo}
+                    onChange={(event) => updateEhrSearch("birthdateTo", event.target.value)}
+                  />
+                  <TextField
+                    size="small"
+                    label="Phone"
+                    value={ehrSearch.phone}
+                    onChange={(event) => updateEhrSearch("phone", event.target.value)}
+                  />
+                  <TextField
+                    size="small"
+                    type="email"
+                    label="Email"
+                    value={ehrSearch.email}
+                    onChange={(event) => updateEhrSearch("email", event.target.value)}
+                  />
+                  <TextField
+                    size="small"
+                    label="Postal Code"
+                    value={ehrSearch.postalCode}
+                    onChange={(event) => updateEhrSearch("postalCode", event.target.value)}
+                  />
+                  <FormControl size="small">
+                    <InputLabel>Gender</InputLabel>
+                    <Select
+                      label="Gender"
+                      value={ehrSearch.gender}
+                      onChange={(event) => updateEhrSearch("gender", event.target.value)}
+                    >
+                      <MenuItem value="">Any</MenuItem>
+                      <MenuItem value="male">Male</MenuItem>
+                      <MenuItem value="female">Female</MenuItem>
+                      <MenuItem value="other">Other</MenuItem>
+                      <MenuItem value="unknown">Unknown</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small">
+                    <InputLabel>Result Limit</InputLabel>
+                    <Select
+                      label="Result Limit"
+                      value={ehrSearch.count}
+                      onChange={(event) => updateEhrSearch("count", Number(event.target.value))}
+                    >
+                      <MenuItem value={10}>10</MenuItem>
+                      <MenuItem value={20}>20</MenuItem>
+                      <MenuItem value={50}>50</MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Checkbox
+                      checked={ehrSearch.exactName}
+                      onChange={(event) => updateEhrSearch("exactName", event.target.checked)}
+                    />
+                    <Typography variant="body2">Exact name match</Typography>
+                  </Stack>
+
+                  <Button
+                    variant="outlined"
+                    onClick={() => {
+                      setEhrSearch({
+                        smart: "",
+                        patientId: "",
+                        identifier: "",
+                        identifierSystem: "",
+                        name: "",
+                        family: "",
+                        given: "",
+                        birthdate: "",
+                        birthdateFrom: "",
+                        birthdateTo: "",
+                        phone: "",
+                        email: "",
+                        postalCode: "",
+                        gender: "",
+                        exactName: false,
+                        count: 20
+                      });
+                      setEhrPatientResults([]);
+                      setEhrPatientSearchInfo(null);
+                    }}
+                  >
+                    Clear Search
+                  </Button>
+                </Box>
               )}
 
+              {selectedEhrConnection()?.environment === "SANDBOX" &&
+                /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || "")) && (
+                  <Button
+                    size="small"
+                    variant="text"
+                    sx={{ mt: 1 }}
+                    onClick={() => {
+                      setEhrPatientId("12742419");
+                      setEhrEncounterId("97953601");
+                      setEhrPatientResults([]);
+                      setEhrPatientSearchInfo({
+                        severity: "success",
+                        message: "Oracle billing demo selected: patient 12742419, encounter 97953601."
+                      });
+                      setEhrPreview(null);
+                      setEhrResult(null);
+                      setEhrCreatedClaimId("");
+                    }}
+                    disabled={ehrBusy || ehrPatientSearchBusy}
+                  >
+                    Use Oracle billing demo
+                  </Button>
+                )}
+
+              {ehrPatientSearchBusy && <LinearProgress sx={{ mt: 1 }} />}
+
+              {ehrPatientSearchInfo && (
+                <Alert severity={ehrPatientSearchInfo.severity} sx={{ mt: 1 }}>
+                  {ehrPatientSearchInfo.message}
+                </Alert>
+              )}
+
+              {ehrPatientResults.length > 0 && (
+                <Stack spacing={1} sx={{ mt: 1.25, maxHeight: 320, overflowY: "auto" }}>
+                  {ehrPatientResults.map((patient) => {
+                    const identifier = patient.identifiers?.[0];
+                    const selected = String(ehrPatientId) === String(patient.id);
+                    return (
+                      <Paper
+                        key={patient.id}
+                        variant="outlined"
+                        sx={{
+                          p: 1.25,
+                          borderColor: selected ? "primary.main" : "divider"
+                        }}
+                      >
+                        <Stack
+                          direction={{ xs: "column", sm: "row" }}
+                          justifyContent="space-between"
+                          spacing={1}
+                        >
+                          <Box>
+                            <Typography fontWeight={800}>
+                              {patient.name || "Unnamed Patient"}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              EHR ID: {patient.id}
+                              {patient.birthDate ? " • DOB: " + patient.birthDate : ""}
+                              {patient.gender ? " • " + patient.gender : ""}
+                            </Typography>
+                            {identifier && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {identifier.type || "Identifier"}: {identifier.value}
+                              </Typography>
+                            )}
+                            {(patient.phones?.[0] || patient.emails?.[0]) && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {[patient.phones?.[0], patient.emails?.[0]].filter(Boolean).join(" • ")}
+                              </Typography>
+                            )}
+                            {patient.address && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {[
+                                  ...(patient.address.lines || []),
+                                  patient.address.city,
+                                  patient.address.state,
+                                  patient.address.postalCode
+                                ].filter(Boolean).join(", ")}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Button
+                            size="small"
+                            variant={selected ? "contained" : "outlined"}
+                            onClick={() => selectEhrPatient(patient)}
+                          >
+                            {selected ? "Selected" : "Select Patient"}
+                          </Button>
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+              )}
+
+              {ehrPatientId && (
+                <Alert severity="success" sx={{ mt: 1.25 }}>
+                  Patient selected. EHR ID: {ehrPatientId}
+                  {ehrEncounterId ? " • Target encounter: " + ehrEncounterId : ""}
+                </Alert>
+              )}
+            </Paper>
 
             {ehrBusy && <LinearProgress />}
 
@@ -981,7 +1427,7 @@ export default function ClaimsList() {
                     <strong>Patient:</strong> {ehrPreview.summary?.patientName || "Missing"}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Payer:</strong> {ehrPreview.summary?.payerName || "Missing"}
+                    <strong>Payer:</strong> {ehrPreview.summary?.payerName || "Not returned by EHR"}
                   </Typography>
                   <Typography variant="body2">
                     <strong>Encounter:</strong> {ehrPreview.summary?.encounterId || "Missing"}
@@ -996,10 +1442,20 @@ export default function ClaimsList() {
                       : "Not available from EHR"}
                   </Typography>
                 </Stack>
+                {ehrEncounterId && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                    Target encounter: {ehrEncounterId}
+                  </Typography>
+                )}
                 {ehrPreview.missing?.length > 0 && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
                     Claim cannot be created yet. Missing required data: {ehrPreview.missing.join(", ")}.
                   </Typography>
+                )}
+                {ehrPreview.warnings?.length > 0 && (
+                  <Alert severity="warning" sx={{ mt: 1 }}>
+                    Draft can be created, but complete before submission: {ehrPreview.warnings.join(", ")}.
+                  </Alert>
                 )}
               </Paper>
             )}

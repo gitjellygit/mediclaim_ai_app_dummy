@@ -64,7 +64,37 @@ test("EHR claim draft explains missing claim-critical data", () => {
   ];
   const draft = buildIntegrationClaimDraft(records, { patientId: "12724067" });
   assert.equal(draft.ready, false);
-  assert.ok(draft.missing.includes("payer / coverage"));
+  assert.ok(!draft.missing.includes("payer / coverage"));
   assert.ok(draft.missing.includes("billable charges"));
   assert.ok(draft.missing.includes("positive billed amount"));
+  assert.ok(draft.warnings.includes("payer / coverage"));
+});
+
+
+test("EHR claim draft can be created from real billing data even when payer is missing", () => {
+  const records = [
+    record("p1", "PATIENT", "12742419", { name: "BILLING DEMO PATIENT" }),
+    record("e1", "ENCOUNTER", "97953601", {
+      subjectRef: "Patient/12742419",
+      period: { start: "2020-03-06T18:22:00Z" }
+    }),
+    record("ch1", "CHARGE", "292870306", {
+      subjectRef: "Patient/12742419",
+      contextRef: "Encounter/97953601",
+      service: { code: "64897" },
+      quantity: 1,
+      unitPrice: 100,
+      occurrenceDateTime: "2020-03-06T18:22:00Z"
+    })
+  ];
+
+  const draft = buildIntegrationClaimDraft(records, {
+    patientId: "12742419",
+    encounterId: "97953601"
+  });
+
+  assert.equal(draft.ready, true);
+  assert.equal(draft.summary.chargeCount, 1);
+  assert.equal(draft.summary.totalBilledAmount, 100);
+  assert.deepEqual(draft.warnings, ["payer / coverage"]);
 });
