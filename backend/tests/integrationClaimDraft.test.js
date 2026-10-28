@@ -98,3 +98,35 @@ test("EHR claim draft can be created from real billing data even when payer is m
   assert.equal(draft.summary.totalBilledAmount, 100);
   assert.deepEqual(draft.warnings, ["payer / coverage"]);
 });
+
+
+test("EHR claim draft prefers coverage linked to the selected encounter", () => {
+  const records = [
+    record("p1", "PATIENT", "p-1", { name: "PATIENT ONE" }),
+    record("generic", "COVERAGE", "cov-generic", {
+      status: "active",
+      beneficiaryRef: "Patient/p-1",
+      payors: [{ display: "Generic Plan" }]
+    }),
+    record("specific", "COVERAGE", "cov-specific", {
+      status: "active",
+      beneficiaryRef: "Patient/p-1",
+      encounterRef: "Encounter/e-1",
+      payors: [{ display: "Encounter Plan" }]
+    }),
+    record("e1", "ENCOUNTER", "e-1", {
+      subjectRef: "Patient/p-1",
+      period: { start: "2026-01-01T10:00:00Z" }
+    }),
+    record("ch1", "CHARGE", "ch-1", {
+      subjectRef: "Patient/p-1",
+      contextRef: "Encounter/e-1",
+      service: { code: "99213" },
+      unitPrice: 100,
+      quantity: 1
+    })
+  ];
+  const draft = buildIntegrationClaimDraft(records, { patientId: "p-1", encounterId: "e-1" });
+  assert.equal(draft.ready, true);
+  assert.equal(draft.summary.payerName, "Encounter Plan");
+});
