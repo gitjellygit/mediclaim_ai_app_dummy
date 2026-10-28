@@ -43,6 +43,7 @@ import { analyzeMedicalConsistency } from "../services/medicalConsistency.js";
 import { buildApprovalIntelligenceItem } from "../services/approvalIntelligence.js";
 import { configuredReadinessIssue } from "../services/configuredReadinessRules.js";
 import { evaluateUsReadinessRules } from "../services/usReadinessRules.js";
+import { isSelfPayClaim } from "../services/claimPaymentMode.js";
 import { liveMandatorySubmissionBlockers } from "../services/submissionReadinessGate.js";
 import { evaluateCodeSetReadiness } from "../services/codeSetReadiness.js";
 import { findLikelyDuplicateClaim } from "../services/duplicateClaimScrub.js";
@@ -1909,8 +1910,9 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
       }
     });
     const issues = [];
+    const selfPay = isSelfPayClaim(claim);
 
-    if (!claim.policyNo && !claim.memberId && !claim.subscriberId) {
+    if (!selfPay && !claim.policyNo && !claim.memberId && !claim.subscriberId) {
       issues.push(configuredReadinessIssue(rules, {
         code: "REQ_POLICY_NO",
         severity: "BLOCK",
@@ -1991,7 +1993,7 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
       }
     }
 
-    if (claim.eligibilityStatus !== "VERIFIED") {
+    if (!selfPay && claim.eligibilityStatus !== "VERIFIED") {
       issues.push({
         severity: "BLOCK",
         message: "Eligibility has not been verified",
@@ -2000,8 +2002,9 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
     }
 
     if (
-      claim.priorAuthRequired == null ||
-      (claim.priorAuthRequired === false && claim.priorAuthStatus !== "NOT_REQUIRED")
+      !selfPay &&
+      (claim.priorAuthRequired == null ||
+      (claim.priorAuthRequired === false && claim.priorAuthStatus !== "NOT_REQUIRED"))
     ) {
       issues.push({
         severity: "BLOCK",
@@ -2057,7 +2060,7 @@ router.post("/:id/check", requirePermission(PERMISSIONS.CLINICAL_VIEW), async (r
     let riskScore = 0;
     const riskFactors = [];
 
-    if (!claim.policyNo && !claim.memberId && !claim.subscriberId) {
+    if (!selfPay && !claim.policyNo && !claim.memberId && !claim.subscriberId) {
       riskScore += 0.25;
       riskFactors.push(
         "Claims without a policy or member identifier show elevated rejection risk"
@@ -2612,6 +2615,15 @@ router.post("/:id/submit", requirePermission(PERMISSIONS.CLAIM_SUBMIT), async (r
     }
 
     const latestCheck = claim.checks?.[0];
+    const selfPay = isSelfPayClaim(claim);
+
+    if (selfPay) {
+      return res.status(409).json({
+        error: "Self-pay claims are not submitted to an insurance payer",
+        message: "This claim is ready for patient billing workflows rather than payer eligibility or 837 submission.",
+        code: "SELF_PAY_PAYER_SUBMISSION_NOT_APPLICABLE"
+      });
+    }
 
     if (claim.eligibilityStatus !== "VERIFIED") {
       return res.status(400).json({
