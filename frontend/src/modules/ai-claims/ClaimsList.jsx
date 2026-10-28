@@ -95,7 +95,7 @@ export default function ClaimsList() {
   const [ehrDialogOpen, setEhrDialogOpen] = useState(false);
   const [ehrConnections, setEhrConnections] = useState([]);
   const [ehrConnectionId, setEhrConnectionId] = useState("");
-  const [ehrPatientId, setEhrPatientId] = useState("12724067");
+  const [ehrPatientId, setEhrPatientId] = useState("");
   const [ehrBusy, setEhrBusy] = useState(false);
   const [ehrPreview, setEhrPreview] = useState(null);
   const [ehrResult, setEhrResult] = useState(null);
@@ -316,6 +316,7 @@ export default function ClaimsList() {
     setEhrPreview(null);
     setEhrResult(null);
     setEhrCreatedClaimId("");
+    setEhrPatientId("");
     try {
       const data = await IntegrationsApi.list();
       const supported = (data.items || []).filter((item) => {
@@ -366,7 +367,7 @@ export default function ClaimsList() {
     throw error;
   }
 
-  async function fetchEhrClaimData({ create = false } = {}) {
+  async function fetchEhrClaimData() {
     const connection = selectedEhrConnection();
     const patientId = ehrPatientId.trim();
 
@@ -384,9 +385,7 @@ export default function ClaimsList() {
     setEhrCreatedClaimId("");
     setEhrResult({
       severity: "info",
-      message: create
-        ? "Fetching EHR data and preparing the claim…"
-        : "Fetching EHR data and checking claim readiness…"
+      message: "Fetching patient, insurance, encounter, diagnosis, and billing data from the EHR…"
     });
 
     try {
@@ -402,29 +401,12 @@ export default function ClaimsList() {
         return;
       }
 
-      if (!create) {
-        setEhrResult({
-          severity: "success",
-          message: "EHR data is claim-ready. Review the summary below or create the draft claim."
-        });
-        return;
-      }
-
-      const result = await IntegrationsApi.createClaimDraft(
-        connection.id,
-        patientId,
-        preview.encounterId || ""
-      );
-      setEhrCreatedClaimId(result.claimId);
       setEhrResult({
-        severity: "success",
-        message: result.created
-          ? "Draft claim created from the EHR data."
-          : "The existing EHR-linked draft claim was refreshed."
+        severity: preview.ready ? "success" : "warning",
+        message: preview.ready
+          ? "EHR data fetched successfully. Review the details below, then create the draft claim."
+          : "EHR data fetched, but a claim cannot be created yet because required billing data is missing."
       });
-      await loadClaims({ page: 1 });
-      setClaimsPage(0);
-      showToast("EHR claim is ready in Claims.", "success");
     } catch (error) {
       setEhrResult({
         severity: "error",
@@ -919,8 +901,8 @@ export default function ClaimsList() {
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Choose an active EHR connection and enter the patient ID from that EHR.
-            PRISM will fetch the available clinical and billing data, check claim readiness,
-            and create a normal draft claim when the required data is present.
+            PRISM will fetch the available patient, insurance, encounter, diagnosis, and billing data.
+            You can review what was found before creating the draft claim.
           </Typography>
 
           <Stack spacing={2}>
@@ -955,7 +937,12 @@ export default function ClaimsList() {
                 setEhrCreatedClaimId("");
               }}
               disabled={ehrBusy}
-              helperText="For Oracle sandbox testing, 12724067 is the current synthetic patient."
+              helperText={
+                selectedEhrConnection()?.environment === "SANDBOX" &&
+                /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || ""))
+                  ? "Oracle sandbox test patient: 12724067"
+                  : "Enter the patient ID exactly as it appears in the selected EHR."
+              }
             />
 
             {ehrBusy && <LinearProgress />}
@@ -969,7 +956,7 @@ export default function ClaimsList() {
             {ehrPreview && (
               <Paper variant="outlined" sx={{ p: 1.5 }}>
                 <Typography fontWeight={800} sx={{ mb: 1 }}>
-                  Claim Readiness
+                  Fetched EHR Data
                 </Typography>
                 <Stack spacing={0.5}>
                   <Typography variant="body2">
@@ -985,15 +972,15 @@ export default function ClaimsList() {
                     <strong>Billable lines:</strong> {ehrPreview.summary?.chargeCount || 0}
                   </Typography>
                   <Typography variant="body2">
-                    <strong>Total:</strong>{" "}
+                    <strong>Claim amount:</strong>{" "}
                     {ehrPreview.summary?.totalBilledAmount
                       ? formatUSD(ehrPreview.summary.totalBilledAmount)
-                      : "Missing"}
+                      : "Not available from EHR"}
                   </Typography>
                 </Stack>
                 {ehrPreview.missing?.length > 0 && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                    Missing from EHR: {ehrPreview.missing.join(", ")}.
+                    Claim cannot be created yet. Missing required data: {ehrPreview.missing.join(", ")}.
                   </Typography>
                 )}
               </Paper>
@@ -1012,32 +999,30 @@ export default function ClaimsList() {
             >
               Open Claim
             </Button>
+          ) : !ehrPreview ? (
+            <Button
+              variant="contained"
+              onClick={fetchEhrClaimData}
+              disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
+            >
+              {ehrBusy ? "Fetching from EHR…" : "Fetch Patient Data"}
+            </Button>
           ) : (
             <>
               <Button
                 variant="outlined"
-                onClick={() => fetchEhrClaimData({ create: false })}
-                disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
+                onClick={fetchEhrClaimData}
+                disabled={ehrBusy}
               >
-                Fetch & Review
+                {ehrBusy ? "Refreshing…" : "Refresh from EHR"}
               </Button>
-              {ehrPreview?.ready ? (
-                <Button
-                  variant="contained"
-                  onClick={createEhrDraftFromPreview}
-                  disabled={ehrBusy}
-                >
-                  Create Draft Claim
-                </Button>
-              ) : (
-                <Button
-                  variant="contained"
-                  onClick={() => fetchEhrClaimData({ create: true })}
-                  disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
-                >
-                  Fetch & Create Draft
-                </Button>
-              )}
+              <Button
+                variant="contained"
+                onClick={createEhrDraftFromPreview}
+                disabled={ehrBusy || !ehrPreview.ready}
+              >
+                {ehrPreview.ready ? "Create Draft Claim" : "Cannot Create Claim"}
+              </Button>
             </>
           )}
         </DialogActions>
