@@ -120,8 +120,14 @@ export function oracleHealthPatientSyncPlan(patientId) {
 export async function fetchOracleHealthPatientSnapshot(
   config,
   patientId,
-  { encounterId = null, fetchImpl = fetch } = {}
+  optionsOrFetch = {}
 ) {
+  const options =
+    typeof optionsOrFetch === "function"
+      ? { fetchImpl: optionsOrFetch }
+      : (optionsOrFetch || {});
+  const fetchImpl = options.fetchImpl || fetch;
+  const encounterId = options.encounterId || null;
   const resources = [];
   const calls = [];
   const encounterIds = encounterId ? [String(encounterId).trim()] : [];
