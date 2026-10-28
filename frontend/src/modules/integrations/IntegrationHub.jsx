@@ -112,6 +112,7 @@ export default function IntegrationHub() {
         patientId.trim()
       );
       setClaimDraftPreview(preview);
+      setCreatedClaimId(preview.existingClaimId || null);
       return preview;
     } catch {
       setClaimDraftPreview(null);
