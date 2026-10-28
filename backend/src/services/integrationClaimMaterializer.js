@@ -35,12 +35,16 @@ export function claimPatchFromCanonical(data = {}) {
     subscriberName: data.subscriberName || null,
     patientDob: dateOrNull(data.patientDob),
     patientGender: normalizedGender(data.patientGender),
+    medicalRecordNumber: data.medicalRecordNumber || null,
     dateOfService: dateOrNull(data.dateOfService),
+    policyStartDate: dateOrNull(data.policyStartDate),
+    policyEndDate: dateOrNull(data.policyEndDate),
     billingProviderNpi: data.billingProviderNpi || null,
     renderingProviderNpi: data.renderingProviderNpi || null,
     payerEdiId: data.payerEdiId || null,
     diagnosisText: data.diagnosisText || null,
     icd10Codes: Array.isArray(data.icd10Codes) ? data.icd10Codes : undefined,
+    claimType: data.claimType === "PROVIDER_BILLED" ? "PROVIDER_BILLED" : undefined,
     amount,
     totalBilledAmount: positiveMoney(data.totalBilledAmount) ?? amount
   };

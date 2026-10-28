@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Alert,
   Box,
@@ -50,6 +51,7 @@ function formatDate(value) {
 }
 
 export default function IntegrationHub() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { showToast } = useToast();
   const canManage = hasPermission(user, PERMISSIONS.INTEGRATION_MANAGE);
@@ -74,6 +76,9 @@ export default function IntegrationHub() {
   const [oracleHealthAction, setOracleHealthAction] = React.useState(null);
   const [oracleHealthResult, setOracleHealthResult] = React.useState(null);
   const [oracleHealthPatientId, setOracleHealthPatientId] = React.useState("12724067");
+  const [claimDraftPreview, setClaimDraftPreview] = React.useState(null);
+  const [claimDraftBusy, setClaimDraftBusy] = React.useState(false);
+  const [createdClaimId, setCreatedClaimId] = React.useState(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -96,11 +101,32 @@ export default function IntegrationHub() {
     void load();
   }, [load]);
 
+  async function loadClaimDraftPreview(connection = selected, patientId = oracleHealthPatientId) {
+    if (!connection || !patientId.trim()) {
+      setClaimDraftPreview(null);
+      return null;
+    }
+    try {
+      const preview = await IntegrationsApi.claimDraftPreview(
+        connection.id,
+        patientId.trim()
+      );
+      setClaimDraftPreview(preview);
+      setCreatedClaimId(preview.existingClaimId || null);
+      return preview;
+    } catch {
+      setClaimDraftPreview(null);
+      return null;
+    }
+  }
+
   async function loadRecords(connection, nextType = recordType) {
     setSelected(connection);
     setRecordsLoading(true);
     setEpicStatus(null);
     setOracleHealthStatus(null);
+    setClaimDraftPreview(null);
+    setCreatedClaimId(null);
     try {
       const data = await IntegrationsApi.records(connection.id, {
         resourceType: nextType,
@@ -121,6 +147,7 @@ export default function IntegrationHub() {
         } catch {
           setOracleHealthStatus(null);
         }
+        await loadClaimDraftPreview(connection, oracleHealthPatientId);
       }
     } catch (error) {
       showToast(error?.message || "Unable to load integration records.", "error");
@@ -205,6 +232,7 @@ export default function IntegrationHub() {
       setOracleHealthResult({ severity: "success", message: successMessage });
       showToast(successMessage, "success");
       await loadRecords(selected, recordType);
+      await loadClaimDraftPreview(selected, result.patientId || oracleHealthPatientId);
       await load();
     } catch (error) {
       const message = error?.message || "Oracle Health patient sync failed.";
@@ -213,6 +241,35 @@ export default function IntegrationHub() {
     } finally {
       setOracleHealthBusy(false);
       setOracleHealthAction(null);
+    }
+  }
+
+  async function createClaimFromImportedData() {
+    if (!selected || !claimDraftPreview?.ready) return;
+    setClaimDraftBusy(true);
+    try {
+      const result = await IntegrationsApi.createClaimDraft(
+        selected.id,
+        oracleHealthPatientId.trim(),
+        claimDraftPreview.encounterId || ""
+      );
+      setOracleHealthResult({
+        severity: "success",
+        message: result.created
+          ? "Draft claim created and linked to the imported EHR records."
+          : "Existing draft claim refreshed from the imported EHR records."
+      });
+      showToast("Draft claim is ready in the Claims workflow.", "success");
+      await loadRecords(selected, recordType);
+      await loadClaimDraftPreview(selected, oracleHealthPatientId);
+      await load();
+      setCreatedClaimId(result.claimId);
+    } catch (error) {
+      const message = error?.message || "Unable to create draft claim from imported EHR data.";
+      setOracleHealthResult({ severity: "error", message });
+      showToast(message, "error");
+    } finally {
+      setClaimDraftBusy(false);
     }
   }
 
@@ -394,9 +451,7 @@ export default function IntegrationHub() {
                       disabled={epicBusy || !epicStatus?.config?.ready}
                       onClick={syncEpicPatient}
                     >
-                      {oracleHealthBusy && oracleHealthAction === "sync"
-                        ? "Syncing…"
-                        : "Sync Synthetic Patient"}
+                      {epicBusy ? "Syncing…" : "Sync Synthetic Patient"}
                     </Button>
                   )}
                 </Stack>
@@ -460,7 +515,9 @@ export default function IntegrationHub() {
                       disabled={oracleHealthBusy || !oracleHealthStatus?.config?.ready}
                       onClick={syncOracleHealthPatient}
                     >
-                      Sync Synthetic Patient
+                      {oracleHealthBusy && oracleHealthAction === "sync"
+                        ? "Syncing…"
+                        : "Sync Synthetic Patient"}
                     </Button>
                   )}
                 </Stack>
@@ -471,6 +528,95 @@ export default function IntegrationHub() {
                     Auth: {oracleHealthStatus.config.authentication}
                   </Typography>
                 )}
+
+                <Box sx={{ mt: 2, p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                  <Typography fontWeight={800} sx={{ mb: 1 }}>
+                    EHR → Claim Flow
+                  </Typography>
+                  <Stack direction={{ xs: "column", md: "row" }} spacing={1} sx={{ mb: 1.5 }}>
+                    <Chip size="small" color="success" label="1. Connected" />
+                    <Chip
+                      size="small"
+                      color={records.length ? "success" : "default"}
+                      label="2. Patient Data Synced"
+                    />
+                    <Chip
+                      size="small"
+                      color={claimDraftPreview?.ready ? "success" : "warning"}
+                      label="3. Claim Data Reviewed"
+                    />
+                    <Chip
+                      size="small"
+                      color={createdClaimId ? "success" : "default"}
+                      label="4. Draft Claim"
+                    />
+                  </Stack>
+
+                  {!claimDraftPreview ? (
+                    <Typography variant="body2" color="text.secondary">
+                      Sync a patient to check whether the imported EHR data is sufficient to create a claim.
+                    </Typography>
+                  ) : (
+                    <Stack spacing={1}>
+                      <Alert severity={claimDraftPreview.ready ? "success" : "warning"}>
+                        {claimDraftPreview.message}
+                      </Alert>
+
+                      <Stack direction={{ xs: "column", md: "row" }} spacing={2} flexWrap="wrap">
+                        <Typography variant="body2">
+                          <strong>Patient:</strong> {claimDraftPreview.summary?.patientName || "Missing"}
+                        </Typography>
+                        <Typography variant="body2">
+                          <strong>Payer:</strong> {claimDraftPreview.summary?.payerName || "Missing"}
+                        </Typography>
+                        <Typography variant="body2">
+                          <strong>Encounter:</strong> {claimDraftPreview.summary?.encounterId || "Missing"}
+                        </Typography>
+                        <Typography variant="body2">
+                          <strong>Billable lines:</strong> {claimDraftPreview.summary?.chargeCount || 0}
+                        </Typography>
+                        <Typography variant="body2">
+                          <strong>Total:</strong> {claimDraftPreview.summary?.totalBilledAmount
+                            ? "$" + Number(claimDraftPreview.summary.totalBilledAmount).toFixed(2)
+                            : "Missing"}
+                        </Typography>
+                      </Stack>
+
+                      {claimDraftPreview.missing?.length > 0 && (
+                        <Typography variant="caption" color="text.secondary">
+                          Missing from EHR data: {claimDraftPreview.missing.join(", ")}.
+                        </Typography>
+                      )}
+
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                        <Button
+                          variant="outlined"
+                          disabled={claimDraftBusy}
+                          onClick={() => loadClaimDraftPreview(selected, oracleHealthPatientId)}
+                        >
+                          Review Claim Data
+                        </Button>
+                        {canIngest && (
+                          <Button
+                            variant="contained"
+                            disabled={claimDraftBusy || !claimDraftPreview.ready}
+                            onClick={createClaimFromImportedData}
+                          >
+                            {claimDraftBusy ? "Creating Draft…" : "Create Draft Claim"}
+                          </Button>
+                        )}
+                        {createdClaimId && (
+                          <Button
+                            variant="text"
+                            onClick={() => navigate("/claims/" + createdClaimId)}
+                          >
+                            Open Claim
+                          </Button>
+                        )}
+                      </Stack>
+                    </Stack>
+                  )}
+                </Box>
                 <Divider sx={{ mt: 2 }} />
               </Box>
             )}
