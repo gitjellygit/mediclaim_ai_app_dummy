@@ -125,7 +125,9 @@ export async function fetchOracleHealthPatientSnapshot(config, patientId, fetchI
   for (const item of oracleHealthPatientSyncPlan(patientId)) {
     try {
       const payload = await oracleHealthFhirGet(config, item.path, fetchImpl);
-      resources.push(payload);
+      if (payload?.resourceType !== "Bundle" || (payload.entry || []).length > 0) {
+        resources.push(payload);
+      }
       if (item.name === "Encounter" && payload?.resourceType === "Bundle") {
         for (const entry of payload.entry || []) {
           const id = String(entry?.resource?.id || "").trim();
@@ -152,7 +154,9 @@ export async function fetchOracleHealthPatientSnapshot(config, patientId, fetchI
     const path = "ChargeItem?context=" + encoded(encounterId) + "&-status=billable";
     try {
       const payload = await oracleHealthFhirGet(config, path, fetchImpl);
-      resources.push(payload);
+      if (payload?.resourceType !== "Bundle" || (payload.entry || []).length > 0) {
+        resources.push(payload);
+      }
       calls.push({
         resource: "ChargeItem",
         encounterId,
