@@ -43,6 +43,13 @@ export const IntegrationsApi = {
     });
   },
 
+  searchPatients(id, criteria) {
+    return api(`${BASE}/${id}/patients/search`, {
+      method: "POST",
+      body: JSON.stringify(criteria)
+    });
+  },
+
   oracleHealthStatus(id) {
     return api(`${BASE}/${id}/oracle-health/status`);
   },
