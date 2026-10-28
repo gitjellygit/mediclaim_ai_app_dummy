@@ -69,6 +69,9 @@ export default function IntegrationHub() {
   const [epicStatus, setEpicStatus] = React.useState(null);
   const [epicBusy, setEpicBusy] = React.useState(false);
   const [epicPatientId, setEpicPatientId] = React.useState("");
+  const [oracleHealthStatus, setOracleHealthStatus] = React.useState(null);
+  const [oracleHealthBusy, setOracleHealthBusy] = React.useState(false);
+  const [oracleHealthPatientId, setOracleHealthPatientId] = React.useState("12724067");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -95,17 +98,26 @@ export default function IntegrationHub() {
     setSelected(connection);
     setRecordsLoading(true);
     setEpicStatus(null);
+    setOracleHealthStatus(null);
     try {
       const data = await IntegrationsApi.records(connection.id, {
         resourceType: nextType,
         limit: 50
       });
       setRecords(data.items || []);
-      if (String(connection.provider || "").toLowerCase().includes("epic")) {
+      const provider = String(connection.provider || "").toLowerCase();
+      if (provider.includes("epic")) {
         try {
           setEpicStatus(await IntegrationsApi.epicStatus(connection.id));
         } catch {
           setEpicStatus(null);
+        }
+      }
+      if (provider.includes("oracle") || provider.includes("cerner")) {
+        try {
+          setOracleHealthStatus(await IntegrationsApi.oracleHealthStatus(connection.id));
+        } catch {
+          setOracleHealthStatus(null);
         }
       }
     } catch (error) {
@@ -148,6 +160,46 @@ export default function IntegrationHub() {
       showToast(error?.message || "Epic patient sync failed.", "error");
     } finally {
       setEpicBusy(false);
+    }
+  }
+
+  async function testOracleHealthConnection() {
+    if (!selected) return;
+    setOracleHealthBusy(true);
+    try {
+      const result = await IntegrationsApi.testOracleHealth(selected.id);
+      showToast(
+        "Oracle Health FHIR connection succeeded" +
+          (result.fhirVersion ? " (FHIR " + result.fhirVersion + ")." : "."),
+        "success"
+      );
+      setOracleHealthStatus(await IntegrationsApi.oracleHealthStatus(selected.id));
+      await load();
+    } catch (error) {
+      showToast(error?.message || "Oracle Health connection test failed.", "error");
+    } finally {
+      setOracleHealthBusy(false);
+    }
+  }
+
+  async function syncOracleHealthPatient() {
+    if (!selected) return;
+    setOracleHealthBusy(true);
+    try {
+      const result = await IntegrationsApi.syncOracleHealth(
+        selected.id,
+        oracleHealthPatientId.trim()
+      );
+      showToast(
+        "Oracle Health sync completed: " + (result.records?.length || 0) + " normalized records.",
+        "success"
+      );
+      await loadRecords(selected, recordType);
+      await load();
+    } catch (error) {
+      showToast(error?.message || "Oracle Health patient sync failed.", "error");
+    } finally {
+      setOracleHealthBusy(false);
     }
   }
 
@@ -337,6 +389,64 @@ export default function IntegrationHub() {
                 {epicStatus?.config && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
                     FHIR: {epicStatus.config.fhirBaseUrl || "Not configured"} • OAuth: {epicStatus.oauthMode}
+                  </Typography>
+                )}
+                <Divider sx={{ mt: 2 }} />
+              </Box>
+            )}
+            {selected && (() => {
+              const provider = String(selected.provider || "").toLowerCase();
+              return provider.includes("oracle") || provider.includes("cerner");
+            })() && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="h6" fontWeight={800}>
+                  Oracle Health / Cerner FHIR Connection
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
+                  Uses Oracle Health Millennium's public read-only FHIR R4 sandbox for
+                  initial integration testing. No OAuth is required for this sandbox.
+                </Typography>
+
+                {oracleHealthStatus && (
+                  <Alert severity={oracleHealthStatus.config?.ready ? "success" : "warning"} sx={{ mb: 1.25 }}>
+                    {oracleHealthStatus.config?.ready
+                      ? "Oracle Health sandbox configuration is ready."
+                      : "Oracle Health FHIR base URL is not configured."}
+                  </Alert>
+                )}
+
+                <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ md: "center" }}>
+                  <TextField
+                    size="small"
+                    label="Synthetic Oracle Health Patient ID"
+                    value={oracleHealthPatientId}
+                    onChange={(event) => setOracleHealthPatientId(event.target.value)}
+                    sx={{ minWidth: 280 }}
+                  />
+                  {canManage && (
+                    <Button
+                      variant="outlined"
+                      disabled={oracleHealthBusy || !oracleHealthStatus?.config?.ready}
+                      onClick={testOracleHealthConnection}
+                    >
+                      Test Oracle Health Connection
+                    </Button>
+                  )}
+                  {canIngest && (
+                    <Button
+                      variant="contained"
+                      disabled={oracleHealthBusy || !oracleHealthStatus?.config?.ready}
+                      onClick={syncOracleHealthPatient}
+                    >
+                      Sync Synthetic Patient
+                    </Button>
+                  )}
+                </Stack>
+
+                {oracleHealthStatus?.config && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                    FHIR: {oracleHealthStatus.config.fhirBaseUrl || "Not configured"} •
+                    Auth: {oracleHealthStatus.config.authentication}
                   </Typography>
                 )}
                 <Divider sx={{ mt: 2 }} />
