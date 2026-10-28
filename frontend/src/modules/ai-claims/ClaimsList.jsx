@@ -101,6 +101,7 @@ export default function ClaimsList() {
   const [ehrPatientSearchBusy, setEhrPatientSearchBusy] = useState(false);
   const [ehrAdvancedSearch, setEhrAdvancedSearch] = useState(false);
   const [ehrPatientResults, setEhrPatientResults] = useState([]);
+  const [ehrSelectedPatient, setEhrSelectedPatient] = useState(null);
   const [ehrPatientSearchInfo, setEhrPatientSearchInfo] = useState(null);
   const [ehrSearch, setEhrSearch] = useState({
     smart: "",
@@ -342,6 +343,7 @@ export default function ClaimsList() {
     setEhrPatientId("");
     setEhrEncounterId("");
     setEhrPatientResults([]);
+    setEhrSelectedPatient(null);
     setEhrPatientSearchInfo(null);
     setEhrAdvancedSearch(false);
     setEhrSearch({
@@ -486,6 +488,7 @@ export default function ClaimsList() {
     setEhrPatientResults([]);
     setEhrPatientSearchInfo({ severity: "info", message: "Searching the selected EHR…" });
     setEhrPatientId("");
+    setEhrSelectedPatient(null);
     setEhrEncounterId("");
     setEhrPreview(null);
     setEhrCreatedClaimId("");
@@ -521,13 +524,20 @@ export default function ClaimsList() {
 
   function selectEhrPatient(patient) {
     setEhrPatientId(String(patient.id));
+    setEhrSelectedPatient(patient);
     setEhrEncounterId("");
     setEhrPreview(null);
     setEhrCreatedClaimId("");
-    setEhrPatientSearchInfo({
-      severity: "success",
-      message: "Selected " + (patient.name || "patient") + " (EHR ID " + patient.id + ")."
-    });
+    setEhrPatientSearchInfo(null);
+  }
+
+  function changeEhrPatient() {
+    setEhrPatientId("");
+    setEhrSelectedPatient(null);
+    setEhrEncounterId("");
+    setEhrPreview(null);
+    setEhrResult(null);
+    setEhrCreatedClaimId("");
   }
 
   async function syncSelectedEhr(connection, patientId) {
@@ -1141,15 +1151,45 @@ export default function ClaimsList() {
                 </Button>
               </Stack>
 
-              <Button
-                size="small"
-                variant="text"
-                sx={{ mt: 0.5 }}
-                onClick={() => setEhrAdvancedSearch((value) => !value)}
-                disabled={ehrPatientSearchBusy || ehrBusy}
-              >
-                {ehrAdvancedSearch ? "Hide Advanced Search" : "Advanced Search"}
-              </Button>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={() => setEhrAdvancedSearch((value) => !value)}
+                  disabled={ehrPatientSearchBusy || ehrBusy}
+                  sx={{ minHeight: 30, px: 1 }}
+                >
+                  {ehrAdvancedSearch ? "Hide Advanced Search" : "Advanced Search"}
+                </Button>
+
+                {selectedEhrConnection()?.environment === "SANDBOX" &&
+                  /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || "")) && (
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => {
+                        setEhrPatientId("12742419");
+                        setEhrSelectedPatient({
+                          id: "12742419",
+                          name: "Oracle billing demo patient",
+                          birthDate: null,
+                          gender: null,
+                          identifiers: []
+                        });
+                        setEhrEncounterId("97953601");
+                        setEhrPatientResults([]);
+                        setEhrPatientSearchInfo(null);
+                        setEhrPreview(null);
+                        setEhrResult(null);
+                        setEhrCreatedClaimId("");
+                      }}
+                      disabled={ehrBusy || ehrPatientSearchBusy}
+                      sx={{ minHeight: 30, px: 1 }}
+                    >
+                      Use Oracle billing demo
+                    </Button>
+                  )}
+              </Stack>
 
               {ehrAdvancedSearch && (
                 <Box
@@ -1306,30 +1346,6 @@ export default function ClaimsList() {
                 </Box>
               )}
 
-              {selectedEhrConnection()?.environment === "SANDBOX" &&
-                /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || "")) && (
-                  <Button
-                    size="small"
-                    variant="text"
-                    sx={{ mt: 1 }}
-                    onClick={() => {
-                      setEhrPatientId("12742419");
-                      setEhrEncounterId("97953601");
-                      setEhrPatientResults([]);
-                      setEhrPatientSearchInfo({
-                        severity: "success",
-                        message: "Oracle billing demo selected: patient 12742419, encounter 97953601."
-                      });
-                      setEhrPreview(null);
-                      setEhrResult(null);
-                      setEhrCreatedClaimId("");
-                    }}
-                    disabled={ehrBusy || ehrPatientSearchBusy}
-                  >
-                    Use Oracle billing demo
-                  </Button>
-                )}
-
               {ehrPatientSearchBusy && <LinearProgress sx={{ mt: 1 }} />}
 
               {ehrPatientSearchInfo && (
@@ -1338,74 +1354,114 @@ export default function ClaimsList() {
                 </Alert>
               )}
 
-              {ehrPatientResults.length > 0 && (
-                <Stack spacing={1} sx={{ mt: 1.25, maxHeight: 320, overflowY: "auto" }}>
-                  {ehrPatientResults.map((patient) => {
-                    const identifier = patient.identifiers?.[0];
-                    const selected = String(ehrPatientId) === String(patient.id);
-                    return (
-                      <Paper
-                        key={patient.id}
-                        variant="outlined"
-                        sx={{
-                          p: 1.25,
-                          borderColor: selected ? "primary.main" : "divider"
-                        }}
-                      >
-                        <Stack
-                          direction={{ xs: "column", sm: "row" }}
-                          justifyContent="space-between"
-                          spacing={1}
+              {ehrPatientResults.length > 0 && !ehrSelectedPatient && (
+                <Paper variant="outlined" sx={{ mt: 1.25, overflow: "hidden" }}>
+                  <Box sx={{ px: 1.25, py: 0.75, bgcolor: "action.hover" }}>
+                    <Typography variant="caption" fontWeight={800} color="text.secondary">
+                      SEARCH RESULTS
+                    </Typography>
+                  </Box>
+                  <Box sx={{ maxHeight: 230, overflowY: "auto" }}>
+                    {ehrPatientResults.map((patient, index) => {
+                      const identifier = patient.identifiers?.[0];
+                      return (
+                        <Box
+                          key={patient.id}
+                          sx={{
+                            px: 1.25,
+                            py: 0.9,
+                            borderTop: index ? "1px solid" : "none",
+                            borderColor: "divider",
+                            display: "grid",
+                            gridTemplateColumns: { xs: "1fr auto", md: "minmax(180px, 1.2fr) minmax(150px, 1fr) auto" },
+                            gap: 1,
+                            alignItems: "center"
+                          }}
                         >
-                          <Box>
-                            <Typography fontWeight={800}>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={800} noWrap>
                               {patient.name || "Unnamed Patient"}
                             </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              EHR ID: {patient.id}
-                              {patient.birthDate ? " • DOB: " + patient.birthDate : ""}
-                              {patient.gender ? " • " + patient.gender : ""}
+                            <Typography variant="caption" color="text.secondary" noWrap display="block">
+                              DOB {patient.birthDate || "—"} • {patient.gender || "—"} • ID {patient.id}
                             </Typography>
-                            {identifier && (
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                {identifier.type || "Identifier"}: {identifier.value}
-                              </Typography>
-                            )}
-                            {(patient.phones?.[0] || patient.emails?.[0]) && (
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                {[patient.phones?.[0], patient.emails?.[0]].filter(Boolean).join(" • ")}
-                              </Typography>
-                            )}
-                            {patient.address && (
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                {[
-                                  ...(patient.address.lines || []),
-                                  patient.address.city,
-                                  patient.address.state,
-                                  patient.address.postalCode
-                                ].filter(Boolean).join(", ")}
-                              </Typography>
-                            )}
                           </Box>
+
+                          <Box sx={{ display: { xs: "none", md: "block" }, minWidth: 0 }}>
+                            <Typography variant="caption" color="text.secondary" noWrap display="block">
+                              {identifier
+                                ? (identifier.type || "MRN") + ": " + identifier.value
+                                : "MRN / Identifier: —"}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" noWrap display="block">
+                              {[patient.phones?.[0], patient.emails?.[0]].filter(Boolean).join(" • ") || "Contact: —"}
+                            </Typography>
+                          </Box>
+
                           <Button
                             size="small"
-                            variant={selected ? "contained" : "outlined"}
+                            variant="outlined"
                             onClick={() => selectEhrPatient(patient)}
+                            sx={{ minWidth: 64, px: 1.25, py: 0.25 }}
                           >
-                            {selected ? "Selected" : "Select Patient"}
+                            Select
                           </Button>
-                        </Stack>
-                      </Paper>
-                    );
-                  })}
-                </Stack>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Paper>
               )}
 
-              {ehrPatientId && (
-                <Alert severity="success" sx={{ mt: 1.25 }}>
-                  Patient selected. EHR ID: {ehrPatientId}
-                  {ehrEncounterId ? " • Target encounter: " + ehrEncounterId : ""}
-                </Alert>
+              {ehrSelectedPatient && (
+                <Paper
+                  variant="outlined"
+                  sx={{ mt: 1.25, p: 1.25, borderColor: "primary.light", bgcolor: "action.hover" }}
+                >
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    justifyContent="space-between"
+                    alignItems={{ xs: "stretch", sm: "center" }}
+                    spacing={1}
+                  >
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="caption" color="text.secondary" fontWeight={800}>
+                        SELECTED PATIENT
+                      </Typography>
+                      <Typography variant="body2" fontWeight={800}>
+                        {ehrSelectedPatient.name || "Patient"}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        EHR ID {ehrPatientId}
+                        {ehrSelectedPatient.birthDate ? " • DOB " + ehrSelectedPatient.birthDate : ""}
+                        {ehrSelectedPatient.gender ? " • " + ehrSelectedPatient.gender : ""}
+                        {ehrEncounterId ? " • Encounter " + ehrEncounterId : ""}
+                      </Typography>
+                    </Box>
+
+                    <Stack direction="row" spacing={0.75} flexShrink={0}>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={changeEhrPatient}
+                        disabled={ehrBusy}
+                      >
+                        Change
+                      </Button>
+                      {!ehrPreview && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={fetchEhrClaimData}
+                          disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
+                          sx={{ minWidth: 112 }}
+                        >
+                          {ehrBusy ? "Fetching…" : "Fetch Data"}
+                        </Button>
+                      )}
+                    </Stack>
+                  </Stack>
+                </Paper>
               )}
             </Paper>
 
@@ -1418,45 +1474,89 @@ export default function ClaimsList() {
             )}
 
             {ehrPreview && (
-              <Paper variant="outlined" sx={{ p: 1.5 }}>
-                <Typography fontWeight={800} sx={{ mb: 1 }}>
-                  Fetched EHR Data
-                </Typography>
-                <Stack spacing={0.5}>
-                  <Typography variant="body2">
-                    <strong>Patient:</strong> {ehrPreview.summary?.patientName || "Missing"}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>Payer:</strong> {ehrPreview.summary?.payerName || "Not returned by EHR"}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>Encounter:</strong> {ehrPreview.summary?.encounterId || "Missing"}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>Billable lines:</strong> {ehrPreview.summary?.chargeCount || 0}
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>Claim amount:</strong>{" "}
-                    {ehrPreview.summary?.totalBilledAmount
-                      ? formatUSD(ehrPreview.summary.totalBilledAmount)
-                      : "Not available from EHR"}
-                  </Typography>
+              <Paper variant="outlined" sx={{ p: 1.25 }}>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  justifyContent="space-between"
+                  alignItems={{ xs: "stretch", sm: "flex-start" }}
+                  spacing={1}
+                >
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={800}>
+                      CLAIM DATA FROM EHR
+                    </Typography>
+                    <Box
+                      sx={{
+                        mt: 0.75,
+                        display: "grid",
+                        gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, minmax(0, 1fr))" },
+                        gap: 1
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Payer</Typography>
+                        <Typography variant="body2" fontWeight={700}>
+                          {ehrPreview.summary?.payerName || "Not returned"}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Encounter</Typography>
+                        <Typography variant="body2" fontWeight={700}>
+                          {ehrPreview.summary?.encounterId || "Missing"}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Billable lines</Typography>
+                        <Typography variant="body2" fontWeight={700}>
+                          {ehrPreview.summary?.chargeCount || 0}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Claim amount</Typography>
+                        <Typography variant="body2" fontWeight={700}>
+                          {ehrPreview.summary?.totalBilledAmount
+                            ? formatUSD(ehrPreview.summary.totalBilledAmount)
+                            : "Not available"}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    {ehrPreview.missing?.length > 0 && (
+                      <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
+                        Cannot create claim. Missing: {ehrPreview.missing.join(", ")}.
+                      </Alert>
+                    )}
+                    {ehrPreview.warnings?.length > 0 && (
+                      <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
+                        Draft can be created. Complete before submission: {ehrPreview.warnings.join(", ")}.
+                      </Alert>
+                    )}
+                    {!ehrPreview.missing?.length && !ehrPreview.warnings?.length && (
+                      <Alert severity="success" sx={{ mt: 1, py: 0 }}>
+                        Billing data is sufficient to create a draft claim.
+                      </Alert>
+                    )}
+                  </Box>
+
+                  <Stack spacing={0.75} sx={{ minWidth: { sm: 140 } }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={fetchEhrClaimData}
+                      disabled={ehrBusy}
+                    >
+                      {ehrBusy ? "Refreshing…" : "Refresh"}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={createEhrDraftFromPreview}
+                      disabled={ehrBusy || !ehrPreview.ready}
+                    >
+                      {ehrPreview.ready ? "Create Draft" : "Cannot Create"}
+                    </Button>
+                  </Stack>
                 </Stack>
-                {ehrEncounterId && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                    Target encounter: {ehrEncounterId}
-                  </Typography>
-                )}
-                {ehrPreview.missing?.length > 0 && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                    Claim cannot be created yet. Missing required data: {ehrPreview.missing.join(", ")}.
-                  </Typography>
-                )}
-                {ehrPreview.warnings?.length > 0 && (
-                  <Alert severity="warning" sx={{ mt: 1 }}>
-                    Draft can be created, but complete before submission: {ehrPreview.warnings.join(", ")}.
-                  </Alert>
-                )}
               </Paper>
             )}
           </Stack>
@@ -1464,40 +1564,15 @@ export default function ClaimsList() {
 
         <DialogActions>
           <Button onClick={closeEhrImport} disabled={ehrBusy}>Close</Button>
-
-          {ehrCreatedClaimId ? (
+          {ehrCreatedClaimId && (
             <Button
               variant="contained"
+              size="small"
               startIcon={<Visibility />}
               onClick={() => navigate(`/claims/${ehrCreatedClaimId}`)}
             >
               Open Claim
             </Button>
-          ) : !ehrPreview ? (
-            <Button
-              variant="contained"
-              onClick={fetchEhrClaimData}
-              disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
-            >
-              {ehrBusy ? "Fetching from EHR…" : "Fetch Patient Data"}
-            </Button>
-          ) : (
-            <>
-              <Button
-                variant="outlined"
-                onClick={fetchEhrClaimData}
-                disabled={ehrBusy}
-              >
-                {ehrBusy ? "Refreshing…" : "Refresh from EHR"}
-              </Button>
-              <Button
-                variant="contained"
-                onClick={createEhrDraftFromPreview}
-                disabled={ehrBusy || !ehrPreview.ready}
-              >
-                {ehrPreview.ready ? "Create Draft Claim" : "Cannot Create Claim"}
-              </Button>
-            </>
           )}
         </DialogActions>
       </Dialog>
