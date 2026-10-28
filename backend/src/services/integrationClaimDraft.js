@@ -122,9 +122,13 @@ export function buildIntegrationClaimDraft(records, { patientId, encounterId = n
       return data.beneficiaryRef === patientRef || data.subscriberRef === patientRef;
     })
     .sort((a, b) => {
-      const aActive = recordData(a).status === "active" ? 1 : 0;
-      const bActive = recordData(b).status === "active" ? 1 : 0;
-      return bActive - aActive;
+      const aData = recordData(a);
+      const bData = recordData(b);
+      const aEncounter = encounterRef && aData.encounterRef === encounterRef ? 2 : 0;
+      const bEncounter = encounterRef && bData.encounterRef === encounterRef ? 2 : 0;
+      const aActive = aData.status === "active" ? 1 : 0;
+      const bActive = bData.status === "active" ? 1 : 0;
+      return (bEncounter + bActive) - (aEncounter + aActive);
     })[0] || null;
 
   const serviceLines = charges
