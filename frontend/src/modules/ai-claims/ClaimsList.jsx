@@ -1141,15 +1141,46 @@ export default function ClaimsList() {
                 </Button>
               </Stack>
 
-              <Button
-                size="small"
-                variant="text"
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
                 sx={{ mt: 0.5 }}
-                onClick={() => setEhrAdvancedSearch((value) => !value)}
-                disabled={ehrPatientSearchBusy || ehrBusy}
               >
-                {ehrAdvancedSearch ? "Hide Advanced Search" : "Advanced Search"}
-              </Button>
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={() => setEhrAdvancedSearch((value) => !value)}
+                  disabled={ehrPatientSearchBusy || ehrBusy}
+                  sx={{ minHeight: 30, px: 1 }}
+                >
+                  {ehrAdvancedSearch ? "Hide Advanced Search" : "Advanced Search"}
+                </Button>
+
+                {selectedEhrConnection()?.environment === "SANDBOX" &&
+                  /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || "")) && (
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => {
+                        setEhrPatientId("12742419");
+                        setEhrEncounterId("97953601");
+                        setEhrPatientResults([]);
+                        setEhrPatientSearchInfo({
+                          severity: "success",
+                          message: "Oracle billing demo selected: patient 12742419, encounter 97953601."
+                        });
+                        setEhrPreview(null);
+                        setEhrResult(null);
+                        setEhrCreatedClaimId("");
+                      }}
+                      disabled={ehrBusy || ehrPatientSearchBusy}
+                      sx={{ minHeight: 30, px: 1 }}
+                    >
+                      Use Oracle billing demo
+                    </Button>
+                  )}
+              </Stack>
 
               {ehrAdvancedSearch && (
                 <Box
@@ -1305,30 +1336,6 @@ export default function ClaimsList() {
                   </Button>
                 </Box>
               )}
-
-              {selectedEhrConnection()?.environment === "SANDBOX" &&
-                /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || "")) && (
-                  <Button
-                    size="small"
-                    variant="text"
-                    sx={{ mt: 1 }}
-                    onClick={() => {
-                      setEhrPatientId("12742419");
-                      setEhrEncounterId("97953601");
-                      setEhrPatientResults([]);
-                      setEhrPatientSearchInfo({
-                        severity: "success",
-                        message: "Oracle billing demo selected: patient 12742419, encounter 97953601."
-                      });
-                      setEhrPreview(null);
-                      setEhrResult(null);
-                      setEhrCreatedClaimId("");
-                    }}
-                    disabled={ehrBusy || ehrPatientSearchBusy}
-                  >
-                    Use Oracle billing demo
-                  </Button>
-                )}
 
               {ehrPatientSearchBusy && <LinearProgress sx={{ mt: 1 }} />}
 
