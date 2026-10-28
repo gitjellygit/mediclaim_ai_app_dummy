@@ -162,6 +162,7 @@ function oracleHealthHttpStatus(error) {
   if (error?.code === "ORACLE_HEALTH_CONFIGURATION_REQUIRED") return 409;
   if (error?.code === "ORACLE_HEALTH_FHIR_REQUEST_FAILED") return 502;
   if (error?.code === "ORACLE_HEALTH_FHIR_TIMEOUT") return 504;
+  if (error?.code === "ORACLE_HEALTH_FHIR_CANCELLED") return 499;
   if (error?.code === "ORACLE_HEALTH_CAPABILITY_INVALID") return 502;
   return Number.isInteger(error?.status) ? error.status : 500;
 }
@@ -392,10 +393,18 @@ router.post("/:id/oracle-health/sync", requirePermission(PERMISSIONS.INTEGRATION
     environment: connection.environment,
     patientId
   });
+  const requestController = new AbortController();
+  const cancelRequest = () => requestController.abort();
+  req.once("aborted", cancelRequest);
+  res.once("close", () => {
+    if (!res.writableEnded) cancelRequest();
+  });
+
   let snapshot;
   try {
     snapshot = await fetchOracleHealthPatientSnapshot(config, patientId, {
-      encounterId: parsed.data.encounterId || null
+      encounterId: parsed.data.encounterId || null,
+      signal: requestController.signal
     });
     console.info("[oracle-health] patient sync FHIR calls completed", {
       connectionId: connection.id,
@@ -403,6 +412,13 @@ router.post("/:id/oracle-health/sync", requirePermission(PERMISSIONS.INTEGRATION
       calls: snapshot.calls
     });
   } catch (error) {
+    if (error?.code === "ORACLE_HEALTH_FHIR_CANCELLED" && requestController.signal.aborted) {
+      console.info("[oracle-health] patient sync cancelled", {
+        connectionId: connection.id,
+        patientId
+      });
+      return;
+    }
     console.error("[oracle-health] patient sync failed", {
       connectionId: connection.id,
       patientId,
