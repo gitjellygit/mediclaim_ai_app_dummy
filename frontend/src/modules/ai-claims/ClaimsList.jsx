@@ -674,14 +674,10 @@ export default function ClaimsList() {
         ehrPreview.encounterId || ""
       );
       setEhrCreatedClaimId(result.claimId);
-      setEhrResult({
-        severity: "success",
-        message: result.created
-          ? "Draft claim created from the reviewed EHR data."
-          : "The existing EHR-linked draft claim was refreshed."
-      });
       await loadClaims({ page: 1 });
       setClaimsPage(0);
+      setEhrDialogOpen(false);
+      navigate(`/claims/${result.claimId}`);
     } catch (error) {
       setEhrResult({
         severity: "error",
