@@ -173,12 +173,13 @@ export function buildIntegrationClaimDraft(records, { patientId, encounterId = n
     claimType: "PROVIDER_BILLED"
   };
 
-  const missing = [];
-  if (!claimData.patientName) missing.push("patient name");
-  if (!claimData.payerName) missing.push("payer / coverage");
-  if (!encounter) missing.push("encounter");
-  if (!serviceLines.length) missing.push("billable charges");
-  if (!claimData.amount) missing.push("positive billed amount");
+  const blockingMissing = [];
+  const completionWarnings = [];
+  if (!claimData.patientName) blockingMissing.push("patient name");
+  if (!encounter) blockingMissing.push("encounter");
+  if (!serviceLines.length) blockingMissing.push("billable charges");
+  if (!claimData.amount) blockingMissing.push("positive billed amount");
+  if (!claimData.payerName) completionWarnings.push("payer / coverage");
 
   const recordIds = [
     patient?.id,
@@ -202,11 +203,14 @@ export function buildIntegrationClaimDraft(records, { patientId, encounterId = n
       .find(Boolean) || null;
 
   return {
-    ready: missing.length === 0,
-    missing,
-    message: missing.length
-      ? "Claim draft needs " + missing.join(", ") + "."
-      : "Imported EHR data is ready to create a draft claim.",
+    ready: blockingMissing.length === 0,
+    missing: blockingMissing,
+    warnings: completionWarnings,
+    message: blockingMissing.length
+      ? "Claim draft needs " + blockingMissing.join(", ") + "."
+      : completionWarnings.length
+        ? "Draft claim can be created. Complete " + completionWarnings.join(", ") + " before submission."
+        : "Imported EHR data is ready to create a draft claim.",
     patientId: id,
     encounterId: encounter?.externalId || null,
     externalClaimId: encounter
