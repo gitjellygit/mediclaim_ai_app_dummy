@@ -301,6 +301,12 @@ router.post(
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
     });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
+    if (isSelfPayClaim(claim)) {
+      return res.status(409).json({
+        error: "Payer connection does not apply to self-pay claims",
+        code: "SELF_PAY_PAYER_CONNECTION_NOT_APPLICABLE"
+      });
+    }
     if (isClaimLocked(claim)) {
       return res.status(409).json({
         error: "Payer connection cannot be changed after claim submission"
