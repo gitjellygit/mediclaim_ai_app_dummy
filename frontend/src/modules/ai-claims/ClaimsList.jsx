@@ -1121,7 +1121,7 @@ export default function ClaimsList() {
                   fullWidth
                   size="small"
                   label="Smart Search"
-                  placeholder="Name, email, phone, DOB, id:123, mrn:123"
+                  placeholder="Name, email, phone, DOB, id:123, mrn:system|value"
                   value={ehrSearch.smart}
                   onChange={(event) => updateEhrSearch("smart", event.target.value)}
                   onKeyDown={(event) => {
