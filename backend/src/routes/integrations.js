@@ -17,6 +17,12 @@ import {
   fetchEpicPatientSnapshot,
   requestEpicAccessToken
 } from "../services/epicFhirConnector.js";
+import {
+  fetchOracleHealthPatientSnapshot,
+  oracleHealthConfig,
+  oracleHealthConfigurationStatus,
+  testOracleHealthConnection
+} from "../services/oracleHealthFhirConnector.js";
 
 const router = express.Router();
 const kinds = ["EHR", "PMS", "CLEARINGHOUSE", "PAYER", "HIE", "DATA_WAREHOUSE", "OTHER"];
@@ -67,6 +73,10 @@ const epicSyncSchema = z.object({
   patientId: z.string().trim().min(1).max(250).optional()
 }).strict();
 
+const oracleHealthSyncSchema = z.object({
+  patientId: z.string().trim().min(1).max(250).optional()
+}).strict();
+
 const orgId = (req) => req.user.organizationId;
 function stableJson(value) {
   if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
@@ -105,6 +115,24 @@ function epicHttpStatus(error) {
   return Number.isInteger(error?.status) ? error.status : 500;
 }
 
+function assertOracleHealthConnection(connection) {
+  const provider = String(connection?.provider || "").trim().toLowerCase();
+  const oracleProvider = provider.includes("oracle") || provider.includes("cerner");
+  if (connection?.kind !== "EHR" || !oracleProvider) {
+    const error = new Error("This operation requires an Oracle Health/Cerner EHR connection");
+    error.code = "ORACLE_HEALTH_CONNECTION_REQUIRED";
+    error.status = 409;
+    throw error;
+  }
+}
+
+function oracleHealthHttpStatus(error) {
+  if (error?.code === "ORACLE_HEALTH_CONFIGURATION_REQUIRED") return 409;
+  if (error?.code === "ORACLE_HEALTH_FHIR_REQUEST_FAILED") return 502;
+  if (error?.code === "ORACLE_HEALTH_CAPABILITY_INVALID") return 502;
+  return Number.isInteger(error?.status) ? error.status : 500;
+}
+
 async function claimFor(req, id) {
   if (!id) return null;
   return prisma.claim.findFirst({
@@ -121,6 +149,217 @@ router.get("/adapters/catalog", requirePermission(PERMISSIONS.INTEGRATION_VIEW),
   });
 });
 
+
+router.get("/:id/oracle-health/status", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertOracleHealthConnection(connection);
+  res.json({
+    connectionId: connection.id,
+    provider: connection.provider,
+    environment: connection.environment,
+    config: oracleHealthConfigurationStatus(connection.environment)
+  });
+});
+
+router.post("/:id/oracle-health/test", requirePermission(PERMISSIONS.INTEGRATION_MANAGE), async (req, res) => {
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertOracleHealthConnection(connection);
+  if (connection.status === "DISABLED") {
+    return res.status(409).json({ error: "Integration connection is disabled", code: "INTEGRATION_CONNECTION_DISABLED" });
+  }
+
+  const config = oracleHealthConfig(connection.environment);
+  try {
+    const result = await testOracleHealthConnection(config);
+    const now = new Date();
+    await prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: { status: "ACTIVE", lastHealthyAt: now, lastErrorAt: null, lastErrorCode: null }
+    });
+    await writeRequestAudit(prisma, req, {
+      action: "ORACLE_HEALTH_CONNECTION_TESTED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      metadata: { provider: "Oracle Health", environment: connection.environment, success: true }
+    });
+    return res.json({ ...result, environment: connection.environment });
+  } catch (error) {
+    console.error("[oracle-health] connection test failed", {
+      environment: connection.environment,
+      httpStatus: error.status || null,
+      code: error.code || null
+    });
+    await prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: { status: "ERROR", lastErrorAt: new Date(), lastErrorCode: error.code || "ORACLE_HEALTH_CONNECTION_TEST_FAILED" }
+    });
+    return res.status(oracleHealthHttpStatus(error)).json({
+      error: error.message,
+      code: error.code || "ORACLE_HEALTH_CONNECTION_TEST_FAILED"
+    });
+  }
+});
+
+router.post("/:id/oracle-health/sync", requirePermission(PERMISSIONS.INTEGRATION_INGEST), async (req, res) => {
+  const parsed = oracleHealthSyncSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid Oracle Health sync request", code: "INVALID_ORACLE_HEALTH_SYNC_REQUEST" });
+  }
+
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertOracleHealthConnection(connection);
+  if (connection.status === "DISABLED") {
+    return res.status(409).json({ error: "Integration connection is disabled", code: "INTEGRATION_CONNECTION_DISABLED" });
+  }
+
+  const config = oracleHealthConfig(connection.environment);
+  const patientId = parsed.data.patientId || config.testPatientId;
+  if (!patientId) {
+    return res.status(409).json({
+      error: "Configure an Oracle Health synthetic test patient ID or provide patientId",
+      code: "ORACLE_HEALTH_TEST_PATIENT_REQUIRED"
+    });
+  }
+
+  let snapshot;
+  try {
+    snapshot = await fetchOracleHealthPatientSnapshot(config, patientId);
+  } catch (error) {
+    await prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: { status: "ERROR", lastErrorAt: new Date(), lastErrorCode: error.code || "ORACLE_HEALTH_SYNC_FAILED" }
+    });
+    return res.status(oracleHealthHttpStatus(error)).json({
+      error: error.message,
+      code: error.code || "ORACLE_HEALTH_SYNC_FAILED"
+    });
+  }
+
+  const normalized = [];
+  for (const payload of snapshot.resources) {
+    normalized.push(...normalizeIntegrationPayload("FHIR_R4", payload));
+  }
+
+  const now = new Date();
+  const externalEventId = "oracle-health-sync-" + crypto.randomUUID();
+  const records = await prisma.$transaction(async (tx) => {
+    const saved = [];
+    for (const item of normalized) {
+      const dataHash = hashEvent(item.data);
+      const existing = await tx.integrationRecord.findUnique({
+        where: {
+          connectionId_resourceType_externalId: {
+            connectionId: connection.id,
+            resourceType: item.resourceType,
+            externalId: item.externalId
+          }
+        }
+      });
+      const record = await tx.integrationRecord.upsert({
+        where: {
+          connectionId_resourceType_externalId: {
+            connectionId: connection.id,
+            resourceType: item.resourceType,
+            externalId: item.externalId
+          }
+        },
+        create: {
+          organizationId: orgId(req),
+          connectionId: connection.id,
+          resourceType: item.resourceType,
+          externalId: item.externalId,
+          sourceFormat: "FHIR_R4",
+          sourceType: item.sourceType || null,
+          dataHash,
+          data: item.data,
+          provenance: {
+            sourceFormat: "FHIR_R4",
+            sourceType: item.sourceType || null,
+            vendor: "Oracle Health",
+            environment: connection.environment,
+            externalEventId
+          }
+        },
+        update: {
+          sourceFormat: "FHIR_R4",
+          sourceType: item.sourceType || null,
+          dataHash,
+          data: item.data,
+          lastSeenAt: now,
+          provenance: {
+            sourceFormat: "FHIR_R4",
+            sourceType: item.sourceType || null,
+            vendor: "Oracle Health",
+            environment: connection.environment,
+            externalEventId
+          }
+        }
+      });
+      saved.push({
+        id: record.id,
+        resourceType: record.resourceType,
+        externalId: record.externalId,
+        changed: existing ? existing.dataHash !== dataHash : true
+      });
+    }
+
+    await tx.integrationEvent.create({
+      data: {
+        organizationId: orgId(req),
+        connectionId: connection.id,
+        externalEventId,
+        eventType: "ORACLE_HEALTH_FHIR_PATIENT_SYNC",
+        direction: "INBOUND",
+        status: "PROCESSED",
+        sourceStatus: connection.environment,
+        correlationId: req.auditRequestId || null,
+        payloadHash: hashEvent(normalized),
+        occurredAt: now,
+        processedAt: now,
+        metadata: {
+          vendor: "Oracle Health",
+          patientId,
+          resourceCount: saved.length,
+          resourceTypes: [...new Set(saved.map((item) => item.resourceType))],
+          apiCallCount: snapshot.calls.length,
+          skippedCallCount: snapshot.calls.filter((item) => item.status === "SKIPPED").length
+        }
+      }
+    });
+
+    await tx.integrationConnection.update({
+      where: { id: connection.id },
+      data: { status: "ACTIVE", lastHealthyAt: now, lastErrorAt: null, lastErrorCode: null }
+    });
+
+    await writeCriticalRequestAudit(tx, req, {
+      action: "ORACLE_HEALTH_SYNTHETIC_PATIENT_SYNCED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      metadata: {
+        provider: "Oracle Health",
+        environment: connection.environment,
+        patientId,
+        resourceCount: saved.length,
+        resourceTypes: [...new Set(saved.map((item) => item.resourceType))],
+        skippedCallCount: snapshot.calls.filter((item) => item.status === "SKIPPED").length
+      }
+    });
+
+    return saved;
+  });
+
+  return res.json({
+    ok: true,
+    environment: connection.environment,
+    patientId,
+    records,
+    calls: snapshot.calls
+  });
+});
 
 router.get("/:id/epic/status", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
   const connection = await connectionFor(req, req.params.id);
