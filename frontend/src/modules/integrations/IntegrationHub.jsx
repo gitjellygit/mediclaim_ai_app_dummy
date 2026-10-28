@@ -244,6 +244,29 @@ export default function IntegrationHub() {
     }
   }
 
+  async function refreshClaimReadiness() {
+    if (!selected) return;
+    setClaimDraftBusy(true);
+    try {
+      const preview = await loadClaimDraftPreview(selected, oracleHealthPatientId);
+      if (!preview) {
+        setOracleHealthResult({
+          severity: "warning",
+          message: "No claim-readiness data is available yet. Sync the patient first."
+        });
+        return;
+      }
+      setOracleHealthResult({
+        severity: preview.ready ? "success" : "warning",
+        message: preview.ready
+          ? "Claim readiness refreshed: imported EHR data is ready for a draft claim."
+          : "Claim readiness refreshed: " + preview.message
+      });
+    } finally {
+      setClaimDraftBusy(false);
+    }
+  }
+
   async function createClaimFromImportedData() {
     if (!selected || !claimDraftPreview?.ready) return;
     setClaimDraftBusy(true);
@@ -592,9 +615,9 @@ export default function IntegrationHub() {
                         <Button
                           variant="outlined"
                           disabled={claimDraftBusy}
-                          onClick={() => loadClaimDraftPreview(selected, oracleHealthPatientId)}
+                          onClick={refreshClaimReadiness}
                         >
-                          Review Claim Data
+                          {claimDraftBusy ? "Refreshing…" : "Refresh Claim Readiness"}
                         </Button>
                         {canIngest && (
                           <Button

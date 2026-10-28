@@ -25,7 +25,11 @@ import {
   LinearProgress,
   Alert,
   Divider,
-  Tooltip
+  Tooltip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from "@mui/material";
 import {
   Search as SearchIcon,
@@ -36,10 +40,12 @@ import {
   CloudUpload,
   CheckCircle,
   ErrorOutline,
-  ContentCopy
+  ContentCopy,
+  CloudDownload
 } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import { ClaimsApi } from "../../api/claims.js";
+import { IntegrationsApi } from "../../api/integrations.js";
 import { useToast } from "../../context/ToastContext.jsx";
 import { AuthApi } from "../../api/auth.js";
 import { hasPermission, PERMISSIONS } from "../../security/permissions.js";
@@ -63,6 +69,9 @@ export default function ClaimsList() {
     hasPermission(user, PERMISSIONS.DOCUMENT_VIEW) &&
     hasPermission(user, PERMISSIONS.CLAIM_EDIT);
   const canDeleteClaims = hasPermission(user, PERMISSIONS.CLAIM_DELETE);
+  const canImportFromEhr =
+    hasPermission(user, PERMISSIONS.INTEGRATION_VIEW) &&
+    hasPermission(user, PERMISSIONS.INTEGRATION_INGEST);
   const canManageAssignments = hasPermission(user, PERMISSIONS.CLAIM_EDIT);
   const canSelectClaims = canDeleteClaims || canManageAssignments;
   const canViewFinancial = hasPermission(user, PERMISSIONS.FINANCIAL_VIEW);
@@ -83,6 +92,14 @@ export default function ClaimsList() {
   const [aiResults, setAiResults] = useState([]);
   const [aiCreatedClaimId, setAiCreatedClaimId] = useState("");
   const [assignmentTarget, setAssignmentTarget] = useState(null);
+  const [ehrDialogOpen, setEhrDialogOpen] = useState(false);
+  const [ehrConnections, setEhrConnections] = useState([]);
+  const [ehrConnectionId, setEhrConnectionId] = useState("");
+  const [ehrPatientId, setEhrPatientId] = useState("12724067");
+  const [ehrBusy, setEhrBusy] = useState(false);
+  const [ehrPreview, setEhrPreview] = useState(null);
+  const [ehrResult, setEhrResult] = useState(null);
+  const [ehrCreatedClaimId, setEhrCreatedClaimId] = useState("");
   const navigate = useNavigate();
   const { showToast, showDialog, confirmDialog } = useToast();
 
@@ -293,6 +310,159 @@ export default function ClaimsList() {
     );
   }
 
+
+  async function openEhrImport() {
+    setEhrDialogOpen(true);
+    setEhrPreview(null);
+    setEhrResult(null);
+    setEhrCreatedClaimId("");
+    try {
+      const data = await IntegrationsApi.list();
+      const supported = (data.items || []).filter((item) => {
+        if (item.kind !== "EHR" || item.status !== "ACTIVE") return false;
+        const provider = String(item.provider || "").toLowerCase();
+        return provider.includes("oracle") || provider.includes("cerner") || provider.includes("epic");
+      });
+      setEhrConnections(supported);
+      setEhrConnectionId((current) =>
+        supported.some((item) => item.id === current)
+          ? current
+          : (supported[0]?.id || "")
+      );
+      if (!supported.length) {
+        setEhrResult({
+          severity: "warning",
+          message: "No active supported EHR connection is available. Configure and test one in Integration Hub first."
+        });
+      }
+    } catch (error) {
+      setEhrConnections([]);
+      setEhrResult({
+        severity: "error",
+        message: error?.message || "Unable to load active EHR connections."
+      });
+    }
+  }
+
+  function closeEhrImport() {
+    if (ehrBusy) return;
+    setEhrDialogOpen(false);
+  }
+
+  function selectedEhrConnection() {
+    return ehrConnections.find((item) => item.id === ehrConnectionId) || null;
+  }
+
+  async function syncSelectedEhr(connection, patientId) {
+    const provider = String(connection?.provider || "").toLowerCase();
+    if (provider.includes("oracle") || provider.includes("cerner")) {
+      return IntegrationsApi.syncOracleHealth(connection.id, patientId);
+    }
+    if (provider.includes("epic")) {
+      return IntegrationsApi.syncEpic(connection.id, patientId);
+    }
+    const error = new Error("This EHR provider does not yet support direct patient import.");
+    error.code = "EHR_PROVIDER_UNSUPPORTED";
+    throw error;
+  }
+
+  async function fetchEhrClaimData({ create = false } = {}) {
+    const connection = selectedEhrConnection();
+    const patientId = ehrPatientId.trim();
+
+    if (!connection) {
+      setEhrResult({ severity: "warning", message: "Select an active EHR connection." });
+      return;
+    }
+    if (!patientId) {
+      setEhrResult({ severity: "warning", message: "Enter the EHR patient ID." });
+      return;
+    }
+
+    setEhrBusy(true);
+    setEhrPreview(null);
+    setEhrCreatedClaimId("");
+    setEhrResult({
+      severity: "info",
+      message: create
+        ? "Fetching EHR data and preparing the claim…"
+        : "Fetching EHR data and checking claim readiness…"
+    });
+
+    try {
+      await syncSelectedEhr(connection, patientId);
+      const preview = await IntegrationsApi.claimDraftPreview(connection.id, patientId);
+      setEhrPreview(preview);
+
+      if (!preview.ready) {
+        setEhrResult({
+          severity: "warning",
+          message: preview.message
+        });
+        return;
+      }
+
+      if (!create) {
+        setEhrResult({
+          severity: "success",
+          message: "EHR data is claim-ready. Review the summary below or create the draft claim."
+        });
+        return;
+      }
+
+      const result = await IntegrationsApi.createClaimDraft(
+        connection.id,
+        patientId,
+        preview.encounterId || ""
+      );
+      setEhrCreatedClaimId(result.claimId);
+      setEhrResult({
+        severity: "success",
+        message: result.created
+          ? "Draft claim created from the EHR data."
+          : "The existing EHR-linked draft claim was refreshed."
+      });
+      await loadClaims({ page: 1 });
+      setClaimsPage(0);
+      showToast("EHR claim is ready in Claims.", "success");
+    } catch (error) {
+      setEhrResult({
+        severity: "error",
+        message: error?.message || "Unable to fetch claim data from the EHR."
+      });
+    } finally {
+      setEhrBusy(false);
+    }
+  }
+
+  async function createEhrDraftFromPreview() {
+    const connection = selectedEhrConnection();
+    if (!connection || !ehrPreview?.ready) return;
+    setEhrBusy(true);
+    try {
+      const result = await IntegrationsApi.createClaimDraft(
+        connection.id,
+        ehrPatientId.trim(),
+        ehrPreview.encounterId || ""
+      );
+      setEhrCreatedClaimId(result.claimId);
+      setEhrResult({
+        severity: "success",
+        message: result.created
+          ? "Draft claim created from the reviewed EHR data."
+          : "The existing EHR-linked draft claim was refreshed."
+      });
+      await loadClaims({ page: 1 });
+      setClaimsPage(0);
+    } catch (error) {
+      setEhrResult({
+        severity: "error",
+        message: error?.message || "Unable to create the draft claim."
+      });
+    } finally {
+      setEhrBusy(false);
+    }
+  }
 
   function openAiCreate() {
     setAiFiles([]);
@@ -507,6 +677,16 @@ export default function ClaimsList() {
             onClick={() => navigate("/claims/new")}
           >
             New Claim
+          </Button>
+        )}
+
+        {canImportFromEhr && (
+          <Button
+            variant="contained"
+            startIcon={<CloudDownload />}
+            onClick={openEhrImport}
+          >
+            Create Claim from EHR
           </Button>
         )}
 
@@ -728,6 +908,140 @@ export default function ClaimsList() {
           await loadClaims();
         }}
       />
+
+      <Dialog
+        open={ehrDialogOpen}
+        onClose={closeEhrImport}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Create Claim from EHR</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Choose an active EHR connection and enter the patient ID from that EHR.
+            PRISM will fetch the available clinical and billing data, check claim readiness,
+            and create a normal draft claim when the required data is present.
+          </Typography>
+
+          <Stack spacing={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Active EHR Connection</InputLabel>
+              <Select
+                label="Active EHR Connection"
+                value={ehrConnectionId}
+                onChange={(event) => {
+                  setEhrConnectionId(event.target.value);
+                  setEhrPreview(null);
+                  setEhrResult(null);
+                  setEhrCreatedClaimId("");
+                }}
+                disabled={ehrBusy || !ehrConnections.length}
+              >
+                {ehrConnections.map((item) => (
+                  <MenuItem key={item.id} value={item.id}>
+                    {item.name} — {item.provider} ({item.environment})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <TextField
+              size="small"
+              label="EHR Patient ID"
+              value={ehrPatientId}
+              onChange={(event) => {
+                setEhrPatientId(event.target.value);
+                setEhrPreview(null);
+                setEhrCreatedClaimId("");
+              }}
+              disabled={ehrBusy}
+              helperText="For Oracle sandbox testing, 12724067 is the current synthetic patient."
+            />
+
+            {ehrBusy && <LinearProgress />}
+
+            {ehrResult && (
+              <Alert severity={ehrResult.severity}>
+                {ehrResult.message}
+              </Alert>
+            )}
+
+            {ehrPreview && (
+              <Paper variant="outlined" sx={{ p: 1.5 }}>
+                <Typography fontWeight={800} sx={{ mb: 1 }}>
+                  Claim Readiness
+                </Typography>
+                <Stack spacing={0.5}>
+                  <Typography variant="body2">
+                    <strong>Patient:</strong> {ehrPreview.summary?.patientName || "Missing"}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Payer:</strong> {ehrPreview.summary?.payerName || "Missing"}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Encounter:</strong> {ehrPreview.summary?.encounterId || "Missing"}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Billable lines:</strong> {ehrPreview.summary?.chargeCount || 0}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Total:</strong>{" "}
+                    {ehrPreview.summary?.totalBilledAmount
+                      ? formatUSD(ehrPreview.summary.totalBilledAmount)
+                      : "Missing"}
+                  </Typography>
+                </Stack>
+                {ehrPreview.missing?.length > 0 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                    Missing from EHR: {ehrPreview.missing.join(", ")}.
+                  </Typography>
+                )}
+              </Paper>
+            )}
+          </Stack>
+        </DialogContent>
+
+        <DialogActions>
+          <Button onClick={closeEhrImport} disabled={ehrBusy}>Close</Button>
+
+          {ehrCreatedClaimId ? (
+            <Button
+              variant="contained"
+              startIcon={<Visibility />}
+              onClick={() => navigate(`/claims/${ehrCreatedClaimId}`)}
+            >
+              Open Claim
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outlined"
+                onClick={() => fetchEhrClaimData({ create: false })}
+                disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
+              >
+                Fetch & Review
+              </Button>
+              {ehrPreview?.ready ? (
+                <Button
+                  variant="contained"
+                  onClick={createEhrDraftFromPreview}
+                  disabled={ehrBusy}
+                >
+                  Create Draft Claim
+                </Button>
+              ) : (
+                <Button
+                  variant="contained"
+                  onClick={() => fetchEhrClaimData({ create: true })}
+                  disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
+                >
+                  Fetch & Create Draft
+                </Button>
+              )}
+            </>
+          )}
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={aiCreateOpen}
