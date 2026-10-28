@@ -74,3 +74,21 @@ test("Completeness - saved provider taxonomy code clears review state", () => {
   assert.equal(byField(summary, "providerTaxonomyCode")?.state, "complete");
   assert.equal(byField(summary, "providerTaxonomy") == null, true);
 });
+
+
+test("Completeness - self-pay skips insurance-only requirements", () => {
+  const summary = buildClaimCompleteness(baseClaim({
+    payerName: "Self Pay",
+    policyNo: null,
+    memberId: null,
+    eligibilityStatus: "NOT_CHECKED",
+    priorAuthRequired: null,
+    priorAuthStatus: "NOT_CHECKED"
+  }));
+
+  assert.equal(byField(summary, "payerName")?.state, "not_applicable");
+  assert.equal(byField(summary, "policyNo")?.state, "not_applicable");
+  assert.equal(byField(summary, "memberId")?.state, "not_applicable");
+  assert.equal(byField(summary, "eligibilityStatus")?.state, "not_applicable");
+  assert.equal(byField(summary, "priorAuthStatus")?.state, "not_applicable");
+});
