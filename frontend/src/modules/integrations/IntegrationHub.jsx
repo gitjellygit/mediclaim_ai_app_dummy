@@ -71,6 +71,8 @@ export default function IntegrationHub() {
   const [epicPatientId, setEpicPatientId] = React.useState("");
   const [oracleHealthStatus, setOracleHealthStatus] = React.useState(null);
   const [oracleHealthBusy, setOracleHealthBusy] = React.useState(false);
+  const [oracleHealthAction, setOracleHealthAction] = React.useState(null);
+  const [oracleHealthResult, setOracleHealthResult] = React.useState(null);
   const [oracleHealthPatientId, setOracleHealthPatientId] = React.useState("12724067");
 
   const load = React.useCallback(async () => {
@@ -166,40 +168,51 @@ export default function IntegrationHub() {
   async function testOracleHealthConnection() {
     if (!selected) return;
     setOracleHealthBusy(true);
+    setOracleHealthAction("test");
+    setOracleHealthResult({ severity: "info", message: "Testing Oracle Health connection…" });
     try {
       const result = await IntegrationsApi.testOracleHealth(selected.id);
-      showToast(
-        "Oracle Health FHIR connection succeeded" +
-          (result.fhirVersion ? " (FHIR " + result.fhirVersion + ")." : "."),
-        "success"
-      );
+      const successMessage =
+        "Connected to Oracle Health" +
+        (result.fhirVersion ? " — FHIR " + result.fhirVersion : "");
+      setOracleHealthResult({ severity: "success", message: successMessage });
+      showToast(successMessage, "success");
       setOracleHealthStatus(await IntegrationsApi.oracleHealthStatus(selected.id));
       await load();
     } catch (error) {
-      showToast(error?.message || "Oracle Health connection test failed.", "error");
+      const message = error?.message || "Oracle Health connection test failed.";
+      setOracleHealthResult({ severity: "error", message });
+      showToast(message, "error");
     } finally {
       setOracleHealthBusy(false);
+      setOracleHealthAction(null);
     }
   }
 
   async function syncOracleHealthPatient() {
     if (!selected) return;
     setOracleHealthBusy(true);
+    setOracleHealthAction("sync");
+    setOracleHealthResult({ severity: "info", message: "Syncing synthetic Oracle Health patient…" });
     try {
       const result = await IntegrationsApi.syncOracleHealth(
         selected.id,
         oracleHealthPatientId.trim()
       );
-      showToast(
-        "Oracle Health sync completed: " + (result.records?.length || 0) + " normalized records.",
-        "success"
-      );
+      const successMessage =
+        "Oracle Health sync completed: " + (result.records?.length || 0) +
+        " normalized records from patient " + (result.patientId || oracleHealthPatientId) + ".";
+      setOracleHealthResult({ severity: "success", message: successMessage });
+      showToast(successMessage, "success");
       await loadRecords(selected, recordType);
       await load();
     } catch (error) {
-      showToast(error?.message || "Oracle Health patient sync failed.", "error");
+      const message = error?.message || "Oracle Health patient sync failed.";
+      setOracleHealthResult({ severity: "error", message });
+      showToast(message, "error");
     } finally {
       setOracleHealthBusy(false);
+      setOracleHealthAction(null);
     }
   }
 
@@ -381,7 +394,9 @@ export default function IntegrationHub() {
                       disabled={epicBusy || !epicStatus?.config?.ready}
                       onClick={syncEpicPatient}
                     >
-                      Sync Synthetic Patient
+                      {oracleHealthBusy && oracleHealthAction === "sync"
+                        ? "Syncing…"
+                        : "Sync Synthetic Patient"}
                     </Button>
                   )}
                 </Stack>
@@ -414,6 +429,11 @@ export default function IntegrationHub() {
                       : "Oracle Health FHIR base URL is not configured."}
                   </Alert>
                 )}
+                {oracleHealthResult && (
+                  <Alert severity={oracleHealthResult.severity} sx={{ mb: 1.25 }}>
+                    {oracleHealthResult.message}
+                  </Alert>
+                )}
 
                 <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ md: "center" }}>
                   <TextField
@@ -429,7 +449,9 @@ export default function IntegrationHub() {
                       disabled={oracleHealthBusy || !oracleHealthStatus?.config?.ready}
                       onClick={testOracleHealthConnection}
                     >
-                      Test Oracle Health Connection
+                      {oracleHealthBusy && oracleHealthAction === "test"
+                        ? "Testing…"
+                        : "Test Oracle Health Connection"}
                     </Button>
                   )}
                   {canIngest && (
