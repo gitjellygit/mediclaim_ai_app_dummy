@@ -50,8 +50,43 @@ test("Oracle Health patient sync requires Patient and skips unsupported optional
   assert.equal(snapshot.calls.find((x) => x.resource === "Coverage").status, "SKIPPED");
 });
 
-test("Oracle Health sync plan is patient-scoped", () => {
+test("Oracle Health sync plan is patient-scoped and uses Oracle Coverage patient search", () => {
   const plan = oracleHealthPatientSyncPlan("12724067");
   assert.equal(plan[0].path, "Patient/12724067");
+  assert.equal(
+    plan.find((item) => item.name === "Coverage").path,
+    "Coverage?patient=12724067"
+  );
   assert.ok(plan.every((item) => item.name === "Patient" || item.path.includes("12724067")));
+});
+
+test("Oracle Health sync fetches billable ChargeItems for returned encounters", async () => {
+  const seen = [];
+  const snapshot = await fetchOracleHealthPatientSnapshot(
+    { fhirBaseUrl: ORACLE_HEALTH_OPEN_SANDBOX.fhirBaseUrl },
+    "12724067",
+    async (url) => {
+      seen.push(url);
+      if (url.includes("/Patient/12724067")) {
+        return response(200, { resourceType: "Patient", id: "12724067" });
+      }
+      if (url.includes("/Encounter?patient=")) {
+        return response(200, {
+          resourceType: "Bundle",
+          type: "searchset",
+          entry: [{ resource: { resourceType: "Encounter", id: "enc-1" } }]
+        });
+      }
+      if (url.includes("/ChargeItem?context=enc-1&-status=billable")) {
+        return response(200, {
+          resourceType: "Bundle",
+          type: "searchset",
+          entry: [{ resource: { resourceType: "ChargeItem", id: "charge-1" } }]
+        });
+      }
+      return response(200, { resourceType: "Bundle", type: "searchset", entry: [] });
+    }
+  );
+  assert.ok(seen.some((url) => url.includes("/ChargeItem?context=enc-1&-status=billable")));
+  assert.equal(snapshot.calls.find((item) => item.resource === "ChargeItem").status, "SUCCESS");
 });
