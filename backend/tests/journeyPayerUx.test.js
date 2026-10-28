@@ -18,7 +18,7 @@ test("Journey requires payer connection only before submission", () => {
     source,
     /const workflowAdvanced =[\s\S]*claimSubmissionDate[\s\S]*SUBMITTED[\s\S]*DENIED[\s\S]*PAID/
   );
-  assert.match(source, /const payerConnectionRequired = !payerConnected && !workflowAdvanced/);
+  assert.match(source, /const payerConnectionRequired = !selfPay && !payerConnected && !workflowAdvanced/);
   assert.match(source, /historicalConnectionUnavailable = workflowAdvanced && !payerConnected/);
   assert.match(source, /Payer connection required\./);
   assert.match(source, /No payer connection record is available for this historical claim/);
