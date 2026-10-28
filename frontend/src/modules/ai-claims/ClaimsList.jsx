@@ -944,6 +944,24 @@ export default function ClaimsList() {
                   : "Enter the patient ID exactly as it appears in the selected EHR."
               }
             />
+            {selectedEhrConnection()?.environment === "SANDBOX" &&
+              /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || "")) && (
+                <Button
+                  size="small"
+                  variant="text"
+                  sx={{ alignSelf: "flex-start", mt: -1 }}
+                  onClick={() => {
+                    setEhrPatientId("12724067");
+                    setEhrPreview(null);
+                    setEhrResult(null);
+                    setEhrCreatedClaimId("");
+                  }}
+                  disabled={ehrBusy}
+                >
+                  Use Oracle test patient 12724067
+                </Button>
+              )}
+
 
             {ehrBusy && <LinearProgress />}
 
