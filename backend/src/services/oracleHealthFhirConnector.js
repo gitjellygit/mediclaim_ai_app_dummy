@@ -117,10 +117,14 @@ export function oracleHealthPatientSyncPlan(patientId) {
   ];
 }
 
-export async function fetchOracleHealthPatientSnapshot(config, patientId, fetchImpl = fetch) {
+export async function fetchOracleHealthPatientSnapshot(
+  config,
+  patientId,
+  { encounterId = null, fetchImpl = fetch } = {}
+) {
   const resources = [];
   const calls = [];
-  const encounterIds = [];
+  const encounterIds = encounterId ? [String(encounterId).trim()] : [];
 
   for (const item of oracleHealthPatientSyncPlan(patientId)) {
     try {
