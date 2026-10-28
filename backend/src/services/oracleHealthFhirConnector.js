@@ -46,9 +46,26 @@ export function oracleHealthConfigurationStatus(environment = "SANDBOX") {
 export async function oracleHealthFhirGet(config, path, fetchImpl = fetch) {
   const url = trimSlash(required(config.fhirBaseUrl, "Oracle Health FHIR base URL")) +
     "/" + String(path || "").replace(/^\/+/, "");
-  const response = await fetchImpl(url, {
-    headers: { Accept: "application/fhir+json, application/json+fhir, application/json" }
-  });
+  const timeoutMs = Number(process.env.ORACLE_HEALTH_REQUEST_TIMEOUT_MS || 15000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetchImpl(url, {
+      headers: { Accept: "application/fhir+json, application/json+fhir, application/json" },
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error("Oracle Health FHIR request timed out for " + path);
+      timeoutError.code = "ORACLE_HEALTH_FHIR_TIMEOUT";
+      timeoutError.status = 504;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   let payload = null;
   try {

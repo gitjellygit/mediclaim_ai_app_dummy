@@ -129,6 +129,7 @@ function assertOracleHealthConnection(connection) {
 function oracleHealthHttpStatus(error) {
   if (error?.code === "ORACLE_HEALTH_CONFIGURATION_REQUIRED") return 409;
   if (error?.code === "ORACLE_HEALTH_FHIR_REQUEST_FAILED") return 502;
+  if (error?.code === "ORACLE_HEALTH_FHIR_TIMEOUT") return 504;
   if (error?.code === "ORACLE_HEALTH_CAPABILITY_INVALID") return 502;
   return Number.isInteger(error?.status) ? error.status : 500;
 }
@@ -171,8 +172,18 @@ router.post("/:id/oracle-health/test", requirePermission(PERMISSIONS.INTEGRATION
   }
 
   const config = oracleHealthConfig(connection.environment);
+  console.info("[oracle-health] connection test started", {
+    connectionId: connection.id,
+    environment: connection.environment,
+    fhirBaseUrl: config.fhirBaseUrl
+  });
   try {
     const result = await testOracleHealthConnection(config);
+    console.info("[oracle-health] connection test succeeded", {
+      connectionId: connection.id,
+      environment: connection.environment,
+      fhirVersion: result.fhirVersion || null
+    });
     const now = new Date();
     await prisma.integrationConnection.update({
       where: { id: connection.id },
@@ -224,10 +235,27 @@ router.post("/:id/oracle-health/sync", requirePermission(PERMISSIONS.INTEGRATION
     });
   }
 
+  console.info("[oracle-health] patient sync started", {
+    connectionId: connection.id,
+    environment: connection.environment,
+    patientId
+  });
   let snapshot;
   try {
     snapshot = await fetchOracleHealthPatientSnapshot(config, patientId);
+    console.info("[oracle-health] patient sync FHIR calls completed", {
+      connectionId: connection.id,
+      patientId,
+      calls: snapshot.calls
+    });
   } catch (error) {
+    console.error("[oracle-health] patient sync failed", {
+      connectionId: connection.id,
+      patientId,
+      httpStatus: error.status || null,
+      code: error.code || null,
+      message: error.message
+    });
     await prisma.integrationConnection.update({
       where: { id: connection.id },
       data: { status: "ERROR", lastErrorAt: new Date(), lastErrorCode: error.code || "ORACLE_HEALTH_SYNC_FAILED" }
@@ -350,6 +378,13 @@ router.post("/:id/oracle-health/sync", requirePermission(PERMISSIONS.INTEGRATION
     });
 
     return saved;
+  });
+
+  console.info("[oracle-health] patient sync succeeded", {
+    connectionId: connection.id,
+    patientId,
+    recordCount: records.length,
+    calls: snapshot.calls
   });
 
   return res.json({
