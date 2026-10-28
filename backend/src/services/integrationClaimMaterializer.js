@@ -58,7 +58,6 @@ export function canMaterializeCanonicalClaim(data = {}) {
   const patch = claimPatchFromCanonical(data);
   return Boolean(
     String(patch.patientName || "").trim() &&
-    String(patch.payerName || "").trim() &&
     positiveMoney(patch.amount)
   );
 }
@@ -74,7 +73,7 @@ export async function materializeCanonicalClaim(tx, {
   if (!canMaterializeCanonicalClaim(data)) {
     return {
       materialized: false,
-      reason: "patientName, payerName and positive amount are required to materialize a billable claim"
+      reason: "patientName and positive amount are required to materialize a draft claim"
     };
   }
 
