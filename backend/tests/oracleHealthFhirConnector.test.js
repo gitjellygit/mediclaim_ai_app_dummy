@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ORACLE_HEALTH_OPEN_SANDBOX,
+  discoverOracleHealthBillableEncounters,
   fetchOracleHealthPatientSnapshot,
   oracleHealthPatientSearchPath,
   oracleHealthPatientSyncPlan,
@@ -238,4 +239,54 @@ test("Oracle patient search returns compact selectable patient results", async (
   assert.equal(result.items[0].identifiers[0].value, "MRN-100");
   assert.equal(result.items[0].phones[0], "5551234567");
   assert.equal(result.items[0].address.city, "Denver");
+});
+
+
+test("Oracle billable encounter discovery returns only positive-charge visits as billable", async () => {
+  const seen = [];
+  const result = await discoverOracleHealthBillableEncounters(
+    { fhirBaseUrl: ORACLE_HEALTH_OPEN_SANDBOX.fhirBaseUrl },
+    "p-1",
+    {
+      count: 10,
+      fetchImpl: async (url) => {
+        seen.push(url);
+        if (url.includes("/Encounter?patient=p-1")) {
+          return response(200, {
+            resourceType: "Bundle",
+            type: "searchset",
+            entry: [
+              { resource: { resourceType: "Encounter", id: "e-1", status: "finished", period: { start: "2026-01-01T10:00:00Z" } } },
+              { resource: { resourceType: "Encounter", id: "e-2", status: "finished", period: { start: "2026-01-02T10:00:00Z" } } }
+            ]
+          });
+        }
+        if (url.includes("ChargeItem?context=e-1")) {
+          return response(200, {
+            resourceType: "Bundle",
+            type: "searchset",
+            entry: [{
+              resource: {
+                resourceType: "ChargeItem",
+                id: "c-1",
+                quantity: { value: 1 },
+                extension: [{
+                  url: "https://fhir-ehr.cerner.com/r4/StructureDefinition/unit-price",
+                  valueMoney: { value: 125, currency: "USD" }
+                }]
+              }
+            }]
+          });
+        }
+        return response(200, { resourceType: "Bundle", type: "searchset", entry: [] });
+      }
+    }
+  );
+
+  assert.ok(seen.some((url) => url.includes("status=finished")));
+  assert.equal(result.encounterCount, 2);
+  assert.equal(result.billableCount, 1);
+  assert.equal(result.items.find((item) => item.id === "e-1").totalBilledAmount, 125);
+  assert.equal(result.items.find((item) => item.id === "e-1").billable, true);
+  assert.equal(result.items.find((item) => item.id === "e-2").billable, false);
 });
