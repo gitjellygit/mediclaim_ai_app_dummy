@@ -1,4 +1,5 @@
 import { systemRule } from "./ruleCatalog.js";
+import { isSelfPayClaim } from "./claimPaymentMode.js";
 
 export const US_READINESS_RULE_DEFAULTS = Object.freeze([
   {
@@ -113,6 +114,7 @@ function isoDateOnly(value) {
 
 export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() } = {}) {
   const issues = [];
+  const selfPay = isSelfPayClaim(claim);
   const configured = ruleMap(rules);
   const defaults = ruleMap(US_READINESS_RULE_DEFAULTS);
 
@@ -202,7 +204,7 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
     }
   }
 
-  if (!claim.memberId) {
+  if (!selfPay && !claim.memberId) {
     addIssue(
       issues,
       configured,
@@ -216,6 +218,7 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
   const claimPayer = String(claim.payerName || "").trim();
   const connectedPayer = String(claim.connectedPayerName || "").trim();
   if (
+    !selfPay &&
     claimPayer &&
     connectedPayer &&
     claimPayer.localeCompare(connectedPayer, undefined, { sensitivity: "accent" }) !== 0
@@ -234,6 +237,7 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
   const policyStart = isoDateOnly(claim.policyStartDate);
   const policyEnd = isoDateOnly(claim.policyEndDate);
   if (
+    !selfPay &&
     dos &&
     ((policyStart && dos < policyStart) || (policyEnd && dos > policyEnd))
   ) {
@@ -342,6 +346,7 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
   }
 
   if (
+    !selfPay &&
     claim.priorAuthRequired === true &&
     (claim.priorAuthStatus !== "APPROVED" || !claim.authorizationNo)
   ) {
@@ -356,6 +361,7 @@ export function evaluateUsReadinessRules(claim, rules = [], { now = new Date() }
   }
 
   if (
+    !selfPay &&
     claim.priorAuthRequired === true &&
     claim.priorAuthStatus === "APPROVED" &&
     claim.priorAuthExpiry &&

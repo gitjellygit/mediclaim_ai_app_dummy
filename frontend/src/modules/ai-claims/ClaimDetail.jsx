@@ -115,7 +115,15 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const aiCheckLocked =
     ["SUBMITTING", "SUBMITTED", "DENIED", "PAID"].includes(claim?.status) ||
     Boolean(claim?.claimSubmissionDate);
+  const selfPay = ["self pay", "selfpay", "patient pay", "patient responsibility"].includes(
+    String(claim?.payerName || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
   const payerMismatch =
+    !selfPay &&
     Boolean(claim?.payerName && claim?.connectedPayerName) &&
     String(claim.payerName).trim().toLowerCase() !==
       String(claim.connectedPayerName).trim().toLowerCase();
@@ -1118,7 +1126,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   async function runAICheck() {
     if (!canRunAI) return showToast("Only CASHIER/ADMIN can check claim readiness", "error");
-    if (claim?.eligibilityStatus !== "VERIFIED") {
+    if (!selfPay && claim?.eligibilityStatus !== "VERIFIED") {
       return showDialog(
         "Verify payer eligibility in Claim Journey before running readiness.",
         { title: "Eligibility required", severity: "warning" }
@@ -1512,8 +1520,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
   const checkHistory = Array.isArray(claim.checks) ? claim.checks.slice(0, 5) : [];
   const issues = Array.isArray(check?.issues) ? check.issues : [];
   const hasBlock = issues.some((i) => i.severity === "BLOCK");
-  const eligibilityClear = claim.eligibilityStatus === "VERIFIED";
+  const eligibilityClear = selfPay || claim.eligibilityStatus === "VERIFIED";
   const priorAuthClear =
+    selfPay ||
     claim.priorAuthStatus === "APPROVED" ||
     claim.priorAuthStatus === "NOT_REQUIRED";
 
@@ -1558,6 +1567,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
     Boolean(claim.claimSubmissionDate);
 
   const canSubmit =
+    !selfPay &&
     !claimFinalized &&
     eligibilityClear &&
     priorAuthClear &&
@@ -3055,7 +3065,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 <Button
                   variant="contained"
                   onClick={runAICheck}
-                  disabled={aiRunning || !canRunAI || aiCheckLocked || !eligibilityClear}
+                  disabled={aiRunning || !canRunAI || aiCheckLocked || (!selfPay && !eligibilityClear)}
                   data-testid="readiness-action"
                   sx={
                     routeFocus === "readiness-action"
@@ -3081,7 +3091,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                   variant="contained"
                   color="success"
                   onClick={submitClaim}
-                  disabled={!canSubmit || submittingClaim}
+                  disabled={selfPay || !canSubmit || submittingClaim}
                   data-testid="submit-claim-action"
                   sx={
                     routeFocus === "submit-claim-action"
@@ -3094,13 +3104,17 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                       : undefined
                   }
                 >
-                  {submittingClaim ? "Submitting..." : "Submit Claim"}
+                  {selfPay
+                    ? "Self-Pay — No Payer Submission"
+                    : submittingClaim
+                    ? "Submitting..."
+                    : "Submit Claim"}
                 </Button>
               </Stack>
             )}
           </Stack>
 
-          {!eligibilityClear && claim.status !== "SUBMITTED" && (
+          {!selfPay && !eligibilityClear && claim.status !== "SUBMITTED" && (
             <Alert
               severity="warning"
               sx={{ mt: 2 }}
@@ -3125,7 +3139,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
             </Alert>
           )}
 
-          {eligibilityClear && claim.status !== "SUBMITTED" && !priorAuthClear && (
+          {!selfPay && eligibilityClear && claim.status !== "SUBMITTED" && !priorAuthClear && (
             <Alert severity="warning" sx={{ mt: 2 }}>
               Eligibility is verified. Resolve prior authorization in Claim Journey before submission.
             </Alert>
@@ -3254,7 +3268,9 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
                 </Alert>
               ) : issues.length === 0 ? (
                 <Alert severity="success" sx={{ mb: 1.5 }}>
-                  All configured submission checks passed. Payer acceptance is still subject to payer-specific edits, coverage and payment policy.
+                  {selfPay
+                    ? "All configured readiness checks passed for this self-pay claim. Insurance eligibility and payer submission do not apply."
+                    : "All configured submission checks passed. Payer acceptance is still subject to payer-specific edits, coverage and payment policy."}
                 </Alert>
               ) : (
                 <Stack spacing={1} sx={{ mt: 0.5 }}>

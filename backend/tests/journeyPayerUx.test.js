@@ -18,8 +18,8 @@ test("Journey requires payer connection only before submission", () => {
     source,
     /const workflowAdvanced =[\s\S]*claimSubmissionDate[\s\S]*SUBMITTED[\s\S]*DENIED[\s\S]*PAID/
   );
-  assert.match(source, /const payerConnectionRequired = !payerConnected && !workflowAdvanced/);
-  assert.match(source, /historicalConnectionUnavailable = workflowAdvanced && !payerConnected/);
+  assert.match(source, /const payerConnectionRequired = !selfPay && !payerConnected && !workflowAdvanced/);
+  assert.match(source, /historicalConnectionUnavailable = !selfPay && workflowAdvanced && !payerConnected/);
   assert.match(source, /Payer connection required\./);
   assert.match(source, /No payer connection record is available for this historical claim/);
   assert.match(source, /No action is required because this claim has already advanced/);
@@ -62,4 +62,17 @@ test("payer connection identity stays separate from insurance on file", () => {
   assert.match(journeySource, /insurance-payer-mismatch/);
   assert.match(journeySource, /Not Verified Against File/);
   assert.match(journeySource, /Connecting a payer does not update the source insurance record/);
+});
+
+
+test("Journey treats self-pay as patient responsibility, not a payer connection", () => {
+  const source = fs.readFileSync(journeyPath, "utf8");
+
+  assert.match(source, /const selfPay = \["self pay", "selfpay", "patient pay", "patient responsibility"\]/);
+  assert.match(source, /payerConnectionRequired = !selfPay && !payerConnected/);
+  assert.match(source, /Payment Responsibility/);
+  assert.match(source, /Patient is responsible for payment/);
+  assert.match(source, /Insurance eligibility and payer prior authorization do not apply/);
+  assert.match(source, /Self-pay claim is ready for patient billing review/);
+  assert.match(source, /!selfPay && \(simulatedPayerConnected \|\| externalSubmissionSupported\)/);
 });

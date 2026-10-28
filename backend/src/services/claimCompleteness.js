@@ -1,3 +1,5 @@
+import { isSelfPayClaim } from "./claimPaymentMode.js";
+
 /**
  * Context-aware claim completeness.
  *
@@ -93,6 +95,7 @@ export function getClaimApplicability(claim) {
 
 export function buildClaimCompleteness(claim) {
   const applicability = getClaimApplicability(claim);
+  const selfPay = isSelfPayClaim(claim);
 
   const fields = [];
 
@@ -134,9 +137,9 @@ export function buildClaimCompleteness(claim) {
   push({ field: "claimForm", required: true });
   push({ field: "patientName", required: true });
   push({ field: "patientDob", required: true });
-  push({ field: "payerName", required: true });
-  push({ field: "policyNo", required: true });
-  push({ field: "memberId", required: true });
+  push({ field: "payerName", required: !selfPay, conditional: selfPay, applicable: !selfPay, reason: selfPay ? "Self-pay claim has no insurance payer" : null });
+  push({ field: "policyNo", required: !selfPay, conditional: selfPay, applicable: !selfPay, reason: selfPay ? "Self-pay claim has no insurance policy" : null });
+  push({ field: "memberId", required: !selfPay, conditional: selfPay, applicable: !selfPay, reason: selfPay ? "Self-pay claim has no insurance member ID" : null });
   push({ field: "diagnosisText", required: true });
   const pendingCodingSuggestions = Array.isArray(claim?.codingSuggestions)
     ? claim.codingSuggestions.filter((item) => item?.status === "PENDING")
@@ -290,23 +293,31 @@ export function buildClaimCompleteness(claim) {
   // Journey prerequisites.
   push({
     field: "eligibilityStatus",
-    required: true,
+    required: !selfPay,
+    conditional: selfPay,
+    applicable: !selfPay,
     complete: claim?.eligibilityStatus === "VERIFIED",
-    reason: "Eligibility must be resolved before submission",
+    reason: selfPay
+      ? "Insurance eligibility does not apply to self-pay"
+      : "Eligibility must be resolved before submission",
     fixTarget: "eligibility"
   });
   push({
     field: "priorAuthStatus",
-    required: true,
+    required: !selfPay,
+    conditional: selfPay,
+    applicable: !selfPay,
     complete: ["APPROVED", "NOT_REQUIRED"].includes(claim?.priorAuthStatus),
-    reason: "Prior authorization requirement must be resolved",
+    reason: selfPay
+      ? "Payer prior authorization does not apply to self-pay"
+      : "Prior authorization requirement must be resolved",
     fixTarget: "prior-auth"
   });
   push({
     field: "authorizationNo",
     required: Boolean(claim?.priorAuthRequired),
     conditional: true,
-    applicable: Boolean(claim?.priorAuthRequired),
+    applicable: !selfPay && Boolean(claim?.priorAuthRequired),
     reason: claim?.priorAuthRequired
       ? "Required because prior authorization is required"
       : "Prior authorization not required",

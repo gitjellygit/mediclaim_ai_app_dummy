@@ -12,6 +12,7 @@ import {
 import { syncDenialRecoveryFromPayment } from "../services/recoverySettlement.js";
 import { markReadinessChecksStale } from "../services/readinessHistory.js";
 import { buildClaimCompleteness } from "../services/claimCompleteness.js";
+import { isSelfPayClaim } from "../services/claimPaymentMode.js";
 import { getMockPayer, payerInputFingerprint } from "../services/payerSimulator.js";
 import { assertClaimTransition } from "../services/workflowStateMachine.js";
 import { isClaimLocked, isClaimSubmittedOrLater } from "../services/claimLock.js";
@@ -135,8 +136,10 @@ function logJourneyEvent(claimId, action, result, extra = {}) {
 }
 
 function buildJourneyState(claim) {
-  const eligibilityComplete = claim.eligibilityStatus === "VERIFIED";
+  const selfPay = isSelfPayClaim(claim);
+  const eligibilityComplete = selfPay || claim.eligibilityStatus === "VERIFIED";
   const authComplete =
+    selfPay ||
     claim.priorAuthStatus === "APPROVED" ||
     claim.priorAuthStatus === "NOT_REQUIRED";
 
@@ -155,22 +158,24 @@ function buildJourneyState(claim) {
 
   return {
     eligibility: {
-      status: claim.eligibilityStatus,
+      status: selfPay ? "NOT_REQUIRED" : claim.eligibilityStatus,
       checkedAt: claim.eligibilityCheckedAt,
       coverageStatus: claim.coverageStatus,
       deductibleRemaining: claim.deductibleRemaining,
       coinsurancePct: claim.coinsurancePct,
       networkStatus: claim.networkStatus,
-      actionable: !submitted
+      actionable: !selfPay && !submitted
     },
     priorAuth: {
-      status: claim.priorAuthStatus,
-      required: claim.priorAuthRequired,
+      status: selfPay ? "NOT_REQUIRED" : claim.priorAuthStatus,
+      required: selfPay ? false : claim.priorAuthRequired,
       checkedAt: claim.priorAuthCheckedAt,
       authorizationNo: claim.authorizationNo,
       expiry: claim.priorAuthExpiry,
-      actionable: eligibilityComplete && !submitted,
-      blockedReason: submitted
+      actionable: !selfPay && eligibilityComplete && !submitted,
+      blockedReason: selfPay
+        ? "Not applicable to self-pay"
+        : submitted
         ? "Locked after claim submission"
         : eligibilityComplete
         ? null
@@ -296,6 +301,12 @@ router.post(
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null }
     });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
+    if (isSelfPayClaim(claim)) {
+      return res.status(409).json({
+        error: "Payer connection does not apply to self-pay claims",
+        code: "SELF_PAY_PAYER_CONNECTION_NOT_APPLICABLE"
+      });
+    }
     if (isClaimLocked(claim)) {
       return res.status(409).json({
         error: "Payer connection cannot be changed after claim submission"
@@ -386,6 +397,12 @@ router.post("/:id/journey/eligibility/precheck", requirePermission(PERMISSIONS.P
       }
     });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
+    if (isSelfPayClaim(claim)) {
+      return res.status(409).json({
+        error: "Eligibility does not apply to self-pay claims",
+        code: "SELF_PAY_ELIGIBILITY_NOT_APPLICABLE"
+      });
+    }
     const eligibilityProviderName = claim.organization?.stediBillingProviderName || null;
     delete claim.organization;
 
@@ -596,6 +613,12 @@ router.post("/:id/journey/prior-auth/evaluate", requirePermission(PERMISSIONS.PA
     const claim = await prisma.claim.findFirst({
       where: { id: req.params.id, organizationId: orgId(req), deletedAt: null } });
     if (!claim) return res.status(404).json({ error: "Claim not found" });
+    if (isSelfPayClaim(claim)) {
+      return res.status(409).json({
+        error: "Prior authorization does not apply to self-pay claims",
+        code: "SELF_PAY_PRIOR_AUTH_NOT_APPLICABLE"
+      });
+    }
 
     if (isClaimLocked(claim)) {
       return res.status(409).json({

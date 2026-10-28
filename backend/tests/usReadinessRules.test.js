@@ -238,3 +238,35 @@ test("Denial prevention - approved prior auth must cover the date of service", (
     /expired before the date of service/i
   );
 });
+
+
+test("US readiness rules skip insurance-only blockers for self-pay", () => {
+  const claim = {
+    payerName: "Self Pay",
+    memberId: null,
+    connectedPayerName: null,
+    policyStartDate: null,
+    policyEndDate: null,
+    dateOfService: new Date("2026-10-01T00:00:00.000Z"),
+    billingProviderNpi: "1234567890",
+    renderingProviderNpi: "1234567890",
+    icd10Codes: ["Z00.00"],
+    serviceLines: [{
+      verified: true,
+      cptHcpcsCode: "99213",
+      diagnosisPointers: ["Z00.00"],
+      serviceDateFrom: new Date("2026-10-01T00:00:00.000Z"),
+      serviceDateTo: new Date("2026-10-01T00:00:00.000Z")
+    }],
+    priorAuthRequired: null,
+    priorAuthStatus: "NOT_CHECKED",
+    coordinationOfBenefits: "PRIMARY",
+    payerConnectionMode: "LOCAL"
+  };
+
+  const issues = evaluateUsReadinessRules(claim, []);
+  assert.equal(issues.some((issue) => issue.rule === "US_MEMBER_ID"), false);
+  assert.equal(issues.some((issue) => issue.rule === "US_PAYER_SOURCE_MATCH"), false);
+  assert.equal(issues.some((issue) => issue.rule === "US_COVERAGE_DOS"), false);
+  assert.equal(issues.some((issue) => issue.rule === "US_PRIOR_AUTH"), false);
+});

@@ -121,7 +121,7 @@ function journeyStepState(key, stages) {
   if (!stages) return "pending";
 
   if (key === "eligibility") {
-    if (stages.eligibility?.status === "VERIFIED") return "complete";
+    if (["VERIFIED", "NOT_REQUIRED"].includes(stages.eligibility?.status)) return "complete";
     if (["FAILED", "NEEDS_REVIEW"].includes(stages.eligibility?.status)) return "attention";
     return "active";
   }
@@ -652,6 +652,9 @@ export default function ClaimJourney() {
 
   const claim = journey?.claim;
   const stages = journey?.stages;
+  const selfPay = ["self pay", "selfpay", "patient pay", "patient responsibility"].includes(
+    normalizePayerName(claim?.payerName)
+  );
   const latestJourneyCheck = Array.isArray(claim?.checks) ? claim.checks[0] : null;
   const latestJourneyIssues = Array.isArray(latestJourneyCheck?.issues)
     ? latestJourneyCheck.issues
@@ -662,7 +665,7 @@ export default function ClaimJourney() {
     Number(latestJourneyCheck?.score) >= 80 &&
     !latestJourneyIssues.some((issue) => issue?.severity === "BLOCK");
   const journeySubmissionActionable =
-    Boolean(stages?.claim?.actionable) && journeyReadinessClear;
+    !selfPay && Boolean(stages?.claim?.actionable) && journeyReadinessClear;
   const focusedStage = searchParams.get("stage") || "";
   const focusedAction = searchParams.get("focus") || "";
 
@@ -696,7 +699,7 @@ export default function ClaimJourney() {
         }
       : undefined;
 
-  const eligibilityComplete = stages?.eligibility?.status === "VERIFIED";
+  const eligibilityComplete = selfPay || stages?.eligibility?.status === "VERIFIED";
 
   const authFormMatchesSaved = Boolean(claim) &&
     (claim.priorAuthRequired == null
@@ -898,18 +901,22 @@ export default function ClaimJourney() {
     ["SUBMITTED", "DENIED", "PAID"].includes(claim?.status || "") ||
     Boolean(claim?.payerClaimStatus) ||
     ["RECEIVED", "POSTED"].includes(claim?.remittanceStatus || "");
-  const payerConnectionRequired = !payerConnected && !workflowAdvanced;
-  const historicalConnectionUnavailable = workflowAdvanced && !payerConnected;
+  const payerConnectionRequired = !selfPay && !payerConnected && !workflowAdvanced;
+  const historicalConnectionUnavailable = !selfPay && workflowAdvanced && !payerConnected;
   if (!workflowAdvanced) {
-    if (!payerConnected) journeyNextActions.push("Connect the payer");
-    if (insurancePayerMismatch) journeyNextActions.push("Review insurance mismatch");
-    if (!eligibilityComplete) journeyNextActions.push("Resolve eligibility");
-    else if (
-      !["APPROVED", "NOT_REQUIRED"].includes(stages?.priorAuth?.status)
-    ) {
-      journeyNextActions.push("Resolve prior authorization");
-    } else if (!claim?.claimSubmissionDate) {
-      journeyNextActions.push("Complete claim submission");
+    if (selfPay) {
+      journeyNextActions.push("Complete self-pay claim review");
+    } else {
+      if (!payerConnected) journeyNextActions.push("Connect the payer");
+      if (insurancePayerMismatch) journeyNextActions.push("Review insurance mismatch");
+      if (!eligibilityComplete) journeyNextActions.push("Resolve eligibility");
+      else if (
+        !["APPROVED", "NOT_REQUIRED"].includes(stages?.priorAuth?.status)
+      ) {
+        journeyNextActions.push("Resolve prior authorization");
+      } else if (!claim?.claimSubmissionDate) {
+        journeyNextActions.push("Complete claim submission");
+      }
     }
   }
   const submissionTransaction = payerTransactions.find(
@@ -1146,7 +1153,9 @@ export default function ClaimJourney() {
             Claim Journey
           </Typography>
           <Typography color="text.secondary" variant="body2">
-            Track the claim from eligibility through payment.
+            {selfPay
+              ? "Track this self-pay claim through coding, readiness, and patient billing review."
+              : "Track the claim from eligibility through payment."}
           </Typography>
         </Box>
 
@@ -1408,22 +1417,28 @@ export default function ClaimJourney() {
                 <Box>
                   <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
                     <Typography variant="h6" fontWeight={800}>
-                      Insurance on File
+                      {selfPay ? "Payment Responsibility" : "Insurance on File"}
                     </Typography>
                     <Chip
                       size="small"
                       variant="outlined"
-                      color={insuranceOnFileState.color}
-                      label={insuranceOnFileState.label}
+                      color={selfPay ? "info" : insuranceOnFileState.color}
+                      label={selfPay ? "Self Pay" : insuranceOnFileState.label}
                       data-testid="insurance-verification-state"
                     />
                   </Stack>
                   <Typography variant="body1" fontWeight={700} sx={{ mt: 1 }}>
-                    {claim.payerName || "Payer not recorded"}
+                    {selfPay ? "Patient is responsible for payment" : (claim.payerName || "Payer not recorded")}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Member {claim.memberId || "—"} • Policy {claim.policyNo || "—"}
-                    {claim.payerEdiId ? ` • Payer ID ${claim.payerEdiId}` : ""}
+                    {selfPay
+                      ? "Insurance eligibility and payer prior authorization do not apply."
+                      : (
+                        <>
+                          Member {claim.memberId || "—"} • Policy {claim.policyNo || "—"}
+                          {claim.payerEdiId ? ` • Payer ID ${claim.payerEdiId}` : ""}
+                        </>
+                      )}
                   </Typography>
                   {payerNameProvenance?.label && (
                     <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
@@ -1442,7 +1457,7 @@ export default function ClaimJourney() {
                     </Alert>
                   )}
                 </Box>
-                {!workflowAdvanced && (
+                {!selfPay && !workflowAdvanced && (
                   <Button
                     variant="outlined"
                     size="small"
@@ -1462,6 +1477,7 @@ export default function ClaimJourney() {
 
           <Card
             sx={{
+              display: selfPay ? "none" : undefined,
               mb: 3,
               border: payerConnectionRequired ? "2px solid" : undefined,
               borderColor: payerConnectionRequired ? "warning.main" : undefined,
@@ -1868,6 +1884,8 @@ export default function ClaimJourney() {
                     <Typography variant="body2" color="text.secondary">
                       {journeyNextActions.length > 0
                         ? journeyNextActions.join(" • ")
+                        : selfPay
+                        ? "No insurance workflow applies. Complete readiness for patient billing review."
                         : "No payer-workflow blockers remain before submission."}
                     </Typography>
                     {(claim.automationSummary.reviewFields > 0 ||
@@ -2346,7 +2364,14 @@ export default function ClaimJourney() {
               <Stack spacing={1.2}>
                 {!journeyReadinessClear && !internalClaimSubmitted && !submissionBlock && (
                   <Alert severity="warning" data-testid="readiness-required-alert">
-                    Run or refresh Submission Readiness and resolve all blocking issues before sending this claim to the payer.
+                    {selfPay
+                      ? "Run or refresh readiness and resolve the remaining coding/billing issues before patient billing."
+                      : "Run or refresh Submission Readiness and resolve all blocking issues before sending this claim to the payer."}
+                  </Alert>
+                )}
+                {selfPay && journeyReadinessClear && (
+                  <Alert severity="success" data-testid="self-pay-ready-alert">
+                    Self-pay claim is ready for patient billing review. Insurance eligibility, prior authorization, and payer submission do not apply.
                   </Alert>
                 )}
                 {submissionBlock && (
@@ -2368,7 +2393,7 @@ export default function ClaimJourney() {
                 <Typography variant="caption" color="text.secondary">
                   Submitted: {date(stages.claim.submissionDate)}
                 </Typography>
-                {(simulatedPayerConnected || externalSubmissionSupported) && (
+                {!selfPay && (simulatedPayerConnected || externalSubmissionSupported) && (
                   <>
                     {denialRecoveryActive ? (
                       <Alert
