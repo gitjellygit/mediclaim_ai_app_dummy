@@ -97,6 +97,9 @@ export default function ClaimsList() {
   const [ehrConnectionId, setEhrConnectionId] = useState("");
   const [ehrPatientId, setEhrPatientId] = useState("");
   const [ehrEncounterId, setEhrEncounterId] = useState("");
+  const [ehrEncounterResults, setEhrEncounterResults] = useState([]);
+  const [ehrEncounterSearchBusy, setEhrEncounterSearchBusy] = useState(false);
+  const [ehrEncounterInfo, setEhrEncounterInfo] = useState(null);
   const [ehrBusy, setEhrBusy] = useState(false);
   const [ehrPatientSearchBusy, setEhrPatientSearchBusy] = useState(false);
   const [ehrAdvancedSearch, setEhrAdvancedSearch] = useState(false);
@@ -342,6 +345,8 @@ export default function ClaimsList() {
     setEhrCreatedClaimId("");
     setEhrPatientId("");
     setEhrEncounterId("");
+    setEhrEncounterResults([]);
+    setEhrEncounterInfo(null);
     setEhrPatientResults([]);
     setEhrSelectedPatient(null);
     setEhrPatientSearchInfo(null);
@@ -490,6 +495,8 @@ export default function ClaimsList() {
     setEhrPatientId("");
     setEhrSelectedPatient(null);
     setEhrEncounterId("");
+    setEhrEncounterResults([]);
+    setEhrEncounterInfo(null);
     setEhrPreview(null);
     setEhrCreatedClaimId("");
 
@@ -531,6 +538,13 @@ export default function ClaimsList() {
     setEhrPatientSearchInfo(null);
   }
 
+  async function useEncounterForClaim(encounter) {
+    setEhrEncounterId(encounter.id);
+    setEhrPreview(null);
+    setEhrResult(null);
+    await fetchEhrClaimData(encounter.id);
+  }
+
   function changeEhrPatient() {
     setEhrPatientId("");
     setEhrSelectedPatient(null);
@@ -540,10 +554,52 @@ export default function ClaimsList() {
     setEhrCreatedClaimId("");
   }
 
-  async function syncSelectedEhr(connection, patientId) {
+  async function findBillableEncounters() {
+    const connection = selectedEhrConnection();
+    const patientId = ehrPatientId.trim();
+    if (!connection || !patientId) return;
+
+    setEhrEncounterSearchBusy(true);
+    setEhrEncounterResults([]);
+    setEhrEncounterInfo({ severity: "info", message: "Checking recent completed visits for billable charges…" });
+    setEhrEncounterId("");
+    setEhrPreview(null);
+    setEhrResult(null);
+
+    try {
+      const result = await IntegrationsApi.billableEncounters(connection.id, patientId, 25);
+      const items = result.items || [];
+      setEhrEncounterResults(items);
+      if (!items.length) {
+        setEhrEncounterInfo({
+          severity: "warning",
+          message: "No completed encounters were returned for this patient."
+        });
+      } else if (!result.billableCount) {
+        setEhrEncounterInfo({
+          severity: "warning",
+          message: "Visits were found, but none currently contain a positive billable ChargeItem."
+        });
+      } else {
+        setEhrEncounterInfo({
+          severity: "success",
+          message: result.billableCount + " billable visit" + (result.billableCount === 1 ? "" : "s") + " found."
+        });
+      }
+    } catch (error) {
+      setEhrEncounterInfo({
+        severity: "error",
+        message: error?.message || "Unable to discover billable visits."
+      });
+    } finally {
+      setEhrEncounterSearchBusy(false);
+    }
+  }
+
+  async function syncSelectedEhr(connection, patientId, encounterId = ehrEncounterId) {
     const provider = String(connection?.provider || "").toLowerCase();
     if (provider.includes("oracle") || provider.includes("cerner")) {
-      return IntegrationsApi.syncOracleHealth(connection.id, patientId, ehrEncounterId);
+      return IntegrationsApi.syncOracleHealth(connection.id, patientId, encounterId);
     }
     if (provider.includes("epic")) {
       return IntegrationsApi.syncEpic(connection.id, patientId);
@@ -553,7 +609,7 @@ export default function ClaimsList() {
     throw error;
   }
 
-  async function fetchEhrClaimData() {
+  async function fetchEhrClaimData(encounterOverride = ehrEncounterId) {
     const connection = selectedEhrConnection();
     const patientId = ehrPatientId.trim();
 
@@ -575,11 +631,11 @@ export default function ClaimsList() {
     });
 
     try {
-      await syncSelectedEhr(connection, patientId);
+      await syncSelectedEhr(connection, patientId, encounterOverride);
       const preview = await IntegrationsApi.claimDraftPreview(
         connection.id,
         patientId,
-        ehrEncounterId
+        encounterOverride
       );
       setEhrPreview(preview);
 
