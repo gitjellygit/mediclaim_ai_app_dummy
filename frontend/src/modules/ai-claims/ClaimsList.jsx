@@ -98,6 +98,28 @@ export default function ClaimsList() {
   const [ehrPatientId, setEhrPatientId] = useState("");
   const [ehrEncounterId, setEhrEncounterId] = useState("");
   const [ehrBusy, setEhrBusy] = useState(false);
+  const [ehrPatientSearchBusy, setEhrPatientSearchBusy] = useState(false);
+  const [ehrAdvancedSearch, setEhrAdvancedSearch] = useState(false);
+  const [ehrPatientResults, setEhrPatientResults] = useState([]);
+  const [ehrPatientSearchInfo, setEhrPatientSearchInfo] = useState(null);
+  const [ehrSearch, setEhrSearch] = useState({
+    smart: "",
+    patientId: "",
+    identifier: "",
+    identifierSystem: "",
+    name: "",
+    family: "",
+    given: "",
+    birthdate: "",
+    birthdateFrom: "",
+    birthdateTo: "",
+    phone: "",
+    email: "",
+    postalCode: "",
+    gender: "",
+    exactName: false,
+    count: 20
+  });
   const [ehrPreview, setEhrPreview] = useState(null);
   const [ehrResult, setEhrResult] = useState(null);
   const [ehrCreatedClaimId, setEhrCreatedClaimId] = useState("");
@@ -319,6 +341,27 @@ export default function ClaimsList() {
     setEhrCreatedClaimId("");
     setEhrPatientId("");
     setEhrEncounterId("");
+    setEhrPatientResults([]);
+    setEhrPatientSearchInfo(null);
+    setEhrAdvancedSearch(false);
+    setEhrSearch({
+      smart: "",
+      patientId: "",
+      identifier: "",
+      identifierSystem: "",
+      name: "",
+      family: "",
+      given: "",
+      birthdate: "",
+      birthdateFrom: "",
+      birthdateTo: "",
+      phone: "",
+      email: "",
+      postalCode: "",
+      gender: "",
+      exactName: false,
+      count: 20
+    });
     try {
       const data = await IntegrationsApi.list();
       const supported = (data.items || []).filter((item) => {
@@ -354,6 +397,137 @@ export default function ClaimsList() {
 
   function selectedEhrConnection() {
     return ehrConnections.find((item) => item.id === ehrConnectionId) || null;
+  }
+
+  function updateEhrSearch(field, value) {
+    setEhrSearch((current) => ({ ...current, [field]: value }));
+    setEhrPatientSearchInfo(null);
+  }
+
+  function patientSearchCriteria() {
+    const criteria = {
+      patientId: ehrSearch.patientId.trim(),
+      identifier: ehrSearch.identifier.trim(),
+      identifierSystem: ehrSearch.identifierSystem.trim(),
+      name: ehrSearch.name.trim(),
+      family: ehrSearch.family.trim(),
+      given: ehrSearch.given.trim(),
+      birthdate: ehrSearch.birthdate,
+      birthdateFrom: ehrSearch.birthdateFrom,
+      birthdateTo: ehrSearch.birthdateTo,
+      phone: ehrSearch.phone.trim(),
+      email: ehrSearch.email.trim(),
+      postalCode: ehrSearch.postalCode.trim(),
+      gender: ehrSearch.gender || undefined,
+      exactName: Boolean(ehrSearch.exactName),
+      count: Number(ehrSearch.count) || 20
+    };
+
+    const smart = ehrSearch.smart.trim();
+    if (smart) {
+      if (/^id:/i.test(smart) && !criteria.patientId) {
+        criteria.patientId = smart.replace(/^id:/i, "").trim();
+      } else if (/^mrn:/i.test(smart) && !criteria.identifier) {
+        criteria.identifier = smart.replace(/^mrn:/i, "").trim();
+      } else if (smart.includes("@") && !criteria.email) {
+        criteria.email = smart;
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(smart) && !criteria.birthdate) {
+        criteria.birthdate = smart;
+      } else if (/^[+()0-9 .-]{7,}$/.test(smart) && !criteria.phone) {
+        criteria.phone = smart;
+      } else if (!criteria.name && !criteria.family && !criteria.given) {
+        criteria.name = smart;
+      }
+    }
+
+    return Object.fromEntries(
+      Object.entries(criteria).filter(([, value]) =>
+        value !== "" && value !== undefined && value !== null
+      )
+    );
+  }
+
+  async function searchEhrPatients() {
+    const connection = selectedEhrConnection();
+    if (!connection) {
+      setEhrPatientSearchInfo({ severity: "warning", message: "Select an active EHR connection first." });
+      return;
+    }
+
+    const criteria = patientSearchCriteria();
+    const meaningful = Object.keys(criteria).filter((key) => !["count", "exactName"].includes(key));
+    if (!meaningful.length) {
+      setEhrPatientSearchInfo({ severity: "warning", message: "Enter at least one patient search criterion." });
+      return;
+    }
+    if (criteria.given && !criteria.family) {
+      setEhrPatientSearchInfo({
+        severity: "warning",
+        message: "Oracle Health requires last/family name when searching by first/given name."
+      });
+      return;
+    }
+    if (criteria.identifier && !criteria.identifierSystem && !criteria.identifier.includes("|")) {
+      setEhrPatientSearchInfo({
+        severity: "warning",
+        message: "For MRN/identifier search, enter the identifier system / assigning authority."
+      });
+      return;
+    }
+    if (criteria.birthdate && (criteria.birthdateFrom || criteria.birthdateTo)) {
+      setEhrPatientSearchInfo({
+        severity: "warning",
+        message: "Use either exact DOB or a DOB range, not both."
+      });
+      return;
+    }
+
+    setEhrPatientSearchBusy(true);
+    setEhrPatientResults([]);
+    setEhrPatientSearchInfo({ severity: "info", message: "Searching the selected EHR…" });
+    setEhrPatientId("");
+    setEhrEncounterId("");
+    setEhrPreview(null);
+    setEhrCreatedClaimId("");
+
+    try {
+      const result = await IntegrationsApi.searchPatients(connection.id, criteria);
+      setEhrPatientResults(result.items || []);
+      if (!(result.items || []).length) {
+        setEhrPatientSearchInfo({
+          severity: "warning",
+          message: "No matching patients found. Adjust the search criteria and try again."
+        });
+      } else {
+        setEhrPatientSearchInfo({
+          severity: "success",
+          message:
+            (result.items || []).length +
+            " patient" +
+            ((result.items || []).length === 1 ? "" : "s") +
+            " found" +
+            (result.hasMore ? ". More matches exist; narrow the search to find the correct patient." : ".")
+        });
+      }
+    } catch (error) {
+      setEhrPatientSearchInfo({
+        severity: "error",
+        message: error?.message || "Patient search failed."
+      });
+    } finally {
+      setEhrPatientSearchBusy(false);
+    }
+  }
+
+  function selectEhrPatient(patient) {
+    setEhrPatientId(String(patient.id));
+    setEhrEncounterId("");
+    setEhrPreview(null);
+    setEhrCreatedClaimId("");
+    setEhrPatientSearchInfo({
+      severity: "success",
+      message: "Selected " + (patient.name || "patient") + " (EHR ID " + patient.id + ")."
+    });
   }
 
   async function syncSelectedEhr(connection, patientId) {
