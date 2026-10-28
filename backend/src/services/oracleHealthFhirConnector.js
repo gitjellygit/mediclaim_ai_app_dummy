@@ -105,6 +105,135 @@ function encoded(value) {
   return encodeURIComponent(String(value || ""));
 }
 
+
+function patientDisplayName(resource) {
+  const name = (resource?.name || []).find((item) => item?.use === "official") || resource?.name?.[0];
+  if (!name) return null;
+  if (name.text) return String(name.text);
+  return [...(name.given || []), name.family].filter(Boolean).join(" ") || null;
+}
+
+function patientIdentifiers(resource) {
+  return (resource?.identifier || [])
+    .filter((item) => item?.value)
+    .map((item) => ({
+      system: item.system || null,
+      value: String(item.value),
+      type: item.type?.text || item.type?.coding?.[0]?.display || item.type?.coding?.[0]?.code || null
+    }))
+    .slice(0, 10);
+}
+
+function patientTelecom(resource, system) {
+  return (resource?.telecom || [])
+    .filter((item) => item?.system === system && item?.value)
+    .map((item) => String(item.value));
+}
+
+function patientAddress(resource) {
+  const address = (resource?.address || []).find((item) => item?.use === "home") || resource?.address?.[0];
+  if (!address) return null;
+  return {
+    lines: (address.line || []).map(String),
+    city: address.city || null,
+    state: address.state || null,
+    postalCode: address.postalCode || null,
+    country: address.country || null
+  };
+}
+
+export function oracleHealthPatientSearchPath(criteria = {}) {
+  const params = new URLSearchParams();
+  const count = Math.min(Math.max(Number(criteria.count) || 20, 1), 50);
+  params.set("_count", String(count));
+
+  const patientId = String(criteria.patientId || "").trim();
+  const identifier = String(criteria.identifier || "").trim();
+  const identifierSystem = String(criteria.identifierSystem || "").trim();
+  const name = String(criteria.name || "").trim();
+  const family = String(criteria.family || "").trim();
+  const given = String(criteria.given || "").trim();
+  const birthdate = String(criteria.birthdate || "").trim();
+  const birthdateFrom = String(criteria.birthdateFrom || "").trim();
+  const birthdateTo = String(criteria.birthdateTo || "").trim();
+  const phone = String(criteria.phone || "").trim();
+  const email = String(criteria.email || "").trim();
+  const postalCode = String(criteria.postalCode || "").trim();
+  const gender = String(criteria.gender || "").trim().toLowerCase();
+  const exactName = Boolean(criteria.exactName);
+
+  if (patientId) params.set("_id", patientId);
+  if (identifier) {
+    params.set("identifier", identifierSystem ? identifierSystem + "|" + identifier : identifier);
+  }
+
+  if (name) {
+    params.set(exactName ? "name:exact" : "name", name);
+  } else {
+    if (family) params.set(exactName ? "family:exact" : "family", family);
+    if (given) {
+      if (!family) {
+        const error = new Error("Oracle Health given-name search requires family name");
+        error.code = "ORACLE_HEALTH_PATIENT_SEARCH_INVALID";
+        error.status = 400;
+        throw error;
+      }
+      params.set(exactName ? "given:exact" : "given", given);
+    }
+  }
+
+  if (birthdate) params.append("birthdate", "eq" + birthdate);
+  if (birthdateFrom) params.append("birthdate", "ge" + birthdateFrom);
+  if (birthdateTo) params.append("birthdate", "le" + birthdateTo);
+  if (phone) params.set("phone", phone);
+  if (email) params.set("email", email);
+  if (postalCode) params.set("address-postalcode", postalCode);
+  if (gender) params.set("gender", gender);
+
+  const searchKeys = [...params.keys()].filter((key) => key !== "_count");
+  if (!searchKeys.length) {
+    const error = new Error("Enter at least one patient search criterion");
+    error.code = "ORACLE_HEALTH_PATIENT_SEARCH_REQUIRED";
+    error.status = 400;
+    throw error;
+  }
+
+  return "Patient?" + params.toString();
+}
+
+export async function searchOracleHealthPatients(config, criteria = {}, fetchImpl = fetch) {
+  const path = oracleHealthPatientSearchPath(criteria);
+  const payload = await oracleHealthFhirGet(config, path, fetchImpl);
+  if (payload?.resourceType !== "Bundle") {
+    const error = new Error("Oracle Health patient search returned an unexpected response");
+    error.code = "ORACLE_HEALTH_PATIENT_SEARCH_INVALID_RESPONSE";
+    error.status = 502;
+    throw error;
+  }
+
+  const items = (payload.entry || [])
+    .map((entry) => entry?.resource)
+    .filter((resource) => resource?.resourceType === "Patient" && resource?.id)
+    .map((resource) => ({
+      id: String(resource.id),
+      name: patientDisplayName(resource),
+      birthDate: resource.birthDate || null,
+      gender: resource.gender || null,
+      active: resource.active !== false,
+      identifiers: patientIdentifiers(resource),
+      phones: patientTelecom(resource, "phone"),
+      emails: patientTelecom(resource, "email"),
+      address: patientAddress(resource)
+    }));
+
+  return {
+    items,
+    count: items.length,
+    total: Number.isFinite(Number(payload.total)) ? Number(payload.total) : null,
+    hasMore: Boolean((payload.link || []).find((link) => link?.relation === "next"))
+  };
+}
+
 export function oracleHealthPatientSyncPlan(patientId) {
   const id = required(patientId, "Oracle Health test patient ID");
   return [
