@@ -160,6 +160,30 @@ export async function fetchOracleHealthPatientSnapshot(
     }
   }
 
+  if (encounterId) {
+    const directEncounterPath = "Encounter/" + encoded(encounterId);
+    try {
+      const payload = await oracleHealthFhirGet(config, directEncounterPath, fetchImpl);
+      if (payload) resources.push(payload);
+      calls.push({
+        resource: "Encounter",
+        encounterId: String(encounterId),
+        status: "SUCCESS",
+        count: payload ? 1 : 0,
+        targeted: true
+      });
+    } catch (error) {
+      calls.push({
+        resource: "Encounter",
+        encounterId: String(encounterId),
+        status: "SKIPPED",
+        httpStatus: error.status || null,
+        code: error.code || "ORACLE_HEALTH_FHIR_REQUEST_FAILED",
+        targeted: true
+      });
+    }
+  }
+
   for (const encounterId of [...new Set(encounterIds)].slice(0, 25)) {
     const path = "ChargeItem?context=" + encoded(encounterId) + "&-status=billable";
     try {
