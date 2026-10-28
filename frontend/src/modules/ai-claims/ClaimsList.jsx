@@ -1500,23 +1500,83 @@ export default function ClaimsList() {
                         size="small"
                         variant="text"
                         onClick={changeEhrPatient}
-                        disabled={ehrBusy}
+                        disabled={ehrBusy || ehrEncounterSearchBusy}
                       >
                         Change
                       </Button>
-                      {!ehrPreview && (
+                      {!ehrEncounterId && (
                         <Button
                           size="small"
                           variant="contained"
-                          onClick={fetchEhrClaimData}
-                          disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
-                          sx={{ minWidth: 112 }}
+                          onClick={findBillableEncounters}
+                          disabled={ehrBusy || ehrEncounterSearchBusy || !ehrConnectionId || !ehrPatientId.trim()}
+                          sx={{ minWidth: 138 }}
                         >
-                          {ehrBusy ? "Fetching…" : "Fetch Data"}
+                          {ehrEncounterSearchBusy ? "Checking…" : "Find Billable Visits"}
                         </Button>
                       )}
                     </Stack>
                   </Stack>
+                </Paper>
+              )}
+
+              {ehrEncounterSearchBusy && <LinearProgress sx={{ mt: 1 }} />}
+              {ehrEncounterInfo && (
+                <Alert severity={ehrEncounterInfo.severity} sx={{ mt: 1 }}>
+                  {ehrEncounterInfo.message}
+                </Alert>
+              )}
+
+              {ehrEncounterResults.length > 0 && !ehrPreview && (
+                <Paper variant="outlined" sx={{ mt: 1.25, overflow: "hidden" }}>
+                  <Box sx={{ px: 1.25, py: 0.75, bgcolor: "action.hover" }}>
+                    <Typography variant="caption" fontWeight={800} color="text.secondary">
+                      BILLABLE VISITS
+                    </Typography>
+                  </Box>
+                  <Box sx={{ maxHeight: 240, overflowY: "auto" }}>
+                    {ehrEncounterResults.map((encounter, index) => (
+                      <Box
+                        key={encounter.id}
+                        sx={{
+                          px: 1.25,
+                          py: 0.9,
+                          borderTop: index ? "1px solid" : "none",
+                          borderColor: "divider",
+                          display: "grid",
+                          gridTemplateColumns: { xs: "1fr auto", md: "1.2fr 1fr 0.7fr auto" },
+                          gap: 1,
+                          alignItems: "center"
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="body2" fontWeight={800}>
+                            {encounter.period?.start
+                              ? new Date(encounter.period.start).toLocaleDateString()
+                              : "Date unavailable"}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {encounter.types?.[0] || encounter.classDisplay || encounter.classCode || "Encounter"} • {encounter.id}
+                          </Typography>
+                        </Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: { xs: "none", md: "block" } }}>
+                          {encounter.chargeCount || 0} billable line{encounter.chargeCount === 1 ? "" : "s"}
+                        </Typography>
+                        <Typography variant="body2" fontWeight={700} sx={{ display: { xs: "none", md: "block" } }}>
+                          {encounter.totalBilledAmount ? formatUSD(encounter.totalBilledAmount) : "—"}
+                        </Typography>
+                        <Button
+                          size="small"
+                          variant={encounter.billable ? "contained" : "outlined"}
+                          disabled={!encounter.billable || ehrBusy}
+                          onClick={() => useEncounterForClaim(encounter)}
+                          sx={{ minWidth: 88 }}
+                        >
+                          {encounter.billable ? "Use for Claim" : "No Charges"}
+                        </Button>
+                      </Box>
+                    ))}
+                  </Box>
                 </Paper>
               )}
             </Paper>
