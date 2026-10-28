@@ -183,7 +183,6 @@ export default function IntegrationHub() {
         "success"
       );
       await loadRecords(selected, recordType);
-      await loadClaimDraftPreview(selected, result.patientId || oracleHealthPatientId);
       await load();
     } catch (error) {
       showToast(error?.message || "Epic patient sync failed.", "error");
@@ -253,7 +252,6 @@ export default function IntegrationHub() {
         oracleHealthPatientId.trim(),
         claimDraftPreview.encounterId || ""
       );
-      setCreatedClaimId(result.claimId);
       setOracleHealthResult({
         severity: "success",
         message: result.created
@@ -264,6 +262,7 @@ export default function IntegrationHub() {
       await loadRecords(selected, recordType);
       await loadClaimDraftPreview(selected, oracleHealthPatientId);
       await load();
+      setCreatedClaimId(result.claimId);
     } catch (error) {
       const message = error?.message || "Unable to create draft claim from imported EHR data.";
       setOracleHealthResult({ severity: "error", message });
