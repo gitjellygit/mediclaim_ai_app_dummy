@@ -24,6 +24,43 @@ function fhirReference(value) {
   return String(value?.reference || "").trim() || null;
 }
 
+function fhirReferenceDetail(value) {
+  const reference = fhirReference(value);
+  if (!reference && !value?.display) return null;
+  return compactObject({
+    reference,
+    display: value?.display || null
+  });
+}
+
+function extensionMoney(resource, suffix) {
+  const item = (resource?.extension || []).find((entry) =>
+    String(entry?.url || "").toLowerCase().endsWith(String(suffix || "").toLowerCase())
+  );
+  return item?.valueMoney || null;
+}
+
+function extensionCodes(resource, suffix) {
+  const parent = (resource?.extension || []).filter((entry) =>
+    String(entry?.url || "").toLowerCase().endsWith(String(suffix || "").toLowerCase())
+  );
+  const codes = [];
+  for (const item of parent) {
+    for (const child of item?.extension || []) {
+      if (String(child?.url || "").toLowerCase() !== "code") continue;
+      const coding = child?.valueCodeableConcept?.coding?.[0];
+      if (coding?.code) {
+        codes.push(compactObject({
+          system: coding.system || null,
+          code: coding.code,
+          display: coding.display || null
+        }));
+      }
+    }
+  }
+  return codes;
+}
+
 function firstCoding(value) {
   const coding = value?.coding?.[0];
   if (!coding) return null;
@@ -95,6 +132,7 @@ function fhirRecord(resource) {
         beneficiaryRef: fhirReference(resource.beneficiary),
         subscriberRef: fhirReference(resource.subscriber),
         payorRefs: (resource.payor || []).map(fhirReference).filter(Boolean),
+        payors: (resource.payor || []).map(fhirReferenceDetail).filter(Boolean),
         period: resource.period || null,
         class: resource.class || [],
         type: firstCoding(resource.type)
@@ -195,9 +233,17 @@ function fhirRecord(resource) {
         subjectRef: fhirReference(resource.subject),
         contextRef: fhirReference(resource.context),
         service: firstCoding(resource.code),
+        procedureCodes: extensionCodes(resource, "procedure-code"),
+        modifiers: extensionCodes(resource, "modifier-code"),
+        revenueCodes: extensionCodes(resource, "revenue-code"),
         quantity: resource.quantity?.value ?? null,
-        unitPrice: resource.priceOverride?.value ?? null,
-        currency: resource.priceOverride?.currency || null,
+        unitPrice: extensionMoney(resource, "unit-price")?.value ?? resource.priceOverride?.value ?? null,
+        netPrice: extensionMoney(resource, "net-price")?.value ?? null,
+        currency:
+          extensionMoney(resource, "net-price")?.currency ||
+          extensionMoney(resource, "unit-price")?.currency ||
+          resource.priceOverride?.currency ||
+          null,
         occurrenceDateTime: resource.occurrenceDateTime || null
       })
     };
