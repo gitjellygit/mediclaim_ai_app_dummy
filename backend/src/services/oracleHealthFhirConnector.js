@@ -253,6 +253,112 @@ export async function searchOracleHealthPatients(config, criteria = {}, fetchImp
   };
 }
 
+
+function bundleResources(payload, resourceType = null) {
+  if (payload?.resourceType !== "Bundle") return [];
+  return (payload.entry || [])
+    .map((entry) => entry?.resource)
+    .filter((resource) => resource && (!resourceType || resource.resourceType === resourceType));
+}
+
+function chargeMoney(resource) {
+  const extension = resource?.extension || [];
+  const findMoney = (suffix) =>
+    extension.find((item) => String(item?.url || "").toLowerCase().endsWith(suffix))?.valueMoney;
+  const net = findMoney("net-price");
+  const unit = findMoney("unit-price");
+  const quantity = Number(resource?.quantity?.value || 1);
+  if (Number.isFinite(Number(net?.value)) && Number(net.value) > 0) return Number(net.value);
+  if (Number.isFinite(Number(unit?.value)) && Number(unit.value) > 0) {
+    return Number(unit.value) * (Number.isFinite(quantity) && quantity > 0 ? quantity : 1);
+  }
+  if (Number.isFinite(Number(resource?.priceOverride?.value)) && Number(resource.priceOverride.value) > 0) {
+    return Number(resource.priceOverride.value) * (Number.isFinite(quantity) && quantity > 0 ? quantity : 1);
+  }
+  return 0;
+}
+
+function encounterSummary(encounter, charges = []) {
+  const total = charges.reduce((sum, charge) => sum + chargeMoney(charge), 0);
+  return {
+    id: String(encounter.id),
+    status: encounter.status || null,
+    classCode: encounter.class?.code || null,
+    classDisplay: encounter.class?.display || null,
+    types: (encounter.type || [])
+      .map((item) => item?.coding?.[0]?.display || item?.text || item?.coding?.[0]?.code)
+      .filter(Boolean),
+    period: encounter.period || null,
+    serviceProvider: encounter.serviceProvider?.display || encounter.serviceProvider?.reference || null,
+    chargeCount: charges.length,
+    totalBilledAmount: total || null,
+    billable: charges.length > 0 && total > 0
+  };
+}
+
+export async function discoverOracleHealthBillableEncounters(
+  config,
+  patientId,
+  { count = 25, fetchImpl = fetch } = {}
+) {
+  const id = required(patientId, "Oracle Health patient ID");
+  const max = Math.min(Math.max(Number(count) || 25, 1), 50);
+  const encounterPayload = await oracleHealthFhirGet(
+    config,
+    "Encounter?patient=" + encoded(id) + "&_count=" + max + "&status=finished",
+    fetchImpl
+  );
+  const encounters = bundleResources(encounterPayload, "Encounter");
+  const items = [];
+
+  for (const encounter of encounters.slice(0, max)) {
+    const encounterId = String(encounter.id || "").trim();
+    if (!encounterId) continue;
+    try {
+      const chargesPayload = await oracleHealthFhirGet(
+        config,
+        "ChargeItem?context=" + encoded(encounterId) + "&-status=billable&_count=50",
+        fetchImpl
+      );
+      items.push(encounterSummary(encounter, bundleResources(chargesPayload, "ChargeItem")));
+    } catch (error) {
+      items.push({
+        ...encounterSummary(encounter, []),
+        billingStatus: "UNAVAILABLE",
+        billingErrorCode: error.code || "ORACLE_HEALTH_FHIR_REQUEST_FAILED"
+      });
+    }
+  }
+
+  return {
+    patientId: id,
+    items,
+    billableCount: items.filter((item) => item.billable).length,
+    encounterCount: items.length
+  };
+}
+
+async function optionalOracleResource(config, path, fetchImpl, calls, resources, name) {
+  try {
+    const payload = await oracleHealthFhirGet(config, path, fetchImpl);
+    if (payload?.resourceType !== "Bundle" || (payload.entry || []).length > 0) resources.push(payload);
+    calls.push({
+      resource: name,
+      status: "SUCCESS",
+      count: payload?.resourceType === "Bundle" ? (payload.entry || []).length : (payload ? 1 : 0)
+    });
+    return payload;
+  } catch (error) {
+    calls.push({
+      resource: name,
+      status: "SKIPPED",
+      httpStatus: error.status || null,
+      code: error.code || "ORACLE_HEALTH_FHIR_REQUEST_FAILED"
+    });
+    return null;
+  }
+}
+
 export function oracleHealthPatientSyncPlan(patientId) {
   const id = required(patientId, "Oracle Health test patient ID");
   return [
@@ -329,6 +435,55 @@ export async function fetchOracleHealthPatientSnapshot(
         code: error.code || "ORACLE_HEALTH_FHIR_REQUEST_FAILED",
         targeted: true
       });
+    }
+  }
+
+  if (encounterId) {
+    const target = String(encounterId).trim();
+    await optionalOracleResource(
+      config,
+      "Coverage?-encounter=" + encoded(target),
+      fetchImpl,
+      calls,
+      resources,
+      "CoverageEncounter"
+    );
+    await optionalOracleResource(
+      config,
+      "Account?-encounter=" + encoded(target) + "&type=guarantor-balance&_count=20",
+      fetchImpl,
+      calls,
+      resources,
+      "Account"
+    );
+    await optionalOracleResource(
+      config,
+      "Condition?patient=" + encoded(patientId) + "&encounter=" + encoded(target),
+      fetchImpl,
+      calls,
+      resources,
+      "ConditionEncounter"
+    );
+    const procedures = await optionalOracleResource(
+      config,
+      "Procedure?patient=" + encoded(patientId),
+      fetchImpl,
+      calls,
+      [],
+      "Procedure"
+    );
+    if (procedures?.resourceType === "Bundle") {
+      const filtered = bundleResources(procedures, "Procedure").filter((resource) =>
+        String(resource?.encounter?.reference || "") === "Encounter/" + target
+      );
+      if (filtered.length) {
+        resources.push({
+          resourceType: "Bundle",
+          type: "searchset",
+          total: filtered.length,
+          entry: filtered.map((resource) => ({ resource }))
+        });
+      }
     }
   }
 
