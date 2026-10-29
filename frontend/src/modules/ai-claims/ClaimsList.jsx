@@ -62,6 +62,31 @@ function isSelfPayLabel(value) {
   return ["self pay", "selfpay", "patient pay", "patient responsibility"].includes(normalized);
 }
 
+const ORACLE_BILLING_DEMOS = [
+  {
+    id: "chip-johnson",
+    label: "Chip Johnson",
+    patientId: "12742419",
+    encounterId: "97953601",
+    note: "Oracle documented billing demo"
+  },
+  {
+    id: "chargeitem-321088041",
+    label: "ChargeItem 321088041",
+    patientId: "12768550",
+    encounterId: "97965088",
+    note: "Oracle documented billable ChargeItem sample"
+  }
+];
+
+function isOracleEhr(connection) {
+  return /oracle|cerner/i.test(String(connection?.provider || ""));
+}
+
+function isAthenaEhr(connection) {
+  return /athena/i.test(String(connection?.provider || ""));
+}
+
 const statusColor = {
   DRAFT: "default",
   READY: "info",
@@ -385,7 +410,7 @@ export default function ClaimsList() {
       const supported = (data.items || []).filter((item) => {
         if (item.kind !== "EHR" || item.status !== "ACTIVE") return false;
         const provider = String(item.provider || "").toLowerCase();
-        return provider.includes("oracle") || provider.includes("cerner") || provider.includes("epic");
+        return provider.includes("oracle") || provider.includes("cerner") || provider.includes("epic") || provider.includes("athena");
       });
       setEhrConnections(supported);
       setEhrConnectionId((current) =>
@@ -478,17 +503,22 @@ export default function ClaimsList() {
       setEhrPatientSearchInfo({ severity: "warning", message: "Enter at least one patient search criterion." });
       return;
     }
-    if (criteria.given && !criteria.family) {
+    if (isOracleEhr(connection) && criteria.given && !criteria.family) {
       setEhrPatientSearchInfo({
         severity: "warning",
         message: "Oracle Health requires last/family name when searching by first/given name."
       });
       return;
     }
-    if (criteria.identifier && !criteria.identifierSystem && !criteria.identifier.includes("|")) {
+    if (
+      isOracleEhr(connection) &&
+      criteria.identifier &&
+      !criteria.identifierSystem &&
+      !criteria.identifier.includes("|")
+    ) {
       setEhrPatientSearchInfo({
         severity: "warning",
-        message: "For MRN/identifier search, enter the identifier system / assigning authority."
+        message: "Oracle Health MRN/identifier search requires the identifier system / assigning authority."
       });
       return;
     }
@@ -615,9 +645,60 @@ export default function ClaimsList() {
     if (provider.includes("epic")) {
       return IntegrationsApi.syncEpic(connection.id, patientId);
     }
+    if (provider.includes("athena")) {
+      return IntegrationsApi.syncAthenaHealth(connection.id, patientId);
+    }
     const error = new Error("This EHR provider does not yet support direct patient import.");
     error.code = "EHR_PROVIDER_UNSUPPORTED";
     throw error;
+  }
+
+  function useOracleBillingDemo(demo) {
+    setEhrPatientId(demo.patientId);
+    setEhrSelectedPatient({
+      id: demo.patientId,
+      name: demo.label,
+      birthDate: null,
+      gender: null,
+      identifiers: []
+    });
+    setEhrEncounterId(demo.encounterId);
+    setEhrPatientResults([]);
+    setEhrPatientSearchInfo({
+      severity: "info",
+      message: demo.note + " • Patient " + demo.patientId + " • Encounter " + demo.encounterId
+    });
+    setEhrPreview(null);
+    setEhrResult(null);
+    setEhrCreatedClaimId("");
+  }
+
+  async function syncAthenaFoundationPatient() {
+    const connection = selectedEhrConnection();
+    const patientId = ehrPatientId.trim();
+    if (!connection || !patientId) return;
+    setEhrBusy(true);
+    setEhrResult({
+      severity: "info",
+      message: "Syncing athenahealth FHIR patient data…"
+    });
+    try {
+      const result = await IntegrationsApi.syncAthenaHealth(connection.id, patientId);
+      setEhrResult({
+        severity: "success",
+        message:
+          "athenahealth patient data synced: " +
+          (result.records?.length || 0) +
+          " normalized records. Billing import is not enabled yet; athenaOne claims and patient-balance APIs require separate preview practice credentials."
+      });
+    } catch (error) {
+      setEhrResult({
+        severity: "error",
+        message: error?.message || "athenahealth patient sync failed."
+      });
+    } finally {
+      setEhrBusy(false);
+    }
   }
 
   async function fetchEhrClaimData(encounterOverride = ehrEncounterId) {
@@ -1265,32 +1346,31 @@ export default function ClaimsList() {
                 </Button>
 
                 {selectedEhrConnection()?.environment === "SANDBOX" &&
-                  /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || "")) && (
-                    <Button
-                      size="small"
-                      variant="text"
-                      onClick={() => {
-                        setEhrPatientId("12742419");
-                        setEhrSelectedPatient({
-                          id: "12742419",
-                          name: "Oracle billing demo patient",
-                          birthDate: null,
-                          gender: null,
-                          identifiers: []
-                        });
-                        setEhrEncounterId("97953601");
-                        setEhrPatientResults([]);
-                        setEhrPatientSearchInfo(null);
-                        setEhrPreview(null);
-                        setEhrResult(null);
-                        setEhrCreatedClaimId("");
-                      }}
-                      disabled={ehrBusy || ehrPatientSearchBusy}
-                      sx={{ minHeight: 30, px: 1 }}
-                    >
-                      Use Oracle billing demo
-                    </Button>
+                  isOracleEhr(selectedEhrConnection()) && (
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={0.5} alignItems={{ sm: "center" }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                        Oracle billing demos:
+                      </Typography>
+                      {ORACLE_BILLING_DEMOS.map((demo) => (
+                        <Button
+                          key={demo.id}
+                          size="small"
+                          variant="text"
+                          onClick={() => useOracleBillingDemo(demo)}
+                          disabled={ehrBusy || ehrPatientSearchBusy}
+                          sx={{ minHeight: 30, px: 1 }}
+                        >
+                          {demo.label}
+                        </Button>
+                      ))}
+                    </Stack>
                   )}
+
+                {isAthenaEhr(selectedEhrConnection()) && (
+                  <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                    athenahealth FHIR patient search/sync is enabled when preview OAuth credentials are configured; direct billing import is intentionally not enabled yet.
+                  </Typography>
+                )}
               </Stack>
 
               {ehrAdvancedSearch && (
@@ -1550,7 +1630,17 @@ export default function ClaimsList() {
                       >
                         Change
                       </Button>
-                      {!ehrEncounterId ? (
+                      {isAthenaEhr(selectedEhrConnection()) ? (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={syncAthenaFoundationPatient}
+                          disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
+                          sx={{ minWidth: 138 }}
+                        >
+                          {ehrBusy ? "Syncing…" : "Sync Patient Data"}
+                        </Button>
+                      ) : !ehrEncounterId ? (
                         <Button
                           size="small"
                           variant="contained"

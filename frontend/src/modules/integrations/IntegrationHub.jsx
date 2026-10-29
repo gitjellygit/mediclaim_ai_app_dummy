@@ -71,6 +71,9 @@ export default function IntegrationHub() {
   const [epicStatus, setEpicStatus] = React.useState(null);
   const [epicBusy, setEpicBusy] = React.useState(false);
   const [epicPatientId, setEpicPatientId] = React.useState("");
+  const [athenaHealthStatus, setAthenaHealthStatus] = React.useState(null);
+  const [athenaHealthBusy, setAthenaHealthBusy] = React.useState(false);
+  const [athenaHealthPatientId, setAthenaHealthPatientId] = React.useState("");
   const [oracleHealthStatus, setOracleHealthStatus] = React.useState(null);
   const [oracleHealthBusy, setOracleHealthBusy] = React.useState(false);
   const [oracleHealthAction, setOracleHealthAction] = React.useState(null);
@@ -124,6 +127,7 @@ export default function IntegrationHub() {
     setSelected(connection);
     setRecordsLoading(true);
     setEpicStatus(null);
+    setAthenaHealthStatus(null);
     setOracleHealthStatus(null);
     setClaimDraftPreview(null);
     setCreatedClaimId(null);
@@ -139,6 +143,13 @@ export default function IntegrationHub() {
           setEpicStatus(await IntegrationsApi.epicStatus(connection.id));
         } catch {
           setEpicStatus(null);
+        }
+      }
+      if (provider.includes("athena")) {
+        try {
+          setAthenaHealthStatus(await IntegrationsApi.athenaHealthStatus(connection.id));
+        } catch {
+          setAthenaHealthStatus(null);
         }
       }
       if (provider.includes("oracle") || provider.includes("cerner")) {
@@ -189,6 +200,41 @@ export default function IntegrationHub() {
       showToast(error?.message || "Epic patient sync failed.", "error");
     } finally {
       setEpicBusy(false);
+    }
+  }
+
+  async function testAthenaHealthConnection() {
+    if (!selected) return;
+    setAthenaHealthBusy(true);
+    try {
+      await IntegrationsApi.testAthenaHealth(selected.id);
+      setAthenaHealthStatus(await IntegrationsApi.athenaHealthStatus(selected.id));
+      await load();
+    } catch (error) {
+      showToast(error?.message || "athenahealth connection test failed.", "error");
+    } finally {
+      setAthenaHealthBusy(false);
+    }
+  }
+
+  async function syncAthenaHealthPatient() {
+    if (!selected) return;
+    setAthenaHealthBusy(true);
+    try {
+      const result = await IntegrationsApi.syncAthenaHealth(
+        selected.id,
+        athenaHealthPatientId.trim()
+      );
+      showToast(
+        "athenahealth sync completed: " + (result.records?.length || 0) + " normalized records.",
+        "success"
+      );
+      await loadRecords(selected, recordType);
+      await load();
+    } catch (error) {
+      showToast(error?.message || "athenahealth patient sync failed.", "error");
+    } finally {
+      setAthenaHealthBusy(false);
     }
   }
 
@@ -487,6 +533,63 @@ export default function IntegrationHub() {
                 <Divider sx={{ mt: 2 }} />
               </Box>
             )}
+            {selected && String(selected.provider || "").toLowerCase().includes("athena") && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="h6" fontWeight={800}>
+                  athenahealth FHIR Connection
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
+                  Uses athenahealth preview OAuth plus FHIR R4 for patient discovery and clinical data sync.
+                  Billing, statements, payment plans, and patient-balance APIs are a separate athenaOne surface
+                  and are intentionally not enabled by this foundation.
+                </Typography>
+
+                {athenaHealthStatus && (
+                  <Alert severity={athenaHealthStatus.config?.ready ? "success" : "warning"} sx={{ mb: 1.25 }}>
+                    {athenaHealthStatus.config?.ready
+                      ? "athenahealth preview OAuth configuration is present."
+                      : "Configure ATHENAHEALTH_SANDBOX_CLIENT_ID and ATHENAHEALTH_SANDBOX_CLIENT_SECRET on the backend."}
+                  </Alert>
+                )}
+
+                <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ md: "center" }}>
+                  <TextField
+                    size="small"
+                    label="athenahealth Preview Patient ID"
+                    placeholder="Uses backend test patient when blank"
+                    value={athenaHealthPatientId}
+                    onChange={(event) => setAthenaHealthPatientId(event.target.value)}
+                    sx={{ minWidth: 280 }}
+                  />
+                  {canManage && (
+                    <Button
+                      variant="outlined"
+                      disabled={athenaHealthBusy || !athenaHealthStatus?.config?.ready}
+                      onClick={testAthenaHealthConnection}
+                    >
+                      {athenaHealthBusy ? "Testing…" : "Test athenahealth Connection"}
+                    </Button>
+                  )}
+                  {canIngest && (
+                    <Button
+                      variant="contained"
+                      disabled={athenaHealthBusy || !athenaHealthStatus?.config?.ready}
+                      onClick={syncAthenaHealthPatient}
+                    >
+                      {athenaHealthBusy ? "Syncing…" : "Sync Patient"}
+                    </Button>
+                  )}
+                </Stack>
+
+                {athenaHealthStatus?.config && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                    FHIR: {athenaHealthStatus.config.fhirBaseUrl || "Not configured"} • OAuth: {athenaHealthStatus.oauthMode}
+                  </Typography>
+                )}
+                <Divider sx={{ mt: 2 }} />
+              </Box>
+            )}
+
             {selected && (() => {
               const provider = String(selected.provider || "").toLowerCase();
               return provider.includes("oracle") || provider.includes("cerner");

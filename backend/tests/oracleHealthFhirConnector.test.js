@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   ORACLE_HEALTH_OPEN_SANDBOX,
   discoverOracleHealthBillableEncounters,
@@ -289,4 +292,20 @@ test("Oracle billable encounter discovery returns only positive-charge visits as
   assert.equal(result.items.find((item) => item.id === "e-1").totalBilledAmount, 125);
   assert.equal(result.items.find((item) => item.id === "e-1").billable, true);
   assert.equal(result.items.find((item) => item.id === "e-2").billable, false);
+});
+
+
+test("Claims EHR import exposes more than one documented Oracle billing demo", () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const ui = fs.readFileSync(
+    path.join(root, "frontend/src/modules/ai-claims/ClaimsList.jsx"),
+    "utf8"
+  );
+
+  assert.match(ui, /patientId: "12742419"/);
+  assert.match(ui, /encounterId: "97953601"/);
+  assert.match(ui, /patientId: "12768550"/);
+  assert.match(ui, /encounterId: "97965088"/);
+  assert.match(ui, /ChargeItem 321088041/);
+  assert.match(ui, /Oracle billing demos:/);
 });
