@@ -1723,5 +1723,83 @@ router.post("/e2e/final-uat/seed", async (req, res) => {
 });
 
 
+router.post("/e2e/patient-payments/seed", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const organizationId = req.user.organizationId;
+  const externalKey = "e2e:patient-payments:chip-johnson";
+
+  try {
+    await prisma.patientBalance.deleteMany({
+      where: { organizationId, externalKey }
+    });
+
+    const chargeDetails = Array.from({ length: 18 }, (_, index) => ({
+      externalId: `e2e-charge-${index + 1}`,
+      cptHcpcsCode: index % 3 === 0 ? "99213" : index % 3 === 1 ? "80053" : "36415",
+      units: 1,
+      charge: 100 + index
+    }));
+    const total = chargeDetails.reduce((sum, item) => sum + item.charge, 0);
+
+    const balance = await prisma.patientBalance.create({
+      data: {
+        organizationId,
+        createdById: req.user.id,
+        sourceType: "EHR",
+        sourceConnectionId: "e2e-oracle",
+        externalKey,
+        externalPatientId: "12742419",
+        externalEncounterId: "97953601",
+        patientName: "E2E CHIP JOHNSON",
+        medicalRecordNumber: "E2E-MRN-12742419",
+        serviceDate: new Date("2026-10-20T00:00:00.000Z"),
+        totalCharges: total,
+        insuranceResponsibility: 0,
+        patientResponsibility: total,
+        paidAmount: 0,
+        balanceAmount: total,
+        status: "UNPAID",
+        statementStatus: "NOT_SENT",
+        paymentPlanStatus: "NONE",
+        chargeDetails
+      }
+    });
+
+    res.json({
+      patientBalanceId: balance.id,
+      total,
+      chargeCount: chargeDetails.length
+    });
+  } catch (error) {
+    console.error("[e2e-patient-payments] seed failed", {
+      name: error?.name || "Error",
+      code: error?.code || null
+    });
+    res.status(500).json({ error: "Unable to seed patient payments scenario" });
+  }
+});
+
+router.delete("/e2e/patient-payments/cleanup", async (req, res) => {
+  if (process.env.E2E_TEST_MODE !== "true" || req.user?.role !== "ADMIN") {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  try {
+    const result = await prisma.patientBalance.deleteMany({
+      where: {
+        organizationId: req.user.organizationId,
+        externalKey: "e2e:patient-payments:chip-johnson"
+      }
+    });
+    res.json({ deleted: result.count });
+  } catch {
+    res.status(500).json({ error: "Unable to clean patient payments scenario" });
+  }
+});
+
+
   return router;
 }
