@@ -62,23 +62,6 @@ function isSelfPayLabel(value) {
   return ["self pay", "selfpay", "patient pay", "patient responsibility"].includes(normalized);
 }
 
-const ORACLE_BILLING_DEMOS = [
-  {
-    id: "chip-johnson",
-    label: "Chip Johnson",
-    patientId: "12742419",
-    encounterId: "97953601",
-    note: "Oracle documented billing demo"
-  },
-  {
-    id: "chargeitem-321088041",
-    label: "ChargeItem 321088041",
-    patientId: "12768550",
-    encounterId: "97965088",
-    note: "Oracle documented billable ChargeItem sample"
-  }
-];
-
 function isOracleEhr(connection) {
   return /oracle|cerner/i.test(String(connection?.provider || ""));
 }
@@ -163,6 +146,10 @@ export default function ClaimsList() {
   const [ehrPreview, setEhrPreview] = useState(null);
   const [ehrResult, setEhrResult] = useState(null);
   const [ehrCreatedClaimId, setEhrCreatedClaimId] = useState("");
+  const [oracleDemoOpen, setOracleDemoOpen] = useState(false);
+  const [oracleDemoBusy, setOracleDemoBusy] = useState(false);
+  const [oracleDemoItems, setOracleDemoItems] = useState([]);
+  const [oracleDemoError, setOracleDemoError] = useState("");
   const navigate = useNavigate();
   const { showToast, showDialog, confirmDialog } = useToast();
 
@@ -653,24 +640,55 @@ export default function ClaimsList() {
     throw error;
   }
 
-  function useOracleBillingDemo(demo) {
-    setEhrPatientId(demo.patientId);
+  async function openOracleBillingDemos() {
+    const connection = selectedEhrConnection();
+    if (!connection) return;
+    setOracleDemoOpen(true);
+    setOracleDemoBusy(true);
+    setOracleDemoItems([]);
+    setOracleDemoError("");
+    try {
+      const result = await IntegrationsApi.oracleBillingDemos(connection.id);
+      setOracleDemoItems(result.items || []);
+      if (!(result.items || []).length) {
+        setOracleDemoError(
+          "No currently billable Oracle sandbox visits were found. The public sandbox changes over time; try again later or use patient search."
+        );
+      }
+    } catch (error) {
+      setOracleDemoError(error?.message || "Unable to load Oracle billing demos.");
+    } finally {
+      setOracleDemoBusy(false);
+    }
+  }
+
+  function selectOracleBillingDemo(item) {
+    setEhrPatientId(item.patientId);
     setEhrSelectedPatient({
-      id: demo.patientId,
-      name: demo.label,
-      birthDate: null,
-      gender: null,
-      identifiers: []
+      ...(item.patient || {}),
+      id: item.patientId,
+      name: item.patient?.name || "Oracle sandbox patient"
     });
-    setEhrEncounterId(demo.encounterId);
+    setEhrEncounterId(item.encounterId);
     setEhrPatientResults([]);
     setEhrPatientSearchInfo({
-      severity: "info",
-      message: demo.note + " • Patient " + demo.patientId + " • Encounter " + demo.encounterId
+      severity: "success",
+      message:
+        "Oracle sandbox visit selected • Encounter " +
+        item.encounterId +
+        " • " +
+        item.chargeCount +
+        " billing line" +
+        (item.chargeCount === 1 ? "" : "s") +
+        " • " +
+        formatUSD(item.totalBilledAmount || 0)
     });
+    setEhrEncounterResults([]);
+    setEhrEncounterInfo(null);
     setEhrPreview(null);
     setEhrResult(null);
     setEhrCreatedClaimId("");
+    setOracleDemoOpen(false);
   }
 
   async function syncAthenaFoundationPatient() {
@@ -1347,23 +1365,15 @@ export default function ClaimsList() {
 
                 {selectedEhrConnection()?.environment === "SANDBOX" &&
                   isOracleEhr(selectedEhrConnection()) && (
-                    <Stack direction={{ xs: "column", sm: "row" }} spacing={0.5} alignItems={{ sm: "center" }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
-                        Oracle billing demos:
-                      </Typography>
-                      {ORACLE_BILLING_DEMOS.map((demo) => (
-                        <Button
-                          key={demo.id}
-                          size="small"
-                          variant="text"
-                          onClick={() => useOracleBillingDemo(demo)}
-                          disabled={ehrBusy || ehrPatientSearchBusy}
-                          sx={{ minHeight: 30, px: 1 }}
-                        >
-                          {demo.label}
-                        </Button>
-                      ))}
-                    </Stack>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={openOracleBillingDemos}
+                      disabled={ehrBusy || ehrPatientSearchBusy}
+                      sx={{ minHeight: 30, px: 1.25 }}
+                    >
+                      Oracle Billing Demos
+                    </Button>
                   )}
 
                 {isAthenaEhr(selectedEhrConnection()) && (
@@ -1875,6 +1885,91 @@ export default function ClaimsList() {
               Open Claim
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={oracleDemoOpen}
+        onClose={() => {
+          if (!oracleDemoBusy) setOracleDemoOpen(false);
+        }}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>Oracle Billing Demos</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Live billable visits discovered from the Oracle Health public sandbox. Select a visit,
+            then review its EHR billing data before creating a claim or patient balance.
+          </Typography>
+
+          {oracleDemoBusy && <LinearProgress sx={{ mb: 1.5 }} />}
+
+          {oracleDemoError && (
+            <Alert severity={oracleDemoItems.length ? "warning" : "info"} sx={{ mb: 1.5 }}>
+              {oracleDemoError}
+            </Alert>
+          )}
+
+          {!oracleDemoBusy && oracleDemoItems.length > 0 && (
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small" aria-label="Oracle billing demos">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Patient</TableCell>
+                    <TableCell>Encounter</TableCell>
+                    <TableCell>Service date</TableCell>
+                    <TableCell align="right">Billing lines</TableCell>
+                    <TableCell align="right">Amount</TableCell>
+                    <TableCell align="right">Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {oracleDemoItems.map((item) => (
+                    <TableRow key={item.id} hover>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={700}>
+                          {item.patient?.name || "Oracle sandbox patient"}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Patient ID {item.patientId}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">{item.encounterId}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {item.encounterType || "Encounter"}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        {item.serviceDate
+                          ? new Date(item.serviceDate).toLocaleDateString()
+                          : "—"}
+                      </TableCell>
+                      <TableCell align="right">{item.chargeCount || 0}</TableCell>
+                      <TableCell align="right">
+                        {formatUSD(item.totalBilledAmount || 0)}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => selectOracleBillingDemo(item)}
+                        >
+                          Use Visit
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOracleDemoOpen(false)} disabled={oracleDemoBusy}>
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
 
