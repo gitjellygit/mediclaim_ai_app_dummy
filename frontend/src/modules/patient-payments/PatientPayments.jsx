@@ -44,6 +44,9 @@ export default function PatientPayments() {
   const [loading, setLoading] = React.useState(false);
   const [paymentOpen, setPaymentOpen] = React.useState(false);
   const [paymentBusy, setPaymentBusy] = React.useState(false);
+  const [followUpBusy, setFollowUpBusy] = React.useState(false);
+  const [showCharges, setShowCharges] = React.useState(false);
+  const [actionMessage, setActionMessage] = React.useState("");
   const [payment, setPayment] = React.useState({
     amount: "",
     method: "CARD",
@@ -74,6 +77,8 @@ export default function PatientPayments() {
     try {
       const data = await PatientPaymentsApi.get(balanceId);
       setSelected(data);
+      setShowCharges(false);
+      setActionMessage("");
     } catch (error) {
       showDialog(error?.message || "Unable to load patient balance.", {
         title: "Patient payments",
@@ -118,7 +123,7 @@ export default function PatientPayments() {
       setSelected(result.balance);
       setPaymentOpen(false);
       await loadList();
-      showToast("Patient payment recorded", "success");
+      setActionMessage(`Payment of ${formatUSD(amount)} recorded. Remaining balance: ${formatUSD(result.balance.balanceAmount || 0)}.`);
     } catch (error) {
       showDialog(error?.message || "Payment could not be recorded.", {
         title: "Payment failed",
@@ -131,25 +136,31 @@ export default function PatientPayments() {
 
   async function markStatementSent() {
     if (!selected) return;
+    setFollowUpBusy(true);
     try {
       const next = await PatientPaymentsApi.update(selected.id, { statementStatus: "SENT" });
       setSelected(next);
       await loadList();
-      showToast("Statement marked as sent", "success");
+      setActionMessage("Statement status updated to Sent. This records that a statement was sent outside CLAIM APP; it does not send one automatically.");
     } catch (error) {
       showToast(error?.message || "Unable to update statement status", "error");
+    } finally {
+      setFollowUpBusy(false);
     }
   }
 
   async function startPaymentPlan() {
     if (!selected) return;
+    setFollowUpBusy(true);
     try {
       const next = await PatientPaymentsApi.update(selected.id, { paymentPlanStatus: "ACTIVE" });
       setSelected(next);
       await loadList();
-      showToast("Payment plan activated", "success");
+      setActionMessage("Payment plan status updated to Active. This is tracking only; installment amounts and scheduled charges are not created yet.");
     } catch (error) {
       showToast(error?.message || "Unable to activate payment plan", "error");
+    } finally {
+      setFollowUpBusy(false);
     }
   }
 
@@ -267,45 +278,118 @@ export default function PatientPayments() {
                 <Box><Typography variant="caption" color="text.secondary">Balance due</Typography><Typography variant="h6" fontWeight={800}>{formatUSD(selected.balanceAmount || 0)}</Typography></Box>
               </Box>
 
+              <Divider sx={{ my: 2 }} />
+
+              {actionMessage && (
+                <Alert severity="success" sx={{ mb: 1.5 }} data-testid="patient-payment-action-message">
+                  {actionMessage}
+                </Alert>
+              )}
+
+              <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ md: "stretch" }}>
+                <Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}>
+                  <Typography variant="subtitle2" fontWeight={800}>Collect payment</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.25 }}>
+                    Record money actually received from the patient.
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    disabled={!canEdit || selected.balanceAmount <= 0}
+                    onClick={startPayment}
+                  >
+                    Record Payment
+                  </Button>
+                </Paper>
+
+                <Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}>
+                  <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                    <Typography variant="subtitle2" fontWeight={800}>Statement</Typography>
+                    <Chip
+                      size="small"
+                      label={selected.statementStatus === "SENT" ? "Sent" : "Not sent"}
+                      color={selected.statementStatus === "SENT" ? "success" : "default"}
+                      data-testid="statement-status"
+                    />
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.25 }}>
+                    Tracking only. Use this after a statement was sent outside CLAIM APP.
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    disabled={!canEdit || followUpBusy || selected.statementStatus === "SENT"}
+                    onClick={markStatementSent}
+                  >
+                    {selected.statementStatus === "SENT" ? "Marked Sent" : "Mark as Sent"}
+                  </Button>
+                </Paper>
+
+                <Paper variant="outlined" sx={{ p: 1.5, flex: 1 }}>
+                  <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                    <Typography variant="subtitle2" fontWeight={800}>Payment plan</Typography>
+                    <Chip
+                      size="small"
+                      label={selected.paymentPlanStatus === "ACTIVE" ? "Active" : "No plan"}
+                      color={selected.paymentPlanStatus === "ACTIVE" ? "info" : "default"}
+                      data-testid="payment-plan-status"
+                    />
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.25 }}>
+                    Tracking only. Installment amounts and scheduled charges are not created yet.
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    disabled={!canEdit || followUpBusy || selected.paymentPlanStatus === "ACTIVE" || selected.balanceAmount <= 0}
+                    onClick={startPaymentPlan}
+                  >
+                    {selected.paymentPlanStatus === "ACTIVE" ? "Marked Active" : "Mark as Active"}
+                  </Button>
+                </Paper>
+              </Stack>
+
               {Array.isArray(selected.chargeDetails) && selected.chargeDetails.length > 0 && (
                 <>
                   <Divider sx={{ my: 2 }} />
-                  <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
-                    Charge details
-                  </Typography>
-                  <Stack spacing={0.75} sx={{ mb: 2 }}>
-                    {selected.chargeDetails.map((line, index) => (
-                      <Paper key={line.externalId || index} variant="outlined" sx={{ px: 1.25, py: 0.9 }}>
-                        <Stack direction="row" justifyContent="space-between" spacing={1}>
-                          <Box>
-                            <Typography variant="body2" fontWeight={700}>
-                              {line.cptHcpcsCode || "Billable service"}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {line.units || 1} unit{Number(line.units || 1) === 1 ? "" : "s"}
-                            </Typography>
-                          </Box>
-                          <Typography variant="body2" fontWeight={800}>
-                            {formatUSD(line.charge || 0)}
-                          </Typography>
-                        </Stack>
-                      </Paper>
-                    ))}
+                  <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                    <Box>
+                      <Typography variant="subtitle2" fontWeight={800}>
+                        Charge details ({selected.chargeDetails.length})
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Hidden by default to keep the payment workspace compact.
+                      </Typography>
+                    </Box>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => setShowCharges((current) => !current)}
+                    >
+                      {showCharges ? "Hide charges" : `Show all ${selected.chargeDetails.length} charges`}
+                    </Button>
                   </Stack>
+
+                  {showCharges && (
+                    <Stack spacing={0.75} sx={{ mt: 1 }}>
+                      {selected.chargeDetails.map((line, index) => (
+                        <Paper key={line.externalId || index} variant="outlined" sx={{ px: 1.25, py: 0.9 }}>
+                          <Stack direction="row" justifyContent="space-between" spacing={1}>
+                            <Box>
+                              <Typography variant="body2" fontWeight={700}>
+                                {line.cptHcpcsCode || "Billable service"}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {line.units || 1} unit{Number(line.units || 1) === 1 ? "" : "s"}
+                              </Typography>
+                            </Box>
+                            <Typography variant="body2" fontWeight={800}>
+                              {formatUSD(line.charge || 0)}
+                            </Typography>
+                          </Stack>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  )}
                 </>
               )}
-
-              <Divider sx={{ my: 2 }} />
-
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                <Button variant="contained" disabled={!canEdit || selected.balanceAmount <= 0} onClick={startPayment}>Record Payment</Button>
-                <Button variant="outlined" disabled={!canEdit || selected.statementStatus === "SENT"} onClick={markStatementSent}>
-                  {selected.statementStatus === "SENT" ? "Statement Sent" : "Mark Statement Sent"}
-                </Button>
-                <Button variant="outlined" disabled={!canEdit || selected.paymentPlanStatus === "ACTIVE" || selected.balanceAmount <= 0} onClick={startPaymentPlan}>
-                  {selected.paymentPlanStatus === "ACTIVE" ? "Payment Plan Active" : "Mark Payment Plan Active"}
-                </Button>
-              </Stack>
             </CardContent>
           </Card>
 

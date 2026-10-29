@@ -44,6 +44,7 @@ test("Patient Payments is a real financial workspace and cashier destination", (
   const workspace = read("frontend/src/modules/patient-payments/PatientPayments.jsx");
   const apiRoute = read("backend/src/routes/patientPayments.js");
   const server = read("backend/src/index.js");
+  const browserRegression = read("frontend/tests/patient-payments.e2e.spec.js");
 
   assert.match(server, /app\.use\("\/api\/patient-payments"/);
   assert.match(app, /path: "\/patient-payments"/);
@@ -51,9 +52,13 @@ test("Patient Payments is a real financial workspace and cashier destination", (
   assert.match(app, /role === "CASHIER"[\s\S]*"\/patient-payments"/);
   assert.match(nav, /label="Patient Payments"/);
   assert.match(workspace, /Record Payment/);
-  assert.match(workspace, /Mark Statement Sent/);
-  assert.match(workspace, /Mark Payment Plan Active/);
+  assert.match(workspace, /Mark as Sent/);
+  assert.match(workspace, /Mark as Active/);
+  assert.match(workspace, /Show all .* charges/);
+  assert.match(workspace, /Tracking only/);
   assert.match(apiRoute, /PATIENT_PAYMENT_RECORDED/);
   assert.match(apiRoute, /PATIENT_PAYMENT_EXCEEDS_BALANCE/);
   assert.match(apiRoute, /requirePermission\(PERMISSIONS\.FINANCIAL_EDIT\)/);
+  assert.match(browserRegression, /patient-payments\/\$\{fixture\.patientBalanceId\}/);
+  assert.match(browserRegression, /Payment of \$250\.00 recorded/);
 });
