@@ -43,12 +43,22 @@ export function oracleHealthConfigurationStatus(environment = "SANDBOX") {
   };
 }
 
-export async function oracleHealthFhirGet(config, path, fetchImpl = fetch) {
+export async function oracleHealthFhirGet(config, path, fetchImpl = fetch, externalSignal = null) {
   const url = trimSlash(required(config.fhirBaseUrl, "Oracle Health FHIR base URL")) +
     "/" + String(path || "").replace(/^\/+/, "");
   const timeoutMs = Number(process.env.ORACLE_HEALTH_REQUEST_TIMEOUT_MS || 15000);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const cancelFromCaller = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) cancelFromCaller();
+    else externalSignal.addEventListener("abort", cancelFromCaller, { once: true });
+  }
+
   let response;
   try {
     response = await fetchImpl(url, {
@@ -57,6 +67,12 @@ export async function oracleHealthFhirGet(config, path, fetchImpl = fetch) {
     });
   } catch (error) {
     if (error?.name === "AbortError") {
+      if (externalSignal?.aborted && !timedOut) {
+        const cancelled = new Error("Oracle Health FHIR request cancelled");
+        cancelled.code = "ORACLE_HEALTH_FHIR_CANCELLED";
+        cancelled.status = 499;
+        throw cancelled;
+      }
       const timeoutError = new Error("Oracle Health FHIR request timed out for " + path);
       timeoutError.code = "ORACLE_HEALTH_FHIR_TIMEOUT";
       timeoutError.status = 504;
@@ -65,6 +81,7 @@ export async function oracleHealthFhirGet(config, path, fetchImpl = fetch) {
     throw error;
   } finally {
     clearTimeout(timeout);
+    externalSignal?.removeEventListener?.("abort", cancelFromCaller);
   }
 
   let payload = null;
@@ -340,7 +357,7 @@ export async function discoverOracleHealthBillableEncounters(
 
 async function optionalOracleResource(config, path, fetchImpl, calls, resources, name) {
   try {
-    const payload = await oracleHealthFhirGet(config, path, fetchImpl);
+    const payload = await oracleHealthFhirGet(config, path, fetchImpl, signal);
     if (payload?.resourceType !== "Bundle" || (payload.entry || []).length > 0) resources.push(payload);
     calls.push({
       resource: name,
@@ -349,6 +366,7 @@ async function optionalOracleResource(config, path, fetchImpl, calls, resources,
     });
     return payload;
   } catch (error) {
+    if (error?.code === "ORACLE_HEALTH_FHIR_CANCELLED") throw error;
     calls.push({
       resource: name,
       status: "SKIPPED",
@@ -381,6 +399,7 @@ export async function fetchOracleHealthPatientSnapshot(
       ? { fetchImpl: optionsOrFetch }
       : (optionsOrFetch || {});
   const fetchImpl = options.fetchImpl || fetch;
+  const signal = options.signal || null;
   const encounterId = options.encounterId || null;
   const resources = [];
   const calls = [];
@@ -388,7 +407,7 @@ export async function fetchOracleHealthPatientSnapshot(
 
   for (const item of oracleHealthPatientSyncPlan(patientId)) {
     try {
-      const payload = await oracleHealthFhirGet(config, item.path, fetchImpl);
+      const payload = await oracleHealthFhirGet(config, item.path, fetchImpl, signal);
       if (payload?.resourceType !== "Bundle" || (payload.entry || []).length > 0) {
         resources.push(payload);
       }
@@ -404,7 +423,7 @@ export async function fetchOracleHealthPatientSnapshot(
         count: payload?.resourceType === "Bundle" ? (payload.entry || []).length : (payload ? 1 : 0)
       });
     } catch (error) {
-      if (item.required) throw error;
+      if (error?.code === "ORACLE_HEALTH_FHIR_CANCELLED" || item.required) throw error;
       calls.push({
         resource: item.name,
         status: "SKIPPED",
@@ -417,7 +436,7 @@ export async function fetchOracleHealthPatientSnapshot(
   if (encounterId) {
     const directEncounterPath = "Encounter/" + encoded(encounterId);
     try {
-      const payload = await oracleHealthFhirGet(config, directEncounterPath, fetchImpl);
+      const payload = await oracleHealthFhirGet(config, directEncounterPath, fetchImpl, signal);
       if (payload) resources.push(payload);
       calls.push({
         resource: "Encounter",
@@ -427,6 +446,7 @@ export async function fetchOracleHealthPatientSnapshot(
         targeted: true
       });
     } catch (error) {
+      if (error?.code === "ORACLE_HEALTH_FHIR_CANCELLED") throw error;
       calls.push({
         resource: "Encounter",
         encounterId: String(encounterId),
@@ -446,7 +466,8 @@ export async function fetchOracleHealthPatientSnapshot(
       fetchImpl,
       calls,
       resources,
-      "CoverageEncounter"
+      "CoverageEncounter",
+      signal
     );
     await optionalOracleResource(
       config,
@@ -454,7 +475,8 @@ export async function fetchOracleHealthPatientSnapshot(
       fetchImpl,
       calls,
       resources,
-      "Account"
+      "Account",
+      signal
     );
     await optionalOracleResource(
       config,
@@ -462,7 +484,8 @@ export async function fetchOracleHealthPatientSnapshot(
       fetchImpl,
       calls,
       resources,
-      "ConditionEncounter"
+      "ConditionEncounter",
+      signal
     );
     const procedures = await optionalOracleResource(
       config,
@@ -470,7 +493,8 @@ export async function fetchOracleHealthPatientSnapshot(
       fetchImpl,
       calls,
       [],
-      "Procedure"
+      "Procedure",
+      signal
     );
     if (procedures?.resourceType === "Bundle") {
       const filtered = bundleResources(procedures, "Procedure").filter((resource) =>
@@ -490,7 +514,7 @@ export async function fetchOracleHealthPatientSnapshot(
   for (const encounterId of [...new Set(encounterIds)].slice(0, 25)) {
     const path = "ChargeItem?context=" + encoded(encounterId) + "&-status=billable";
     try {
-      const payload = await oracleHealthFhirGet(config, path, fetchImpl);
+      const payload = await oracleHealthFhirGet(config, path, fetchImpl, signal);
       if (payload?.resourceType !== "Bundle" || (payload.entry || []).length > 0) {
         resources.push(payload);
       }
@@ -501,6 +525,7 @@ export async function fetchOracleHealthPatientSnapshot(
         count: payload?.resourceType === "Bundle" ? (payload.entry || []).length : (payload ? 1 : 0)
       });
     } catch (error) {
+      if (error?.code === "ORACLE_HEALTH_FHIR_CANCELLED") throw error;
       calls.push({
         resource: "ChargeItem",
         encounterId,
