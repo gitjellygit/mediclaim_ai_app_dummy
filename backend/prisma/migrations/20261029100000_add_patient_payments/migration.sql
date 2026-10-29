@@ -23,6 +23,7 @@ CREATE TABLE "PatientBalance" (
   "statementStatus" TEXT NOT NULL DEFAULT 'NOT_SENT',
   "paymentPlanStatus" TEXT NOT NULL DEFAULT 'NONE',
   "notes" TEXT,
+  "chargeDetails" JSONB,
   CONSTRAINT "PatientBalance_pkey" PRIMARY KEY ("id")
 );
 
