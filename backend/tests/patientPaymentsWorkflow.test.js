@@ -43,7 +43,9 @@ test("Patient Payments is a real financial workspace and cashier destination", (
   const nav = read("frontend/src/layout/LeftNav.jsx");
   const workspace = read("frontend/src/modules/patient-payments/PatientPayments.jsx");
   const apiRoute = read("backend/src/routes/patientPayments.js");
+  const server = read("backend/src/index.js");
 
+  assert.match(server, /app\.use\("\/api\/patient-payments"/);
   assert.match(app, /path: "\/patient-payments"/);
   assert.match(app, /path: "\/patient-payments\/:id"/);
   assert.match(app, /role === "CASHIER"[\s\S]*"\/patient-payments"/);
