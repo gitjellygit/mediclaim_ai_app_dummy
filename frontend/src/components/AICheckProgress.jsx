@@ -1,6 +1,7 @@
 import React from "react";
 import {
   Box,
+  Button,
   Chip,
   Dialog,
   DialogContent,
@@ -23,7 +24,7 @@ const steps = [
   { label: "Calculating readiness & rejection risk", icon: <AnalyticsIcon /> }
 ];
 
-export default function AICheckProgress({ open }) {
+export default function AICheckProgress({ open, onCancel = null }) {
   const [step, setStep] = React.useState(0);
   const [progress, setProgress] = React.useState(0);
 
@@ -205,6 +206,11 @@ export default function AICheckProgress({ open }) {
               </Typography>
             </Stack>
           </Box>
+          {onCancel && (
+            <Button variant="outlined" color="error" onClick={onCancel}>
+              Cancel Check
+            </Button>
+          )}
         </Stack>
       </DialogContent>
     </Dialog>

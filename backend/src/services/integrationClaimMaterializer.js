@@ -84,7 +84,7 @@ export async function materializeCanonicalClaim(tx, {
     include: { claim: true }
   });
 
-  if (identity?.claim) {
+  if (identity?.claim && !identity.claim.deletedAt) {
     const existingProvenance =
       identity.claim.fieldProvenance &&
       typeof identity.claim.fieldProvenance === "object" &&
@@ -138,6 +138,37 @@ export async function materializeCanonicalClaim(tx, {
         const source = existingProvenance[field];
         return source?.source === "USER" && source?.verified === true;
       }),
+      claim
+    };
+  }
+
+  if (identity?.claim?.deletedAt) {
+    const provenance = systemProvenance(Object.keys(patch), {
+      source: "INTEGRATION",
+      label: "Imported from Integration Hub",
+      sourceDetail: "Connection " + connectionId,
+      verified: false
+    });
+
+    const claim = await tx.claim.create({
+      data: {
+        organizationId,
+        createdById: actorUserId,
+        ...patch,
+        status: "DRAFT",
+        fieldProvenance: provenance
+      }
+    });
+
+    await tx.claimExternalIdentity.update({
+      where: { id: identity.id },
+      data: { claimId: claim.id }
+    });
+
+    return {
+      materialized: true,
+      created: true,
+      replacedDeletedClaimId: identity.claim.id,
       claim
     };
   }

@@ -188,9 +188,10 @@ export const ClaimsApi = {
     });
   },
 
-  runCheck(id) {
+  runCheck(id, { signal } = {}) {
     return api(`${BASE}/${id}/check`, {
-      method: "POST"
+      method: "POST",
+      signal
     });
   },
 

@@ -61,9 +61,10 @@ export const IntegrationsApi = {
     });
   },
 
-  syncOracleHealth(id, patientId = "", encounterId = "") {
+  syncOracleHealth(id, patientId = "", encounterId = "", { signal } = {}) {
     return api(`${BASE}/${id}/oracle-health/sync`, {
       method: "POST",
+      signal,
       body: JSON.stringify({
         ...(patientId ? { patientId } : {}),
         ...(encounterId ? { encounterId } : {})
@@ -77,10 +78,20 @@ export const IntegrationsApi = {
     });
   },
 
-  claimDraftPreview(id, patientId, encounterId = "") {
+  claimDraftPreview(id, patientId, encounterId = "", { signal } = {}) {
     const params = new URLSearchParams({ patientId });
     if (encounterId) params.set("encounterId", encounterId);
-    return api(`${BASE}/${id}/claim-draft/preview?${params.toString()}`);
+    return api(`${BASE}/${id}/claim-draft/preview?${params.toString()}`, { signal });
+  },
+
+  createPatientBalance(id, patientId, encounterId = "") {
+    return api(`${BASE}/${id}/patient-balance`, {
+      method: "POST",
+      body: JSON.stringify({
+        patientId,
+        ...(encounterId ? { encounterId } : {})
+      })
+    });
   },
 
   createClaimDraft(id, patientId, encounterId = "") {

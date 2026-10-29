@@ -130,6 +130,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
 
   const [docType, setDocType] = React.useState("AUTO");
   const [aiRunning, setAiRunning] = React.useState(false);
+  const readinessAbortRef = React.useRef(null);
   const [submittingClaim, setSubmittingClaim] = React.useState(false);
   const [reconcilingSubmission, setReconcilingSubmission] = React.useState(false);
   const [editMode, setEditMode] = React.useState(false);
@@ -1139,10 +1140,22 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       );
     }
 
+    const controller = new window.AbortController();
+    readinessAbortRef.current?.abort();
+    readinessAbortRef.current = controller;
+
     try {
       setAiRunning(true);
-      await new Promise((r) => setTimeout(r, 2500));
-      await ClaimsApi.runCheck(id);
+      await new Promise((resolve, reject) => {
+        const timer = window.setTimeout(resolve, 2500);
+        const onAbort = () => {
+          window.clearTimeout(timer);
+          const error = new window.DOMException("Readiness check cancelled", "AbortError");
+          reject(error);
+        };
+        controller.signal.addEventListener("abort", onAbort, { once: true });
+      });
+      await ClaimsApi.runCheck(id, { signal: controller.signal });
       await load({ silent: true });
       window.setTimeout(() => {
         readinessRef.current?.scrollIntoView({
@@ -1152,13 +1165,24 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       }, 120);
       showToast("AI analysis completed", "success");
     } catch (e) {
-      showDialog(
-        e.message || "AI analysis could not be completed. Please try again.",
-        { title: "AI analysis failed", severity: "error" }
-      );
+      if (e?.name === "AbortError" || controller.signal.aborted) {
+        showToast("Readiness check cancelled", "info");
+      } else {
+        showDialog(
+          e.message || "AI analysis could not be completed. Please try again.",
+          { title: "AI analysis failed", severity: "error" }
+        );
+      }
     } finally {
+      if (readinessAbortRef.current === controller) {
+        readinessAbortRef.current = null;
+      }
       setAiRunning(false);
     }
+  }
+
+  function cancelReadinessCheck() {
+    readinessAbortRef.current?.abort();
   }
 
   async function reconcileSubmission() {
@@ -3615,7 +3639,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
           </Button>
         </DialogActions>
       </Dialog>
-      <AICheckProgress open={aiRunning} />
+      <AICheckProgress open={aiRunning} onCancel={aiRunning ? cancelReadinessCheck : null} />
     </Box>
   );
 }
