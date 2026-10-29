@@ -53,6 +53,15 @@ import { formatUSD } from "../../utils/currency.js";
 import { humanizeEnum } from "../../utils/displayLabels.js";
 import ClaimAssignmentDialog from "../../components/ClaimAssignmentDialog.jsx";
 
+function isSelfPayLabel(value) {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return ["self pay", "selfpay", "patient pay", "patient responsibility"].includes(normalized);
+}
+
 const statusColor = {
   DRAFT: "default",
   READY: "info",
@@ -686,11 +695,24 @@ export default function ClaimsList() {
     setEhrCancelable(false);
   }
 
-  async function createEhrDraftFromPreview() {
+  async function createEhrDestinationFromPreview() {
     const connection = selectedEhrConnection();
     if (!connection || !ehrPreview?.ready) return;
+
+    const selfPay = isSelfPayLabel(ehrPreview?.summary?.payerName || ehrPreview?.claimData?.payerName);
     setEhrBusy(true);
     try {
+      if (selfPay) {
+        const result = await IntegrationsApi.createPatientBalance(
+          connection.id,
+          ehrPatientId.trim(),
+          ehrPreview.encounterId || ""
+        );
+        setEhrDialogOpen(false);
+        navigate(`/patient-payments/${result.patientBalanceId}`);
+        return;
+      }
+
       const result = await IntegrationsApi.createClaimDraft(
         connection.id,
         ehrPatientId.trim(),
@@ -704,7 +726,9 @@ export default function ClaimsList() {
     } catch (error) {
       setEhrResult({
         severity: "error",
-        message: error?.message || "Unable to create the draft claim."
+        message: error?.message || (selfPay
+          ? "Unable to create the patient balance."
+          : "Unable to create the draft claim.")
       });
     } finally {
       setEhrBusy(false);
@@ -1162,7 +1186,7 @@ export default function ClaimsList() {
         fullWidth
         maxWidth="md"
       >
-        <DialogTitle>Create Claim from EHR</DialogTitle>
+        <DialogTitle>Create from EHR</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Find the patient in the selected EHR, confirm the correct record, then fetch the
@@ -1611,7 +1635,7 @@ export default function ClaimsList() {
                           onClick={() => useEncounterForClaim(encounter)}
                           sx={{ minWidth: 88 }}
                         >
-                          {encounter.billable ? "Use for Claim" : "No Charges"}
+                          {encounter.billable ? "Use Visit" : "No Charges"}
                         </Button>
                       </Box>
                     ))}
@@ -1638,7 +1662,9 @@ export default function ClaimsList() {
                 >
                   <Box sx={{ flex: 1 }}>
                     <Typography variant="caption" color="text.secondary" fontWeight={800}>
-                      CLAIM DATA FROM EHR
+                      {isSelfPayLabel(ehrPreview.summary?.payerName || ehrPreview.claimData?.payerName)
+                        ? "PATIENT RESPONSIBILITY FROM EHR"
+                        : "CLAIM DATA FROM EHR"}
                     </Typography>
                     <Box
                       sx={{
@@ -1667,7 +1693,11 @@ export default function ClaimsList() {
                         </Typography>
                       </Box>
                       <Box>
-                        <Typography variant="caption" color="text.secondary">Claim amount</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {isSelfPayLabel(ehrPreview.summary?.payerName || ehrPreview.claimData?.payerName)
+                            ? "Patient responsibility"
+                            : "Claim amount"}
+                        </Typography>
                         <Typography variant="body2" fontWeight={700}>
                           {ehrPreview.summary?.totalBilledAmount
                             ? formatUSD(ehrPreview.summary.totalBilledAmount)
@@ -1681,15 +1711,23 @@ export default function ClaimsList() {
                         Cannot create claim. Missing: {ehrPreview.missing.join(", ")}.
                       </Alert>
                     )}
-                    {ehrPreview.warnings?.length > 0 && (
-                      <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
-                        Draft can be created. Complete before submission: {ehrPreview.warnings.join(", ")}.
+                    {isSelfPayLabel(ehrPreview.summary?.payerName || ehrPreview.claimData?.payerName) ? (
+                      <Alert severity="info" sx={{ mt: 1, py: 0 }}>
+                        Self-pay encounter detected. Insurance eligibility, prior authorization, and payer claim submission do not apply. Create a patient balance instead.
                       </Alert>
-                    )}
-                    {!ehrPreview.missing?.length && !ehrPreview.warnings?.length && (
-                      <Alert severity="success" sx={{ mt: 1, py: 0 }}>
-                        Billing data is sufficient to create a draft claim.
-                      </Alert>
+                    ) : (
+                      <>
+                        {ehrPreview.warnings?.length > 0 && (
+                          <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
+                            Draft can be created. Complete before submission: {ehrPreview.warnings.join(", ")}.
+                          </Alert>
+                        )}
+                        {!ehrPreview.missing?.length && !ehrPreview.warnings?.length && (
+                          <Alert severity="success" sx={{ mt: 1, py: 0 }}>
+                            Billing data is sufficient to create a draft claim.
+                          </Alert>
+                        )}
+                      </>
                     )}
                   </Box>
 
@@ -1716,10 +1754,14 @@ export default function ClaimsList() {
                     <Button
                       size="small"
                       variant="contained"
-                      onClick={createEhrDraftFromPreview}
+                      onClick={createEhrDestinationFromPreview}
                       disabled={ehrBusy || !ehrPreview.ready}
                     >
-                      {ehrPreview.ready ? "Create Draft" : "Cannot Create"}
+                      {ehrPreview.ready
+                        ? (isSelfPayLabel(ehrPreview.summary?.payerName || ehrPreview.claimData?.payerName)
+                            ? "Create Patient Balance"
+                            : "Create Draft Claim")
+                        : "Cannot Create"}
                     </Button>
                   </Stack>
                 </Stack>
