@@ -1140,7 +1140,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
       );
     }
 
-    const controller = new AbortController();
+    const controller = new window.AbortController();
     readinessAbortRef.current?.abort();
     readinessAbortRef.current = controller;
 
@@ -1150,7 +1150,7 @@ export default function ClaimDetail({ id: idProp, onBack: onBackProp }) {
         const timer = window.setTimeout(resolve, 2500);
         const onAbort = () => {
           window.clearTimeout(timer);
-          const error = new DOMException("Readiness check cancelled", "AbortError");
+          const error = new window.DOMException("Readiness check cancelled", "AbortError");
           reject(error);
         };
         controller.signal.addEventListener("abort", onAbort, { once: true });
