@@ -148,6 +148,16 @@ test("athenahealth sandbox mock mode supports connection, search, and sync witho
   assert.equal(snapshot.tokenScope, "MOCK");
   assert.ok(snapshot.resources.some((item) => item.resourceType === "Patient"));
   assert.ok(snapshot.resources.some((item) => item.resourceType === "Bundle"));
+  const chargeBundle = snapshot.resources.find((item) =>
+    item.resourceType === "Bundle" &&
+    (item.entry || []).some((entry) => entry?.resource?.resourceType === "ChargeItem")
+  );
+  assert.equal(chargeBundle.entry.length, 2);
+  assert.equal(
+    chargeBundle.entry.reduce((sum, entry) => sum + Number(entry.resource.priceOverride?.value || 0), 0),
+    160
+  );
+  assert.equal(snapshot.calls.find((item) => item.resource === "ChargeItem")?.count, 2);
   assert.equal(snapshot.calls.every((item) => item.status === "SUCCESS"), true);
   assert.equal(ATHENAHEALTH_MOCK_PATIENTS.length >= 3, true);
 });
@@ -192,7 +202,8 @@ test("athenahealth foundation is wired through Integration Hub without pretendin
   assert.match(hub, /athenahealth FHIR Connection/);
   assert.match(hub, /Billing, statements, payment plans/);
   assert.match(claims, /Sync Patient Data/);
-  assert.match(claims, /billing import is intentionally not enabled yet/i);
+  assert.match(claims, /athenahealth mock data synced and is ready to create a draft claim/i);
+  assert.match(claims, /createEhrDestinationFromPreview/);
   assert.match(env, /ATHENAHEALTH_SANDBOX_MOCK=true/);
   assert.match(env, /ATHENAHEALTH_SANDBOX_CLIENT_ID=/);
   assert.match(route, /oauthMode: athenaHealthConfigurationStatus/);
