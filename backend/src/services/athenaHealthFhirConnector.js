@@ -84,8 +84,11 @@ function athenaMockSnapshot(patientId) {
       resourceType: "Coverage",
       id: "athena-cov-" + patient.id.slice(-4),
       status: "active",
+      subscriberId: "ATH-MEMBER-" + patient.id.slice(-4),
       beneficiary: { reference: "Patient/" + patient.id },
-      payor: [{ display: "Athena Demo Health Plan" }]
+      subscriber: { reference: "Patient/" + patient.id },
+      payor: [{ display: "Athena Demo Health Plan" }],
+      period: { start: "2026-01-01", end: "2026-12-31" }
     }]),
     athenaMockBundle([{
       resourceType: "Appointment",
@@ -107,7 +110,15 @@ function athenaMockSnapshot(patientId) {
       id: "athena-cond-" + patient.id.slice(-4),
       clinicalStatus: { coding: [{ code: "active" }] },
       subject: { reference: "Patient/" + patient.id },
-      code: { text: "Routine follow-up" }
+      encounter: { reference: "Encounter/" + encounterId },
+      code: {
+        coding: [{
+          system: "http://hl7.org/fhir/sid/icd-10-cm",
+          code: "Z09",
+          display: "Encounter for follow-up examination after treatment"
+        }],
+        text: "Routine follow-up"
+      }
     }]),
     athenaMockBundle([{
       resourceType: "DocumentReference",
@@ -115,7 +126,43 @@ function athenaMockSnapshot(patientId) {
       status: "current",
       subject: { reference: "Patient/" + patient.id },
       description: "Synthetic athenahealth preview note"
-    }])
+    }]),
+    athenaMockBundle([
+      {
+        resourceType: "ChargeItem",
+        id: "athena-charge-" + patient.id.slice(-4) + "-1",
+        status: "billable",
+        subject: { reference: "Patient/" + patient.id },
+        context: { reference: "Encounter/" + encounterId },
+        code: {
+          coding: [{
+            system: "http://www.ama-assn.org/go/cpt",
+            code: "99213",
+            display: "Office or other outpatient visit"
+          }]
+        },
+        quantity: { value: 1 },
+        priceOverride: { value: 125, currency: "USD" },
+        occurrenceDateTime: "2026-10-15T14:00:00Z"
+      },
+      {
+        resourceType: "ChargeItem",
+        id: "athena-charge-" + patient.id.slice(-4) + "-2",
+        status: "billable",
+        subject: { reference: "Patient/" + patient.id },
+        context: { reference: "Encounter/" + encounterId },
+        code: {
+          coding: [{
+            system: "http://www.ama-assn.org/go/cpt",
+            code: "36415",
+            display: "Collection of venous blood by venipuncture"
+          }]
+        },
+        quantity: { value: 1 },
+        priceOverride: { value: 35, currency: "USD" },
+        occurrenceDateTime: "2026-10-15T14:10:00Z"
+      }
+    ])
   ];
   return {
     patientId: patient.id,
@@ -126,7 +173,8 @@ function athenaMockSnapshot(patientId) {
       { resource: "Appointment", status: "SUCCESS", count: 1 },
       { resource: "Encounter", status: "SUCCESS", count: 1 },
       { resource: "Condition", status: "SUCCESS", count: 1 },
-      { resource: "DocumentReference", status: "SUCCESS", count: 1 }
+      { resource: "DocumentReference", status: "SUCCESS", count: 1 },
+      { resource: "ChargeItem", status: "SUCCESS", count: 2 }
     ],
     tokenScope: "MOCK"
   };
