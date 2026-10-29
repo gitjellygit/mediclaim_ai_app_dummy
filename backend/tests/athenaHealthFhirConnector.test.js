@@ -5,11 +5,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ATHENAHEALTH_PREVIEW,
+  ATHENAHEALTH_MOCK_PATIENTS,
   athenaHealthConfigurationStatus,
   athenaHealthPatientSearchPath,
   fetchAthenaHealthPatientSnapshot,
   requestAthenaHealthAccessToken,
-  searchAthenaHealthPatients
+  searchAthenaHealthPatients,
+  testAthenaHealthConnection
 } from "../src/services/athenaHealthFhirConnector.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -109,6 +111,71 @@ test("athenahealth FHIR sync requires Patient and skips optional unsupported res
   assert.ok(snapshot.resources.some((item) => item.resourceType === "Patient"));
 });
 
+
+test("athenahealth sandbox mock mode supports connection, search, and sync without OAuth", async () => {
+  const mockConfig = {
+    environment: "SANDBOX",
+    fhirBaseUrl: ATHENAHEALTH_PREVIEW.fhirBaseUrl,
+    tokenUrl: ATHENAHEALTH_PREVIEW.tokenUrl,
+    clientId: "",
+    clientSecret: "",
+    scope: ATHENAHEALTH_PREVIEW.scope,
+    mockMode: true
+  };
+
+  const connection = await testAthenaHealthConnection(mockConfig, async () => {
+    throw new Error("mock mode must not call the network");
+  });
+  assert.equal(connection.ok, true);
+  assert.equal(connection.mockMode, true);
+  assert.equal(connection.fhirVersion, "4.0.1");
+
+  const search = await searchAthenaHealthPatients(
+    mockConfig,
+    { family: "Carter", count: 10 },
+    async () => { throw new Error("mock search must not call the network"); }
+  );
+  assert.equal(search.mockMode, true);
+  assert.equal(search.count, 1);
+  assert.equal(search.items[0].id, "athena-demo-1001");
+  assert.equal(search.items[0].name, "Maya Carter");
+
+  const snapshot = await fetchAthenaHealthPatientSnapshot(
+    mockConfig,
+    "athena-demo-1001",
+    async () => { throw new Error("mock sync must not call the network"); }
+  );
+  assert.equal(snapshot.tokenScope, "MOCK");
+  assert.ok(snapshot.resources.some((item) => item.resourceType === "Patient"));
+  assert.ok(snapshot.resources.some((item) => item.resourceType === "Bundle"));
+  assert.equal(snapshot.calls.every((item) => item.status === "SUCCESS"), true);
+  assert.equal(ATHENAHEALTH_MOCK_PATIENTS.length >= 3, true);
+});
+
+test("athenahealth mock mode is sandbox-only and can make sandbox ready without credentials", () => {
+  const previousMock = process.env.ATHENAHEALTH_SANDBOX_MOCK;
+  const previousClientId = process.env.ATHENAHEALTH_SANDBOX_CLIENT_ID;
+  const previousClientSecret = process.env.ATHENAHEALTH_SANDBOX_CLIENT_SECRET;
+  try {
+    process.env.ATHENAHEALTH_SANDBOX_MOCK = "true";
+    delete process.env.ATHENAHEALTH_SANDBOX_CLIENT_ID;
+    delete process.env.ATHENAHEALTH_SANDBOX_CLIENT_SECRET;
+    const sandbox = athenaHealthConfigurationStatus("SANDBOX");
+    const production = athenaHealthConfigurationStatus("PRODUCTION");
+    assert.equal(sandbox.mockMode, true);
+    assert.equal(sandbox.dataMode, "MOCK");
+    assert.equal(sandbox.ready, true);
+    assert.equal(production.mockMode, false);
+  } finally {
+    if (previousMock === undefined) delete process.env.ATHENAHEALTH_SANDBOX_MOCK;
+    else process.env.ATHENAHEALTH_SANDBOX_MOCK = previousMock;
+    if (previousClientId === undefined) delete process.env.ATHENAHEALTH_SANDBOX_CLIENT_ID;
+    else process.env.ATHENAHEALTH_SANDBOX_CLIENT_ID = previousClientId;
+    if (previousClientSecret === undefined) delete process.env.ATHENAHEALTH_SANDBOX_CLIENT_SECRET;
+    else process.env.ATHENAHEALTH_SANDBOX_CLIENT_SECRET = previousClientSecret;
+  }
+});
+
 test("athenahealth foundation is wired through Integration Hub without pretending billing is enabled", () => {
   const route = read("backend/src/routes/integrations.js");
   const api = read("frontend/src/api/integrations.js");
@@ -126,7 +193,10 @@ test("athenahealth foundation is wired through Integration Hub without pretendin
   assert.match(hub, /Billing, statements, payment plans/);
   assert.match(claims, /Sync Patient Data/);
   assert.match(claims, /billing import is intentionally not enabled yet/i);
+  assert.match(env, /ATHENAHEALTH_SANDBOX_MOCK=true/);
   assert.match(env, /ATHENAHEALTH_SANDBOX_CLIENT_ID=/);
+  assert.match(route, /oauthMode: athenaHealthConfigurationStatus/);
+  assert.match(hub, /sandbox mock mode is active/i);
   assert.equal(athenaHealthConfigurationStatus("SANDBOX").billingApiEnabled, false);
 });
 
