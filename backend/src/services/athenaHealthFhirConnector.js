@@ -4,6 +4,134 @@ export const ATHENAHEALTH_PREVIEW = Object.freeze({
   scope: "athena/service/Athenanet.MDP.*"
 });
 
+export const ATHENAHEALTH_MOCK_PATIENTS = Object.freeze([
+  {
+    id: "athena-demo-1001",
+    name: "Maya Carter",
+    birthDate: "1984-06-18",
+    gender: "female",
+    mrn: "ATH-MRN-1001",
+    phone: "6175550101",
+    email: "maya.carter@example.test",
+    postalCode: "02115"
+  },
+  {
+    id: "athena-demo-1002",
+    name: "Daniel Brooks",
+    birthDate: "1976-11-03",
+    gender: "male",
+    mrn: "ATH-MRN-1002",
+    phone: "6175550102",
+    email: "daniel.brooks@example.test",
+    postalCode: "02116"
+  },
+  {
+    id: "athena-demo-1003",
+    name: "Priya Shah",
+    birthDate: "1991-02-27",
+    gender: "female",
+    mrn: "ATH-MRN-1003",
+    phone: "6175550103",
+    email: "priya.shah@example.test",
+    postalCode: "02118"
+  }
+]);
+
+function athenaMockEnabled(environment) {
+  return String(environment || "SANDBOX").toUpperCase() !== "PRODUCTION" &&
+    /^(1|true|yes|on)$/i.test(String(process.env.ATHENAHEALTH_SANDBOX_MOCK || ""));
+}
+
+function athenaMockPatientResource(patient) {
+  const [given, ...familyParts] = patient.name.split(" ");
+  return {
+    resourceType: "Patient",
+    id: patient.id,
+    active: true,
+    name: [{ use: "official", given: [given], family: familyParts.join(" ") }],
+    birthDate: patient.birthDate,
+    gender: patient.gender,
+    identifier: [{ system: "urn:athena:mock:mrn", value: patient.mrn, type: { text: "MRN" } }],
+    telecom: [
+      { system: "phone", value: patient.phone },
+      { system: "email", value: patient.email }
+    ],
+    address: [{ use: "home", city: "Boston", state: "MA", postalCode: patient.postalCode, country: "US" }]
+  };
+}
+
+function athenaMockBundle(resourceType, resources) {
+  return {
+    resourceType: "Bundle",
+    type: "searchset",
+    total: resources.length,
+    entry: resources.map((resource) => ({ resource }))
+  };
+}
+
+function athenaMockSnapshot(patientId) {
+  const patient = ATHENAHEALTH_MOCK_PATIENTS.find((item) => item.id === String(patientId));
+  if (!patient) {
+    const error = new Error("athenahealth mock patient was not found");
+    error.code = "ATHENAHEALTH_MOCK_PATIENT_NOT_FOUND";
+    error.status = 404;
+    throw error;
+  }
+  const encounterId = "athena-enc-" + patient.id.slice(-4);
+  const resources = [
+    athenaMockPatientResource(patient),
+    athenaMockBundle("Coverage", [{
+      resourceType: "Coverage",
+      id: "athena-cov-" + patient.id.slice(-4),
+      status: "active",
+      beneficiary: { reference: "Patient/" + patient.id },
+      payor: [{ display: "Athena Demo Health Plan" }]
+    }]),
+    athenaMockBundle("Appointment", [{
+      resourceType: "Appointment",
+      id: "athena-appt-" + patient.id.slice(-4),
+      status: "fulfilled",
+      start: "2026-10-15T14:00:00Z",
+      participant: [{ actor: { reference: "Patient/" + patient.id }, status: "accepted" }]
+    }]),
+    athenaMockBundle("Encounter", [{
+      resourceType: "Encounter",
+      id: encounterId,
+      status: "finished",
+      class: { code: "AMB", display: "ambulatory" },
+      subject: { reference: "Patient/" + patient.id },
+      period: { start: "2026-10-15T14:00:00Z", end: "2026-10-15T14:30:00Z" }
+    }]),
+    athenaMockBundle("Condition", [{
+      resourceType: "Condition",
+      id: "athena-cond-" + patient.id.slice(-4),
+      clinicalStatus: { coding: [{ code: "active" }] },
+      subject: { reference: "Patient/" + patient.id },
+      code: { text: "Routine follow-up" }
+    }]),
+    athenaMockBundle("DocumentReference", [{
+      resourceType: "DocumentReference",
+      id: "athena-doc-" + patient.id.slice(-4),
+      status: "current",
+      subject: { reference: "Patient/" + patient.id },
+      description: "Synthetic athenahealth preview note"
+    }])
+  ];
+  return {
+    patientId: patient.id,
+    resources,
+    calls: [
+      { resource: "Patient", status: "SUCCESS", count: 1 },
+      { resource: "Coverage", status: "SUCCESS", count: 1 },
+      { resource: "Appointment", status: "SUCCESS", count: 1 },
+      { resource: "Encounter", status: "SUCCESS", count: 1 },
+      { resource: "Condition", status: "SUCCESS", count: 1 },
+      { resource: "DocumentReference", status: "SUCCESS", count: 1 }
+    ],
+    tokenScope: "MOCK"
+  };
+}
+
 function trimSlash(value) {
   return String(value || "").replace(/\/+$/, "");
 }
@@ -41,7 +169,8 @@ export function athenaHealthConfig(environment = "SANDBOX") {
     scope:
       process.env[prefix + "_SCOPE"] ||
       (sandbox ? ATHENAHEALTH_PREVIEW.scope : ""),
-    testPatientId: process.env[prefix + "_TEST_PATIENT_ID"] || ""
+    testPatientId: process.env[prefix + "_TEST_PATIENT_ID"] || "",
+    mockMode: sandbox && athenaMockEnabled(env)
   };
 }
 
@@ -55,15 +184,20 @@ export function athenaHealthConfigurationStatus(environment = "SANDBOX") {
     clientIdConfigured: Boolean(config.clientId),
     clientSecretConfigured: Boolean(config.clientSecret),
     testPatientConfigured: Boolean(config.testPatientId),
+    mockMode: Boolean(config.mockMode),
+    dataMode: config.mockMode ? "MOCK" : "LIVE",
     billingApiEnabled: false,
     billingApiNote:
       "FHIR patient import is supported. athenaOne claims, patient balances, statements, and payment APIs require separate preview practice credentials and are not mapped in this foundation.",
     ready: Boolean(
-      config.fhirBaseUrl &&
-      config.tokenUrl &&
-      config.clientId &&
-      config.clientSecret &&
-      config.scope
+      config.mockMode ||
+      (
+        config.fhirBaseUrl &&
+        config.tokenUrl &&
+        config.clientId &&
+        config.clientSecret &&
+        config.scope
+      )
     )
   };
 }
@@ -152,6 +286,16 @@ export async function athenaHealthFhirGet(
 }
 
 export async function testAthenaHealthConnection(config, fetchImpl = fetch) {
+  if (config.mockMode) {
+    return {
+      ok: true,
+      resourceType: "CapabilityStatement",
+      fhirVersion: "4.0.1",
+      software: "Claim App athenahealth Mock",
+      scope: "MOCK",
+      mockMode: true
+    };
+  }
   const token = await requestAthenaHealthAccessToken(config, fetchImpl);
   const payload = await athenaHealthFhirGet(config, "metadata", {
     token: token.accessToken,
@@ -265,6 +409,54 @@ export async function searchAthenaHealthPatients(
   criteria = {},
   fetchImpl = fetch
 ) {
+  if (config.mockMode) {
+    const normalized = Object.fromEntries(
+      Object.entries(criteria || {}).map(([key, value]) => [key, String(value || "").trim().toLowerCase()])
+    );
+    const hasCriterion = ["patientId", "identifier", "name", "family", "given", "birthdate", "phone", "email", "postalCode", "gender"]
+      .some((key) => normalized[key]);
+    if (!hasCriterion) {
+      const error = new Error("Enter at least one patient search criterion");
+      error.code = "ATHENAHEALTH_PATIENT_SEARCH_REQUIRED";
+      error.status = 400;
+      throw error;
+    }
+    const items = ATHENAHEALTH_MOCK_PATIENTS
+      .filter((patient) => {
+        const haystack = {
+          patientId: patient.id.toLowerCase(),
+          identifier: patient.mrn.toLowerCase(),
+          name: patient.name.toLowerCase(),
+          family: patient.name.split(" ").slice(1).join(" ").toLowerCase(),
+          given: patient.name.split(" ")[0].toLowerCase(),
+          birthdate: patient.birthDate.toLowerCase(),
+          phone: patient.phone.toLowerCase(),
+          email: patient.email.toLowerCase(),
+          postalCode: patient.postalCode.toLowerCase(),
+          gender: patient.gender.toLowerCase()
+        };
+        return Object.entries(normalized).every(([key, value]) => {
+          if (!value || key === "count" || key === "identifierSystem") return true;
+          return String(haystack[key] || "").includes(value);
+        });
+      })
+      .slice(0, Math.min(Math.max(Number(criteria.count) || 20, 1), 50))
+      .map((patient) => {
+        const resource = athenaMockPatientResource(patient);
+        return {
+          id: patient.id,
+          name: patientDisplayName(resource),
+          birthDate: resource.birthDate || null,
+          gender: resource.gender || null,
+          active: true,
+          identifiers: patientIdentifiers(resource),
+          phones: patientTelecom(resource, "phone"),
+          emails: patientTelecom(resource, "email"),
+          address: patientAddress(resource)
+        };
+      });
+    return { items, count: items.length, total: items.length, hasMore: false, mockMode: true };
+  }
   const token = await requestAthenaHealthAccessToken(config, fetchImpl);
   const path = athenaHealthPatientSearchPath(criteria);
   const payload = await athenaHealthFhirGet(config, path, {
@@ -343,6 +535,7 @@ export async function fetchAthenaHealthPatientSnapshot(
   patientId,
   fetchImpl = fetch
 ) {
+  if (config.mockMode) return athenaMockSnapshot(patientId);
   const token = await requestAthenaHealthAccessToken(config, fetchImpl);
   const resources = [];
   const calls = [];
