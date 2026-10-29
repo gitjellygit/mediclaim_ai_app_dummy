@@ -28,6 +28,7 @@ import {
 } from "../services/athenaHealthFhirConnector.js";
 import {
   discoverOracleHealthBillableEncounters,
+  discoverOracleHealthBillingDemos,
   fetchOracleHealthPatientSnapshot,
   oracleHealthConfig,
   oracleHealthConfigurationStatus,
@@ -336,6 +337,48 @@ router.post("/:id/patients/billable-encounters", requirePermission(PERMISSIONS.I
     return res.status(oracleHealthHttpStatus(error)).json({
       error: error.message || "Unable to discover billable encounters",
       code: error.code || "EHR_BILLABLE_ENCOUNTER_DISCOVERY_FAILED"
+    });
+  }
+});
+
+router.get("/:id/oracle-health/billing-demos", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertOracleHealthConnection(connection);
+  if (connection.status !== "ACTIVE") {
+    return res.status(409).json({
+      error: "Connection must be active",
+      code: "INTEGRATION_CONNECTION_NOT_ACTIVE"
+    });
+  }
+  if (String(connection.environment || "").toUpperCase() === "PRODUCTION") {
+    return res.status(409).json({
+      error: "Oracle billing demos are available only for sandbox/test connections",
+      code: "ORACLE_HEALTH_BILLING_DEMOS_SANDBOX_ONLY"
+    });
+  }
+
+  try {
+    const result = await discoverOracleHealthBillingDemos(
+      oracleHealthConfig(connection.environment)
+    );
+    await writeRequestAudit(prisma, req, {
+      action: "ORACLE_HEALTH_BILLING_DEMOS_DISCOVERED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      metadata: {
+        provider: connection.provider,
+        environment: connection.environment,
+        resultCount: result.count,
+        seedPatientCount: result.seedPatientCount,
+        unavailableCount: result.unavailable.length
+      }
+    });
+    return res.json(result);
+  } catch (error) {
+    return res.status(oracleHealthHttpStatus(error)).json({
+      error: error.message || "Unable to discover Oracle billing demos",
+      code: error.code || "ORACLE_HEALTH_BILLING_DEMO_DISCOVERY_FAILED"
     });
   }
 });
