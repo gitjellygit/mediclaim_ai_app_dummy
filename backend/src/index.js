@@ -49,6 +49,8 @@ if (
 
 assertDocumentStorageConfiguration();
 
+assertGeneratedPrismaClientCurrent();
+
 const app = express();
 app.disable("x-powered-by");
 
