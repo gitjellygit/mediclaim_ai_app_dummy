@@ -60,7 +60,7 @@ function athenaMockPatientResource(patient) {
   };
 }
 
-function athenaMockBundle(resourceType, resources) {
+function athenaMockBundle(resources) {
   return {
     resourceType: "Bundle",
     type: "searchset",
@@ -80,21 +80,21 @@ function athenaMockSnapshot(patientId) {
   const encounterId = "athena-enc-" + patient.id.slice(-4);
   const resources = [
     athenaMockPatientResource(patient),
-    athenaMockBundle("Coverage", [{
+    athenaMockBundle([{
       resourceType: "Coverage",
       id: "athena-cov-" + patient.id.slice(-4),
       status: "active",
       beneficiary: { reference: "Patient/" + patient.id },
       payor: [{ display: "Athena Demo Health Plan" }]
     }]),
-    athenaMockBundle("Appointment", [{
+    athenaMockBundle([{
       resourceType: "Appointment",
       id: "athena-appt-" + patient.id.slice(-4),
       status: "fulfilled",
       start: "2026-10-15T14:00:00Z",
       participant: [{ actor: { reference: "Patient/" + patient.id }, status: "accepted" }]
     }]),
-    athenaMockBundle("Encounter", [{
+    athenaMockBundle([{
       resourceType: "Encounter",
       id: encounterId,
       status: "finished",
@@ -102,14 +102,14 @@ function athenaMockSnapshot(patientId) {
       subject: { reference: "Patient/" + patient.id },
       period: { start: "2026-10-15T14:00:00Z", end: "2026-10-15T14:30:00Z" }
     }]),
-    athenaMockBundle("Condition", [{
+    athenaMockBundle([{
       resourceType: "Condition",
       id: "athena-cond-" + patient.id.slice(-4),
       clinicalStatus: { coding: [{ code: "active" }] },
       subject: { reference: "Patient/" + patient.id },
       code: { text: "Routine follow-up" }
     }]),
-    athenaMockBundle("DocumentReference", [{
+    athenaMockBundle([{
       resourceType: "DocumentReference",
       id: "athena-doc-" + patient.id.slice(-4),
       status: "current",
@@ -436,7 +436,9 @@ export async function searchAthenaHealthPatients(
           gender: patient.gender.toLowerCase()
         };
         return Object.entries(normalized).every(([key, value]) => {
-          if (!value || key === "count" || key === "identifierSystem") return true;
+          if (!value || ["count", "identifierSystem", "exactName"].includes(key)) return true;
+          if (key === "birthdateFrom") return patient.birthDate >= value;
+          if (key === "birthdateTo") return patient.birthDate <= value;
           return String(haystack[key] || "").includes(value);
         });
       })
