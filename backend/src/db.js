@@ -10,6 +10,19 @@ Prisma.Decimal.prototype.toJSON = function toJSON() {
 // One connection pool per backend process. Import this module in routers/services.
 export const prisma = new PrismaClient();
 
+export function assertGeneratedPrismaClientCurrent() {
+  const missing = ["patientBalance", "patientPayment"].filter((delegate) => !prisma[delegate]);
+  if (missing.length) {
+    const error = new Error(
+      "Generated Prisma client is stale. Missing models: " +
+      missing.join(", ") +
+      ". Run 'npm run db:prepare' in backend and restart the server."
+    );
+    error.code = "PRISMA_CLIENT_STALE";
+    throw error;
+  }
+}
+
 export async function disconnectDatabase() {
   await prisma.$disconnect();
 }
