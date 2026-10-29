@@ -44,6 +44,9 @@ export default function PatientPayments() {
   const [loading, setLoading] = React.useState(false);
   const [paymentOpen, setPaymentOpen] = React.useState(false);
   const [paymentBusy, setPaymentBusy] = React.useState(false);
+  const [followUpBusy, setFollowUpBusy] = React.useState(false);
+  const [showCharges, setShowCharges] = React.useState(false);
+  const [actionMessage, setActionMessage] = React.useState("");
   const [payment, setPayment] = React.useState({
     amount: "",
     method: "CARD",
@@ -74,6 +77,8 @@ export default function PatientPayments() {
     try {
       const data = await PatientPaymentsApi.get(balanceId);
       setSelected(data);
+      setShowCharges(false);
+      setActionMessage("");
     } catch (error) {
       showDialog(error?.message || "Unable to load patient balance.", {
         title: "Patient payments",
@@ -118,7 +123,7 @@ export default function PatientPayments() {
       setSelected(result.balance);
       setPaymentOpen(false);
       await loadList();
-      showToast("Patient payment recorded", "success");
+      setActionMessage(`Payment of ${formatUSD(amount)} recorded. Remaining balance: ${formatUSD(result.balance.balanceAmount || 0)}.`);
     } catch (error) {
       showDialog(error?.message || "Payment could not be recorded.", {
         title: "Payment failed",
@@ -131,25 +136,31 @@ export default function PatientPayments() {
 
   async function markStatementSent() {
     if (!selected) return;
+    setFollowUpBusy(true);
     try {
       const next = await PatientPaymentsApi.update(selected.id, { statementStatus: "SENT" });
       setSelected(next);
       await loadList();
-      showToast("Statement marked as sent", "success");
+      setActionMessage("Statement status updated to Sent. This records that a statement was sent outside CLAIM APP; it does not send one automatically.");
     } catch (error) {
       showToast(error?.message || "Unable to update statement status", "error");
+    } finally {
+      setFollowUpBusy(false);
     }
   }
 
   async function startPaymentPlan() {
     if (!selected) return;
+    setFollowUpBusy(true);
     try {
       const next = await PatientPaymentsApi.update(selected.id, { paymentPlanStatus: "ACTIVE" });
       setSelected(next);
       await loadList();
-      showToast("Payment plan activated", "success");
+      setActionMessage("Payment plan status updated to Active. This is tracking only; installment amounts and scheduled charges are not created yet.");
     } catch (error) {
       showToast(error?.message || "Unable to activate payment plan", "error");
+    } finally {
+      setFollowUpBusy(false);
     }
   }
 
