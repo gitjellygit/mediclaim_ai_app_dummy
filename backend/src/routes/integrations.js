@@ -23,7 +23,6 @@ import {
   athenaHealthConfig,
   athenaHealthConfigurationStatus,
   fetchAthenaHealthPatientSnapshot,
-  requestAthenaHealthAccessToken,
   searchAthenaHealthPatients,
   testAthenaHealthConnection
 } from "../services/athenaHealthFhirConnector.js";
