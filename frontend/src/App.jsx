@@ -88,7 +88,9 @@ function RoleHome() {
   const target =
     role === "PROVIDER" || role === "CLINICAL_REVIEWER"
       ? "/operations"
-      : role === "CLAIMS_MANAGER" || role === "CLAIMS_SPECIALIST" || role === "CASHIER"
+      : role === "CASHIER"
+      ? "/patient-payments"
+      : role === "CLAIMS_MANAGER" || role === "CLAIMS_SPECIALIST"
       ? "/approval"
       : role === "DENIAL_SPECIALIST"
       ? "/revenue-recovery"
