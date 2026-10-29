@@ -12,6 +12,7 @@ import {
 } from "../services/integrationAdapters.js";
 import { materializeCanonicalClaim } from "../services/integrationClaimMaterializer.js";
 import { buildIntegrationClaimDraft } from "../services/integrationClaimDraft.js";
+import { isSelfPayClaim } from "../services/claimPaymentMode.js";
 import {
   epicConfig,
   epicConfigurationStatus,
@@ -603,6 +604,129 @@ router.get("/:id/claim-draft/preview", requirePermission(PERMISSIONS.INTEGRATION
 
   const preview = await integrationClaimDraft(req, connection, patientId, encounterId);
   return res.json(preview);
+});
+
+router.post("/:id/patient-balance", requirePermission(PERMISSIONS.INTEGRATION_INGEST), async (req, res) => {
+  const parsed = claimDraftSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid patient balance request",
+      code: "INVALID_INTEGRATION_PATIENT_BALANCE_REQUEST"
+    });
+  }
+
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  if (connection.status === "DISABLED") {
+    return res.status(409).json({ error: "Integration connection is disabled", code: "INTEGRATION_CONNECTION_DISABLED" });
+  }
+
+  const preview = await integrationClaimDraft(
+    req,
+    connection,
+    parsed.data.patientId,
+    parsed.data.encounterId || null
+  );
+
+  if (!preview.ready) {
+    return res.status(409).json({
+      error: preview.message,
+      code: "INTEGRATION_PATIENT_BALANCE_NOT_READY",
+      missing: preview.missing,
+      preview
+    });
+  }
+  if (!isSelfPayClaim(preview.claimData)) {
+    return res.status(409).json({
+      error: "This encounter is not self-pay and should continue through the insurance claim workflow",
+      code: "INSURANCE_CLAIM_WORKFLOW_REQUIRED"
+    });
+  }
+
+  const totalCharges = Number(preview.claimData.totalBilledAmount || preview.claimData.amount || 0);
+  const externalKey = [
+    "ehr",
+    connection.id,
+    preview.patientId,
+    "encounter",
+    preview.encounterId || "unknown"
+  ].join(":");
+
+  const result = await prisma.$transaction(async (tx) => {
+    const existing = await tx.patientBalance.findUnique({
+      where: {
+        organizationId_externalKey: {
+          organizationId: orgId(req),
+          externalKey
+        }
+      }
+    });
+    const paidAmount = Number(existing?.paidAmount || 0);
+    const remaining = Math.max(0, totalCharges - paidAmount);
+    const status = remaining <= 0.005 ? "PAID" : paidAmount > 0 ? "PARTIALLY_PAID" : "UNPAID";
+
+    const balance = await tx.patientBalance.upsert({
+      where: {
+        organizationId_externalKey: {
+          organizationId: orgId(req),
+          externalKey
+        }
+      },
+      create: {
+        organizationId: orgId(req),
+        createdById: req.user.id,
+        sourceType: "EHR",
+        sourceConnectionId: connection.id,
+        externalKey,
+        externalPatientId: preview.patientId,
+        externalEncounterId: preview.encounterId,
+        patientName: preview.claimData.patientName,
+        medicalRecordNumber: preview.claimData.medicalRecordNumber || null,
+        serviceDate: preview.claimData.dateOfService ? new Date(preview.claimData.dateOfService) : null,
+        totalCharges,
+        insuranceResponsibility: 0,
+        patientResponsibility: totalCharges,
+        paidAmount: 0,
+        balanceAmount: totalCharges,
+        status,
+        chargeDetails: preview.serviceLines
+      },
+      update: {
+        patientName: preview.claimData.patientName,
+        medicalRecordNumber: preview.claimData.medicalRecordNumber || null,
+        serviceDate: preview.claimData.dateOfService ? new Date(preview.claimData.dateOfService) : null,
+        totalCharges,
+        insuranceResponsibility: 0,
+        patientResponsibility: totalCharges,
+        balanceAmount: remaining,
+        status,
+        chargeDetails: preview.serviceLines
+      }
+    });
+
+    await writeCriticalRequestAudit(tx, req, {
+      action: existing ? "PATIENT_BALANCE_REFRESHED_FROM_EHR" : "PATIENT_BALANCE_CREATED_FROM_EHR",
+      entityType: "PatientBalance",
+      entityId: balance.id,
+      metadata: {
+        provider: connection.provider,
+        environment: connection.environment,
+        sourceType: "EHR",
+        status
+      }
+    });
+
+    return { balance, created: !existing };
+  });
+
+  return res.status(result.created ? 201 : 200).json({
+    ok: true,
+    created: result.created,
+    patientBalanceId: result.balance.id,
+    status: result.balance.status,
+    patientResponsibility: Number(result.balance.patientResponsibility),
+    balanceAmount: Number(result.balance.balanceAmount)
+  });
 });
 
 router.post("/:id/claim-draft", requirePermission(PERMISSIONS.INTEGRATION_INGEST), async (req, res) => {
