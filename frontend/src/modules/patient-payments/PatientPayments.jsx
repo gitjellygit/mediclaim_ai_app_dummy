@@ -267,6 +267,34 @@ export default function PatientPayments() {
                 <Box><Typography variant="caption" color="text.secondary">Balance due</Typography><Typography variant="h6" fontWeight={800}>{formatUSD(selected.balanceAmount || 0)}</Typography></Box>
               </Box>
 
+              {Array.isArray(selected.chargeDetails) && selected.chargeDetails.length > 0 && (
+                <>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
+                    Charge details
+                  </Typography>
+                  <Stack spacing={0.75} sx={{ mb: 2 }}>
+                    {selected.chargeDetails.map((line, index) => (
+                      <Paper key={line.externalId || index} variant="outlined" sx={{ px: 1.25, py: 0.9 }}>
+                        <Stack direction="row" justifyContent="space-between" spacing={1}>
+                          <Box>
+                            <Typography variant="body2" fontWeight={700}>
+                              {line.cptHcpcsCode || "Billable service"}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {line.units || 1} unit{Number(line.units || 1) === 1 ? "" : "s"}
+                            </Typography>
+                          </Box>
+                          <Typography variant="body2" fontWeight={800}>
+                            {formatUSD(line.charge || 0)}
+                          </Typography>
+                        </Stack>
+                      </Paper>
+                    ))}
+                  </Stack>
+                </>
+              )}
+
               <Divider sx={{ my: 2 }} />
 
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
@@ -275,7 +303,7 @@ export default function PatientPayments() {
                   {selected.statementStatus === "SENT" ? "Statement Sent" : "Mark Statement Sent"}
                 </Button>
                 <Button variant="outlined" disabled={!canEdit || selected.paymentPlanStatus === "ACTIVE" || selected.balanceAmount <= 0} onClick={startPaymentPlan}>
-                  {selected.paymentPlanStatus === "ACTIVE" ? "Payment Plan Active" : "Start Payment Plan"}
+                  {selected.paymentPlanStatus === "ACTIVE" ? "Payment Plan Active" : "Mark Payment Plan Active"}
                 </Button>
               </Stack>
             </CardContent>
