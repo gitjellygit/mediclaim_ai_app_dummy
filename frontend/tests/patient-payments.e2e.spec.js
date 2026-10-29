@@ -86,7 +86,9 @@ test("Patient Payments uses real API mutations and keeps long charge lists colla
   await expect(page.getByTestId("patient-payment-action-message")).toContainText(
     "Payment of $250.00 recorded"
   );
-  await expect(page.getByText("CASH")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Payment history" }).locator("..").getByText("CASH").first()
+  ).toBeVisible();
 
   await page.getByRole("button", { name: `Show all ${fixture.chargeCount} charges` }).click();
   await expect(page.getByRole("button", { name: "Hide charges" })).toBeVisible();
