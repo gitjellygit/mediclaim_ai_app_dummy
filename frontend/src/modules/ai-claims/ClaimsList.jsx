@@ -634,7 +634,7 @@ export default function ClaimsList() {
     }
 
     ehrFetchAbortRef.current?.abort();
-    const controller = new AbortController();
+    const controller = new window.AbortController();
     ehrFetchAbortRef.current = controller;
     setEhrBusy(true);
     setEhrCancelable(true);
