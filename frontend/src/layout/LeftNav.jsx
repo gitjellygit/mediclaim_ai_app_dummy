@@ -20,7 +20,6 @@ import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import MedicalServicesIcon from "@mui/icons-material/MedicalServices";
 import LocalHospitalIcon from "@mui/icons-material/LocalHospital";
-import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import SettingsInputComponentIcon from "@mui/icons-material/SettingsInputComponent";
@@ -153,6 +152,14 @@ export default function LeftNav({
             isActive={isActivePath("/journey")}
           />
         )}
+        {hasPermission(user, PERMISSIONS.FINANCIAL_VIEW) && (
+          <NavItem
+            icon={<PaymentsIcon />}
+            label="Patient Payments"
+            path="/patient-payments"
+            isActive={isActivePath("/patient-payments")}
+          />
+        )}
         {hasPermission(user, PERMISSIONS.RECOVERY_VIEW) && (
           <NavItem
             icon={<AccountBalanceWalletIcon />}
@@ -235,8 +242,6 @@ export default function LeftNav({
         <NavItem icon={<HowToRegIcon />} label="Check-In / Check-Out" planned />
         <NavItem icon={<MedicalServicesIcon />} label="Encounters" planned />
         <NavItem icon={<LocalHospitalIcon />} label="Charge Capture & Coding" planned />
-        <NavItem icon={<RequestQuoteIcon />} label="Patient Billing" planned />
-        <NavItem icon={<PaymentsIcon />} label="Payments & Collections" planned />
         <NavItem icon={<PersonOutlineIcon />} label="Patient Portal" planned />
       </List>
 
