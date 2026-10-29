@@ -4,8 +4,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ORACLE_HEALTH_BILLING_DEMO_PATIENT_IDS,
   ORACLE_HEALTH_OPEN_SANDBOX,
   discoverOracleHealthBillableEncounters,
+  discoverOracleHealthBillingDemos,
   fetchOracleHealthPatientSnapshot,
   oracleHealthPatientSearchPath,
   oracleHealthPatientSyncPlan,
@@ -295,17 +297,105 @@ test("Oracle billable encounter discovery returns only positive-charge visits as
 });
 
 
-test("Claims EHR import exposes more than one documented Oracle billing demo", () => {
+test("Oracle billing demo discovery returns only currently billable visits with patient context", async () => {
+  const result = await discoverOracleHealthBillingDemos(
+    {
+      fhirBaseUrl: ORACLE_HEALTH_OPEN_SANDBOX.fhirBaseUrl,
+      billingDemoPatientIds: ["p-1", "p-2"]
+    },
+    {
+      fetchImpl: async (url) => {
+        if (url.includes("/Patient/p-1")) {
+          return response(200, {
+            resourceType: "Patient",
+            id: "p-1",
+            name: [{ given: ["Demo"], family: "One" }]
+          });
+        }
+        if (url.includes("/Patient/p-2")) {
+          return response(200, {
+            resourceType: "Patient",
+            id: "p-2",
+            name: [{ given: ["Demo"], family: "Two" }]
+          });
+        }
+        if (url.includes("/Encounter?patient=p-1")) {
+          return response(200, {
+            resourceType: "Bundle",
+            entry: [{
+              resource: {
+                resourceType: "Encounter",
+                id: "enc-1",
+                status: "finished",
+                period: { start: "2026-10-01T10:00:00Z" }
+              }
+            }]
+          });
+        }
+        if (url.includes("/Encounter?patient=p-2")) {
+          return response(200, {
+            resourceType: "Bundle",
+            entry: [{
+              resource: {
+                resourceType: "Encounter",
+                id: "enc-2",
+                status: "finished",
+                period: { start: "2026-10-02T10:00:00Z" }
+              }
+            }]
+          });
+        }
+        if (url.includes("ChargeItem?context=enc-1")) {
+          return response(200, {
+            resourceType: "Bundle",
+            entry: [{
+              resource: {
+                resourceType: "ChargeItem",
+                id: "charge-1",
+                quantity: { value: 2 },
+                extension: [{
+                  url: "https://fhir-ehr.cerner.com/r4/StructureDefinition/unit-price",
+                  valueMoney: { value: 75, currency: "USD" }
+                }]
+              }
+            }]
+          });
+        }
+        return response(200, { resourceType: "Bundle", entry: [] });
+      }
+    }
+  );
+
+  assert.equal(result.seedPatientCount, 2);
+  assert.equal(result.count, 1);
+  assert.equal(result.items[0].patient.name, "Demo One");
+  assert.equal(result.items[0].patientId, "p-1");
+  assert.equal(result.items[0].encounterId, "enc-1");
+  assert.equal(result.items[0].chargeCount, 1);
+  assert.equal(result.items[0].totalBilledAmount, 150);
+});
+
+test("Oracle billing demo browser hides seed IDs from the user-facing button catalog", () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
   const ui = fs.readFileSync(
     path.join(root, "frontend/src/modules/ai-claims/ClaimsList.jsx"),
     "utf8"
   );
+  const route = fs.readFileSync(
+    path.join(root, "backend/src/routes/integrations.js"),
+    "utf8"
+  );
+  const env = fs.readFileSync(path.join(root, "backend/.env.example"), "utf8");
 
-  assert.match(ui, /patientId: "12742419"/);
-  assert.match(ui, /encounterId: "97953601"/);
-  assert.match(ui, /patientId: "12768550"/);
-  assert.match(ui, /encounterId: "97965088"/);
-  assert.match(ui, /ChargeItem 321088041/);
-  assert.match(ui, /Oracle billing demos:/);
+  assert.match(ui, /Oracle Billing Demos/);
+  assert.match(ui, /Live billable visits discovered from the Oracle Health public sandbox/);
+  assert.match(ui, /Billing lines/);
+  assert.match(ui, /Use Visit/);
+  assert.doesNotMatch(ui, /Chip Johnson/);
+  assert.doesNotMatch(ui, /ChargeItem 321088041/);
+  assert.doesNotMatch(ui, /12742419/);
+  assert.doesNotMatch(ui, /12768550/);
+  assert.match(route, /oracle-health\/billing-demos/);
+  assert.match(env, /ORACLE_HEALTH_SANDBOX_BILLING_DEMO_PATIENT_IDS=/);
+  assert.deepEqual(ORACLE_HEALTH_BILLING_DEMO_PATIENT_IDS, ["12742419", "12768550"]);
 });

@@ -79,6 +79,10 @@ export const IntegrationsApi = {
     });
   },
 
+  oracleBillingDemos(id) {
+    return api(`${BASE}/${id}/oracle-health/billing-demos`);
+  },
+
   syncOracleHealth(id, patientId = "", encounterId = "", { signal } = {}) {
     return api(`${BASE}/${id}/oracle-health/sync`, {
       method: "POST",

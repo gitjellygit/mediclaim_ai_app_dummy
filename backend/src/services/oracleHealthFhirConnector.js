@@ -2,6 +2,11 @@ export const ORACLE_HEALTH_OPEN_SANDBOX = Object.freeze({
   fhirBaseUrl: "https://fhir-open.cerner.com/r4/ec2458f2-1e24-41c8-b71b-0e701af7583d"
 });
 
+export const ORACLE_HEALTH_BILLING_DEMO_PATIENT_IDS = Object.freeze([
+  "12742419",
+  "12768550"
+]);
+
 function trimSlash(value) {
   return String(value || "").replace(/\/+$/, "");
 }
@@ -28,7 +33,16 @@ export function oracleHealthConfig(environment = "SANDBOX") {
     ),
     testPatientId: sandbox
       ? (process.env.ORACLE_HEALTH_SANDBOX_TEST_PATIENT_ID || "12724067")
-      : (process.env.ORACLE_HEALTH_PRODUCTION_TEST_PATIENT_ID || "")
+      : (process.env.ORACLE_HEALTH_PRODUCTION_TEST_PATIENT_ID || ""),
+    billingDemoPatientIds: sandbox
+      ? String(
+          process.env.ORACLE_HEALTH_SANDBOX_BILLING_DEMO_PATIENT_IDS ||
+          ORACLE_HEALTH_BILLING_DEMO_PATIENT_IDS.join(",")
+        )
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean)
+      : []
   };
 }
 
@@ -352,6 +366,79 @@ export async function discoverOracleHealthBillableEncounters(
     items,
     billableCount: items.filter((item) => item.billable).length,
     encounterCount: items.length
+  };
+}
+
+
+export async function discoverOracleHealthBillingDemos(
+  config,
+  { countPerPatient = 25, fetchImpl = fetch } = {}
+) {
+  const patientIds = [...new Set(
+    (config?.billingDemoPatientIds || ORACLE_HEALTH_BILLING_DEMO_PATIENT_IDS)
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  )].slice(0, 20);
+
+  const items = [];
+  const unavailable = [];
+
+  for (const patientId of patientIds) {
+    try {
+      const [patient, encounters] = await Promise.all([
+        oracleHealthFhirGet(config, "Patient/" + encoded(patientId), fetchImpl),
+        discoverOracleHealthBillableEncounters(config, patientId, {
+          count: countPerPatient,
+          fetchImpl
+        })
+      ]);
+
+      const patientName = patientDisplayName(patient) || "Oracle sandbox patient";
+      const patientSummary = {
+        id: patientId,
+        name: patientName,
+        birthDate: patient?.birthDate || null,
+        gender: patient?.gender || null,
+        identifiers: patientIdentifiers(patient)
+      };
+
+      for (const encounter of encounters.items || []) {
+        if (!encounter.billable) continue;
+        items.push({
+          id: patientId + ":" + encounter.id,
+          patientId,
+          patient: patientSummary,
+          encounterId: encounter.id,
+          serviceDate: encounter.period?.start || encounter.period?.end || null,
+          encounterType:
+            encounter.types?.[0] ||
+            encounter.classDisplay ||
+            encounter.classCode ||
+            "Encounter",
+          chargeCount: encounter.chargeCount || 0,
+          totalBilledAmount: encounter.totalBilledAmount || 0,
+          serviceProvider: encounter.serviceProvider || null
+        });
+      }
+    } catch (error) {
+      unavailable.push({
+        patientId,
+        code: error.code || "ORACLE_HEALTH_BILLING_DEMO_DISCOVERY_FAILED"
+      });
+    }
+  }
+
+  items.sort((left, right) => {
+    const leftDate = Date.parse(left.serviceDate || "") || 0;
+    const rightDate = Date.parse(right.serviceDate || "") || 0;
+    return rightDate - leftDate;
+  });
+
+  return {
+    items,
+    count: items.length,
+    seedPatientCount: patientIds.length,
+    unavailable
   };
 }
 
