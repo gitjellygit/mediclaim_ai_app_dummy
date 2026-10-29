@@ -50,7 +50,7 @@ test("Patient Payments is a real financial workspace and cashier destination", (
   assert.match(nav, /label="Patient Payments"/);
   assert.match(workspace, /Record Payment/);
   assert.match(workspace, /Mark Statement Sent/);
-  assert.match(workspace, /Start Payment Plan/);
+  assert.match(workspace, /Mark Payment Plan Active/);
   assert.match(apiRoute, /PATIENT_PAYMENT_RECORDED/);
   assert.match(apiRoute, /PATIENT_PAYMENT_EXCEEDS_BALANCE/);
   assert.match(apiRoute, /requirePermission\(PERMISSIONS\.FINANCIAL_EDIT\)/);
