@@ -20,6 +20,14 @@ import {
   requestEpicAccessToken
 } from "../services/epicFhirConnector.js";
 import {
+  athenaHealthConfig,
+  athenaHealthConfigurationStatus,
+  fetchAthenaHealthPatientSnapshot,
+  requestAthenaHealthAccessToken,
+  searchAthenaHealthPatients,
+  testAthenaHealthConnection
+} from "../services/athenaHealthFhirConnector.js";
+import {
   discoverOracleHealthBillableEncounters,
   fetchOracleHealthPatientSnapshot,
   oracleHealthConfig,
@@ -74,6 +82,10 @@ const ingestSchema = z.object({
 }).strict();
 
 const epicSyncSchema = z.object({
+  patientId: z.string().trim().min(1).max(250).optional()
+}).strict();
+
+const athenaHealthSyncSchema = z.object({
   patientId: z.string().trim().min(1).max(250).optional()
 }).strict();
 
@@ -159,6 +171,25 @@ function assertOracleHealthConnection(connection) {
   }
 }
 
+function assertAthenaHealthConnection(connection) {
+  const provider = String(connection?.provider || "").trim().toLowerCase();
+  const athenaProvider = provider.includes("athena");
+  if (connection?.kind !== "EHR" || !athenaProvider) {
+    const error = new Error("This operation requires an athenahealth EHR connection");
+    error.code = "ATHENAHEALTH_CONNECTION_REQUIRED";
+    error.status = 409;
+    throw error;
+  }
+}
+
+function athenaHealthHttpStatus(error) {
+  if (error?.code === "ATHENAHEALTH_CONFIGURATION_REQUIRED") return 409;
+  if (error?.code === "ATHENAHEALTH_OAUTH_FAILED") return 502;
+  if (error?.code === "ATHENAHEALTH_FHIR_REQUEST_FAILED") return 502;
+  if (error?.code === "ATHENAHEALTH_CAPABILITY_INVALID") return 502;
+  return Number.isInteger(error?.status) ? error.status : 500;
+}
+
 function oracleHealthHttpStatus(error) {
   if (error?.code === "ORACLE_HEALTH_CONFIGURATION_REQUIRED") return 409;
   if (error?.code === "ORACLE_HEALTH_FHIR_REQUEST_FAILED") return 502;
@@ -215,6 +246,11 @@ router.post("/:id/patients/search", requirePermission(PERMISSIONS.INTEGRATION_VI
     if (provider.includes("oracle") || provider.includes("cerner")) {
       result = await searchOracleHealthPatients(
         oracleHealthConfig(connection.environment),
+        parsed.data
+      );
+    } else if (provider.includes("athena")) {
+      result = await searchAthenaHealthPatients(
+        athenaHealthConfig(connection.environment),
         parsed.data
       );
     } else if (provider.includes("epic")) {
