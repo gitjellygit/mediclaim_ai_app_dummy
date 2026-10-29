@@ -96,8 +96,6 @@ for (const label of [
   "Check-In / Check-Out",
   "Encounters",
   "Charge Capture & Coding",
-  "Patient Billing",
-  "Payments & Collections",
   "Patient Portal"
 ]) {
   test(`future billing suite placeholder exists: ${label}`, () => {
@@ -109,4 +107,11 @@ test("future billing suite placeholders are visibly marked planned", () => {
   assert.match(leftNav, /Future Billing Suite/);
   assert.match(leftNav, /secondary=\{planned \? "Planned"/);
   assert.match(leftNav, /disabled=\{planned\}/);
+});
+
+
+test("Patient Payments graduates patient billing and collections from planned placeholders", () => {
+  assert.match(leftNav, /label="Patient Payments"/);
+  assert.doesNotMatch(leftNav, /label="Patient Billing"\s+planned/);
+  assert.doesNotMatch(leftNav, /label="Payments & Collections"\s+planned/);
 });
