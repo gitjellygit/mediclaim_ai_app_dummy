@@ -245,6 +245,8 @@ model Organization {
   notifications Notification[]
   approvalRequests ApprovalRequest[]
   ownershipHistory ClaimOwnershipHistory[]
+  patientBalances PatientBalance[]
+  patientPayments PatientPayment[]
 }
 
 model Claim {
@@ -750,6 +752,8 @@ model User {
   requestedApprovals ApprovalRequest[] @relation("ApprovalRequester")
   reviewedApprovals ApprovalRequest[] @relation("ApprovalReviewer")
   ownershipChanges ClaimOwnershipHistory[] @relation("OwnershipChangedBy")
+  createdPatientBalances PatientBalance[] @relation("PatientBalanceCreatedBy")
+  recordedPatientPayments PatientPayment[] @relation("PatientPaymentRecordedBy")
   invite UserInvite?
 
   @@index([organizationId])
@@ -1078,6 +1082,70 @@ model UnderpaymentCase {
   @@index([status])
   @@index([detectedAt])
   @@index([contractId])
+}
+
+
+model PatientBalance {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  createdBy   User? @relation("PatientBalanceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  sourceType       String @default("MANUAL")
+  sourceConnectionId String?
+  externalKey      String
+  externalPatientId String?
+  externalEncounterId String?
+
+  patientName String
+  medicalRecordNumber String?
+  serviceDate DateTime? @db.Date
+
+  totalCharges            Decimal @db.Decimal(14,2)
+  insuranceResponsibility Decimal @default(0) @db.Decimal(14,2)
+  patientResponsibility   Decimal @db.Decimal(14,2)
+  paidAmount              Decimal @default(0) @db.Decimal(14,2)
+  balanceAmount           Decimal @db.Decimal(14,2)
+
+  status            String @default("UNPAID")
+  statementStatus   String @default("NOT_SENT")
+  paymentPlanStatus String @default("NONE")
+  notes             String?
+
+  payments PatientPayment[]
+
+  @@unique([organizationId, externalKey])
+  @@index([organizationId, status, createdAt])
+  @@index([externalEncounterId])
+  @@index([patientName])
+}
+
+model PatientPayment {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  patientBalanceId String
+  patientBalance   PatientBalance @relation(fields: [patientBalanceId], references: [id], onDelete: Cascade)
+
+  recordedById String?
+  recordedBy   User? @relation("PatientPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  amount    Decimal @db.Decimal(14,2)
+  method    String
+  reference String?
+  paidAt    DateTime @default(now())
+  notes     String?
+
+  @@index([organizationId, createdAt])
+  @@index([patientBalanceId, paidAt])
 }
 
 model IntegrationConnection {
