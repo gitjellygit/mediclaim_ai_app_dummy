@@ -546,9 +546,11 @@ export default function IntegrationHub() {
 
                 {athenaHealthStatus && (
                   <Alert severity={athenaHealthStatus.config?.ready ? "success" : "warning"} sx={{ mb: 1.25 }}>
-                    {athenaHealthStatus.config?.ready
-                      ? "athenahealth preview OAuth configuration is present."
-                      : "Configure ATHENAHEALTH_SANDBOX_CLIENT_ID and ATHENAHEALTH_SANDBOX_CLIENT_SECRET on the backend."}
+                    {athenaHealthStatus.config?.mockMode
+                      ? "athenahealth sandbox mock mode is active. Synthetic FHIR data will be used."
+                      : athenaHealthStatus.config?.ready
+                        ? "athenahealth preview OAuth configuration is present."
+                        : "Configure ATHENAHEALTH_SANDBOX_CLIENT_ID and ATHENAHEALTH_SANDBOX_CLIENT_SECRET on the backend."}
                   </Alert>
                 )}
 
@@ -583,7 +585,7 @@ export default function IntegrationHub() {
 
                 {athenaHealthStatus?.config && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                    FHIR: {athenaHealthStatus.config.fhirBaseUrl || "Not configured"} • OAuth: {athenaHealthStatus.oauthMode}
+                    FHIR: {athenaHealthStatus.config.fhirBaseUrl || "Not configured"} • Mode: {athenaHealthStatus.oauthMode}
                   </Typography>
                 )}
                 <Divider sx={{ mt: 2 }} />
