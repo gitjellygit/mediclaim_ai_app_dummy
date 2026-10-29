@@ -1339,7 +1339,7 @@ export default function ClaimsList() {
                     if (event.key === "Enter") searchEhrPatients();
                   }}
                   disabled={ehrPatientSearchBusy || ehrBusy}
-                  helperText="Examples: Smith, jane@example.com, 5551234567, 1980-01-20, id:12742419"
+                  helperText="Examples: Smith, jane@example.com, 5551234567, 1980-01-20, id:12345678"
                 />
                 <Button
                   variant="contained"
