@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Box,
   Button,
@@ -53,6 +53,15 @@ import { formatUSD } from "../../utils/currency.js";
 import { humanizeEnum } from "../../utils/displayLabels.js";
 import ClaimAssignmentDialog from "../../components/ClaimAssignmentDialog.jsx";
 
+function isSelfPayLabel(value) {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return ["self pay", "selfpay", "patient pay", "patient responsibility"].includes(normalized);
+}
+
 const statusColor = {
   DRAFT: "default",
   READY: "info",
@@ -101,6 +110,8 @@ export default function ClaimsList() {
   const [ehrEncounterSearchBusy, setEhrEncounterSearchBusy] = useState(false);
   const [ehrEncounterInfo, setEhrEncounterInfo] = useState(null);
   const [ehrBusy, setEhrBusy] = useState(false);
+  const [ehrCancelable, setEhrCancelable] = useState(false);
+  const ehrFetchAbortRef = useRef(null);
   const [ehrPatientSearchBusy, setEhrPatientSearchBusy] = useState(false);
   const [ehrAdvancedSearch, setEhrAdvancedSearch] = useState(false);
   const [ehrPatientResults, setEhrPatientResults] = useState([]);
@@ -596,10 +607,10 @@ export default function ClaimsList() {
     }
   }
 
-  async function syncSelectedEhr(connection, patientId, encounterId = ehrEncounterId) {
+  async function syncSelectedEhr(connection, patientId, encounterId = ehrEncounterId, { signal } = {}) {
     const provider = String(connection?.provider || "").toLowerCase();
     if (provider.includes("oracle") || provider.includes("cerner")) {
-      return IntegrationsApi.syncOracleHealth(connection.id, patientId, encounterId);
+      return IntegrationsApi.syncOracleHealth(connection.id, patientId, encounterId, { signal });
     }
     if (provider.includes("epic")) {
       return IntegrationsApi.syncEpic(connection.id, patientId);
@@ -622,7 +633,11 @@ export default function ClaimsList() {
       return;
     }
 
+    ehrFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    ehrFetchAbortRef.current = controller;
     setEhrBusy(true);
+    setEhrCancelable(true);
     setEhrPreview(null);
     setEhrCreatedClaimId("");
     setEhrResult({
@@ -631,11 +646,12 @@ export default function ClaimsList() {
     });
 
     try {
-      await syncSelectedEhr(connection, patientId, encounterOverride);
+      await syncSelectedEhr(connection, patientId, encounterOverride, { signal: controller.signal });
       const preview = await IntegrationsApi.claimDraftPreview(
         connection.id,
         patientId,
-        encounterOverride
+        encounterOverride,
+        { signal: controller.signal }
       );
       setEhrPreview(preview);
 
@@ -647,27 +663,59 @@ export default function ClaimsList() {
         return;
       }
 
+      const selfPay = isSelfPayLabel(preview?.summary?.payerName || preview?.claimData?.payerName);
       setEhrResult({
         severity: preview.ready ? "success" : "warning",
         message: preview.ready
-          ? "EHR data fetched successfully. Review the details below, then create the draft claim."
-          : "EHR data fetched, but a claim cannot be created yet because required billing data is missing."
+          ? (selfPay
+              ? "EHR billing data fetched successfully. Review the details below, then create the patient balance."
+              : "EHR data fetched successfully. Review the details below, then create the draft claim.")
+          : "EHR data fetched, but the billing record cannot be created yet because required billing data is missing."
       });
     } catch (error) {
-      setEhrResult({
-        severity: "error",
-        message: error?.message || "Unable to fetch claim data from the EHR."
-      });
+      if (error?.name === "AbortError" || controller.signal.aborted) {
+        setEhrResult({
+          severity: "info",
+          message: "EHR fetch cancelled."
+        });
+      } else {
+        setEhrResult({
+          severity: "error",
+          message: error?.message || "Unable to fetch claim data from the EHR."
+        });
+      }
     } finally {
+      if (ehrFetchAbortRef.current === controller) {
+        ehrFetchAbortRef.current = null;
+      }
+      setEhrCancelable(false);
       setEhrBusy(false);
     }
   }
 
-  async function createEhrDraftFromPreview() {
+  function cancelEhrFetch() {
+    ehrFetchAbortRef.current?.abort();
+    setEhrCancelable(false);
+  }
+
+  async function createEhrDestinationFromPreview() {
     const connection = selectedEhrConnection();
     if (!connection || !ehrPreview?.ready) return;
+
+    const selfPay = isSelfPayLabel(ehrPreview?.summary?.payerName || ehrPreview?.claimData?.payerName);
     setEhrBusy(true);
     try {
+      if (selfPay) {
+        const result = await IntegrationsApi.createPatientBalance(
+          connection.id,
+          ehrPatientId.trim(),
+          ehrPreview.encounterId || ""
+        );
+        setEhrDialogOpen(false);
+        navigate(`/patient-payments/${result.patientBalanceId}`);
+        return;
+      }
+
       const result = await IntegrationsApi.createClaimDraft(
         connection.id,
         ehrPatientId.trim(),
@@ -681,7 +729,9 @@ export default function ClaimsList() {
     } catch (error) {
       setEhrResult({
         severity: "error",
-        message: error?.message || "Unable to create the draft claim."
+        message: error?.message || (selfPay
+          ? "Unable to create the patient balance."
+          : "Unable to create the draft claim.")
       });
     } finally {
       setEhrBusy(false);
@@ -1139,7 +1189,7 @@ export default function ClaimsList() {
         fullWidth
         maxWidth="md"
       >
-        <DialogTitle>Create Claim from EHR</DialogTitle>
+        <DialogTitle>Create from EHR</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Find the patient in the selected EHR, confirm the correct record, then fetch the
@@ -1510,15 +1560,25 @@ export default function ClaimsList() {
                         >
                           {ehrEncounterSearchBusy ? "Checking…" : "Find Billable Visits"}
                         </Button>
+                      ) : ehrBusy && ehrCancelable ? (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="error"
+                          onClick={cancelEhrFetch}
+                          sx={{ minWidth: 112 }}
+                        >
+                          Cancel Fetch
+                        </Button>
                       ) : !ehrPreview ? (
                         <Button
                           size="small"
                           variant="contained"
                           onClick={() => fetchEhrClaimData(ehrEncounterId)}
-                          disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
+                          disabled={!ehrConnectionId || !ehrPatientId.trim()}
                           sx={{ minWidth: 128 }}
                         >
-                          {ehrBusy ? "Fetching…" : "Fetch Claim Data"}
+                          Fetch Claim Data
                         </Button>
                       ) : null}
                     </Stack>
@@ -1578,7 +1638,7 @@ export default function ClaimsList() {
                           onClick={() => useEncounterForClaim(encounter)}
                           sx={{ minWidth: 88 }}
                         >
-                          {encounter.billable ? "Use for Claim" : "No Charges"}
+                          {encounter.billable ? "Use Visit" : "No Charges"}
                         </Button>
                       </Box>
                     ))}
@@ -1605,7 +1665,9 @@ export default function ClaimsList() {
                 >
                   <Box sx={{ flex: 1 }}>
                     <Typography variant="caption" color="text.secondary" fontWeight={800}>
-                      CLAIM DATA FROM EHR
+                      {isSelfPayLabel(ehrPreview.summary?.payerName || ehrPreview.claimData?.payerName)
+                        ? "PATIENT RESPONSIBILITY FROM EHR"
+                        : "CLAIM DATA FROM EHR"}
                     </Typography>
                     <Box
                       sx={{
@@ -1634,7 +1696,11 @@ export default function ClaimsList() {
                         </Typography>
                       </Box>
                       <Box>
-                        <Typography variant="caption" color="text.secondary">Claim amount</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {isSelfPayLabel(ehrPreview.summary?.payerName || ehrPreview.claimData?.payerName)
+                            ? "Patient responsibility"
+                            : "Claim amount"}
+                        </Typography>
                         <Typography variant="body2" fontWeight={700}>
                           {ehrPreview.summary?.totalBilledAmount
                             ? formatUSD(ehrPreview.summary.totalBilledAmount)
@@ -1645,37 +1711,60 @@ export default function ClaimsList() {
 
                     {ehrPreview.missing?.length > 0 && (
                       <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
-                        Cannot create claim. Missing: {ehrPreview.missing.join(", ")}.
+                        Cannot create billing record. Missing: {ehrPreview.missing.join(", ")}.
                       </Alert>
                     )}
-                    {ehrPreview.warnings?.length > 0 && (
-                      <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
-                        Draft can be created. Complete before submission: {ehrPreview.warnings.join(", ")}.
+                    {isSelfPayLabel(ehrPreview.summary?.payerName || ehrPreview.claimData?.payerName) ? (
+                      <Alert severity="info" sx={{ mt: 1, py: 0 }}>
+                        Self-pay encounter detected. Insurance eligibility, prior authorization, and payer claim submission do not apply. Create a patient balance instead.
                       </Alert>
-                    )}
-                    {!ehrPreview.missing?.length && !ehrPreview.warnings?.length && (
-                      <Alert severity="success" sx={{ mt: 1, py: 0 }}>
-                        Billing data is sufficient to create a draft claim.
-                      </Alert>
+                    ) : (
+                      <>
+                        {ehrPreview.warnings?.length > 0 && (
+                          <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
+                            Draft can be created. Complete before submission: {ehrPreview.warnings.join(", ")}.
+                          </Alert>
+                        )}
+                        {!ehrPreview.missing?.length && !ehrPreview.warnings?.length && (
+                          <Alert severity="success" sx={{ mt: 1, py: 0 }}>
+                            Billing data is sufficient to create a draft claim.
+                          </Alert>
+                        )}
+                      </>
                     )}
                   </Box>
 
                   <Stack spacing={0.75} sx={{ minWidth: { sm: 140 } }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={fetchEhrClaimData}
-                      disabled={ehrBusy}
-                    >
-                      {ehrBusy ? "Refreshing…" : "Refresh"}
-                    </Button>
+                    {ehrBusy && ehrCancelable ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        onClick={cancelEhrFetch}
+                      >
+                        Cancel Fetch
+                      </Button>
+                    ) : (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={fetchEhrClaimData}
+                        disabled={ehrBusy}
+                      >
+                        Refresh
+                      </Button>
+                    )}
                     <Button
                       size="small"
                       variant="contained"
-                      onClick={createEhrDraftFromPreview}
+                      onClick={createEhrDestinationFromPreview}
                       disabled={ehrBusy || !ehrPreview.ready}
                     >
-                      {ehrPreview.ready ? "Create Draft" : "Cannot Create"}
+                      {ehrPreview.ready
+                        ? (isSelfPayLabel(ehrPreview.summary?.payerName || ehrPreview.claimData?.payerName)
+                            ? "Create Patient Balance"
+                            : "Create Draft Claim")
+                        : "Cannot Create"}
                     </Button>
                   </Stack>
                 </Stack>
