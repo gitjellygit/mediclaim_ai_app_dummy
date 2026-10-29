@@ -61,6 +61,10 @@ jobs:
         working-directory: backend
         run: npx prisma migrate deploy
 
+      - name: Verify Prisma runtime contracts
+        working-directory: backend
+        run: node --test tests/patientPaymentsRuntime.test.js
+
       - name: Audit backend production dependencies
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
@@ -118,6 +122,10 @@ jobs:
       - name: Install Playwright browser
         working-directory: frontend
         run: npx playwright install --with-deps chromium
+
+      - name: Run critical Patient Payments browser contract
+        working-directory: frontend
+        run: npx playwright test tests/patient-payments.e2e.spec.js
 
       - name: Run browser end-to-end regressions
         working-directory: frontend
