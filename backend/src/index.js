@@ -4,7 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
-import { prisma, disconnectDatabase } from "./db.js";
+import { prisma, disconnectDatabase, assertGeneratedPrismaClientCurrent } from "./db.js";
 import { captureAsyncRouter } from "./middleware/asyncRouter.js";
 import { standardizeApiErrors } from "./middleware/apiErrors.js";
 import { requireAuth, requireRoles } from "./middleware/auth.js";
