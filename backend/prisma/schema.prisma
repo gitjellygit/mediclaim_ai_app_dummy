@@ -1116,6 +1116,7 @@ model PatientBalance {
   statementStatus   String @default("NOT_SENT")
   paymentPlanStatus String @default("NONE")
   notes             String?
+  chargeDetails     Json?
 
   payments PatientPayment[]
 
