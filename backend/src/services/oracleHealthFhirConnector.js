@@ -355,7 +355,15 @@ export async function discoverOracleHealthBillableEncounters(
   };
 }
 
-async function optionalOracleResource(config, path, fetchImpl, calls, resources, name) {
+async function optionalOracleResource(
+  config,
+  path,
+  fetchImpl,
+  calls,
+  resources,
+  name,
+  signal = null
+) {
   try {
     const payload = await oracleHealthFhirGet(config, path, fetchImpl, signal);
     if (payload?.resourceType !== "Bundle" || (payload.entry || []).length > 0) resources.push(payload);
