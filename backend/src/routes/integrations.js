@@ -1242,7 +1242,9 @@ router.get("/:id/athenahealth/status", requirePermission(PERMISSIONS.INTEGRATION
     connectionId: connection.id,
     provider: connection.provider,
     environment: connection.environment,
-    oauthMode: "CLIENT_CREDENTIALS",
+    oauthMode: athenaHealthConfigurationStatus(connection.environment).mockMode
+      ? "MOCK"
+      : "CLIENT_CREDENTIALS",
     config: athenaHealthConfigurationStatus(connection.environment)
   });
 });
