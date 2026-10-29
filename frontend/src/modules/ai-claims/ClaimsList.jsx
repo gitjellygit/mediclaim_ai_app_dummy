@@ -702,12 +702,22 @@ export default function ClaimsList() {
     });
     try {
       const result = await IntegrationsApi.syncAthenaHealth(connection.id, patientId);
+      const preview = await IntegrationsApi.claimDraftPreview(
+        connection.id,
+        patientId,
+        "",
+        {}
+      );
+      setEhrPreview(preview);
+      setEhrEncounterId(preview.encounterId || "");
       setEhrResult({
-        severity: "success",
-        message:
-          "athenahealth patient data synced: " +
-          (result.records?.length || 0) +
-          " normalized records. Billing import is not enabled yet; athenaOne claims and patient-balance APIs require separate preview practice credentials."
+        severity: preview.ready ? "success" : "warning",
+        message: preview.ready
+          ? "athenahealth mock data synced and is ready to create a draft claim."
+          : "athenahealth patient data synced: " +
+            (result.records?.length || 0) +
+            " normalized records. " +
+            preview.message
       });
     } catch (error) {
       setEhrResult({
