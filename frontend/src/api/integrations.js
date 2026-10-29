@@ -84,6 +84,16 @@ export const IntegrationsApi = {
     return api(`${BASE}/${id}/claim-draft/preview?${params.toString()}`, { signal });
   },
 
+  createPatientBalance(id, patientId, encounterId = "") {
+    return api(`${BASE}/${id}/patient-balance`, {
+      method: "POST",
+      body: JSON.stringify({
+        patientId,
+        ...(encounterId ? { encounterId } : {})
+      })
+    });
+  },
+
   createClaimDraft(id, patientId, encounterId = "") {
     return api(`${BASE}/${id}/claim-draft`, {
       method: "POST",
