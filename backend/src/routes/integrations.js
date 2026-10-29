@@ -1190,6 +1190,268 @@ router.post("/:id/epic/sync", requirePermission(PERMISSIONS.INTEGRATION_INGEST),
   });
 });
 
+
+router.get("/:id/athenahealth/status", requirePermission(PERMISSIONS.INTEGRATION_VIEW), async (req, res) => {
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertAthenaHealthConnection(connection);
+
+  res.json({
+    connectionId: connection.id,
+    provider: connection.provider,
+    environment: connection.environment,
+    oauthMode: "CLIENT_CREDENTIALS",
+    config: athenaHealthConfigurationStatus(connection.environment)
+  });
+});
+
+router.post("/:id/athenahealth/test", requirePermission(PERMISSIONS.INTEGRATION_MANAGE), async (req, res) => {
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertAthenaHealthConnection(connection);
+  if (connection.status === "DISABLED") {
+    return res.status(409).json({
+      error: "Integration connection is disabled",
+      code: "INTEGRATION_CONNECTION_DISABLED"
+    });
+  }
+
+  const config = athenaHealthConfig(connection.environment);
+  try {
+    const result = await testAthenaHealthConnection(config);
+    const now = new Date();
+    await prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: {
+        status: "ACTIVE",
+        lastHealthyAt: now,
+        lastErrorAt: null,
+        lastErrorCode: null
+      }
+    });
+    await writeRequestAudit(prisma, req, {
+      action: "ATHENAHEALTH_CONNECTION_TESTED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      metadata: {
+        provider: "athenahealth",
+        environment: connection.environment,
+        success: true,
+        fhirVersion: result.fhirVersion || null
+      }
+    });
+    return res.json({
+      ...result,
+      environment: connection.environment,
+      config: athenaHealthConfigurationStatus(connection.environment)
+    });
+  } catch (error) {
+    console.error("[athenahealth] connection test failed", {
+      environment: connection.environment,
+      httpStatus: error.status || null,
+      code: error.code || null,
+      athenaError: error.athenaError || null
+    });
+    await prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: {
+        status: "ERROR",
+        lastErrorAt: new Date(),
+        lastErrorCode: error.code || "ATHENAHEALTH_CONNECTION_TEST_FAILED"
+      }
+    });
+    await writeRequestAudit(prisma, req, {
+      action: "ATHENAHEALTH_CONNECTION_TESTED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      outcome: "FAILURE",
+      metadata: {
+        provider: "athenahealth",
+        environment: connection.environment,
+        success: false,
+        errorCode: error.code || "ATHENAHEALTH_CONNECTION_TEST_FAILED"
+      }
+    });
+    return res.status(athenaHealthHttpStatus(error)).json({
+      error: error.message,
+      code: error.code || "ATHENAHEALTH_CONNECTION_TEST_FAILED"
+    });
+  }
+});
+
+router.post("/:id/athenahealth/sync", requirePermission(PERMISSIONS.INTEGRATION_INGEST), async (req, res) => {
+  const parsed = athenaHealthSyncSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid athenahealth sync request",
+      code: "INVALID_ATHENAHEALTH_SYNC_REQUEST"
+    });
+  }
+
+  const connection = await connectionFor(req, req.params.id);
+  if (!connection) return res.status(404).json({ error: "Integration connection not found" });
+  assertAthenaHealthConnection(connection);
+  if (connection.status === "DISABLED") {
+    return res.status(409).json({
+      error: "Integration connection is disabled",
+      code: "INTEGRATION_CONNECTION_DISABLED"
+    });
+  }
+
+  const config = athenaHealthConfig(connection.environment);
+  const patientId = parsed.data.patientId || config.testPatientId;
+  if (!patientId) {
+    return res.status(409).json({
+      error: "Configure an athenahealth preview test patient ID or provide patientId",
+      code: "ATHENAHEALTH_TEST_PATIENT_REQUIRED"
+    });
+  }
+
+  let snapshot;
+  try {
+    snapshot = await fetchAthenaHealthPatientSnapshot(config, patientId);
+  } catch (error) {
+    await prisma.integrationConnection.update({
+      where: { id: connection.id },
+      data: {
+        status: "ERROR",
+        lastErrorAt: new Date(),
+        lastErrorCode: error.code || "ATHENAHEALTH_SYNC_FAILED"
+      }
+    });
+    return res.status(athenaHealthHttpStatus(error)).json({
+      error: error.message,
+      code: error.code || "ATHENAHEALTH_SYNC_FAILED"
+    });
+  }
+
+  const normalized = [];
+  for (const payload of snapshot.resources) {
+    normalized.push(...normalizeIntegrationPayload("FHIR_R4", payload));
+  }
+
+  const now = new Date();
+  const externalEventId = "athenahealth-sync-" + crypto.randomUUID();
+  const records = await prisma.$transaction(async (tx) => {
+    const saved = [];
+    for (const item of normalized) {
+      const dataHash = hashEvent(item.data);
+      const existing = await tx.integrationRecord.findUnique({
+        where: {
+          connectionId_resourceType_externalId: {
+            connectionId: connection.id,
+            resourceType: item.resourceType,
+            externalId: item.externalId
+          }
+        }
+      });
+      const record = await tx.integrationRecord.upsert({
+        where: {
+          connectionId_resourceType_externalId: {
+            connectionId: connection.id,
+            resourceType: item.resourceType,
+            externalId: item.externalId
+          }
+        },
+        create: {
+          organizationId: orgId(req),
+          connectionId: connection.id,
+          resourceType: item.resourceType,
+          externalId: item.externalId,
+          sourceFormat: "FHIR_R4",
+          sourceType: item.sourceType || null,
+          dataHash,
+          data: item.data,
+          provenance: {
+            sourceFormat: "FHIR_R4",
+            sourceType: item.sourceType || null,
+            vendor: "athenahealth",
+            environment: connection.environment,
+            externalEventId
+          }
+        },
+        update: {
+          sourceFormat: "FHIR_R4",
+          sourceType: item.sourceType || null,
+          dataHash,
+          data: item.data,
+          lastSeenAt: now,
+          provenance: {
+            sourceFormat: "FHIR_R4",
+            sourceType: item.sourceType || null,
+            vendor: "athenahealth",
+            environment: connection.environment,
+            externalEventId
+          }
+        }
+      });
+      saved.push({
+        id: record.id,
+        resourceType: record.resourceType,
+        changed: existing ? existing.dataHash !== dataHash : true
+      });
+    }
+
+    await tx.integrationEvent.create({
+      data: {
+        organizationId: orgId(req),
+        connectionId: connection.id,
+        externalEventId,
+        eventType: "ATHENAHEALTH_FHIR_PATIENT_SYNC",
+        direction: "INBOUND",
+        status: "PROCESSED",
+        sourceStatus: connection.environment,
+        correlationId: req.auditRequestId || null,
+        payloadHash: hashEvent(normalized),
+        occurredAt: now,
+        processedAt: now,
+        metadata: {
+          vendor: "athenahealth",
+          resourceCount: saved.length,
+          resourceTypes: [...new Set(saved.map((item) => item.resourceType))],
+          apiCallCount: snapshot.calls.length,
+          skippedCallCount: snapshot.calls.filter((item) => item.status === "SKIPPED").length
+        }
+      }
+    });
+
+    await tx.integrationConnection.update({
+      where: { id: connection.id },
+      data: {
+        status: "ACTIVE",
+        lastHealthyAt: now,
+        lastErrorAt: null,
+        lastErrorCode: null
+      }
+    });
+
+    await writeCriticalRequestAudit(tx, req, {
+      action: "ATHENAHEALTH_PATIENT_SYNCED",
+      entityType: "IntegrationConnection",
+      entityId: connection.id,
+      metadata: {
+        provider: "athenahealth",
+        environment: connection.environment,
+        resourceCount: saved.length,
+        resourceTypes: [...new Set(saved.map((item) => item.resourceType))],
+        skippedCallCount: snapshot.calls.filter((item) => item.status === "SKIPPED").length
+      }
+    });
+
+    return saved;
+  });
+
+  res.json({
+    ok: true,
+    environment: connection.environment,
+    records,
+    calls: snapshot.calls,
+    billingApiEnabled: false,
+    billingApiNote:
+      "athenahealth FHIR patient data is synced. Claims, patient balances, statements, and payment APIs require separate athenaOne preview billing API mapping."
+  });
+});
+
 router.post("/:id/ingest", requirePermission(PERMISSIONS.INTEGRATION_INGEST), async (req, res) => {
   const parsed = ingestSchema.safeParse(req.body || {});
   if (!parsed.success) {
