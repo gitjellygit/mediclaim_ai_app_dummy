@@ -763,6 +763,15 @@ router.post("/:id/claim-draft", requirePermission(PERMISSIONS.INTEGRATION_INGEST
     });
   }
 
+  if (isSelfPayClaim(preview.claimData)) {
+    return res.status(409).json({
+      error: "Self-pay encounters must be handled in Patient Payments rather than the insurance claim workflow",
+      code: "SELF_PAY_PATIENT_BALANCE_REQUIRED",
+      patientId: preview.patientId,
+      encounterId: preview.encounterId
+    });
+  }
+
   const result = await prisma.$transaction(async (tx) => {
     const materialized = await materializeCanonicalClaim(tx, {
       organizationId: orgId(req),
