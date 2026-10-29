@@ -45,6 +45,7 @@ const DenialIntelligence = lazy(() =>
 const UnderpaymentIntelligence = lazy(() =>
   import("./modules/payments/UnderpaymentIntelligence.jsx")
 );
+const PatientPayments = lazy(() => import("./modules/patient-payments/PatientPayments.jsx"));
 const UnderpaymentWorkspace = lazy(() =>
   import("./modules/recovery/UnderpaymentWorkspace.jsx")
 );
@@ -56,6 +57,8 @@ const protectedRoutes = [
   { path: "/claims/new", Component: NewClaim, permission: PERMISSIONS.CLINICAL_EDIT },
   { path: "/claims/:id", Component: ClaimDetail, permission: PERMISSIONS.CLAIM_VIEW },
   { path: "/journey", Component: ClaimJourney, permission: PERMISSIONS.INSURANCE_VIEW },
+  { path: "/patient-payments", Component: PatientPayments, permission: PERMISSIONS.FINANCIAL_VIEW },
+  { path: "/patient-payments/:id", Component: PatientPayments, permission: PERMISSIONS.FINANCIAL_VIEW },
   { path: "/revenue-recovery", Component: RevenueRecovery, permission: PERMISSIONS.RECOVERY_VIEW },
   { path: "/revenue-recovery/appeals/:id", Component: AppealWorkspace, permission: PERMISSIONS.RECOVERY_VIEW },
   { path: "/revenue-recovery/underpayments/:id", Component: UnderpaymentWorkspace, permission: PERMISSIONS.FINANCIAL_VIEW },
