@@ -1346,32 +1346,31 @@ export default function ClaimsList() {
                 </Button>
 
                 {selectedEhrConnection()?.environment === "SANDBOX" &&
-                  /oracle|cerner/i.test(String(selectedEhrConnection()?.provider || "")) && (
-                    <Button
-                      size="small"
-                      variant="text"
-                      onClick={() => {
-                        setEhrPatientId("12742419");
-                        setEhrSelectedPatient({
-                          id: "12742419",
-                          name: "Oracle billing demo patient",
-                          birthDate: null,
-                          gender: null,
-                          identifiers: []
-                        });
-                        setEhrEncounterId("97953601");
-                        setEhrPatientResults([]);
-                        setEhrPatientSearchInfo(null);
-                        setEhrPreview(null);
-                        setEhrResult(null);
-                        setEhrCreatedClaimId("");
-                      }}
-                      disabled={ehrBusy || ehrPatientSearchBusy}
-                      sx={{ minHeight: 30, px: 1 }}
-                    >
-                      Use Oracle billing demo
-                    </Button>
+                  isOracleEhr(selectedEhrConnection()) && (
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={0.5} alignItems={{ sm: "center" }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                        Oracle billing demos:
+                      </Typography>
+                      {ORACLE_BILLING_DEMOS.map((demo) => (
+                        <Button
+                          key={demo.id}
+                          size="small"
+                          variant="text"
+                          onClick={() => useOracleBillingDemo(demo)}
+                          disabled={ehrBusy || ehrPatientSearchBusy}
+                          sx={{ minHeight: 30, px: 1 }}
+                        >
+                          {demo.label}
+                        </Button>
+                      ))}
+                    </Stack>
                   )}
+
+                {isAthenaEhr(selectedEhrConnection()) && (
+                  <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                    athenahealth FHIR patient search/sync is enabled when preview OAuth credentials are configured; direct billing import is intentionally not enabled yet.
+                  </Typography>
+                )}
               </Stack>
 
               {ehrAdvancedSearch && (
@@ -1631,7 +1630,17 @@ export default function ClaimsList() {
                       >
                         Change
                       </Button>
-                      {!ehrEncounterId ? (
+                      {isAthenaEhr(selectedEhrConnection()) ? (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={syncAthenaFoundationPatient}
+                          disabled={ehrBusy || !ehrConnectionId || !ehrPatientId.trim()}
+                          sx={{ minWidth: 138 }}
+                        >
+                          {ehrBusy ? "Syncing…" : "Sync Patient Data"}
+                        </Button>
+                      ) : !ehrEncounterId ? (
                         <Button
                           size="small"
                           variant="contained"
