@@ -24,6 +24,7 @@ import integrationsRouter from "./routes/integrations.js";
 import priorAuthCasesRouter from "./routes/priorAuthCases.js";
 import payerContractsRouter from "./routes/payerContracts.js";
 import operationsRouter from "./routes/operations.js";
+import patientPaymentsRouter from "./routes/patientPayments.js";
 import { e2eFixturesRouter } from "./routes/e2eFixtures.js";
 import { assertDocumentStorageConfiguration } from "./services/documentStorage.js";
 import { epicPublicJwks } from "./services/epicFhirConnector.js";
@@ -269,6 +270,7 @@ app.use("/api/integrations", integrationsRateLimiter, requireAuth, captureAsyncR
 app.use("/api/prior-auth", priorAuthRateLimiter, requireAuth, captureAsyncRouter(priorAuthCasesRouter));
 app.use("/api/payer-contracts", payerContractsRateLimiter, requireAuth, captureAsyncRouter(payerContractsRouter));
 app.use("/api/operations", requireAuth, captureAsyncRouter(operationsRouter));
+app.use("/api/patient-payments", requireAuth, captureAsyncRouter(patientPaymentsRouter));
 
 /**
  * DOCUMENT ROUTES
