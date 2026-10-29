@@ -43,6 +43,24 @@ export const IntegrationsApi = {
     });
   },
 
+  athenaHealthStatus(id) {
+    return api(`${BASE}/${id}/athenahealth/status`);
+  },
+
+  testAthenaHealth(id) {
+    return api(`${BASE}/${id}/athenahealth/test`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+  },
+
+  syncAthenaHealth(id, patientId = "") {
+    return api(`${BASE}/${id}/athenahealth/sync`, {
+      method: "POST",
+      body: JSON.stringify(patientId ? { patientId } : {})
+    });
+  },
+
   searchPatients(id, criteria) {
     return api(`${BASE}/${id}/patients/search`, {
       method: "POST",
