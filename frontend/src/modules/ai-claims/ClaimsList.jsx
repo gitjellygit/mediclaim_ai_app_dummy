@@ -663,11 +663,14 @@ export default function ClaimsList() {
         return;
       }
 
+      const selfPay = isSelfPayLabel(preview?.summary?.payerName || preview?.claimData?.payerName);
       setEhrResult({
         severity: preview.ready ? "success" : "warning",
         message: preview.ready
-          ? "EHR data fetched successfully. Review the details below, then create the draft claim."
-          : "EHR data fetched, but a claim cannot be created yet because required billing data is missing."
+          ? (selfPay
+              ? "EHR billing data fetched successfully. Review the details below, then create the patient balance."
+              : "EHR data fetched successfully. Review the details below, then create the draft claim.")
+          : "EHR data fetched, but the billing record cannot be created yet because required billing data is missing."
       });
     } catch (error) {
       if (error?.name === "AbortError" || controller.signal.aborted) {
@@ -1708,7 +1711,7 @@ export default function ClaimsList() {
 
                     {ehrPreview.missing?.length > 0 && (
                       <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
-                        Cannot create claim. Missing: {ehrPreview.missing.join(", ")}.
+                        Cannot create billing record. Missing: {ehrPreview.missing.join(", ")}.
                       </Alert>
                     )}
                     {isSelfPayLabel(ehrPreview.summary?.payerName || ehrPreview.claimData?.payerName) ? (
