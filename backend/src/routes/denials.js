@@ -1023,17 +1023,50 @@ router.post(
         const attemptNumber = currentAttempt
           ? currentAttempt.attemptNumber
           : await nextAppealAttemptNumber(tx, existing.id);
+        const submittedAt = new Date();
 
         const denialUpdate = await tx.denialCase.update({
           where: { id: existing.id },
           data: {
             status,
-            appealSubmittedAt: new Date(),
+            appealSubmittedAt: submittedAt,
             appealSubmissionReference: reference,
             appealSubmissionChannel: channel,
-            appealExternalSubmittedAt: externalSubmittedAt
+            appealExternalSubmittedAt: externalSubmittedAt,
+            lateAppealExceptionReason: deadline.expired ? lateExceptionReason : null,
+            lateAppealExceptionRecordedAt: deadline.expired ? submittedAt : null
           }
         });
+
+        const attemptData = {
+          status: "SUBMITTED",
+          rationale: existing.appealRationale,
+          evidenceDocumentIds: existing.appealEvidenceDocumentIds || [],
+          preparedAt: existing.appealPreparedAt,
+          submittedAt,
+          submissionReference: reference,
+          submissionChannel: channel,
+          externalSubmittedAt,
+          appealDeadline: existing.appealDeadline,
+          lateExceptionReason: deadline.expired ? lateExceptionReason : null
+        };
+
+        if (currentAttempt) {
+          await tx.appealAttempt.update({
+            where: { id: currentAttempt.id },
+            data: attemptData
+          });
+        } else {
+          await tx.appealAttempt.create({
+            data: {
+              denialCaseId: existing.id,
+              attemptNumber,
+              level: attemptNumber === 1 ? "FIRST_LEVEL" : `LEVEL_${attemptNumber}`,
+              ...attemptData
+            }
+          });
+        }
+
         return denialUpdate;
       });
 
