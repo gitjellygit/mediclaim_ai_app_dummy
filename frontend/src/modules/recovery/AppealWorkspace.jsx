@@ -828,9 +828,9 @@ export default function AppealWorkspace() {
     appealAttempts.length + (submissionRecorded ? 0 : 1);
   const canStartNextAppeal =
     canEdit &&
-    submitted &&
+    appealOutcomeFailed &&
     remainingRecoveryAmount > 0 &&
-    ["APPEAL_SUBMITTED", "UPHELD", "OVERTURNED"].includes(String(data.status || "").toUpperCase());
+    ["APPEAL_SUBMITTED", "UPHELD"].includes(String(data.status || "").toUpperCase());
 
   const workflowSteps = [
     { label: "Analyze Denial", complete: Boolean(data.aiAnalyzedAt) },
