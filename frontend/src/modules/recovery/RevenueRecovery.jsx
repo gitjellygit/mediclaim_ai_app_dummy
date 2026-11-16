@@ -54,6 +54,46 @@ function typeColor(type) {
   return type === "DENIAL" ? "error" : "warning";
 }
 
+function recoveryRowSx(item) {
+  const recovered = Number(item?.recoveredAmount || 0);
+  const outstanding = Number(item?.outstandingAmount || 0);
+  const status = String(item?.status || "").toUpperCase();
+
+  const fullyRecovered =
+    recovered > 0 &&
+    (outstanding <= 0 || ["RECOVERED", "CLOSED"].includes(status));
+
+  if (fullyRecovered) {
+    return {
+      backgroundColor: "rgba(46, 125, 50, 0.065)",
+      "&:hover": { backgroundColor: "rgba(46, 125, 50, 0.11) !important" }
+    };
+  }
+
+  if (item?.type === "UNDERPAYMENT" && outstanding > 0) {
+    return {
+      backgroundColor: "rgba(237, 108, 2, 0.07)",
+      "&:hover": { backgroundColor: "rgba(237, 108, 2, 0.12) !important" }
+    };
+  }
+
+  if (item?.type === "DENIAL" && outstanding > 0) {
+    const critical = String(item?.priority || "").toUpperCase() === "CRITICAL";
+    return {
+      backgroundColor: critical
+        ? "rgba(211, 47, 47, 0.095)"
+        : "rgba(211, 47, 47, 0.055)",
+      "&:hover": {
+        backgroundColor: critical
+          ? "rgba(211, 47, 47, 0.14) !important"
+          : "rgba(211, 47, 47, 0.10) !important"
+      }
+    };
+  }
+
+  return {};
+}
+
 function date(value) {
   if (!value) return "—";
   const parsed = new Date(value);
@@ -555,16 +595,16 @@ export default function RevenueRecovery() {
                       ? "focused-recovery-row"
                       : undefined
                   }
-                  sx={
-                    focusedClaimId && item.claimId === focusedClaimId
+                  sx={{
+                    ...recoveryRowSx(item),
+                    ...(focusedClaimId && item.claimId === focusedClaimId
                       ? {
-                          backgroundColor: "rgba(237,108,2,0.08)",
                           outline: "2px solid",
                           outlineColor: "warning.main",
                           outlineOffset: -2
                         }
-                      : undefined
-                  }
+                      : {})
+                  }}
                 >
                   <TableCell>
                     <Stack spacing={0.4} alignItems="flex-start">
