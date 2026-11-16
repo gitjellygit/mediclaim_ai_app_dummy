@@ -158,6 +158,29 @@ export default function AppealWorkspace() {
     Number(data?.revenueAtRisk || 0) - displayedRecoveredAmount
   );
 
+  const appealOutcomeFailed =
+    Boolean(data?.appealSubmittedAt) &&
+    displayedRecoveredAmount <= 0 &&
+    (
+      String(data?.status || "").toUpperCase() === "UPHELD" ||
+      ["DENIED", "REJECTED"].includes(effectivePayerStatus)
+    );
+  const appealOutcomeRecovered =
+    Boolean(data?.appealSubmittedAt) &&
+    remainingRecoveryAmount <= 0 &&
+    displayedRecoveredAmount > 0;
+  const appealOutcomePending =
+    Boolean(data?.appealSubmittedAt) &&
+    !appealOutcomeFailed &&
+    !appealOutcomeRecovered;
+  const appealStatusColor = appealOutcomeFailed
+    ? "error"
+    : appealOutcomeRecovered
+    ? "success"
+    : appealOutcomePending
+    ? "warning"
+    : "warning";
+
   const [submissionOpen, setSubmissionOpen] = React.useState(false);
   const [submission, setSubmission] = React.useState({
     channel: "PAYER_PORTAL",
@@ -780,7 +803,7 @@ export default function AppealWorkspace() {
           <Chip
             size="small"
             label={String(data.status || "").replaceAll("_", " ")}
-            color={submitted ? "success" : "warning"}
+            color={appealStatusColor}
             variant="outlined"
           />
           <Button variant="outlined" size="small" startIcon={<Close />} onClick={() => window.close()}>
@@ -789,7 +812,20 @@ export default function AppealWorkspace() {
         </Stack>
       </Stack>
 
-      <Paper variant="outlined" sx={{ px: 1.25, py: 1, mb: 1.25 }}>
+      <Paper
+        variant="outlined"
+        sx={{
+          px: 1.25,
+          py: 1,
+          mb: 1.25,
+          borderColor: appealOutcomeFailed ? "error.light" : "divider",
+          backgroundColor: appealOutcomeFailed
+            ? "rgba(211, 47, 47, 0.045)"
+            : appealOutcomePending
+            ? "rgba(237, 108, 2, 0.025)"
+            : "background.paper"
+        }}
+      >
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(5, minmax(0,1fr))" }, gap: 0.5 }}>
           {workflowSteps.map((step, index) => {
             const number = index + 1;
@@ -841,8 +877,15 @@ export default function AppealWorkspace() {
       </Paper>
 
       {submitted && (
-        <Alert severity="success" sx={{ mb: 1.25 }}>
-          This appeal is recorded as submitted/finalized and is read-only. Continue payer outcome tracking from Revenue Recovery.
+        <Alert
+          severity={appealOutcomeFailed ? "error" : appealOutcomeRecovered ? "success" : "warning"}
+          sx={{ mb: 1.25 }}
+        >
+          {appealOutcomeFailed
+            ? "Appeal submitted, but the payer outcome is still denied/upheld and no recovery is recorded. Continue recovery or escalation work from Revenue Recovery."
+            : appealOutcomeRecovered
+            ? "Appeal submitted and the recovery is fully posted."
+            : "Appeal submitted. Recovery is not confirmed yet; continue monitoring the payer outcome from Revenue Recovery."}
         </Alert>
       )}
 
@@ -1202,7 +1245,13 @@ export default function AppealWorkspace() {
               </Box>
               <Box>
                 <Typography variant="caption" color="text.secondary">Recovered</Typography>
-                <Typography variant="h6" fontWeight={850} color="success.main">{formatUSD(displayedRecoveredAmount)}</Typography>
+                <Typography
+                  variant="h6"
+                  fontWeight={850}
+                  color={appealOutcomeFailed ? "error.main" : displayedRecoveredAmount > 0 ? "success.main" : "text.primary"}
+                >
+                  {formatUSD(displayedRecoveredAmount)}
+                </Typography>
               </Box>
               <Box>
                 <Typography variant="caption" color="text.secondary">Remaining</Typography>
