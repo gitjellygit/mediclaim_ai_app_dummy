@@ -42,7 +42,7 @@ This is synthetic demo/UAT data only. Do not use real PHI.
 
 ## Backup policy for hosted releases
 
-Before every manual hosted release, create a backup containing:
+One-time VPS setup:\n\n```bash\nsudo mkdir -p /opt/jellygit/backups/prism\nsudo chown -R deploy:deploy /opt/jellygit/backups\n```\n\nBefore every manual hosted release, create a backup containing:
 
 - PostgreSQL custom-format dump
 - synthetic uploaded documents
