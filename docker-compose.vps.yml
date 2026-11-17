@@ -19,7 +19,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: backend/Dockerfile.vps
     restart: unless-stopped
     env_file:
       - .env.vps
