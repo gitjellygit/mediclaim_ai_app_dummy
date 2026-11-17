@@ -992,6 +992,17 @@ model DenialCase {
   // documents selected as evidence continue to be tracked by ID above.
   appealUploadedDocuments Document[] @relation("AppealUploadedDocuments")
 
+  // Append-only history. Legacy single-appeal fields above remain the active
+  // workspace for backward compatibility, while these records preserve each
+  // submission/recovery cycle.
+  appealAttempts AppealAttempt[]
+  recoveryEvents RecoveryEvent[]
+
+  // Required only when a normal appeal deadline has passed and an authorized
+  // user is documenting a payer/contract exception for a late submission.
+  lateAppealExceptionReason String?
+  lateAppealExceptionRecordedAt DateTime?
+
   recommendedAction String?
   requiredDocuments Json?
 
@@ -1007,6 +1018,64 @@ model DenialCase {
   @@index([sourceTransactionId])
   @@index([status])
   @@index([denialCategory])
+}
+
+model AppealAttempt {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  denialCaseId String
+  denialCase   DenialCase @relation(fields: [denialCaseId], references: [id], onDelete: Cascade)
+
+  attemptNumber Int
+  level         String @default("FIRST_LEVEL")
+  status        String @default("DRAFT")
+
+  rationale           String?
+  evidenceDocumentIds String[] @default([])
+  preparedAt          DateTime?
+  submittedAt         DateTime?
+  submissionReference String?
+  submissionChannel   String?
+  externalSubmittedAt DateTime?
+  appealDeadline      DateTime?
+
+  outcome              String?
+  outcomeAt            DateTime?
+  payerClaimStatus     String?
+  remittanceStatus     String?
+  paidAmount           Decimal @default(0) @db.Decimal(14,2)
+  lateExceptionReason  String?
+  notes                String?
+
+  recoveryEvents RecoveryEvent[]
+
+  @@unique([denialCaseId, attemptNumber])
+  @@index([denialCaseId, submittedAt])
+  @@index([status])
+}
+
+model RecoveryEvent {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  denialCaseId String
+  denialCase   DenialCase @relation(fields: [denialCaseId], references: [id], onDelete: Cascade)
+
+  appealAttemptId String?
+  appealAttempt   AppealAttempt? @relation(fields: [appealAttemptId], references: [id], onDelete: SetNull)
+
+  eventType  String
+  amount     Decimal @db.Decimal(14,2)
+  source     String
+  reference  String?
+  occurredAt DateTime
+  notes      String?
+
+  @@index([denialCaseId, occurredAt])
+  @@index([appealAttemptId])
+  @@index([reference])
 }
 
 model PayerContract {

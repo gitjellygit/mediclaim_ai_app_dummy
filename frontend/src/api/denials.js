@@ -78,6 +78,13 @@ export const DenialsApi = {
     });
   },
 
+  startNextAppeal(id, data) {
+    return api(`${BASE}/${id}/appeal-next-attempt`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+  },
+
   uploadAppealEvidence(id, { file, type = "OTHER" }) {
     const body = new FormData();
     body.append("file", file);

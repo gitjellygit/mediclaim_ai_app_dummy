@@ -34,6 +34,7 @@ const router = express.Router();
 const appealUploadDir = process.env.UPLOAD_DIR || "uploads";
 const appealUpload = createDocumentUpload(appealUploadDir);
 const APPEAL_RATIONALE_MIN_CHARS = 50;
+const LATE_APPEAL_REASON_MIN_CHARS = 15;
 const APPEAL_SUBMISSION_CHANNELS = new Set([
   "PAYER_PORTAL",
   "CLEARINGHOUSE",
@@ -98,6 +99,33 @@ function parseOptionalMoney(value, fieldName) {
     throw error;
   }
   return parsed;
+}
+
+function appealDeadlineState(value, now = new Date()) {
+  if (!value) {
+    return { state: "NOT_RECORDED", days: null, expired: false };
+  }
+  const deadline = new Date(value);
+  if (Number.isNaN(deadline.getTime())) {
+    return { state: "NOT_RECORDED", days: null, expired: false };
+  }
+  const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const end = Date.UTC(deadline.getUTCFullYear(), deadline.getUTCMonth(), deadline.getUTCDate());
+  const days = Math.ceil((end - start) / 86400000);
+  return {
+    state: days < 0 ? "EXPIRED" : days === 0 ? "DUE_TODAY" : days <= 7 ? "DUE_SOON" : "OPEN",
+    days,
+    expired: days < 0
+  };
+}
+
+async function nextAppealAttemptNumber(tx, denialCaseId) {
+  const latest = await tx.appealAttempt.findFirst({
+    where: { denialCaseId },
+    orderBy: { attemptNumber: "desc" },
+    select: { attemptNumber: true }
+  });
+  return Number(latest?.attemptNumber || 0) + 1;
 }
 
 function revenueAtRiskForClaim(claim) {
@@ -269,6 +297,48 @@ router.get(
           appealSubmissionReference: true,
           appealSubmissionChannel: true,
           appealExternalSubmittedAt: true,
+          lateAppealExceptionReason: true,
+          lateAppealExceptionRecordedAt: true,
+          appealAttempts: {
+            select: {
+              id: true,
+              attemptNumber: true,
+              level: true,
+              status: true,
+              rationale: true,
+              evidenceDocumentIds: true,
+              preparedAt: true,
+              submittedAt: true,
+              submissionReference: true,
+              submissionChannel: true,
+              externalSubmittedAt: true,
+              appealDeadline: true,
+              outcome: true,
+              outcomeAt: true,
+              payerClaimStatus: true,
+              remittanceStatus: true,
+              paidAmount: true,
+              lateExceptionReason: true,
+              notes: true,
+              createdAt: true,
+              updatedAt: true
+            },
+            orderBy: { attemptNumber: "asc" }
+          },
+          recoveryEvents: {
+            select: {
+              id: true,
+              appealAttemptId: true,
+              eventType: true,
+              amount: true,
+              source: true,
+              reference: true,
+              occurredAt: true,
+              notes: true,
+              createdAt: true
+            },
+            orderBy: { occurredAt: "desc" }
+          },
           recommendedAction: true,
           requiredDocuments: true,
           aiExplanation: true,
@@ -328,6 +398,15 @@ router.get(
         ...denial,
         revenueAtRisk: Number(denial.revenueAtRisk || 0),
         recoveredAmount: Number(denial.recoveredAmount || 0),
+        deadlineState: appealDeadlineState(denial.appealDeadline),
+        appealAttempts: (denial.appealAttempts || []).map((attempt) => ({
+          ...attempt,
+          paidAmount: Number(attempt.paidAmount || 0)
+        })),
+        recoveryEvents: (denial.recoveryEvents || []).map((event) => ({
+          ...event,
+          amount: Number(event.amount || 0)
+        })),
         claim: {
           ...denial.claim,
           amount: Number(denial.claim.amount || 0),
@@ -922,15 +1001,73 @@ router.post(
         });
       }
 
-      const updated = await prisma.denialCase.update({
-        where: { id: existing.id },
-        data: {
-          status,
-          appealSubmittedAt: new Date(),
-          appealSubmissionReference: reference,
-          appealSubmissionChannel: channel,
-          appealExternalSubmittedAt: externalSubmittedAt
+      const deadline = appealDeadlineState(existing.appealDeadline);
+      const lateExceptionReason = String(req.body.lateExceptionReason || "").trim();
+      if (deadline.expired && lateExceptionReason.length < LATE_APPEAL_REASON_MIN_CHARS) {
+        return res.status(409).json({
+          error:
+            `The recorded appeal deadline expired ${Math.abs(deadline.days)} day(s) ago. Rerunning analysis does not renew appeal rights. To record a late appeal, document the payer, contract, reconsideration, or other approved exception (at least ${LATE_APPEAL_REASON_MIN_CHARS} characters).`,
+          code: "APPEAL_DEADLINE_EXPIRED",
+          deadlineState: deadline
+        });
+      }
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const currentAttempt = await tx.appealAttempt.findFirst({
+          where: {
+            denialCaseId: existing.id,
+            submittedAt: null
+          },
+          orderBy: { attemptNumber: "desc" }
+        });
+        const attemptNumber = currentAttempt
+          ? currentAttempt.attemptNumber
+          : await nextAppealAttemptNumber(tx, existing.id);
+        const submittedAt = new Date();
+
+        const denialUpdate = await tx.denialCase.update({
+          where: { id: existing.id },
+          data: {
+            status,
+            appealSubmittedAt: submittedAt,
+            appealSubmissionReference: reference,
+            appealSubmissionChannel: channel,
+            appealExternalSubmittedAt: externalSubmittedAt,
+            lateAppealExceptionReason: deadline.expired ? lateExceptionReason : null,
+            lateAppealExceptionRecordedAt: deadline.expired ? submittedAt : null
+          }
+        });
+
+        const attemptData = {
+          status: "SUBMITTED",
+          rationale: existing.appealRationale,
+          evidenceDocumentIds: existing.appealEvidenceDocumentIds || [],
+          preparedAt: existing.appealPreparedAt,
+          submittedAt,
+          submissionReference: reference,
+          submissionChannel: channel,
+          externalSubmittedAt,
+          appealDeadline: existing.appealDeadline,
+          lateExceptionReason: deadline.expired ? lateExceptionReason : null
+        };
+
+        if (currentAttempt) {
+          await tx.appealAttempt.update({
+            where: { id: currentAttempt.id },
+            data: attemptData
+          });
+        } else {
+          await tx.appealAttempt.create({
+            data: {
+              denialCaseId: existing.id,
+              attemptNumber,
+              level: attemptNumber === 1 ? "FIRST_LEVEL" : `LEVEL_${attemptNumber}`,
+              ...attemptData
+            }
+          });
         }
+
+        return denialUpdate;
       });
 
       await audit(req, {
@@ -942,6 +1079,8 @@ router.post(
           submissionReferencePresent: Boolean(reference),
           submissionChannel: channel,
           externalSubmittedAt: externalSubmittedAt.toISOString(),
+          lateDeadlineException: deadline.expired,
+          lateExceptionReasonProvided: deadline.expired ? Boolean(lateExceptionReason) : false,
           externalTransmissionPerformed: false
         }
       });
@@ -961,6 +1100,125 @@ router.post(
       });
       res.status(error.status || 500).json({
         error: error.status ? error.message : "Unable to mark appeal submitted"
+      });
+    }
+  }
+);
+
+router.post(
+  "/:id/appeal-next-attempt",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  async (req, res) => {
+    try {
+      const existing = await prisma.denialCase.findFirst({
+        where: {
+          id: req.params.id,
+          claim: {
+            organizationId: req.user.organizationId,
+            deletedAt: null
+          }
+        }
+      });
+      if (!existing) return res.status(404).json({ error: "Denial case not found" });
+
+      if (!["APPEAL_SUBMITTED", "UPHELD", "OVERTURNED"].includes(existing.status)) {
+        return res.status(409).json({
+          error: "A new appeal cycle can only start after the current appeal has been submitted or finalized."
+        });
+      }
+
+      const remaining = Math.max(
+        0,
+        Number(existing.revenueAtRisk || 0) - Number(existing.recoveredAmount || 0)
+      );
+      if (remaining <= 0) {
+        return res.status(409).json({
+          error: "This denial is fully recovered; there is no remaining balance to appeal."
+        });
+      }
+
+      const reason = String(req.body.reason || "").trim();
+      if (reason.length < 10) {
+        return res.status(400).json({
+          error: "Enter a reason for starting the next appeal or escalation cycle (at least 10 characters)."
+        });
+      }
+
+      const nextDeadline = parseOptionalDate(req.body.appealDeadline, "Next appeal deadline");
+
+      const result = await prisma.$transaction(async (tx) => {
+        const attemptNumber = await nextAppealAttemptNumber(tx, existing.id);
+        const existingSubmittedAttempt = await tx.appealAttempt.findFirst({
+          where: {
+            denialCaseId: existing.id,
+            submissionReference: existing.appealSubmissionReference || undefined,
+            submittedAt: { not: null }
+          },
+          orderBy: { attemptNumber: "desc" }
+        });
+
+        if (!existingSubmittedAttempt && existing.appealSubmittedAt) {
+          await tx.appealAttempt.create({
+            data: {
+              denialCaseId: existing.id,
+              attemptNumber: Math.max(1, attemptNumber - 1),
+              level: attemptNumber <= 2 ? "FIRST_LEVEL" : `LEVEL_${attemptNumber - 1}`,
+              status: existing.status === "UPHELD" ? "UPHELD" : existing.status === "OVERTURNED" ? "OVERTURNED" : "SUBMITTED",
+              rationale: existing.appealRationale,
+              evidenceDocumentIds: existing.appealEvidenceDocumentIds || [],
+              preparedAt: existing.appealPreparedAt,
+              submittedAt: existing.appealSubmittedAt,
+              submissionReference: existing.appealSubmissionReference,
+              submissionChannel: existing.appealSubmissionChannel,
+              externalSubmittedAt: existing.appealExternalSubmittedAt,
+              appealDeadline: existing.appealDeadline,
+              lateExceptionReason: existing.lateAppealExceptionReason,
+              notes: "Archived automatically when the next appeal cycle started."
+            }
+          });
+        }
+
+        return tx.denialCase.update({
+          where: { id: existing.id },
+          data: {
+            status: "ANALYZED",
+            appealRationale: null,
+            appealEvidenceDocumentIds: [],
+            appealPreparedAt: null,
+            appealSubmittedAt: null,
+            appealSubmissionReference: null,
+            appealSubmissionChannel: null,
+            appealExternalSubmittedAt: null,
+            appealDeadline: nextDeadline,
+            lateAppealExceptionReason: null,
+            lateAppealExceptionRecordedAt: null
+          }
+        });
+      });
+
+      await audit(req, {
+        claimId: existing.claimId,
+        action: "NEXT_APPEAL_CYCLE_STARTED",
+        entityType: "DenialCase",
+        entityId: existing.id,
+        metadata: {
+          reason,
+          remainingAmount: remaining,
+          nextDeadlineRecorded: Boolean(nextDeadline)
+        }
+      });
+
+      res.json({
+        denialCase: result,
+        message: "Previous appeal history was preserved. A new appeal cycle is ready to build."
+      });
+    } catch (error) {
+      console.error("[appeal-workspace] next appeal failed", {
+        denialId: req.params.id,
+        name: error?.name || "Error"
+      });
+      res.status(error.status || 500).json({
+        error: error.status ? error.message : "Unable to start the next appeal cycle"
       });
     }
   }

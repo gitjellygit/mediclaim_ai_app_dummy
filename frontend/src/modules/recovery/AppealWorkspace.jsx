@@ -185,7 +185,13 @@ export default function AppealWorkspace() {
   const [submission, setSubmission] = React.useState({
     channel: "PAYER_PORTAL",
     reference: "",
-    date: todayInputValue()
+    date: todayInputValue(),
+    lateExceptionReason: ""
+  });
+  const [nextAppealOpen, setNextAppealOpen] = React.useState(false);
+  const [nextAppeal, setNextAppeal] = React.useState({
+    reason: "",
+    appealDeadline: ""
   });
 
   const load = React.useCallback(async ({ preserveDraft = false } = {}) => {
@@ -211,7 +217,8 @@ export default function AppealWorkspace() {
         reference: result.appealSubmissionReference || "",
         date: result.appealExternalSubmittedAt
           ? new Date(result.appealExternalSubmittedAt).toISOString().slice(0, 10)
-          : todayInputValue()
+          : todayInputValue(),
+        lateExceptionReason: result.lateAppealExceptionReason || ""
       });
     } catch (error) {
       showDialog(error?.message || "Unable to load the appeal workspace.", {
@@ -387,6 +394,7 @@ export default function AppealWorkspace() {
   }
 
   async function confirmSubmission() {
+    const deadlineExpired = data?.deadlineState?.expired === true;
     if (!submission.channel || !submission.date) {
       showDialog("Submission channel and submission date are required.", {
         title: "Submission details required",
@@ -400,6 +408,17 @@ export default function AppealWorkspace() {
         title: "Invalid submission date",
         severity: "warning"
       });
+      return;
+    }
+
+    if (deadlineExpired && submission.lateExceptionReason.trim().length < 15) {
+      showDialog(
+        "This appeal deadline has expired. Document the payer, contract, reconsideration, or other approved exception before recording a late submission.",
+        {
+          title: "Late-appeal exception required",
+          severity: "error"
+        }
+      );
       return;
     }
 
@@ -429,7 +448,8 @@ export default function AppealWorkspace() {
         confirmed: true,
         submissionChannel: submission.channel,
         submissionReference: submission.reference,
-        submissionDate: submission.date
+        submissionDate: submission.date,
+        lateExceptionReason: submission.lateExceptionReason
       });
       await load();
       signalRevenueRecoveryUpdate();
@@ -503,6 +523,41 @@ export default function AppealWorkspace() {
     } catch (error) {
       showDialog(error?.message || "Payer outcome could not be refreshed.", {
         title: "Outcome refresh failed",
+        severity: "error"
+      });
+    } finally {
+      setAction("");
+    }
+  }
+
+  async function startNextAppeal() {
+    if (nextAppeal.reason.trim().length < 10) {
+      showDialog(
+        "Explain why another appeal or escalation cycle is appropriate before continuing.",
+        { title: "Reason required", severity: "warning" }
+      );
+      return;
+    }
+
+    setAction("next-appeal");
+    try {
+      const result = await DenialsApi.startNextAppeal(id, {
+        reason: nextAppeal.reason.trim(),
+        appealDeadline: nextAppeal.appealDeadline || null
+      });
+      setNextAppealOpen(false);
+      setNextAppeal({ reason: "", appealDeadline: "" });
+      setEligibilityResult(null);
+      setPackageChangedNotice(false);
+      await load();
+      signalRevenueRecoveryUpdate();
+      showToast(
+        result?.message || "New appeal cycle started. Previous appeal history was preserved.",
+        "success"
+      );
+    } catch (error) {
+      showDialog(error?.message || "The next appeal cycle could not be started.", {
+        title: "Unable to start next appeal",
         severity: "error"
       });
     } finally {
@@ -765,6 +820,18 @@ export default function AppealWorkspace() {
   const packageComplete = Boolean(data.aiAnalyzedAt) && issueResolved && draftSaved;
   const reviewComplete = Boolean(data.appealPreparedAt) && !packageChangedNotice;
   const submissionRecorded = Boolean(data.appealSubmittedAt);
+  const deadlineExpired = data?.deadlineState?.expired === true;
+  const deadlineDays = Number(data?.deadlineState?.days);
+  const appealAttempts = Array.isArray(data.appealAttempts) ? data.appealAttempts : [];
+  const recoveryEvents = Array.isArray(data.recoveryEvents) ? data.recoveryEvents : [];
+  const currentAppealNumber =
+    appealAttempts.length + (submissionRecorded ? 0 : 1);
+  const canStartNextAppeal =
+    canEdit &&
+    appealOutcomeFailed &&
+    remainingRecoveryAmount > 0 &&
+    ["APPEAL_SUBMITTED", "UPHELD"].includes(String(data.status || "").toUpperCase());
+
   const workflowSteps = [
     { label: "Analyze Denial", complete: Boolean(data.aiAnalyzedAt) },
     { label: "Resolve Denial Issue", complete: issueResolved && Boolean(data.aiAnalyzedAt) },
@@ -800,6 +867,11 @@ export default function AppealWorkspace() {
           </Typography>
         </Box>
         <Stack direction="row" spacing={0.75} alignItems="center">
+          <Chip
+            size="small"
+            label={`Appeal #${Math.max(1, currentAppealNumber)}`}
+            variant="outlined"
+          />
           <Chip
             size="small"
             label={String(data.status || "").replaceAll("_", " ")}
@@ -875,6 +947,14 @@ export default function AppealWorkspace() {
           })}
         </Box>
       </Paper>
+
+      {deadlineExpired && (
+        <Alert severity="error" sx={{ mb: 1.25 }} data-testid="appeal-deadline-expired">
+          <b>Appeal deadline expired {Math.abs(deadlineDays)} day{Math.abs(deadlineDays) === 1 ? "" : "s"} ago.</b>{" "}
+          You may still re-run denial analysis to understand the case, but analysis does not renew or extend appeal rights.
+          A late external submission must be supported by a documented payer, contract, reconsideration, or other approved exception.
+        </Alert>
+      )}
 
       {submitted && (
         <Alert
@@ -1226,7 +1306,9 @@ export default function AppealWorkspace() {
                 ["Claim #", data.claim?.insurerClaimNo || data.claimId || "—"],
                 ["Date of Service", formatDate(data.claim?.dateOfService)],
                 ["Claim Form", data.claim?.claimForm || "—"],
-                ["Appeal Deadline", formatDate(data.appealDeadline)]
+                ["Appeal Deadline", deadlineExpired
+                  ? `${formatDate(data.appealDeadline)} · EXPIRED`
+                  : formatDate(data.appealDeadline)]
               ].map(([label, value]) => (
                 <Stack key={label} direction="row" justifyContent="space-between" spacing={1}>
                   <Typography variant="caption" color="text.secondary">{label}</Typography>
@@ -1370,6 +1452,81 @@ export default function AppealWorkspace() {
               )}
             </Paper>
           )}
+
+          <Paper variant="outlined" sx={{ p: 1.25 }} data-testid="appeal-recovery-history">
+            <Typography variant="subtitle2" fontWeight={800}>Appeal & Recovery History</Typography>
+            {appealAttempts.length === 0 && recoveryEvents.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                No prior appeal or recovery events are recorded for this denial.
+              </Typography>
+            ) : (
+              <Stack spacing={1} sx={{ mt: 0.9 }}>
+                {appealAttempts.map((attempt) => (
+                  <Box key={attempt.id} sx={{ p: 0.85, bgcolor: "grey.50", borderRadius: 1 }}>
+                    <Stack direction="row" justifyContent="space-between" spacing={1}>
+                      <Typography variant="body2" fontWeight={800}>
+                        Appeal #{attempt.attemptNumber}
+                      </Typography>
+                      <Chip size="small" variant="outlined" label={String(attempt.status || "RECORDED").replaceAll("_", " ")} />
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Submitted: {formatDate(attempt.externalSubmittedAt || attempt.submittedAt)}
+                      {attempt.submissionReference ? ` · Ref: ${attempt.submissionReference}` : ""}
+                    </Typography>
+                    {Number(attempt.paidAmount || 0) > 0 && (
+                      <Typography variant="caption" color="success.main" fontWeight={750}>
+                        Recovery tied to attempt: {formatUSD(attempt.paidAmount)}
+                      </Typography>
+                    )}
+                  </Box>
+                ))}
+                {recoveryEvents.map((event) => (
+                  <Box
+                    key={event.id}
+                    sx={{
+                      p: 0.85,
+                      borderRadius: 1,
+                      bgcolor: event.source === "LEGACY_DENIAL_SNAPSHOT"
+                        ? "rgba(237,108,2,0.06)"
+                        : "rgba(46,125,50,0.06)"
+                    }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" spacing={1}>
+                      <Typography variant="body2" fontWeight={750}>
+                        {event.source === "LEGACY_DENIAL_SNAPSHOT"
+                          ? "Legacy recovery snapshot"
+                          : String(event.eventType || "Recovery").replaceAll("_", " ")}
+                      </Typography>
+                      <Typography variant="body2" color="success.main" fontWeight={850}>
+                        {formatUSD(event.amount)}
+                      </Typography>
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {formatDateTime(event.occurredAt)}
+                      {event.reference ? ` · Ref: ${event.reference}` : ""}
+                    </Typography>
+                    {event.source === "LEGACY_DENIAL_SNAPSHOT" && (
+                      <Typography variant="caption" color="warning.dark" display="block">
+                        This amount existed before transaction-level recovery history was introduced, so the exact ERA/payment source is not available.
+                      </Typography>
+                    )}
+                  </Box>
+                ))}
+              </Stack>
+            )}
+            {canStartNextAppeal && (
+              <Button
+                size="small"
+                variant="outlined"
+                color="warning"
+                sx={{ mt: 1 }}
+                onClick={() => setNextAppealOpen(true)}
+                disabled={Boolean(action)}
+              >
+                Start Next Appeal / Escalation
+              </Button>
+            )}
+          </Paper>
 
           {editable && (
             <Paper variant="outlined" sx={{ p: 1.25 }}>
@@ -1618,12 +1775,71 @@ export default function AppealWorkspace() {
               inputProps={{ max: todayInputValue() }}
               InputLabelProps={{ shrink: true }}
             />
+            {deadlineExpired && (
+              <TextField
+                label="Late-appeal exception reason"
+                multiline
+                minRows={3}
+                value={submission.lateExceptionReason}
+                onChange={(event) =>
+                  setSubmission((current) => ({
+                    ...current,
+                    lateExceptionReason: event.target.value
+                  }))
+                }
+                inputProps={{ maxLength: 1000 }}
+                error={
+                  Boolean(submission.lateExceptionReason) &&
+                  submission.lateExceptionReason.trim().length < 15
+                }
+                helperText="Required because the recorded appeal deadline has expired. Document the approved payer/contract/reconsideration exception."
+              />
+            )}
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSubmissionOpen(false)}>Cancel</Button>
           <Button variant="contained" color="success" onClick={confirmSubmission}>
             Continue to Confirmation
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={nextAppealOpen} onClose={() => !action && setNextAppealOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Start Next Appeal / Escalation</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            The previous appeal remains in history. This creates a new appeal cycle for the remaining {formatUSD(remainingRecoveryAmount)} and does not overwrite the earlier submission.
+          </Alert>
+          <Stack spacing={2}>
+            <TextField
+              label="Reason for another appeal / escalation"
+              multiline
+              minRows={3}
+              value={nextAppeal.reason}
+              onChange={(event) => setNextAppeal((current) => ({ ...current, reason: event.target.value }))}
+              inputProps={{ maxLength: 1000 }}
+              helperText="Required. Example: payer upheld the first appeal but contract terms support a second-level reconsideration."
+            />
+            <TextField
+              label="New appeal deadline (if known)"
+              type="date"
+              value={nextAppeal.appealDeadline}
+              onChange={(event) => setNextAppeal((current) => ({ ...current, appealDeadline: event.target.value }))}
+              InputLabelProps={{ shrink: true }}
+              helperText="Leave blank if the payer has not provided the next-level deadline yet."
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNextAppealOpen(false)} disabled={Boolean(action)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={startNextAppeal}
+            disabled={Boolean(action) || nextAppeal.reason.trim().length < 10}
+          >
+            {action === "next-appeal" ? "Starting..." : "Start Next Appeal"}
           </Button>
         </DialogActions>
       </Dialog>
