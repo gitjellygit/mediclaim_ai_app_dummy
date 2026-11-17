@@ -1,0 +1,9 @@
+prism.jellygit.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:5174
+}
+
+api-prism.jellygit.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:4001
+}
