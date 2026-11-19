@@ -82,7 +82,19 @@ function feeLineScore(fee, serviceLine) {
   return score;
 }
 
-function verifiedPatientResponsibility(claim) {
+function verifiedPatientResponsibility(claim, explicitEvidence = null) {
+  if (explicitEvidence?.amount != null) {
+    const explicitAmount = validMoney(explicitEvidence.amount);
+    if (explicitAmount != null) {
+      return {
+        amount: Number(explicitAmount),
+        source: explicitEvidence.source || "PAYER_REMITTANCE",
+        label: explicitEvidence.label || "Payer-reported patient responsibility",
+        sourceDetail: explicitEvidence.sourceDetail || null
+      };
+    }
+  }
+
   const amount = validMoney(claim?.patientResponsibility);
   if (amount == null) return null;
 
@@ -97,7 +109,11 @@ function verifiedPatientResponsibility(claim) {
   };
 }
 
-export function calculateContractExpectedPayment(claim, contract) {
+export function calculateContractExpectedPayment(
+  claim,
+  contract,
+  { patientResponsibilityEvidence = null } = {}
+) {
   if (!claim || !contract) {
     return { available: false, reason: "CONTRACT_NOT_AVAILABLE" };
   }
@@ -182,7 +198,10 @@ export function calculateContractExpectedPayment(claim, contract) {
   }
 
   const contractualAllowedAmount = Number(moneyFromCents(expectedCents));
-  const patientShare = verifiedPatientResponsibility(claim);
+  const patientShare = verifiedPatientResponsibility(
+    claim,
+    patientResponsibilityEvidence
+  );
 
   if (!patientShare) {
     return {
