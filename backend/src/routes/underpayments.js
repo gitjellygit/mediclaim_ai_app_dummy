@@ -6,12 +6,8 @@ import { PERMISSIONS } from "../security/permissions.js";
 import { moneyCents, moneyFromCents, validMoney } from "../utils/money.js";
 import {
   assertUnderpaymentTransition,
-  expectedPaymentFromClaim
+  resolveUnderpaymentExpectation
 } from "../services/underpaymentRecovery.js";
-import {
-  calculateContractExpectedPayment,
-  selectApplicableContract
-} from "../services/contractReimbursement.js";
 
 const router = express.Router();
 
@@ -217,25 +213,25 @@ router.post("/detect/:claimId", requirePermission(PERMISSIONS.RECOVERY_EDIT), as
       return res.status(409).json({ error: "Posted remittance is required before underpayment detection" });
     }
 
-    const contracts = await prisma.payerContract.findMany({
-      where: {
-        organizationId: req.user.organizationId,
-        status: "ACTIVE"
-      },
-      include: { feeScheduleLines: true },
-      orderBy: { effectiveFrom: "desc" }
-    });
-    const applicableContract = selectApplicableContract(claim, contracts);
-    const contractCalculation = applicableContract
-      ? calculateContractExpectedPayment(claim, applicableContract)
-      : { available: false, reason: "NO_APPLICABLE_CONTRACT" };
-
-    const detected = expectedPaymentFromClaim(claim, contractCalculation);
+    const detected = await resolveUnderpaymentExpectation(prisma, claim);
     if (!detected) {
-      return res.status(409).json({ error: "Expected and actual payer payment are required" });
+      return res.status(409).json({
+        error:
+          "Expected payer payment is unknown. Contractual compliance cannot be verified until an applicable contract or payer-stated expectation is available.",
+        code: "EXPECTED_PAYMENT_UNKNOWN"
+      });
     }
     if (!detected.hasUnderpayment) {
-      return res.json({ detected: false, message: "No payer underpayment detected", variance: detected });
+      const contractVerified = detected.expectedPaymentSource === "CONTRACT_FEE_SCHEDULE";
+      return res.json({
+        detected: false,
+        message: contractVerified
+          ? "No contractual payer underpayment detected"
+          : "No variance against the payer-stated expectation; contractual compliance is not verified",
+        expectedPaymentBasis: contractVerified ? "CONTRACT_VERIFIED" : "PAYER_STATED",
+        contractComplianceVerified: contractVerified,
+        variance: detected
+      });
     }
 
     const item = await prisma.underpaymentCase.upsert({
