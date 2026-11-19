@@ -82,6 +82,238 @@ function feeLineScore(fee, serviceLine) {
   return score;
 }
 
+function percentageTermApproved(contract) {
+  return (
+    contract?.pricingReviewStatus === "APPROVED" &&
+    Boolean(contract?.pricingSourceDocumentId) &&
+    Boolean(contract?.pricingSourcePage || contract?.pricingSourceClause) &&
+    Boolean(contract?.pricingReviewedByUserId) &&
+    Boolean(contract?.pricingReviewedAt)
+  );
+}
+
+function percentageValue(contract) {
+  const value = Number(contract?.referencePercent);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function percentOfCents(baseCents, percent) {
+  const scaled = Number(baseCents) * percent / 100;
+  return BigInt(Math.round(scaled));
+}
+
+function serviceLineUnits(serviceLine) {
+  const raw = serviceLine?.units;
+  if (raw == null || raw === "") return 1;
+  const units = Number(raw);
+  return Number.isFinite(units) && units > 0 ? units : null;
+}
+
+function percentagePricingProvenance(contract, extra = {}) {
+  return {
+    reviewStatus: contract.pricingReviewStatus,
+    reviewedByUserId: contract.pricingReviewedByUserId,
+    reviewedAt: contract.pricingReviewedAt,
+    extractionMethod: contract.pricingExtractionMethod,
+    sourceDocumentId: contract.pricingSourceDocumentId,
+    sourcePage: contract.pricingSourcePage || null,
+    sourceClause: contract.pricingSourceClause || null,
+    referencePercent: Number(contract.referencePercent),
+    roundingMode: contract.roundingMode || "HALF_UP",
+    ...extra
+  };
+}
+
+function calculatePercentChargeAllowance(serviceLines, contract) {
+  if (!percentageTermApproved(contract)) {
+    return { available: false, reason: "CONTRACT_PRICING_REVIEW_REQUIRED" };
+  }
+  const percent = percentageValue(contract);
+  if (percent == null) {
+    return { available: false, reason: "REFERENCE_PERCENT_MISSING" };
+  }
+
+  let expectedCents = 0n;
+  const calculatedLines = [];
+  const unmatchedLines = [];
+
+  for (const line of serviceLines) {
+    const charge = validMoney(line.charge);
+    if (charge == null) {
+      unmatchedLines.push({
+        serviceLineId: line.id,
+        cptHcpcsCode: line.cptHcpcsCode,
+        reason: "LINE_CHARGE_MISSING"
+      });
+      continue;
+    }
+    const lineCents = percentOfCents(moneyCents(charge), percent);
+    expectedCents += lineCents;
+    calculatedLines.push({
+      serviceLineId: line.id,
+      cptHcpcsCode: line.cptHcpcsCode,
+      billedCharge: Number(charge),
+      referencePercent: percent,
+      expectedAmount: Number(moneyFromCents(lineCents)),
+      pricingMethod: "PERCENT_CHARGE",
+      termProvenance: percentagePricingProvenance(contract)
+    });
+  }
+
+  if (unmatchedLines.length) {
+    return {
+      available: false,
+      reason: "PERCENT_CHARGE_INPUTS_INCOMPLETE",
+      unmatchedLines,
+      calculatedLines
+    };
+  }
+
+  return {
+    available: true,
+    source: "CONTRACT_PERCENT_CHARGE",
+    contractualAllowedAmount: Number(moneyFromCents(expectedCents)),
+    calculatedLines,
+    pricingEvidence: percentagePricingProvenance(contract)
+  };
+}
+
+function calculatePercentMedicareAllowance(claim, serviceLines, contract) {
+  if (!percentageTermApproved(contract)) {
+    return { available: false, reason: "CONTRACT_PRICING_REVIEW_REQUIRED" };
+  }
+  const percent = percentageValue(contract);
+  if (percent == null) {
+    return { available: false, reason: "REFERENCE_PERCENT_MISSING" };
+  }
+
+  const schedule = contract.medicareRateSchedule;
+  if (!schedule) {
+    return { available: false, reason: "MEDICARE_SCHEDULE_MISSING" };
+  }
+
+  const dos = claimDate(claim);
+  if (!dos) {
+    return { available: false, reason: "CLAIM_SERVICE_DATE_MISSING" };
+  }
+
+  const scheduleFrom = new Date(schedule.effectiveFrom);
+  const scheduleTo = schedule.effectiveTo ? new Date(schedule.effectiveTo) : null;
+  if (
+    Number.isNaN(scheduleFrom.getTime()) ||
+    dos < scheduleFrom ||
+    (scheduleTo && dos > scheduleTo)
+  ) {
+    return {
+      available: false,
+      reason: "MEDICARE_SCHEDULE_NOT_EFFECTIVE_FOR_DOS",
+      scheduleYear: schedule.year,
+      locality: schedule.locality
+    };
+  }
+
+  if (Number(schedule.year) !== dos.getUTCFullYear()) {
+    return {
+      available: false,
+      reason: "MEDICARE_SCHEDULE_YEAR_MISMATCH",
+      scheduleYear: schedule.year,
+      serviceYear: dos.getUTCFullYear(),
+      locality: schedule.locality
+    };
+  }
+
+  const rateLines = Array.isArray(schedule.lines) ? schedule.lines : [];
+  let expectedCents = 0n;
+  const calculatedLines = [];
+  const unmatchedLines = [];
+
+  for (const line of serviceLines) {
+    const units = serviceLineUnits(line);
+    if (units == null) {
+      unmatchedLines.push({
+        serviceLineId: line.id,
+        cptHcpcsCode: line.cptHcpcsCode,
+        reason: "INVALID_RATE_OR_UNITS"
+      });
+      continue;
+    }
+
+    const matches = rateLines
+      .map((rate) => ({ rate, score: feeLineScore(rate, line) }))
+      .filter((item) => item.score >= 0)
+      .sort((a, b) => b.score - a.score);
+
+    const bestScore = matches[0]?.score ?? -1;
+    const best = matches.filter((item) => item.score === bestScore);
+    if (best.length !== 1) {
+      unmatchedLines.push({
+        serviceLineId: line.id,
+        cptHcpcsCode: line.cptHcpcsCode,
+        reason: best.length > 1
+          ? "AMBIGUOUS_MEDICARE_RATE"
+          : "MEDICARE_RATE_NOT_FOUND"
+      });
+      continue;
+    }
+
+    const amount = validMoney(best[0].rate.amount);
+    if (amount == null) {
+      unmatchedLines.push({
+        serviceLineId: line.id,
+        cptHcpcsCode: line.cptHcpcsCode,
+        reason: "INVALID_MEDICARE_RATE"
+      });
+      continue;
+    }
+
+    const baseCents = BigInt(Math.round(Number(moneyCents(amount)) * units));
+    const lineCents = percentOfCents(baseCents, percent);
+    expectedCents += lineCents;
+    calculatedLines.push({
+      serviceLineId: line.id,
+      cptHcpcsCode: line.cptHcpcsCode,
+      units,
+      medicareRateLineId: best[0].rate.id,
+      medicareAmountPerUnit: Number(amount),
+      medicareScheduleYear: schedule.year,
+      medicareLocality: schedule.locality,
+      referencePercent: percent,
+      expectedAmount: Number(moneyFromCents(lineCents)),
+      pricingMethod: "PERCENT_MEDICARE",
+      termProvenance: percentagePricingProvenance(contract, {
+        medicareScheduleId: schedule.id,
+        medicareScheduleYear: schedule.year,
+        medicareLocality: schedule.locality,
+        medicareSource: schedule.source
+      })
+    });
+  }
+
+  if (unmatchedLines.length) {
+    return {
+      available: false,
+      reason: "MEDICARE_PRICING_INPUTS_INCOMPLETE",
+      scheduleYear: schedule.year,
+      locality: schedule.locality,
+      unmatchedLines,
+      calculatedLines
+    };
+  }
+
+  return {
+    available: true,
+    source: "CONTRACT_PERCENT_MEDICARE",
+    contractualAllowedAmount: Number(moneyFromCents(expectedCents)),
+    calculatedLines,
+    pricingEvidence: percentagePricingProvenance(contract, {
+      medicareScheduleId: schedule.id,
+      medicareScheduleYear: schedule.year,
+      medicareLocality: schedule.locality,
+      medicareSource: schedule.source
+    })
+  };
+}
+
 function verifiedPatientResponsibility(claim, explicitEvidence = null) {
   if (explicitEvidence?.amount != null) {
     const explicitAmount = validMoney(explicitEvidence.amount);
@@ -131,13 +363,34 @@ export function calculateContractExpectedPayment(
     return { available: false, reason: "NO_VERIFIED_SERVICE_LINES" };
   }
 
+  const pricingMethod = String(contract.pricingMethod || "FEE_SCHEDULE").toUpperCase();
+
+  let allowanceCalculation = null;
+  if (pricingMethod === "PERCENT_CHARGE") {
+    allowanceCalculation = calculatePercentChargeAllowance(serviceLines, contract);
+  } else if (pricingMethod === "PERCENT_MEDICARE") {
+    allowanceCalculation = calculatePercentMedicareAllowance(claim, serviceLines, contract);
+  }
+
+  if (allowanceCalculation && allowanceCalculation.available === false) {
+    return {
+      ...allowanceCalculation,
+      contractId: contract.id,
+      contractName: contract.name,
+      contractVersion: contract.version
+    };
+  }
+
   const feeLines = Array.isArray(contract.feeScheduleLines)
     ? contract.feeScheduleLines
     : [];
-  const calculatedLines = [];
+  const calculatedLines = allowanceCalculation?.calculatedLines || [];
   const unmatchedLines = [];
-  let expectedCents = 0n;
+  let expectedCents = allowanceCalculation
+    ? moneyCents(allowanceCalculation.contractualAllowedAmount)
+    : 0n;
 
+  if (pricingMethod === "FEE_SCHEDULE") {
   for (const serviceLine of serviceLines) {
     const matches = feeLines
       .map((fee) => ({ fee, score: feeLineScore(fee, serviceLine) }))
@@ -216,6 +469,9 @@ export function calculateContractExpectedPayment(
     });
   }
 
+  }
+  }
+
   if (unmatchedLines.length) {
     const hasUnapprovedTerm = unmatchedLines.some(
       (line) => line.reason === "CONTRACT_TERM_NOT_APPROVED"
@@ -253,7 +509,7 @@ export function calculateContractExpectedPayment(
       components: {
         contractualAllowedAmount: {
           amount: contractualAllowedAmount,
-          source: "CONTRACT_FEE_SCHEDULE",
+          source: allowanceCalculation?.source || "CONTRACT_FEE_SCHEDULE",
           contractId: contract.id,
           contractVersion: contract.version
         },
@@ -311,6 +567,7 @@ export function calculateContractExpectedPayment(
         formula: "contractualAllowedAmount - verifiedPatientResponsibility"
       }
     },
-    calculatedLines
+    calculatedLines,
+    pricingEvidence: allowanceCalculation?.pricingEvidence || null
   };
 }
