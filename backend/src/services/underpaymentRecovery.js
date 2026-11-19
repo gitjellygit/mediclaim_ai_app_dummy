@@ -49,7 +49,7 @@ export function expectedPaymentFromClaim(claim, contractCalculation = null) {
     return {
       ...variance,
       sourceTransactionId: null,
-      expectedPaymentSource: "CONTRACT_FEE_SCHEDULE",
+      expectedPaymentSource: contractCalculation.source || "CONTRACT_FEE_SCHEDULE",
       contractId: contractCalculation.contractId,
       calculationSnapshot: contractCalculation,
       hasUnderpayment: variance.varianceAmount > 0
@@ -112,7 +112,10 @@ export async function resolveUnderpaymentExpectation(
       organizationId: claim.organizationId,
       status: "ACTIVE"
     },
-    include: { feeScheduleLines: true },
+    include: {
+      feeScheduleLines: { include: { sourceDocument: true } },
+      medicareRateSchedule: { include: { lines: true } }
+    },
     orderBy: { effectiveFrom: "desc" }
   });
 
