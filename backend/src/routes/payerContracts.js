@@ -33,6 +33,25 @@ const feeLineSchema = z.object({
   { message: "A source page or clause is required for every fee term" }
 );
 
+const provisionSchema = z.object({
+  provisionType: z.enum([
+    "MODIFIER_PERCENT",
+    "MULTIPLE_PROCEDURE_REDUCTION",
+    "BUNDLE_EXCLUSION",
+    "LESSER_OF_CHARGE",
+    "UNSUPPORTED_CLAUSE"
+  ]),
+  parameters: z.record(z.any()),
+  priority: z.number().int().min(1).max(10000).default(100),
+  sourceDocumentRef: z.string().trim().min(1).max(80),
+  sourcePage: z.number().int().positive().nullable().optional(),
+  sourceClause: z.string().trim().max(160).nullable().optional(),
+  extractionMethod: z.enum(["MANUAL", "OCR", "AI_EXTRACTED"]).default("MANUAL")
+}).strict().refine(
+  (item) => Boolean(item.sourcePage || item.sourceClause),
+  { message: "A source page or clause is required for every contract provision" }
+);
+
 const medicareRateLineSchema = z.object({
   cptHcpcsCode: z.string().trim().min(1).max(10),
   modifier: z.string().trim().max(4).nullable().optional(),
@@ -70,7 +89,8 @@ const contractSchema = z.object({
   pricingSourceClause: z.string().trim().max(160).nullable().optional(),
   pricingExtractionMethod: z.enum(["MANUAL", "OCR", "AI_EXTRACTED"]).default("MANUAL"),
   sourceDocuments: z.array(sourceDocumentSchema).min(1).max(100),
-  feeScheduleLines: z.array(feeLineSchema).max(1000).default([])
+  feeScheduleLines: z.array(feeLineSchema).max(1000).default([]),
+  provisions: z.array(provisionSchema).max(250).default([])
 }).strict();
 
 router.get(
@@ -153,6 +173,8 @@ router.get(
       where: { organizationId: orgId(req) },
       include: {
         sourceDocuments: true,
+        provisions: { include: { sourceDocument: true }, orderBy: { priority: "asc" } },
+        medicareRateSchedule: { include: { lines: true } },
         feeScheduleLines: { include: { sourceDocument: true } }
       },
       orderBy: [{ status: "asc" }, { effectiveFrom: "desc" }]
@@ -265,6 +287,17 @@ router.post(
       }
     }
 
+    const provisions = [];
+    for (const provision of parsed.data.provisions) {
+      if (!sourceRefs.has(provision.sourceDocumentRef)) {
+        return res.status(400).json({
+          error: "Every contract provision must reference a supplied source document",
+          code: "CONTRACT_PROVISION_SOURCE_REQUIRED"
+        });
+      }
+      provisions.push(provision);
+    }
+
     const lines = [];
     for (const line of parsed.data.feeScheduleLines) {
       const rate = validMoney(line.unitRate);
@@ -342,6 +375,22 @@ router.post(
         });
       }
 
+      for (const provision of provisions) {
+        await tx.contractProvision.create({
+          data: {
+            contractId: created.id,
+            provisionType: provision.provisionType,
+            parameters: provision.parameters,
+            priority: provision.priority,
+            sourceDocumentId: sourceByRef.get(provision.sourceDocumentRef).id,
+            sourcePage: provision.sourcePage || null,
+            sourceClause: provision.sourceClause || null,
+            extractionMethod: provision.extractionMethod,
+            reviewStatus: "PENDING"
+          }
+        });
+      }
+
       for (const line of lines) {
         await tx.feeScheduleLine.create({
           data: {
@@ -364,6 +413,7 @@ router.post(
         where: { id: created.id },
         include: {
           sourceDocuments: true,
+          provisions: { include: { sourceDocument: true }, orderBy: { priority: "asc" } },
           medicareRateSchedule: { include: { lines: true } },
           feeScheduleLines: { include: { sourceDocument: true } }
         }
@@ -376,6 +426,7 @@ router.post(
         metadata: {
           payerContractVersion: created.version,
           feeScheduleLineCount: complete.feeScheduleLines.length,
+          provisionCount: complete.provisions.length,
           sourceDocumentCount: complete.sourceDocuments.length,
           sourceType: complete.sourceType
         }
@@ -384,6 +435,76 @@ router.post(
     });
 
     res.status(201).json(item);
+  }
+);
+
+const provisionApprovalSchema = z.object({
+  reviewStatus: z.enum(["APPROVED", "REJECTED"]),
+  reviewNote: z.string().trim().max(1000).nullable().optional()
+}).strict();
+
+router.patch(
+  "/:contractId/provisions/:provisionId/review",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  async (req, res) => {
+    const parsed = provisionApprovalSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid contract provision review",
+        code: "INVALID_CONTRACT_PROVISION_REVIEW"
+      });
+    }
+
+    const provision = await prisma.contractProvision.findFirst({
+      where: {
+        id: req.params.provisionId,
+        contractId: req.params.contractId,
+        contract: { organizationId: orgId(req) }
+      },
+      include: { sourceDocument: true }
+    });
+    if (!provision) {
+      return res.status(404).json({ error: "Contract provision not found" });
+    }
+
+    if (
+      parsed.data.reviewStatus === "APPROVED" &&
+      (!provision.sourceDocumentId || (!provision.sourcePage && !provision.sourceClause))
+    ) {
+      return res.status(409).json({
+        error: "A source document and page or clause are required before approval",
+        code: "CONTRACT_PROVISION_PROVENANCE_REQUIRED"
+      });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const saved = await tx.contractProvision.update({
+        where: { id: provision.id },
+        data: {
+          reviewStatus: parsed.data.reviewStatus,
+          reviewedByUserId: req.user.id,
+          reviewedAt: new Date()
+        },
+        include: { sourceDocument: true }
+      });
+
+      await writeCriticalRequestAudit(tx, req, {
+        action: "PAYER_CONTRACT_PROVISION_REVIEWED",
+        entityType: "ContractProvision",
+        entityId: saved.id,
+        metadata: {
+          contractId: req.params.contractId,
+          provisionType: saved.provisionType,
+          reviewStatus: saved.reviewStatus,
+          sourceDocumentId: saved.sourceDocumentId,
+          sourcePage: saved.sourcePage,
+          sourceClause: saved.sourceClause
+        }
+      });
+      return saved;
+    });
+
+    res.json(updated);
   }
 );
 
