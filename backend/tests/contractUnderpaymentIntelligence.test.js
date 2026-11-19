@@ -35,9 +35,10 @@ test("automatic simulated and live ERA paths use the shared contract-first resol
 test("underpayment workspace explains contractual or fallback expected payment basis", () => {
   const ui = read("frontend/src/modules/recovery/UnderpaymentWorkspace.jsx");
   assert.match(ui, /Expected Payment Basis/);
-  assert.match(ui, /Contract Fee Schedule/);
-  assert.match(ui, /Remittance Expectation/);
+  assert.match(ui, /Contract Verified/);
+  assert.match(ui, /Payer-Stated Expectation/);
   assert.match(ui, /PRISM did not invent a contractual amount/);
+  assert.match(ui, /does not verify contractual compliance/);
 });
 
 
