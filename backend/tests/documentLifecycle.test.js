@@ -1034,7 +1034,7 @@ test("22 - repeated payer status write does not rewrite checked timestamp", { co
   );
 });
 
-test("23 - remittance auto-calculates estimated patient responsibility as allowed minus paid", { concurrency: false }, async () => {
+test("23 - remittance leaves patient responsibility unknown when payer value is not supplied", { concurrency: false }, async () => {
   const claim = await createClaim({ status: "SUBMITTED", amount: 12000, totalBilledAmount: 12000 });
 
   const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
@@ -1050,10 +1050,10 @@ test("23 - remittance auto-calculates estimated patient responsibility as allowe
 
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.patientResponsibility, 2000);
+  assert.equal(body.patientResponsibility, null);
 });
 
-test("24 - claimed minus paid is not treated as patient responsibility when allowed amount is lower", { concurrency: false }, async () => {
+test("24 - allowed minus paid is not treated as patient responsibility", { concurrency: false }, async () => {
   const claim = await createClaim({ status: "SUBMITTED", amount: 12000, totalBilledAmount: 12000 });
 
   const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, {
@@ -1069,7 +1069,7 @@ test("24 - claimed minus paid is not treated as patient responsibility when allo
 
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.patientResponsibility, 0);
+  assert.equal(body.patientResponsibility, null);
 });
 
 test("25 - explicit remittance patient responsibility overrides estimate", { concurrency: false }, async () => {
@@ -1329,7 +1329,7 @@ test("36 - eligibility pre-check identifies itself as local pre-check provenance
   assert.equal(updated.fieldProvenance.coverageStatus.source, "LOCAL_PRECHECK");
 });
 
-test("37 - estimated patient responsibility is labeled calculated estimate", { concurrency: false }, async () => {
+test("37 - missing patient responsibility does not create calculated-estimate provenance", { concurrency: false }, async () => {
   const claim = await createClaim({
     status: "SUBMITTED",
     amount: 12000,
@@ -1349,11 +1349,8 @@ test("37 - estimated patient responsibility is labeled calculated estimate", { c
 
   assert.equal(response.status, 200);
   const updated = await prisma.claim.findUnique({ where: { id: claim.id } });
-  assert.equal(Number(updated.patientResponsibility), 2000);
-  assert.equal(
-    updated.fieldProvenance.patientResponsibility.source,
-    "CALCULATED_ESTIMATE"
-  );
+  assert.equal(updated.patientResponsibility, null);
+  assert.equal(updated.fieldProvenance?.patientResponsibility, undefined);
   assert.equal(updated.fieldProvenance.allowedAmount.source, "USER_RECORDED");
 });
 
@@ -3428,11 +3425,11 @@ test("money - remittance preserves exact cents and is idempotent on replay", { c
   const response = await authFetch(`/api/claims/${claim.id}/journey/remittance`, request);
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.patientResponsibility, 234.55);
+  assert.equal(body.patientResponsibility, null);
   const saved = await prisma.claim.findUnique({ where: { id: claim.id } });
   assert.equal(saved.allowedAmount.toFixed(2), "1234.56");
   assert.equal(saved.paidAmount.toFixed(2), "1000.01");
-  assert.equal(saved.patientResponsibility.toFixed(2), "234.55");
+  assert.equal(saved.patientResponsibility, null);
   const repeat = await authFetch(`/api/claims/${claim.id}/journey/remittance`, request);
   assert.equal(repeat.status, 200);
   assert.equal((await repeat.json()).unchanged, true);
