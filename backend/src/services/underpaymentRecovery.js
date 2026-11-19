@@ -1,5 +1,5 @@
 import { differenceMoney, validMoney } from "../utils/money.js";
-import { calculateContractExpectedPayment, selectApplicableContract } from "./contractReimbursement.js";
+import { calculateContractExpectedPayment, resolveApplicableContract } from "./contractReimbursement.js";
 
 const TRANSITIONS = {
   OPEN: new Set(["OPEN", "REVIEWING", "WRITTEN_OFF", "CLOSED"]),
@@ -50,6 +50,8 @@ export function expectedPaymentFromClaim(claim, contractCalculation = null) {
       ...variance,
       sourceTransactionId: null,
       expectedPaymentSource: "CONTRACT_FEE_SCHEDULE",
+      expectedPaymentBasis: "CONTRACT_VERIFIED",
+      contractComplianceVerified: true,
       contractId: contractCalculation.contractId,
       calculationSnapshot: contractCalculation,
       hasUnderpayment: variance.varianceAmount > 0
@@ -75,6 +77,8 @@ export function expectedPaymentFromClaim(claim, contractCalculation = null) {
     ...variance,
     sourceTransactionId: remittance?.transactionId || null,
     expectedPaymentSource: "REMITTANCE_EXPECTATION",
+    expectedPaymentBasis: "PAYER_STATED",
+    contractComplianceVerified: false,
     contractId: null,
     calculationSnapshot: contractCalculation?.available === false
       ? {
@@ -83,7 +87,9 @@ export function expectedPaymentFromClaim(claim, contractCalculation = null) {
           contractId: contractCalculation.contractId || null,
           contractName: contractCalculation.contractName || null,
           contractVersion: contractCalculation.contractVersion || null,
-          unmatchedLines: contractCalculation.unmatchedLines || []
+          contractualAllowedAmount: contractCalculation.contractualAllowedAmount ?? null,
+          unmatchedLines: contractCalculation.unmatchedLines || [],
+          candidateContracts: contractCalculation.candidateContracts || []
         }
       : {
           contractCalculationAvailable: false,
@@ -112,16 +118,20 @@ export async function resolveUnderpaymentExpectation(
       organizationId: claim.organizationId,
       status: "ACTIVE"
     },
-    include: { feeScheduleLines: true },
+    include: { feeScheduleLines: { include: { sourceDocument: true } } },
     orderBy: { effectiveFrom: "desc" }
   });
 
-  const applicableContract = selectApplicableContract(claim, contracts);
-  const contractCalculation = applicableContract
-    ? calculateContractExpectedPayment(claim, applicableContract, {
+  const contractResolution = resolveApplicableContract(claim, contracts);
+  const contractCalculation = contractResolution.status === "MATCHED"
+    ? calculateContractExpectedPayment(claim, contractResolution.contract, {
         patientResponsibilityEvidence
       })
-    : { available: false, reason: "NO_APPLICABLE_CONTRACT" };
+    : {
+        available: false,
+        reason: contractResolution.reason,
+        candidateContracts: contractResolution.candidates || []
+      };
 
   const paymentClaim = {
     ...claim,
