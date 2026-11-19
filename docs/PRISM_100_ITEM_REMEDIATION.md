@@ -61,3 +61,18 @@ Supported in this batch:
 Not included here:
 - multiple-procedure and bundling rules (#037)
 - institutional/case-rate/per-diem/capitation methods (#038)
+
+
+## Batch 2E — Contract provisions
+
+| Checklist item | Status in this branch | Acceptance addressed |
+| --- | --- | --- |
+| #037 | Implemented; golden-case tests added; CI pending | Reviewed modifier percentages, multiple-procedure reductions, bundling exclusions and lesser-of-charge provisions alter contract pricing with clause-level evidence; unreviewed or unsupported clauses stop automatic pricing |
+
+Golden cases:
+- modifier percentage
+- multiple-procedure secondary reduction
+- bundled code exclusion
+- lesser-of-charge
+- unapproved provision
+- unsupported clause routed to review
