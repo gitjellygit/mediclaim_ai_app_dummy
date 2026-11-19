@@ -468,8 +468,6 @@ export function calculateContractExpectedPayment(
       }
     });
   }
-
-  }
   }
 
   if (unmatchedLines.length) {
