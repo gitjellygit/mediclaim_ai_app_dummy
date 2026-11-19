@@ -695,3 +695,57 @@ test("#037 - unsupported reviewed clause routes pricing to review instead of fla
   assert.equal(result.reason, "UNSUPPORTED_CONTRACT_PROVISION");
   assert.equal(result.provision.provisionType, "UNSUPPORTED_CLAUSE");
 });
+
+
+for (const pricingMethod of ["CASE_RATE", "PER_DIEM", "CAPITATION", "VALUE_BASED"]) {
+  test(`#038 - ${pricingMethod} is explicitly manual-review-only`, () => {
+    const result = calculateContractExpectedPayment(
+      claim({
+        claimForm: "INSTITUTIONAL",
+        serviceLines: [{
+          id: `scope-${pricingMethod}`,
+          cptHcpcsCode: "99215",
+          units: 1,
+          verified: true
+        }]
+      }),
+      contract({
+        pricingMethod,
+        feeScheduleLines: []
+      })
+    );
+
+    assert.equal(result.available, false);
+    assert.equal(result.reason, "PRICING_METHOD_REQUIRES_MANUAL_REVIEW");
+    assert.equal(result.pricingMethod, pricingMethod);
+    assert.equal(result.reviewPath, "CONTRACT_REVIEW");
+    assert.match(result.message, /recognized but not automatically adjudicated/i);
+  });
+}
+
+test("#038 - institutional fee-schedule claim is explicitly unsupported with review path", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      claimForm: "INSTITUTIONAL",
+      serviceLines: [{
+        id: "institutional-fee",
+        cptHcpcsCode: "99215",
+        units: 1,
+        verified: true
+      }]
+    }),
+    contract({
+      pricingMethod: "FEE_SCHEDULE",
+      feeScheduleLines: [{
+        id: "institutional-fee-line",
+        cptHcpcsCode: "99215",
+        unitRate: "100.00"
+      }]
+    })
+  );
+
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "INSTITUTIONAL_PRICING_METHOD_NOT_SUPPORTED");
+  assert.equal(result.pricingMethod, "FEE_SCHEDULE");
+  assert.equal(result.reviewPath, "CONTRACT_REVIEW");
+});
