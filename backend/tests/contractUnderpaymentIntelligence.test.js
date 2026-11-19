@@ -79,3 +79,16 @@ test("#040 UI and route distinguish contract-verified, payer-stated and unknown 
   assert.match(route, /EXPECTED_PAYMENT_UNKNOWN/);
   assert.match(route, /contractual compliance is not verified/i);
 });
+
+
+test("#031 live and simulated ERA paths pass current patient-share evidence before claim persistence", () => {
+  const simulated = read("backend/src/routes/claimPayerSimulation.js");
+  const live = read("backend/src/routes/claimJourney.js");
+  const recovery = read("backend/src/services/underpaymentRecovery.js");
+
+  assert.match(simulated, /patientResponsibilityEvidence/);
+  assert.match(simulated, /source: "SIMULATED_PAYER"/);
+  assert.match(live, /patientResponsibilityEvidence/);
+  assert.match(live, /source: "PAYER_835"/);
+  assert.match(recovery, /patientResponsibilityEvidence/);
+});
