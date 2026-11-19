@@ -36,9 +36,6 @@ function payerMatchScore(contract, claim) {
   const contractEdi = normalize(contract?.payerEdiId);
   if (claimEdi && contractEdi) {
     if (claimEdi === contractEdi) return 3;
-    // When both sides carry an explicit payer identifier, a mismatch is
-    // authoritative. Never fall back to a name match and risk applying the
-    // wrong contract.
     return 0;
   }
 
@@ -49,19 +46,121 @@ function payerMatchScore(contract, claim) {
   return 0;
 }
 
-export function selectApplicableContract(claim, contracts = []) {
+function contractScopeResult(contract, claim) {
+  const dimensions = [
+    ["productType", contract?.productType, claim?.productType],
+    ["groupNumber", contract?.groupNumber, claim?.groupNumber],
+    ["networkStatus", contract?.networkStatus, claim?.networkStatus],
+    ["providerTin", contract?.providerTin, claim?.providerTin]
+  ];
+
+  const missing = [];
+  const mismatched = [];
+  let specificity = 0;
+
+  for (const [field, expected, actual] of dimensions) {
+    if (!expected) continue;
+    specificity += 1;
+    if (!actual) {
+      missing.push(field);
+      continue;
+    }
+    if (normalize(expected) !== normalize(actual)) mismatched.push(field);
+  }
+
+  if (contract?.placeOfService) {
+    specificity += 1;
+    const expected = normalize(contract.placeOfService);
+    const values = (claim?.serviceLines || [])
+      .filter((line) => line?.verified !== false)
+      .map((line) => normalize(line?.placeOfService))
+      .filter(Boolean);
+
+    if (!values.length) {
+      missing.push("placeOfService");
+    } else if (values.some((value) => value !== expected)) {
+      mismatched.push("placeOfService");
+    }
+  }
+
+  return {
+    matches: missing.length === 0 && mismatched.length === 0,
+    specificity,
+    missing,
+    mismatched
+  };
+}
+
+function contractCandidateSummary(item) {
+  return {
+    contractId: item.contract.id,
+    contractName: item.contract.name,
+    contractVersion: item.contract.version,
+    payerMatchScore: item.payerScore,
+    applicabilitySpecificity: item.scope.specificity,
+    effectiveFrom: item.contract.effectiveFrom,
+    effectiveTo: item.contract.effectiveTo || null
+  };
+}
+
+export function resolveApplicableContract(claim, contracts = []) {
   const dos = claimDate(claim);
-  const candidates = contracts
+  if (!dos) {
+    return {
+      status: "UNAVAILABLE",
+      reason: "CLAIM_SERVICE_DATE_MISSING",
+      contract: null,
+      candidates: []
+    };
+  }
+
+  const payerCandidates = contracts
     .filter((contract) => String(contract.status || "").toUpperCase() === "ACTIVE")
     .filter((contract) => inEffectiveWindow(contract, dos))
-    .map((contract) => ({ contract, score: payerMatchScore(contract, claim) }))
-    .filter((item) => item.score > 0)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return new Date(b.contract.effectiveFrom) - new Date(a.contract.effectiveFrom);
-    });
+    .map((contract) => ({
+      contract,
+      payerScore: payerMatchScore(contract, claim),
+      scope: contractScopeResult(contract, claim)
+    }))
+    .filter((item) => item.payerScore > 0);
 
-  return candidates[0]?.contract || null;
+  const applicable = payerCandidates.filter((item) => item.scope.matches);
+  if (!applicable.length) {
+    return {
+      status: "UNAVAILABLE",
+      reason: payerCandidates.length
+        ? "CONTRACT_APPLICABILITY_NOT_VERIFIABLE"
+        : "NO_APPLICABLE_CONTRACT",
+      contract: null,
+      candidates: payerCandidates.map(contractCandidateSummary)
+    };
+  }
+
+  const bestPayerScore = Math.max(...applicable.map((item) => item.payerScore));
+  const payerBest = applicable.filter((item) => item.payerScore === bestPayerScore);
+  const bestSpecificity = Math.max(...payerBest.map((item) => item.scope.specificity));
+  const best = payerBest.filter((item) => item.scope.specificity === bestSpecificity);
+
+  if (best.length > 1) {
+    return {
+      status: "AMBIGUOUS",
+      reason: "AMBIGUOUS_CONTRACT_MATCH",
+      contract: null,
+      candidates: best.map(contractCandidateSummary)
+    };
+  }
+
+  return {
+    status: "MATCHED",
+    reason: null,
+    contract: best[0].contract,
+    candidates: [contractCandidateSummary(best[0])]
+  };
+}
+
+export function selectApplicableContract(claim, contracts = []) {
+  const resolved = resolveApplicableContract(claim, contracts);
+  return resolved.status === "MATCHED" ? resolved.contract : null;
 }
 
 function feeLineScore(fee, serviceLine) {
@@ -128,7 +227,21 @@ export function calculateContractExpectedPayment(claim, contract) {
       .filter((item) => item.score >= 0)
       .sort((a, b) => b.score - a.score);
 
-    const matched = matches[0]?.fee || null;
+    const bestScore = matches[0]?.score ?? -1;
+    const bestMatches = matches.filter((item) => item.score === bestScore);
+    if (bestMatches.length > 1) {
+      unmatchedLines.push({
+        serviceLineId: serviceLine.id,
+        cptHcpcsCode: serviceLine.cptHcpcsCode,
+        modifiers: serviceLine.modifiers || [],
+        placeOfService: serviceLine.placeOfService || null,
+        reason: "AMBIGUOUS_FEE_SCHEDULE_MATCH",
+        candidateFeeScheduleLineIds: bestMatches.map((item) => item.fee.id)
+      });
+      continue;
+    }
+
+    const matched = bestMatches[0]?.fee || null;
     if (!matched) {
       unmatchedLines.push({
         serviceLineId: serviceLine.id,
