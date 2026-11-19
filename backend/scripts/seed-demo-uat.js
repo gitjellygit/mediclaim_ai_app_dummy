@@ -52,8 +52,31 @@ function isLocalDatabaseUrl(raw) {
   }
 }
 
-if (!isLocalDatabaseUrl(process.env.DATABASE_URL || "")) {
-  throw new Error("Refusing to seed demo UAT data into a non-local database.");
+function isApprovedDemoVpsDatabaseUrl(raw) {
+  try {
+    const url = new URL(raw);
+    const host = String(url.hostname || "").toLowerCase();
+    const database = String(url.pathname || "").replace(/^\//, "");
+    return (
+      process.env.NODE_ENV === "demo" &&
+      process.env.DEMO_UAT_SEED_ALLOWED === "true" &&
+      host === "db" &&
+      database === "prism"
+    );
+  } catch {
+    return false;
+  }
+}
+
+if (
+  !isLocalDatabaseUrl(process.env.DATABASE_URL || "") &&
+  !isApprovedDemoVpsDatabaseUrl(process.env.DATABASE_URL || "")
+) {
+  throw new Error(
+    "Refusing to seed demo UAT data outside local development. " +
+    "For the isolated Hostinger demo stack only, run with NODE_ENV=demo, " +
+    "DEMO_UAT_SEED_ALLOWED=true, database host=db, and database name=prism."
+  );
 }
 
 const NAMES = [

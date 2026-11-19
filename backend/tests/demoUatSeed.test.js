@@ -10,8 +10,11 @@ const seedPath = path.resolve(
 );
 const source = fs.readFileSync(seedPath, "utf8");
 
-test("Demo UAT seed is local-only and isolates its cleanup scope", () => {
-  assert.match(source, /Refusing to seed demo UAT data into a non-local database/);
+test("Demo UAT seed stays fail-closed and isolates its cleanup scope", () => {
+  assert.match(source, /Refusing to seed demo UAT data outside local development/);
+  assert.match(source, /DEMO_UAT_SEED_ALLOWED === "true"/);
+  assert.match(source, /host === "db"/);
+  assert.match(source, /database === "prism"/);
   assert.match(source, /medicalRecordNumber: `DEMO-UAT-/);
   assert.match(source, /medicalRecordNumber: \{ startsWith: "DEMO-UAT-" \}/);
   assert.match(source, /Existing non-DEMO-UAT claims were preserved/);
