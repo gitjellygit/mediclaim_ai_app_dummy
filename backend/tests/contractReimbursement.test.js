@@ -494,3 +494,204 @@ test("#036 - Medicare pricing explicitly reports missing schedule", () => {
   assert.equal(result.available, false);
   assert.equal(result.reason, "MEDICARE_SCHEDULE_MISSING");
 });
+
+
+function approvedProvision(provisionType, parameters, overrides = {}) {
+  return {
+    id: `prov-${provisionType.toLowerCase()}`,
+    provisionType,
+    parameters,
+    priority: 100,
+    status: "ACTIVE",
+    sourceDocumentId: "prov-doc",
+    sourceDocument: {
+      id: "prov-doc",
+      fileName: "payer-contract.pdf",
+      documentType: "CONTRACT"
+    },
+    sourcePage: 15,
+    sourceClause: "Section 7",
+    extractionMethod: "MANUAL",
+    reviewStatus: "APPROVED",
+    reviewedByUserId: "contract-reviewer",
+    reviewedAt: "2026-11-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+test("#037 - modifier percentage provision adjusts only matching modifier line", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [{
+        id: "mod-line",
+        cptHcpcsCode: "99215",
+        modifiers: ["25"],
+        placeOfService: "11",
+        units: 1,
+        charge: 200,
+        verified: true
+      }]
+    }),
+    contract({
+      feeScheduleLines: [{
+        id: "base-mod",
+        cptHcpcsCode: "99215",
+        modifier: null,
+        placeOfService: null,
+        unitRate: "100.00"
+      }],
+      provisions: [
+        approvedProvision("MODIFIER_PERCENT", { modifier: "25", percent: 150 })
+      ]
+    })
+  );
+
+  assert.equal(result.available, true);
+  assert.equal(result.contractualAllowedAmount, 150);
+  assert.equal(result.expectedPayerPayment, 150);
+  assert.equal(result.calculatedLines[0].baseExpectedAmount, 100);
+  assert.equal(result.calculatedLines[0].expectedAmount, 150);
+  assert.equal(result.calculatedLines[0].appliedProvisions[0].provisionType, "MODIFIER_PERCENT");
+});
+
+test("#037 - multiple procedure reduction preserves highest line and reduces secondary line", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [
+        { id: "mp-1", cptHcpcsCode: "99215", units: 1, charge: 120, verified: true },
+        { id: "mp-2", cptHcpcsCode: "93000", units: 1, charge: 100, verified: true }
+      ]
+    }),
+    contract({
+      feeScheduleLines: [
+        { id: "mp-fee-1", cptHcpcsCode: "99215", unitRate: "100.00" },
+        { id: "mp-fee-2", cptHcpcsCode: "93000", unitRate: "80.00" }
+      ],
+      provisions: [
+        approvedProvision("MULTIPLE_PROCEDURE_REDUCTION", {
+          codes: ["99215", "93000"],
+          secondaryPercent: 50
+        })
+      ]
+    })
+  );
+
+  assert.equal(result.available, true);
+  assert.equal(result.contractualAllowedAmount, 140);
+  const line1 = result.calculatedLines.find((line) => line.cptHcpcsCode === "99215");
+  const line2 = result.calculatedLines.find((line) => line.cptHcpcsCode === "93000");
+  assert.equal(line1.expectedAmount, 100);
+  assert.equal(line2.expectedAmount, 40);
+});
+
+test("#037 - bundle exclusion zeros bundled code when primary code is present", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [
+        { id: "bundle-primary", cptHcpcsCode: "99215", units: 1, verified: true },
+        { id: "bundle-child", cptHcpcsCode: "93000", units: 1, verified: true }
+      ]
+    }),
+    contract({
+      feeScheduleLines: [
+        { id: "bundle-fee-1", cptHcpcsCode: "99215", unitRate: "100.00" },
+        { id: "bundle-fee-2", cptHcpcsCode: "93000", unitRate: "50.00" }
+      ],
+      provisions: [
+        approvedProvision("BUNDLE_EXCLUSION", {
+          primaryCode: "99215",
+          bundledCodes: ["93000"]
+        })
+      ]
+    })
+  );
+
+  assert.equal(result.available, true);
+  assert.equal(result.contractualAllowedAmount, 100);
+  assert.equal(
+    result.calculatedLines.find((line) => line.cptHcpcsCode === "93000").expectedAmount,
+    0
+  );
+});
+
+test("#037 - lesser-of-charge caps contract rate at billed line charge", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [{
+        id: "lesser-line",
+        cptHcpcsCode: "99215",
+        units: 1,
+        charge: "90.00",
+        verified: true
+      }]
+    }),
+    contract({
+      feeScheduleLines: [
+        { id: "lesser-fee", cptHcpcsCode: "99215", unitRate: "120.00" }
+      ],
+      provisions: [
+        approvedProvision("LESSER_OF_CHARGE", { codes: ["99215"] })
+      ]
+    })
+  );
+
+  assert.equal(result.available, true);
+  assert.equal(result.contractualAllowedAmount, 90);
+  assert.equal(result.calculatedLines[0].baseExpectedAmount, 120);
+  assert.equal(result.calculatedLines[0].expectedAmount, 90);
+});
+
+test("#037 - unapproved provision stops automatic pricing", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [{
+        id: "pending-prov-line",
+        cptHcpcsCode: "99215",
+        units: 1,
+        verified: true
+      }]
+    }),
+    contract({
+      feeScheduleLines: [
+        { id: "pending-prov-fee", cptHcpcsCode: "99215", unitRate: "100.00" }
+      ],
+      provisions: [
+        approvedProvision(
+          "MODIFIER_PERCENT",
+          { modifier: "25", percent: 150 },
+          { reviewStatus: "PENDING", reviewedByUserId: null, reviewedAt: null }
+        )
+      ]
+    })
+  );
+
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "CONTRACT_PROVISION_REVIEW_REQUIRED");
+});
+
+test("#037 - unsupported reviewed clause routes pricing to review instead of flat multiplication", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [{
+        id: "unsupported-line",
+        cptHcpcsCode: "99215",
+        units: 1,
+        verified: true
+      }]
+    }),
+    contract({
+      feeScheduleLines: [
+        { id: "unsupported-fee", cptHcpcsCode: "99215", unitRate: "100.00" }
+      ],
+      provisions: [
+        approvedProvision("UNSUPPORTED_CLAUSE", {
+          clauseText: "Complex stop-loss carveout requiring manual adjudication"
+        })
+      ]
+    })
+  );
+
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "UNSUPPORTED_CONTRACT_PROVISION");
+  assert.equal(result.provision.provisionType, "UNSUPPORTED_CLAUSE");
+});
