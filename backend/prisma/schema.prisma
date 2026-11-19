@@ -247,6 +247,8 @@ model Organization {
   ownershipHistory ClaimOwnershipHistory[]
   patientBalances PatientBalance[]
   patientPayments PatientPayment[]
+  paymentBatches PaymentBatch[]
+  financialEvents FinancialEvent[]
 }
 
 model Claim {
@@ -422,6 +424,7 @@ model Claim {
   underpaymentCase UnderpaymentCase?
   auditEvents AuditEvent[]
   payerTransactions PayerTransaction[]
+  financialEvents FinancialEvent[]
   codingSuggestions CodingSuggestion[]
   externalIdentities ClaimExternalIdentity[]
   integrationEvents IntegrationEvent[]
@@ -533,6 +536,55 @@ model CodingSuggestion {
   @@index([documentId, status])
 }
 
+
+model PaymentBatch {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  sourceTransactionId String
+  controlNumber       String?
+  paymentReference    String?
+  paymentMethod       String?
+  paymentDate         String?
+  payerName           String?
+  payeeNpi            String?
+  sourcePayload       Json?
+
+  financialEvents FinancialEvent[]
+
+  @@unique([organizationId, sourceTransactionId])
+  @@index([organizationId, paymentReference])
+  @@index([organizationId, createdAt])
+}
+
+model FinancialEvent {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  claimId String?
+  claim   Claim? @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  paymentBatchId String?
+  paymentBatch   PaymentBatch? @relation(fields: [paymentBatchId], references: [id], onDelete: SetNull)
+
+  eventType String
+  amount    Decimal @db.Decimal(14,2)
+  sourceTransactionId String
+  sourceEventKey String
+  occurredAt DateTime
+  metadata   Json?
+
+  @@unique([organizationId, sourceEventKey])
+  @@index([organizationId, claimId, occurredAt])
+  @@index([paymentBatchId, eventType])
+  @@index([sourceTransactionId])
+}
 
 model PayerTransaction {
   id        String   @id @default(cuid())
