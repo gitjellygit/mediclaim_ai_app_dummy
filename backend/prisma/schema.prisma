@@ -1089,6 +1089,13 @@ model PayerContract {
   name          String
   payerName     String?
   payerEdiId    String?
+
+  productType   String?
+  groupNumber   String?
+  networkStatus String?
+  providerTin   String?
+  placeOfService String?
+
   version       String
   status        String @default("ACTIVE")
   effectiveFrom DateTime @db.Date
@@ -1103,6 +1110,8 @@ model PayerContract {
   @@unique([organizationId, name, version])
   @@index([organizationId, payerEdiId, status])
   @@index([organizationId, payerName, status])
+  @@index([organizationId, productType, groupNumber, networkStatus])
+  @@index([organizationId, providerTin, placeOfService])
   @@index([effectiveFrom, effectiveTo])
 }
 
