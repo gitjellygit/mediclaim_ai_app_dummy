@@ -51,3 +51,16 @@ test("#031 underpayment path preserves contract allowance, patient share and pay
   assert.match(recovery, /contractCalculation\.expectedPayerPayment/);
   assert.match(recovery, /calculationSnapshot: contractCalculation/);
 });
+
+
+test("#031 live and simulated ERA paths pass current patient-share evidence before claim persistence", () => {
+  const simulated = read("backend/src/routes/claimPayerSimulation.js");
+  const live = read("backend/src/routes/claimJourney.js");
+  const recovery = read("backend/src/services/underpaymentRecovery.js");
+
+  assert.match(simulated, /patientResponsibilityEvidence/);
+  assert.match(simulated, /source: "SIMULATED_PAYER"/);
+  assert.match(live, /patientResponsibilityEvidence/);
+  assert.match(live, /source: "PAYER_835"/);
+  assert.match(recovery, /patientResponsibilityEvidence/);
+});
