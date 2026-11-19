@@ -26,9 +26,13 @@ function claim(overrides = {}) {
   };
 }
 
-test("Code-set readiness is fail-open when no authoritative release is loaded", async () => {
+test("Code-set readiness blocks when required authoritative reference data is unavailable", async () => {
   const issues = await evaluateCodeSetReadiness(mockPrisma(), claim());
-  assert.deepEqual(issues, []);
+  assert.ok(issues.length > 0);
+  assert.ok(issues.every((item) => item.rule === "US_CODESET_REFERENCE_UNAVAILABLE"));
+  assert.ok(issues.every((item) => item.severity === "BLOCK"));
+  assert.ok(issues.some((item) => item.system === "ICD10_CM"));
+  assert.ok(issues.some((item) => item.system === "CPT_HCPCS"));
 });
 
 test("Authoritative code-set release blocks unknown and nonbillable codes", async () => {
