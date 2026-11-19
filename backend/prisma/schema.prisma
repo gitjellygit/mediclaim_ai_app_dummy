@@ -1112,6 +1112,7 @@ model PayerContract {
 
   feeScheduleLines FeeScheduleLine[]
   sourceDocuments  ContractSourceDocument[]
+  provisions       ContractProvision[]
   underpaymentCases UnderpaymentCase[]
 
   @@unique([organizationId, name, version])
@@ -1178,8 +1179,35 @@ model ContractSourceDocument {
   notes        String?
 
   feeScheduleLines FeeScheduleLine[]
+  provisions       ContractProvision[]
 
   @@index([contractId, documentType])
+}
+
+model ContractProvision {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contractId String
+  contract   PayerContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  provisionType String
+  parameters    Json
+  priority      Int @default(100)
+  status        String @default("ACTIVE")
+
+  sourceDocumentId String?
+  sourceDocument   ContractSourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  sourcePage       Int?
+  sourceClause     String?
+  extractionMethod String @default("MANUAL")
+  reviewStatus     String @default("PENDING")
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+
+  @@index([contractId, status, priority])
+  @@index([sourceDocumentId])
 }
 
 model FeeScheduleLine {
