@@ -166,9 +166,24 @@ export function ruleScopeMatches(rule, claim) {
   return false;
 }
 
-function withinEffectiveWindow(rule, now) {
-  if (rule.effectiveFrom && new Date(rule.effectiveFrom).getTime() > now.getTime()) return false;
-  if (rule.effectiveTo && new Date(rule.effectiveTo).getTime() < now.getTime()) return false;
+function ruleEffectiveReferenceDate(rule, claim, now) {
+  if (String(rule?.category || "").toUpperCase() === "WORKFLOW") return now;
+
+  const serviceDate =
+    claim?.dateOfService ||
+    claim?.admissionDate ||
+    claim?.procedureDate ||
+    null;
+  if (!serviceDate) return now;
+
+  const parsed = serviceDate instanceof Date ? serviceDate : new Date(serviceDate);
+  return Number.isNaN(parsed.getTime()) ? now : parsed;
+}
+
+function withinEffectiveWindow(rule, claim, now) {
+  const referenceDate = ruleEffectiveReferenceDate(rule, claim, now);
+  if (rule.effectiveFrom && new Date(rule.effectiveFrom).getTime() > referenceDate.getTime()) return false;
+  if (rule.effectiveTo && new Date(rule.effectiveTo).getTime() < referenceDate.getTime()) return false;
   return true;
 }
 
@@ -215,7 +230,7 @@ export function evaluateConfiguredRules(claim, rules = [], { now = new Date() } 
 
   for (const rule of rules) {
     if (!rule || rule.enabled === false || rule.systemManaged === true) continue;
-    if (!withinEffectiveWindow(rule, now) || !ruleScopeMatches(rule, claim)) continue;
+    if (!withinEffectiveWindow(rule, claim, now) || !ruleScopeMatches(rule, claim)) continue;
 
     const definition = rule.definition;
     if (!definition || typeof definition !== "object") continue;
