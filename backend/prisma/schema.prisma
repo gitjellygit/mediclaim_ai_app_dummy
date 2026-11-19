@@ -1100,6 +1100,13 @@ model PayerContract {
   pricingMethod String @default("FEE_SCHEDULE")
   referencePercent Decimal? @db.Decimal(8,4)
   roundingMode String @default("HALF_UP")
+  pricingSourceDocumentId String?
+  pricingSourcePage Int?
+  pricingSourceClause String?
+  pricingExtractionMethod String @default("MANUAL")
+  pricingReviewStatus String @default("PENDING")
+  pricingReviewedByUserId String?
+  pricingReviewedAt DateTime?
   medicareRateScheduleId String?
   medicareRateSchedule MedicareRateSchedule? @relation(fields: [medicareRateScheduleId], references: [id], onDelete: SetNull)
 
