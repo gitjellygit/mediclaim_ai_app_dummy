@@ -64,3 +64,23 @@ test("#031 live and simulated ERA paths pass current patient-share evidence befo
   assert.match(live, /source: "PAYER_835"/);
   assert.match(recovery, /patientResponsibilityEvidence/);
 });
+
+
+test("#034 contract schema, API and pricing require reviewed source provenance", () => {
+  const schema = read("backend/prisma/schema.prisma");
+  const route = read("backend/src/routes/payerContracts.js");
+  const pricing = read("backend/src/services/contractReimbursement.js");
+
+  assert.match(schema, /model ContractSourceDocument/);
+  assert.match(schema, /sourceDocumentId String\?/);
+  assert.match(schema, /sourcePage\s+Int\?/);
+  assert.match(schema, /sourceClause\s+String\?/);
+  assert.match(schema, /reviewStatus\s+String/);
+  assert.match(schema, /reviewedByUserId\s+String\?/);
+  assert.match(route, /PAYER_CONTRACT_TERM_REVIEWED/);
+  assert.match(route, /CONTRACT_TERM_PROVENANCE_REQUIRED/);
+  assert.match(route, /reviewStatus: "PENDING"/);
+  assert.match(pricing, /CONTRACT_TERM_NOT_APPROVED/);
+  assert.match(pricing, /CONTRACT_TERM_REVIEW_REQUIRED/);
+  assert.match(pricing, /termProvenance/);
+});
