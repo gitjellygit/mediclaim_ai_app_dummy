@@ -237,6 +237,7 @@ model Organization {
   claimExternalIdentities ClaimExternalIdentity[]
   priorAuthCases PriorAuthCase[]
   payerContracts PayerContract[]
+  medicareRateSchedules MedicareRateSchedule[]
   ruleRecommendations RuleRecommendation[]
   teams Team[]
   savedQueues SavedQueue[]
@@ -1096,6 +1097,12 @@ model PayerContract {
   sourceType    String @default("MANUAL")
   notes         String?
 
+  pricingMethod String @default("FEE_SCHEDULE")
+  referencePercent Decimal? @db.Decimal(8,4)
+  roundingMode String @default("HALF_UP")
+  medicareRateScheduleId String?
+  medicareRateSchedule MedicareRateSchedule? @relation(fields: [medicareRateScheduleId], references: [id], onDelete: SetNull)
+
   feeScheduleLines FeeScheduleLine[]
   sourceDocuments  ContractSourceDocument[]
   underpaymentCases UnderpaymentCase[]
@@ -1103,7 +1110,50 @@ model PayerContract {
   @@unique([organizationId, name, version])
   @@index([organizationId, payerEdiId, status])
   @@index([organizationId, payerName, status])
+  @@index([organizationId, pricingMethod, status])
+  @@index([medicareRateScheduleId])
   @@index([effectiveFrom, effectiveTo])
+}
+
+model MedicareRateSchedule {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name          String
+  year          Int
+  locality      String
+  status        String @default("ACTIVE")
+  effectiveFrom DateTime @db.Date
+  effectiveTo   DateTime? @db.Date
+  source        String
+  notes         String?
+
+  lines     MedicareRateLine[]
+  contracts PayerContract[]
+
+  @@unique([organizationId, year, locality])
+  @@index([organizationId, status, year, locality])
+}
+
+model MedicareRateLine {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scheduleId String
+  schedule   MedicareRateSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  cptHcpcsCode String
+  modifier     String?
+  placeOfService String?
+  amount       Decimal @db.Decimal(14,2)
+  description  String?
+
+  @@index([scheduleId, cptHcpcsCode])
 }
 
 model ContractSourceDocument {
