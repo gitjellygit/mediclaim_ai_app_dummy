@@ -1097,12 +1097,32 @@ model PayerContract {
   notes         String?
 
   feeScheduleLines FeeScheduleLine[]
+  sourceDocuments  ContractSourceDocument[]
   underpaymentCases UnderpaymentCase[]
 
   @@unique([organizationId, name, version])
   @@index([organizationId, payerEdiId, status])
   @@index([organizationId, payerName, status])
   @@index([effectiveFrom, effectiveTo])
+}
+
+model ContractSourceDocument {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contractId String
+  contract   PayerContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  documentType String
+  fileName     String
+  storageReference String
+  checksum     String?
+  notes        String?
+
+  feeScheduleLines FeeScheduleLine[]
+
+  @@index([contractId, documentType])
 }
 
 model FeeScheduleLine {
@@ -1119,8 +1139,19 @@ model FeeScheduleLine {
   unitRate      Decimal @db.Decimal(14,2)
   description   String?
 
+  sourceDocumentId String?
+  sourceDocument   ContractSourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  sourcePage       Int?
+  sourceClause     String?
+  extractionMethod String @default("MANUAL")
+  reviewStatus     String @default("PENDING")
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+
   @@index([contractId, cptHcpcsCode])
   @@index([cptHcpcsCode])
+  @@index([sourceDocumentId])
+  @@index([contractId, reviewStatus])
 }
 
 model UnderpaymentCase {
