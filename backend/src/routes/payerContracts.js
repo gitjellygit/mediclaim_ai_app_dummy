@@ -33,6 +33,25 @@ const feeLineSchema = z.object({
   { message: "A source page or clause is required for every fee term" }
 );
 
+const medicareRateLineSchema = z.object({
+  cptHcpcsCode: z.string().trim().min(1).max(10),
+  modifier: z.string().trim().max(4).nullable().optional(),
+  placeOfService: z.string().trim().max(2).nullable().optional(),
+  amount: z.union([z.string(), z.number()]),
+  description: z.string().trim().max(250).nullable().optional()
+}).strict();
+
+const medicareScheduleSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  year: z.number().int().min(2000).max(2100),
+  locality: z.string().trim().min(1).max(120),
+  effectiveFrom: z.string().date(),
+  effectiveTo: z.string().date().nullable().optional(),
+  source: z.string().trim().min(1).max(250),
+  notes: z.string().trim().max(2000).nullable().optional(),
+  lines: z.array(medicareRateLineSchema).min(1).max(5000)
+}).strict();
+
 const contractSchema = z.object({
   name: z.string().trim().min(1).max(160),
   payerName: z.string().trim().max(250).nullable().optional(),
@@ -42,9 +61,89 @@ const contractSchema = z.object({
   effectiveTo: z.string().date().nullable().optional(),
   sourceType: z.enum(["MANUAL", "IMPORTED"]).default("MANUAL"),
   notes: z.string().trim().max(2000).nullable().optional(),
+  pricingMethod: z.enum(["FEE_SCHEDULE", "PERCENT_MEDICARE", "PERCENT_CHARGE"]).default("FEE_SCHEDULE"),
+  referencePercent: z.union([z.string(), z.number()]).nullable().optional(),
+  roundingMode: z.literal("HALF_UP").default("HALF_UP"),
+  medicareRateScheduleId: z.string().trim().nullable().optional(),
+  pricingSourceDocumentRef: z.string().trim().max(80).nullable().optional(),
+  pricingSourcePage: z.number().int().positive().nullable().optional(),
+  pricingSourceClause: z.string().trim().max(160).nullable().optional(),
+  pricingExtractionMethod: z.enum(["MANUAL", "OCR", "AI_EXTRACTED"]).default("MANUAL"),
   sourceDocuments: z.array(sourceDocumentSchema).min(1).max(100),
-  feeScheduleLines: z.array(feeLineSchema).min(1).max(1000)
+  feeScheduleLines: z.array(feeLineSchema).max(1000).default([])
 }).strict();
+
+router.get(
+  "/medicare-schedules",
+  requirePermission(PERMISSIONS.FINANCIAL_VIEW),
+  async (req, res) => {
+    const items = await prisma.medicareRateSchedule.findMany({
+      where: { organizationId: orgId(req) },
+      include: { lines: true },
+      orderBy: [{ year: "desc" }, { locality: "asc" }]
+    });
+    res.json({ items });
+  }
+);
+
+router.post(
+  "/medicare-schedules",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  async (req, res) => {
+    const parsed = medicareScheduleSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid Medicare rate schedule",
+        code: "INVALID_MEDICARE_RATE_SCHEDULE"
+      });
+    }
+
+    const effectiveFrom = new Date(`${parsed.data.effectiveFrom}T00:00:00.000Z`);
+    const effectiveTo = parsed.data.effectiveTo
+      ? new Date(`${parsed.data.effectiveTo}T00:00:00.000Z`)
+      : null;
+    if (effectiveTo && effectiveTo < effectiveFrom) {
+      return res.status(400).json({
+        error: "Medicare schedule effective-to date cannot be before effective-from date",
+        code: "INVALID_MEDICARE_EFFECTIVE_WINDOW"
+      });
+    }
+
+    const lines = [];
+    for (const line of parsed.data.lines) {
+      const amount = validMoney(line.amount);
+      if (amount == null || Number(amount) <= 0) {
+        return res.status(400).json({
+          error: "Every Medicare rate line must have a positive amount",
+          code: "INVALID_MEDICARE_RATE"
+        });
+      }
+      lines.push({
+        cptHcpcsCode: line.cptHcpcsCode.toUpperCase(),
+        modifier: line.modifier ? line.modifier.toUpperCase() : null,
+        placeOfService: line.placeOfService || null,
+        amount,
+        description: line.description || null
+      });
+    }
+
+    const created = await prisma.medicareRateSchedule.create({
+      data: {
+        organizationId: orgId(req),
+        name: parsed.data.name,
+        year: parsed.data.year,
+        locality: parsed.data.locality,
+        effectiveFrom,
+        effectiveTo,
+        source: parsed.data.source,
+        notes: parsed.data.notes || null,
+        lines: { create: lines }
+      },
+      include: { lines: true }
+    });
+    res.status(201).json(created);
+  }
+);
 
 router.get(
   "/",
@@ -105,6 +204,67 @@ router.post(
       });
     }
 
+    const pricingMethod = parsed.data.pricingMethod;
+    const referencePercent =
+      parsed.data.referencePercent == null
+        ? null
+        : Number(parsed.data.referencePercent);
+
+    if (
+      ["PERCENT_MEDICARE", "PERCENT_CHARGE"].includes(pricingMethod) &&
+      (!Number.isFinite(referencePercent) || referencePercent <= 0 || referencePercent > 1000)
+    ) {
+      return res.status(400).json({
+        error: "A positive reference percentage up to 1000% is required",
+        code: "REFERENCE_PERCENT_REQUIRED"
+      });
+    }
+
+    if (pricingMethod === "PERCENT_MEDICARE" && !parsed.data.medicareRateScheduleId) {
+      return res.status(400).json({
+        error: "Medicare schedule is required for percentage-of-Medicare pricing",
+        code: "MEDICARE_SCHEDULE_REQUIRED"
+      });
+    }
+
+    if (pricingMethod === "FEE_SCHEDULE" && parsed.data.feeScheduleLines.length === 0) {
+      return res.status(400).json({
+        error: "Fee schedule pricing requires at least one fee line",
+        code: "FEE_SCHEDULE_REQUIRED"
+      });
+    }
+
+    if (
+      pricingMethod !== "FEE_SCHEDULE" &&
+      (
+        !parsed.data.pricingSourceDocumentRef ||
+        !sourceRefs.has(parsed.data.pricingSourceDocumentRef) ||
+        (!parsed.data.pricingSourcePage && !parsed.data.pricingSourceClause)
+      )
+    ) {
+      return res.status(400).json({
+        error: "Percentage pricing requires source document plus page or clause provenance",
+        code: "PRICING_TERM_PROVENANCE_REQUIRED"
+      });
+    }
+
+    let medicareSchedule = null;
+    if (pricingMethod === "PERCENT_MEDICARE") {
+      medicareSchedule = await prisma.medicareRateSchedule.findFirst({
+        where: {
+          id: parsed.data.medicareRateScheduleId,
+          organizationId: orgId(req),
+          status: "ACTIVE"
+        }
+      });
+      if (!medicareSchedule) {
+        return res.status(400).json({
+          error: "Medicare schedule is not available for this organization",
+          code: "MEDICARE_SCHEDULE_NOT_FOUND"
+        });
+      }
+    }
+
     const lines = [];
     for (const line of parsed.data.feeScheduleLines) {
       const rate = validMoney(line.unitRate);
@@ -163,6 +323,25 @@ router.post(
         sourceByRef.set(source.ref, stored);
       }
 
+      if (pricingMethod !== "FEE_SCHEDULE") {
+        const pricingSource = sourceByRef.get(parsed.data.pricingSourceDocumentRef);
+        await tx.payerContract.update({
+          where: { id: created.id },
+          data: {
+            pricingMethod,
+            referencePercent,
+            roundingMode: parsed.data.roundingMode,
+            medicareRateScheduleId:
+              pricingMethod === "PERCENT_MEDICARE" ? medicareSchedule.id : null,
+            pricingSourceDocumentId: pricingSource.id,
+            pricingSourcePage: parsed.data.pricingSourcePage || null,
+            pricingSourceClause: parsed.data.pricingSourceClause || null,
+            pricingExtractionMethod: parsed.data.pricingExtractionMethod,
+            pricingReviewStatus: "PENDING"
+          }
+        });
+      }
+
       for (const line of lines) {
         await tx.feeScheduleLine.create({
           data: {
@@ -185,6 +364,7 @@ router.post(
         where: { id: created.id },
         include: {
           sourceDocuments: true,
+          medicareRateSchedule: { include: { lines: true } },
           feeScheduleLines: { include: { sourceDocument: true } }
         }
       });
@@ -204,6 +384,59 @@ router.post(
     });
 
     res.status(201).json(item);
+  }
+);
+
+const pricingApprovalSchema = z.object({
+  reviewStatus: z.enum(["APPROVED", "REJECTED"]),
+  reviewNote: z.string().trim().max(1000).nullable().optional()
+}).strict();
+
+router.patch(
+  "/:contractId/pricing/review",
+  requirePermission(PERMISSIONS.RECOVERY_EDIT),
+  async (req, res) => {
+    const parsed = pricingApprovalSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid contract pricing review",
+        code: "INVALID_CONTRACT_PRICING_REVIEW"
+      });
+    }
+
+    const contract = await prisma.payerContract.findFirst({
+      where: {
+        id: req.params.contractId,
+        organizationId: orgId(req)
+      }
+    });
+    if (!contract) return res.status(404).json({ error: "Payer contract not found" });
+
+    if (
+      parsed.data.reviewStatus === "APPROVED" &&
+      contract.pricingMethod !== "FEE_SCHEDULE" &&
+      (!contract.pricingSourceDocumentId ||
+        (!contract.pricingSourcePage && !contract.pricingSourceClause) ||
+        contract.referencePercent == null)
+    ) {
+      return res.status(409).json({
+        error: "Pricing provenance and reference percentage are required before approval",
+        code: "CONTRACT_PRICING_PROVENANCE_REQUIRED"
+      });
+    }
+
+    const updated = await prisma.payerContract.update({
+      where: { id: contract.id },
+      data: {
+        pricingReviewStatus: parsed.data.reviewStatus,
+        pricingReviewedByUserId: req.user.id,
+        pricingReviewedAt: new Date(),
+        notes: parsed.data.reviewNote
+          ? [contract.notes, `Pricing review: ${parsed.data.reviewNote}`].filter(Boolean).join(" | ").slice(0, 2000)
+          : contract.notes
+      }
+    });
+    res.json(updated);
   }
 );
 
