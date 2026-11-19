@@ -1252,7 +1252,15 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
       ? await resolveUnderpaymentExpectation(prisma, claim, {
           payerExpectedPayment: result.expectedPayerPayment ?? result.approvedAmount ?? null,
           actualPaidAmount: result.paidAmount,
-          sourceTransactionId: result.transactionId
+          sourceTransactionId: result.transactionId,
+          patientResponsibilityEvidence: {
+            amount: result.patientResponsibility,
+            source: "PAYER_835",
+            label: "835 ERA",
+            sourceDetail: result.testMode
+              ? "Configured test ERA"
+              : "Production ERA"
+          }
         })
       : null;
     const underpaymentAmount = Number(expectation?.varianceAmount || 0);
