@@ -542,7 +542,7 @@ export function calculateContractExpectedPayment(
   const expectedPayerPayment = Number(moneyFromCents(expectedPayerCents));
   return {
     available: true,
-    source: "CONTRACT_FEE_SCHEDULE",
+    source: allowanceCalculation?.source || "CONTRACT_FEE_SCHEDULE",
     contractId: contract.id,
     contractName: contract.name,
     contractVersion: contract.version,
@@ -554,7 +554,7 @@ export function calculateContractExpectedPayment(
     components: {
       contractualAllowedAmount: {
         amount: contractualAllowedAmount,
-        source: "CONTRACT_FEE_SCHEDULE",
+        source: allowanceCalculation?.source || "CONTRACT_FEE_SCHEDULE",
         contractId: contract.id,
         contractVersion: contract.version
       },
