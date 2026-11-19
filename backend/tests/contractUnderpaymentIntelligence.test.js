@@ -84,3 +84,28 @@ test("#034 contract schema, API and pricing require reviewed source provenance",
   assert.match(pricing, /CONTRACT_TERM_REVIEW_REQUIRED/);
   assert.match(pricing, /termProvenance/);
 });
+
+
+test("#036 Medicare/charge pricing keeps schedule year locality percentage and review controls first-class", () => {
+  const schema = read("backend/prisma/schema.prisma");
+  const route = read("backend/src/routes/payerContracts.js");
+  const pricing = read("backend/src/services/contractReimbursement.js");
+  const recovery = read("backend/src/services/underpaymentRecovery.js");
+
+  assert.match(schema, /model MedicareRateSchedule/);
+  assert.match(schema, /model MedicareRateLine/);
+  assert.match(schema, /pricingMethod String/);
+  assert.match(schema, /referencePercent Decimal\?/);
+  assert.match(schema, /roundingMode String/);
+  assert.match(schema, /pricingReviewStatus String/);
+  assert.match(route, /PERCENT_MEDICARE/);
+  assert.match(route, /PERCENT_CHARGE/);
+  assert.match(route, /MEDICARE_SCHEDULE_REQUIRED/);
+  assert.match(route, /PRICING_TERM_PROVENANCE_REQUIRED/);
+  assert.match(pricing, /MEDICARE_SCHEDULE_YEAR_MISMATCH/);
+  assert.match(pricing, /medicareLocality/);
+  assert.match(pricing, /roundingMode/);
+  assert.match(pricing, /CONTRACT_PERCENT_MEDICARE/);
+  assert.match(pricing, /CONTRACT_PERCENT_CHARGE/);
+  assert.match(recovery, /medicareRateSchedule: \{ include: \{ lines: true \} \}/);
+});
