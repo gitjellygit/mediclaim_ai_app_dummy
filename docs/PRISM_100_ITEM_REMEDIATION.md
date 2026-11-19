@@ -66,3 +66,17 @@ Safety behavior:
 - reviewer identity and review timestamp are stored
 - pricing ignores non-approved/unprovenanced terms and returns CONTRACT_TERM_REVIEW_REQUIRED
 - calculation snapshots retain term-level source and reviewer provenance
+
+## Batch 3A — ERA line adjudication and payer-stated adjustments
+
+| Checklist item | Status in this branch | Acceptance addressed |
+| --- | --- | --- |
+| #041 | Implemented; automated tests added; CI pending | ERA service lines preserve line control identifiers, reconcile to submitted service-line IDs, aggregate split lines, and route ambiguous combined lines to review |
+| #042 | Implemented; automated tests added; CI pending | Adjustment group/CARC/amount and payer-stated responsibility remain distinct from contract interpretation; unresolved discrepancies are labeled unresolved |
+
+Reconciliation principles:
+- original 837 service-line identifier is the primary match key
+- unique procedure-code fallback is allowed only when unambiguous
+- multiple ERA fragments may aggregate to one submitted line
+- ambiguous/missing mappings are never guessed
+- payer-stated reasons are evidence, not automatically verified contract conclusions
