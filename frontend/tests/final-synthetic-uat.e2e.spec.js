@@ -169,7 +169,7 @@ test("Claim Work Queue searches filters and sorts across the Final UAT dataset",
   await search.fill("UAT-FINAL-");
   await expect(page.locator("tbody tr").first()).toContainText("UAT-FINAL-");
 
-  await page.getByRole("button", { name: /Pre-Submit Risk/i }).click();
+  await page.getByRole("button", { name: /Rules-Based Risk/i }).click();
   await expect(page.locator("tbody tr").first()).toContainText("UAT-FINAL-");
 
   const filters = page.getByTestId("claim-work-queue-filters");
