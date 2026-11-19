@@ -51,3 +51,31 @@ test("#031 underpayment path preserves contract allowance, patient share and pay
   assert.match(recovery, /contractCalculation\.expectedPayerPayment/);
   assert.match(recovery, /calculationSnapshot: contractCalculation/);
 });
+
+
+test("#033/#035 contract applicability fields and ambiguity are persisted and exposed", () => {
+  const schema = read("backend/prisma/schema.prisma");
+  const route = read("backend/src/routes/payerContracts.js");
+  const pricing = read("backend/src/services/contractReimbursement.js");
+
+  for (const field of ["productType", "groupNumber", "networkStatus", "providerTin", "placeOfService"]) {
+    assert.match(schema, new RegExp(field + "\\s+String\\?"));
+    assert.match(route, new RegExp(field));
+  }
+
+  assert.match(pricing, /CONTRACT_APPLICABILITY_NOT_VERIFIABLE/);
+  assert.match(pricing, /AMBIGUOUS_CONTRACT_MATCH/);
+  assert.match(pricing, /AMBIGUOUS_FEE_SCHEDULE_MATCH/);
+  assert.match(pricing, /candidateFeeScheduleLineIds/);
+});
+
+test("#040 UI and route distinguish contract-verified, payer-stated and unknown expectations", () => {
+  const ui = read("frontend/src/modules/recovery/UnderpaymentWorkspace.jsx");
+  const route = read("backend/src/routes/underpayments.js");
+
+  assert.match(ui, /Contract Verified/);
+  assert.match(ui, /Payer-Stated Expectation/);
+  assert.match(ui, /does not verify contractual compliance/);
+  assert.match(route, /EXPECTED_PAYMENT_UNKNOWN/);
+  assert.match(route, /contractual compliance is not verified/i);
+});
