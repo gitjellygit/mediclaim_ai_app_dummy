@@ -47,3 +47,17 @@ This batch addresses four original checklist items from the November 17 review.
 - In progress in Batch 1B: #021, #022, #061, #062
 - Still open: 94 checklist items
 - #031 remains open and is intentionally deferred to the contract/reimbursement foundation work; related patient-responsibility safeguards were added earlier but do not satisfy #031's acceptance criterion.
+
+## Batch 2A — Contract payer liability
+
+| Checklist item | Status | Acceptance |
+| --- | --- | --- |
+| #031 | Merged in PR #233; VPS verification pending | Contract allowance, verified patient responsibility, and expected payer payment are separate sourced components; $150 allowance - $30 patient share = $120 payer liability |
+
+## Batch 2B — Contract applicability and truthful basis
+
+| Checklist item | Status in this branch | Acceptance addressed |
+| --- | --- | --- |
+| #033 | Implemented; automated tests added; CI pending | Contract applicability can be scoped by product/group, network, provider TIN and place of service; missing applicability facts fail closed |
+| #035 | Implemented; automated tests added; CI pending | Equally applicable overlapping contracts and equally specific fee lines stop automatic pricing and expose candidates |
+| #040 | Implemented; automated/UI tests added; CI pending | Contract-verified, payer-stated and unknown expected payment bases are distinguished; payer fallback never claims contractual compliance |

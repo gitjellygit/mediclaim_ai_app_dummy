@@ -313,8 +313,8 @@ export default function UnderpaymentWorkspace() {
                 variant="outlined"
                 label={
                   detail.expectedPaymentSource === "CONTRACT_FEE_SCHEDULE"
-                    ? "Contract Fee Schedule"
-                    : "Remittance Expectation"
+                    ? "Contract Verified"
+                    : "Payer-Stated Expectation"
                 }
               />
             </Stack>
@@ -327,6 +327,26 @@ export default function UnderpaymentWorkspace() {
                     ? `· Version ${detail.calculationSnapshot.contractVersion}`
                     : ""}
                 </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(3,1fr)" }, gap: 0.75 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Contractual allowance</Typography>
+                    <Typography variant="body2" fontWeight={800}>
+                      {formatUSD(detail.calculationSnapshot?.contractualAllowedAmount)}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Verified patient share</Typography>
+                    <Typography variant="body2" fontWeight={800}>
+                      {formatUSD(detail.calculationSnapshot?.patientResponsibility)}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Expected payer payment</Typography>
+                    <Typography variant="body2" fontWeight={800}>
+                      {formatUSD(detail.expectedPayerPayment)}
+                    </Typography>
+                  </Box>
+                </Box>
                 {(detail.calculationSnapshot?.calculatedLines || []).map((line) => (
                   <Box
                     key={line.serviceLineId || line.feeScheduleLineId}
@@ -353,9 +373,9 @@ export default function UnderpaymentWorkspace() {
               </Stack>
             ) : (
               <Stack spacing={0.6} sx={{ mt: 1.2 }}>
-                <Typography variant="body2">
-                  Expected payment came from the payer/remittance expectation recorded with adjudication.
-                </Typography>
+                <Alert severity="info">
+                  Expected payment is payer-stated from adjudication/remittance. This does not verify contractual compliance.
+                </Alert>
                 {detail.calculationSnapshot?.reason === "INCOMPLETE_FEE_SCHEDULE" && (
                   <Alert severity="warning">
                     A matching contract exists, but its fee schedule does not cover every verified service line. PRISM did not invent a contractual amount and used the payer/remittance expectation instead.
@@ -364,6 +384,21 @@ export default function UnderpaymentWorkspace() {
                 {detail.calculationSnapshot?.reason === "INSTITUTIONAL_CONTRACT_CALCULATION_NOT_SUPPORTED" && (
                   <Alert severity="info">
                     Contract calculation for institutional claims is not enabled in this version, so the payer/remittance expectation was preserved.
+                  </Alert>
+                )}
+                {detail.calculationSnapshot?.reason === "CONTRACT_APPLICABILITY_NOT_VERIFIABLE" && (
+                  <Alert severity="warning">
+                    A payer contract exists, but plan/product, network, provider, or place-of-service applicability could not be verified. Contract compliance remains unknown.
+                  </Alert>
+                )}
+                {detail.calculationSnapshot?.reason === "AMBIGUOUS_CONTRACT_MATCH" && (
+                  <Alert severity="warning">
+                    Multiple equally applicable contracts match this claim. Automatic contract determination was stopped for review.
+                  </Alert>
+                )}
+                {detail.calculationSnapshot?.reason === "PATIENT_RESPONSIBILITY_NOT_VERIFIED" && (
+                  <Alert severity="warning">
+                    Contract allowance was found, but patient responsibility is not verified. PRISM did not treat the full allowance as payer liability.
                   </Alert>
                 )}
               </Stack>
