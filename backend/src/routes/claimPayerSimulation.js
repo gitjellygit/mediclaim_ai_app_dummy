@@ -707,7 +707,13 @@ router.post("/:id/payer-simulation/remittance", requirePermission(PERMISSIONS.PA
     const expectation = await resolveUnderpaymentExpectation(prisma, claim, {
       payerExpectedPayment: result.expectedPayerPayment,
       actualPaidAmount: result.paidAmount,
-      sourceTransactionId: result.transactionId
+      sourceTransactionId: result.transactionId,
+      patientResponsibilityEvidence: {
+        amount: result.patientResponsibility,
+        source: "SIMULATED_PAYER",
+        label: "Mock 835 Response",
+        sourceDetail: payer.name
+      }
     });
 
     const { updated, transaction, underpaymentCase } = await prisma.$transaction(async (tx) => {
