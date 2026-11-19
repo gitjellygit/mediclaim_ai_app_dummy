@@ -1252,6 +1252,14 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
     }
 
     const now = new Date();
+    const currentPaidAmount = Number(claim.paidAmount || 0);
+    const currentEraPaidAmount = Number(result.paidAmount || 0);
+    const signedEraDelta = reversal
+      ? -Math.abs(currentEraPaidAmount)
+      : Math.abs(currentEraPaidAmount);
+    const projectedCumulativePaidAmount =
+      Math.round((currentPaidAmount + signedEraDelta) * 100) / 100;
+
     const firstAdjustment = (result.adjustments || []).find(
       (item) => item?.reasonCode || item?.reason
     );
@@ -1259,7 +1267,7 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
     const expectation = !isDeniedEra && !reversal
       ? await resolveUnderpaymentExpectation(prisma, claim, {
           payerExpectedPayment: result.expectedPayerPayment ?? result.approvedAmount ?? null,
-          actualPaidAmount: result.paidAmount,
+          actualPaidAmount: projectedCumulativePaidAmount,
           sourceTransactionId: result.transactionId,
           patientResponsibilityEvidence: {
             amount: result.patientResponsibility,
