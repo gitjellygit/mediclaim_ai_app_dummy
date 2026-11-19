@@ -80,7 +80,15 @@ const contractSchema = z.object({
   effectiveTo: z.string().date().nullable().optional(),
   sourceType: z.enum(["MANUAL", "IMPORTED"]).default("MANUAL"),
   notes: z.string().trim().max(2000).nullable().optional(),
-  pricingMethod: z.enum(["FEE_SCHEDULE", "PERCENT_MEDICARE", "PERCENT_CHARGE"]).default("FEE_SCHEDULE"),
+  pricingMethod: z.enum([
+    "FEE_SCHEDULE",
+    "PERCENT_MEDICARE",
+    "PERCENT_CHARGE",
+    "CASE_RATE",
+    "PER_DIEM",
+    "CAPITATION",
+    "VALUE_BASED"
+  ]).default("FEE_SCHEDULE"),
   referencePercent: z.union([z.string(), z.number()]).nullable().optional(),
   roundingMode: z.literal("HALF_UP").default("HALF_UP"),
   medicareRateScheduleId: z.string().trim().nullable().optional(),
@@ -538,7 +546,10 @@ router.patch(
       contract.pricingMethod !== "FEE_SCHEDULE" &&
       (!contract.pricingSourceDocumentId ||
         (!contract.pricingSourcePage && !contract.pricingSourceClause) ||
-        contract.referencePercent == null)
+        (
+          ["PERCENT_MEDICARE", "PERCENT_CHARGE"].includes(contract.pricingMethod) &&
+          contract.referencePercent == null
+        ))
     ) {
       return res.status(409).json({
         error: "Pricing provenance and reference percentage are required before approval",
