@@ -149,3 +149,42 @@ test("safe expectation operator helpers support configured lists and regex", () 
   assert.equal(ruleExpectationPasses("1234567890", "MATCHES", "^\\d{10}$"), true);
   assert.equal(ruleExpectationPasses(5, "GREATER_THAN", 3), true);
 });
+
+
+test("payer and clinical rule effective windows use date of service, not evaluation date", () => {
+  const rule = customRule({
+    category: "PAYER",
+    effectiveFrom: new Date("2026-10-01T00:00:00.000Z"),
+    definition: { field: "memberId", operator: "REQUIRED" }
+  });
+
+  const issues = evaluateConfiguredRules(
+    claim({
+      memberId: null,
+      dateOfService: new Date("2026-06-01T00:00:00.000Z")
+    }),
+    [rule],
+    { now: new Date("2026-11-17T12:00:00.000Z") }
+  );
+
+  assert.equal(issues.length, 0);
+});
+
+test("workflow rule effective windows continue to use evaluation time", () => {
+  const rule = customRule({
+    category: "WORKFLOW",
+    effectiveFrom: new Date("2026-10-01T00:00:00.000Z"),
+    definition: { field: "claimAgeDays", operator: "LESS_OR_EQUAL", value: 5 }
+  });
+
+  const issues = evaluateConfiguredRules(
+    claim({
+      createdAt: new Date("2026-10-01T00:00:00.000Z"),
+      dateOfService: new Date("2026-06-01T00:00:00.000Z")
+    }),
+    [rule],
+    { now: new Date("2026-11-17T12:00:00.000Z") }
+  );
+
+  assert.equal(issues.length, 1);
+});
