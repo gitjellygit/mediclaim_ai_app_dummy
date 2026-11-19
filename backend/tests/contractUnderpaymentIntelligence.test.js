@@ -133,3 +133,16 @@ test("#037 supported and unsupported contract provisions are reviewed, sourced a
   assert.match(pricing, /appliedProvisions/);
   assert.match(recovery, /provisions: \{ include: \{ sourceDocument: true \}, orderBy: \{ priority: "asc" \} \}/);
 });
+
+
+test("#038 institutional and alternative pricing methods are recognized and route to review", () => {
+  const route = read("backend/src/routes/payerContracts.js");
+  const pricing = read("backend/src/services/contractReimbursement.js");
+
+  for (const method of ["CASE_RATE", "PER_DIEM", "CAPITATION", "VALUE_BASED"]) {
+    assert.match(route, new RegExp(method));
+  }
+  assert.match(pricing, /PRICING_METHOD_REQUIRES_MANUAL_REVIEW/);
+  assert.match(pricing, /INSTITUTIONAL_PRICING_METHOD_NOT_SUPPORTED/);
+  assert.match(pricing, /reviewPath: "CONTRACT_REVIEW"/);
+});
