@@ -47,3 +47,18 @@ This batch addresses four original checklist items from the November 17 review.
 - In progress in Batch 1B: #021, #022, #061, #062
 - Still open: 94 checklist items
 - #031 remains open and is intentionally deferred to the contract/reimbursement foundation work; related patient-responsibility safeguards were added earlier but do not satisfy #031's acceptance criterion.
+
+
+## Batch 3B — Provider adjustments and append-only financial ledger
+
+| Checklist item | Status in this branch | Acceptance addressed |
+| --- | --- | --- |
+| #043 | Implemented; automated tests added; CI pending | PLB/provider adjustments are payment-batch financial events with no claim ID and cannot be assigned as claim underpayments |
+| #044 | Implemented; automated tests added; CI pending | Partial payments append, reversals create negative offsetting events, replacements create new events, replay is idempotent, and claim paid amount is derived from cumulative ledger cash |
+
+Ledger rules:
+- financial events are append-only
+- source-event keys prevent replay duplication
+- claim payments/reversals/replacements are signed events
+- PLB/provider adjustments are batch-level events with claimId null
+- current claim payer cash is the ledger sum, not the latest ERA amount
