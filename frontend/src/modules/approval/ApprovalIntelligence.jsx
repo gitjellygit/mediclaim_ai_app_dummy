@@ -1003,8 +1003,8 @@ export default function ApprovalIntelligence() {
                   <TableCell>{sortableHeader("Eligibility", "eligibility", sort, direction, handleSort, "Coverage verification used during claim preparation. On submitted or finalized claims this is historical context.")}</TableCell>
                   <TableCell>{sortableHeader("Prior Auth", "priorAuth", sort, direction, handleSort, "Prior-authorization state used during claim preparation. On submitted or finalized claims this is historical context.")}</TableCell>
                   <TableCell>{sortableHeader("Coding Review", "coding", sort, direction, handleSort, "Actionable coding work before submission; after submission this becomes a historical coding snapshot.")}</TableCell>
-                  <TableCell>{sortableHeader("Readiness", "readiness", sort, direction, handleSort, "Pre-submission validation score. After submission, it is shown only as the historical score at submission.")}</TableCell>
-                  <TableCell>{sortableHeader("Pre-Submit Risk", "risk", sort, direction, handleSort, "Rules-based pre-submission risk signal. It is not a payer approval or denial probability and is not actionable after submission.")}</TableCell>
+                  <TableCell>{sortableHeader("Validation Readiness", "readiness", sort, direction, handleSort, "Rules-based pre-submission validation score. It measures configured checks and completeness; it is not payer approval likelihood. After submission it is historical only.")}</TableCell>
+                  <TableCell>{sortableHeader("Rules-Based Risk", "risk", sort, direction, handleSort, "Explainable pre-submission rules signal. It is separate from validation readiness and from actual payer approval/denial outcomes.")}</TableCell>
                   <TableCell>{sortableHeader("Payment Outlook", "payment", sort, direction, handleSort, "Estimated reimbursement before adjudication, payer-approved amount during adjudication, revenue at risk after denial, or actual payer payment after remittance.")}</TableCell>
                   <TableCell><b>Owner / Follow-up</b></TableCell>
                   <TableCell><b>Next Action</b></TableCell>
