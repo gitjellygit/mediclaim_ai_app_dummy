@@ -152,6 +152,8 @@ function calculatePercentChargeAllowance(serviceLines, contract) {
     calculatedLines.push({
       serviceLineId: line.id,
       cptHcpcsCode: line.cptHcpcsCode,
+      modifiers: line.modifiers || [],
+      placeOfService: line.placeOfService || null,
       billedCharge: Number(charge),
       referencePercent: percent,
       expectedAmount: Number(moneyFromCents(lineCents)),
@@ -272,6 +274,8 @@ function calculatePercentMedicareAllowance(claim, serviceLines, contract) {
     calculatedLines.push({
       serviceLineId: line.id,
       cptHcpcsCode: line.cptHcpcsCode,
+      modifiers: line.modifiers || [],
+      placeOfService: line.placeOfService || null,
       units,
       medicareRateLineId: best[0].rate.id,
       medicareAmountPerUnit: Number(amount),
@@ -311,6 +315,242 @@ function calculatePercentMedicareAllowance(claim, serviceLines, contract) {
       medicareLocality: schedule.locality,
       medicareSource: schedule.source
     })
+  };
+}
+
+function provisionEvidence(provision) {
+  return {
+    provisionId: provision.id,
+    provisionType: provision.provisionType,
+    reviewStatus: provision.reviewStatus,
+    reviewedByUserId: provision.reviewedByUserId,
+    reviewedAt: provision.reviewedAt,
+    extractionMethod: provision.extractionMethod,
+    sourceDocumentId: provision.sourceDocumentId || provision.sourceDocument?.id || null,
+    sourceDocumentName: provision.sourceDocument?.fileName || null,
+    sourceDocumentType: provision.sourceDocument?.documentType || null,
+    sourcePage: provision.sourcePage || null,
+    sourceClause: provision.sourceClause || null
+  };
+}
+
+function provisionExecutable(provision) {
+  return (
+    provision?.reviewStatus === "APPROVED" &&
+    Boolean(provision?.sourceDocumentId || provision?.sourceDocument?.id) &&
+    Boolean(provision?.sourcePage || provision?.sourceClause) &&
+    Boolean(provision?.reviewedByUserId) &&
+    Boolean(provision?.reviewedAt)
+  );
+}
+
+function validProvisionPercent(value, { max = 1000 } = {}) {
+  const percent = Number(value);
+  return Number.isFinite(percent) && percent > 0 && percent <= max
+    ? percent
+    : null;
+}
+
+function lineById(serviceLines) {
+  return new Map((serviceLines || []).map((line) => [line.id, line]));
+}
+
+function applyContractProvisions(serviceLines, calculatedLines, contract) {
+  const provisions = (contract?.provisions || [])
+    .filter((item) => String(item?.status || "ACTIVE").toUpperCase() === "ACTIVE")
+    .sort((a, b) => Number(a.priority || 100) - Number(b.priority || 100));
+
+  if (!provisions.length) {
+    return {
+      available: true,
+      calculatedLines,
+      expectedCents: calculatedLines.reduce(
+        (sum, line) => sum + moneyCents(line.expectedAmount || 0),
+        0n
+      ),
+      appliedProvisions: []
+    };
+  }
+
+  for (const provision of provisions) {
+    if (!provisionExecutable(provision)) {
+      return {
+        available: false,
+        reason: "CONTRACT_PROVISION_REVIEW_REQUIRED",
+        provision: provisionEvidence(provision)
+      };
+    }
+    if (provision.provisionType === "UNSUPPORTED_CLAUSE") {
+      return {
+        available: false,
+        reason: "UNSUPPORTED_CONTRACT_PROVISION",
+        provision: provisionEvidence(provision)
+      };
+    }
+  }
+
+  const serviceMap = lineById(serviceLines);
+  let lines = calculatedLines.map((line) => ({
+    ...line,
+    baseExpectedAmount:
+      line.baseExpectedAmount == null
+        ? Number(line.expectedAmount || 0)
+        : Number(line.baseExpectedAmount),
+    appliedProvisions: Array.isArray(line.appliedProvisions)
+      ? [...line.appliedProvisions]
+      : []
+  }));
+  const appliedProvisions = [];
+
+  for (const provision of provisions) {
+    const params = provision.parameters && typeof provision.parameters === "object"
+      ? provision.parameters
+      : {};
+    const evidence = provisionEvidence(provision);
+
+    if (provision.provisionType === "MODIFIER_PERCENT") {
+      const modifier = normalize(params.modifier);
+      const percent = validProvisionPercent(params.percent);
+      if (!modifier || percent == null) {
+        return { available: false, reason: "INVALID_CONTRACT_PROVISION_PARAMETERS", provision: evidence };
+      }
+
+      lines = lines.map((line) => {
+        const sourceLine = serviceMap.get(line.serviceLineId);
+        const modifiers = Array.isArray(sourceLine?.modifiers)
+          ? sourceLine.modifiers.map(normalize)
+          : [];
+        if (!modifiers.includes(modifier)) return line;
+        const adjustedCents = percentOfCents(moneyCents(line.expectedAmount || 0), percent);
+        return {
+          ...line,
+          expectedAmount: Number(moneyFromCents(adjustedCents)),
+          appliedProvisions: [
+            ...line.appliedProvisions,
+            { ...evidence, parameters: { modifier, percent } }
+          ]
+        };
+      });
+      appliedProvisions.push({ ...evidence, parameters: { modifier, percent } });
+      continue;
+    }
+
+    if (provision.provisionType === "MULTIPLE_PROCEDURE_REDUCTION") {
+      const codes = Array.isArray(params.codes)
+        ? params.codes.map(normalize).filter(Boolean)
+        : [];
+      const secondaryPercent = validProvisionPercent(params.secondaryPercent, { max: 100 });
+      if (!codes.length || secondaryPercent == null) {
+        return { available: false, reason: "INVALID_CONTRACT_PROVISION_PARAMETERS", provision: evidence };
+      }
+
+      const candidates = lines
+        .map((line, index) => ({ line, index }))
+        .filter(({ line }) => codes.includes(normalize(line.cptHcpcsCode)))
+        .sort((a, b) => Number(b.line.expectedAmount || 0) - Number(a.line.expectedAmount || 0));
+
+      for (let index = 1; index < candidates.length; index += 1) {
+        const candidate = candidates[index];
+        const current = lines[candidate.index];
+        const adjustedCents = percentOfCents(
+          moneyCents(current.expectedAmount || 0),
+          secondaryPercent
+        );
+        lines[candidate.index] = {
+          ...current,
+          expectedAmount: Number(moneyFromCents(adjustedCents)),
+          appliedProvisions: [
+            ...current.appliedProvisions,
+            { ...evidence, parameters: { codes, secondaryPercent } }
+          ]
+        };
+      }
+      appliedProvisions.push({ ...evidence, parameters: { codes, secondaryPercent } });
+      continue;
+    }
+
+    if (provision.provisionType === "BUNDLE_EXCLUSION") {
+      const primaryCode = normalize(params.primaryCode);
+      const bundledCodes = Array.isArray(params.bundledCodes)
+        ? params.bundledCodes.map(normalize).filter(Boolean)
+        : [];
+      if (!primaryCode || !bundledCodes.length) {
+        return { available: false, reason: "INVALID_CONTRACT_PROVISION_PARAMETERS", provision: evidence };
+      }
+
+      const primaryPresent = lines.some(
+        (line) => normalize(line.cptHcpcsCode) === primaryCode
+      );
+      if (primaryPresent) {
+        lines = lines.map((line) => {
+          if (!bundledCodes.includes(normalize(line.cptHcpcsCode))) return line;
+          return {
+            ...line,
+            expectedAmount: 0,
+            appliedProvisions: [
+              ...line.appliedProvisions,
+              { ...evidence, parameters: { primaryCode, bundledCodes } }
+            ]
+          };
+        });
+      }
+      appliedProvisions.push({ ...evidence, parameters: { primaryCode, bundledCodes } });
+      continue;
+    }
+
+    if (provision.provisionType === "LESSER_OF_CHARGE") {
+      const codes = Array.isArray(params.codes)
+        ? params.codes.map(normalize).filter(Boolean)
+        : [];
+      if (!codes.length) {
+        return { available: false, reason: "INVALID_CONTRACT_PROVISION_PARAMETERS", provision: evidence };
+      }
+
+      for (let index = 0; index < lines.length; index += 1) {
+        const current = lines[index];
+        if (!codes.includes(normalize(current.cptHcpcsCode))) continue;
+        const sourceLine = serviceMap.get(current.serviceLineId);
+        const charge = validMoney(sourceLine?.charge);
+        if (charge == null) {
+          return {
+            available: false,
+            reason: "LESSER_OF_CHARGE_INPUT_MISSING",
+            provision: evidence,
+            serviceLineId: current.serviceLineId
+          };
+        }
+        const currentCents = moneyCents(current.expectedAmount || 0);
+        const chargeCents = moneyCents(charge);
+        const adjustedCents = currentCents < chargeCents ? currentCents : chargeCents;
+        lines[index] = {
+          ...current,
+          billedCharge: Number(charge),
+          expectedAmount: Number(moneyFromCents(adjustedCents)),
+          appliedProvisions: [
+            ...current.appliedProvisions,
+            { ...evidence, parameters: { codes } }
+          ]
+        };
+      }
+      appliedProvisions.push({ ...evidence, parameters: { codes } });
+      continue;
+    }
+
+    return {
+      available: false,
+      reason: "UNSUPPORTED_CONTRACT_PROVISION",
+      provision: evidence
+    };
+  }
+
+  return {
+    available: true,
+    calculatedLines: lines,
+    expectedCents: lines.reduce(
+      (sum, line) => sum + moneyCents(line.expectedAmount || 0),
+      0n
+    ),
+    appliedProvisions
   };
 }
 
@@ -384,7 +624,7 @@ export function calculateContractExpectedPayment(
   const feeLines = Array.isArray(contract.feeScheduleLines)
     ? contract.feeScheduleLines
     : [];
-  const calculatedLines = allowanceCalculation?.calculatedLines || [];
+  let calculatedLines = allowanceCalculation?.calculatedLines || [];
   const unmatchedLines = [];
   let expectedCents = allowanceCalculation
     ? moneyCents(allowanceCalculation.contractualAllowedAmount)
@@ -487,6 +727,23 @@ export function calculateContractExpectedPayment(
     };
   }
 
+  const provisionResult = applyContractProvisions(
+    serviceLines,
+    calculatedLines,
+    contract
+  );
+  if (!provisionResult.available) {
+    return {
+      ...provisionResult,
+      contractId: contract.id,
+      contractName: contract.name,
+      contractVersion: contract.version,
+      calculatedLines
+    };
+  }
+  calculatedLines = provisionResult.calculatedLines;
+  expectedCents = provisionResult.expectedCents;
+
   const contractualAllowedAmount = Number(moneyFromCents(expectedCents));
   const patientShare = verifiedPatientResponsibility(
     claim,
@@ -504,6 +761,7 @@ export function calculateContractExpectedPayment(
       effectiveTo: contract.effectiveTo || null,
       contractualAllowedAmount,
       calculatedLines,
+      appliedProvisions: provisionResult.appliedProvisions,
       components: {
         contractualAllowedAmount: {
           amount: contractualAllowedAmount,
@@ -535,14 +793,15 @@ export function calculateContractExpectedPayment(
       contractVersion: contract.version,
       contractualAllowedAmount,
       patientResponsibility: patientShare.amount,
-      calculatedLines
+      calculatedLines,
+      appliedProvisions: provisionResult.appliedProvisions
     };
   }
 
   const expectedPayerPayment = Number(moneyFromCents(expectedPayerCents));
   return {
     available: true,
-    source: "CONTRACT_FEE_SCHEDULE",
+    source: allowanceCalculation?.source || "CONTRACT_FEE_SCHEDULE",
     contractId: contract.id,
     contractName: contract.name,
     contractVersion: contract.version,
@@ -554,7 +813,7 @@ export function calculateContractExpectedPayment(
     components: {
       contractualAllowedAmount: {
         amount: contractualAllowedAmount,
-        source: "CONTRACT_FEE_SCHEDULE",
+        source: allowanceCalculation?.source || "CONTRACT_FEE_SCHEDULE",
         contractId: contract.id,
         contractVersion: contract.version
       },
@@ -566,6 +825,7 @@ export function calculateContractExpectedPayment(
       }
     },
     calculatedLines,
+    appliedProvisions: provisionResult.appliedProvisions,
     pricingEvidence: allowanceCalculation?.pricingEvidence || null
   };
 }
