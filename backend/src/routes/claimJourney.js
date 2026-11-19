@@ -20,6 +20,10 @@ import { assertExpectedClaimStatus } from "../services/claimStateCas.js";
 import { createPayerConnector, createPayerConnectorForClaim, payerConnectorStatusForClaim } from "../services/payerGateway.js";
 import { findActiveDenialCase } from "../services/denialCaseLifecycle.js";
 import { resolveUnderpaymentExpectation } from "../services/underpaymentRecovery.js";
+import {
+  classifyRemittanceFinancialEvent,
+  postEraFinancialEvents
+} from "../services/financialLedger.js";
 import { requirePermission } from "../middleware/auth.js";
 import { PERMISSIONS, hasPermission } from "../security/permissions.js";
 import { minimumNecessaryClaim } from "../security/phiView.js";
@@ -1225,6 +1229,8 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
       });
     }
 
+    const financialEventType = classifyRemittanceFinancialEvent(result);
+    const reversal = financialEventType === "REVERSAL";
     const numericFields = [
       ["billedAmount", result.billedAmount],
       ["allowedAmount", result.allowedAmount],
@@ -1232,12 +1238,14 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
       ["patientResponsibility", result.patientResponsibility]
     ];
     const invalidMoney = numericFields.find(
-      ([, value]) => value != null && (!Number.isFinite(Number(value)) || Number(value) < 0)
+      ([, value]) =>
+        value != null &&
+        (!Number.isFinite(Number(value)) || (!reversal && Number(value) < 0))
     );
     if (invalidMoney) {
       return res.status(409).json({
         error:
-          "This 835 contains a reversal or unsupported negative financial value and needs manual review before posting.",
+          "This 835 contains an unsupported negative financial value and needs manual review before posting.",
         code: "ERA_FINANCIAL_REVIEW_REQUIRED",
         field: invalidMoney[0]
       });
@@ -1248,7 +1256,7 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
       (item) => item?.reasonCode || item?.reason
     );
     const isDeniedEra = String(result.claimStatusCode || "") === "4";
-    const expectation = !isDeniedEra
+    const expectation = !isDeniedEra && !reversal
       ? await resolveUnderpaymentExpectation(prisma, claim, {
           payerExpectedPayment: result.expectedPayerPayment ?? result.approvedAmount ?? null,
           actualPaidAmount: result.paidAmount,
@@ -1291,12 +1299,25 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
         }
       });
 
+      const ledger = await postEraFinancialEvents(tx, {
+        organizationId: claim.organizationId,
+        claimId: claim.id,
+        result: {
+          ...result,
+          financialEventType
+        },
+        now
+      });
+
       const financialUpdates = {
         patientControlNumber: expectedPatientControlNumber,
         remittanceStatus: "POSTED",
         remittanceReceivedAt: now,
-        paidAmount: result.paidAmount,
-        patientResponsibility: result.patientResponsibility,
+        paidAmount: ledger.cumulativeClaimPaidAmount,
+        patientResponsibility:
+          result.patientResponsibility != null && Number(result.patientResponsibility) >= 0
+            ? result.patientResponsibility
+            : claim.patientResponsibility,
         paymentReference: result.paymentReference || result.transactionId,
         fieldProvenance: mergeProvenance(
           claim.fieldProvenance,
@@ -1320,7 +1341,7 @@ router.post("/:id/journey/remittance/refresh", requirePermission(PERMISSIONS.PAY
           )
         )
       };
-      if (result.allowedAmount != null) {
+      if (result.allowedAmount != null && Number(result.allowedAmount) >= 0) {
         financialUpdates.allowedAmount = result.allowedAmount;
         financialUpdates.approvedAmount = result.allowedAmount;
       }
