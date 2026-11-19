@@ -1140,3 +1140,50 @@ test("Submission safety - unchanged Stedi claim retries reuse payload hash and i
   );
   assert.equal(captured[0].options.body, captured[1].options.body);
 });
+
+
+test("#043 - 835 provider adjustments remain separate from claim adjustments", () => {
+  const result = normalizeStedi835Report({
+    transactions: [{
+      providerAdjustments: [{
+        providerAdjustmentReasonCode: "L6",
+        referenceIdentification: "PLB-INT-1",
+        providerAdjustmentAmount: "12.50",
+        providerAdjustmentReason: "Interest"
+      }],
+      detailInfo: [{
+        paymentInfo: [{
+          claimPaymentInfo: {
+            patientControlNumber: "PCN-PLB",
+            totalClaimChargeAmount: "100",
+            claimPaymentAmount: "80",
+            patientResponsibilityAmount: "20"
+          },
+          claimAdjustments: [{
+            claimAdjustmentGroupCode: "CO",
+            adjustmentReasonCode1: "45",
+            adjustmentAmount1: "0.00"
+          }],
+          serviceLines: [{
+            lineItemControlNumber: "LINE-PLB",
+            servicePaymentInformation: {
+              adjudicatedProcedureCode: "99213",
+              lineItemChargeAmount: "100",
+              lineItemProviderPaymentAmount: "80"
+            },
+            serviceSupplementalAmounts: { allowedActual: "100" }
+          }]
+        }]
+      }]
+    }]
+  }, { expectedPatientControlNumber: "PCN-PLB" });
+
+  assert.equal(result.providerAdjustments.length, 1);
+  assert.deepEqual(result.providerAdjustments[0], {
+    reasonCode: "L6",
+    reference: "PLB-INT-1",
+    amount: 12.5,
+    description: "Interest"
+  });
+  assert.ok(result.adjustments.every((item) => item.scope !== "PROVIDER"));
+});
