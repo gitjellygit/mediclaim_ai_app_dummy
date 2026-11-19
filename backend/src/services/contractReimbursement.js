@@ -99,7 +99,9 @@ function contractCandidateSummary(item) {
     payerMatchScore: item.payerScore,
     applicabilitySpecificity: item.scope.specificity,
     effectiveFrom: item.contract.effectiveFrom,
-    effectiveTo: item.contract.effectiveTo || null
+    effectiveTo: item.contract.effectiveTo || null,
+    missingApplicability: item.scope.missing || [],
+    mismatchedApplicability: item.scope.mismatched || []
   };
 }
 
@@ -283,9 +285,14 @@ export function calculateContractExpectedPayment(claim, contract) {
   }
 
   if (unmatchedLines.length) {
+    const ambiguous = unmatchedLines.some(
+      (line) => line.reason === "AMBIGUOUS_FEE_SCHEDULE_MATCH"
+    );
     return {
       available: false,
-      reason: "INCOMPLETE_FEE_SCHEDULE",
+      reason: ambiguous
+        ? "AMBIGUOUS_FEE_SCHEDULE_MATCH"
+        : "INCOMPLETE_FEE_SCHEDULE",
       contractId: contract.id,
       contractName: contract.name,
       contractVersion: contract.version,
