@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   calculateContractExpectedPayment,
+  resolveApplicableContract,
   selectApplicableContract
 } from "../src/services/contractReimbursement.js";
 
@@ -318,4 +319,108 @@ test("#034 - approved term carries page/clause and reviewer provenance into pric
   assert.equal(result.calculatedLines[0].termProvenance.sourceClause, "Section 4.2");
   assert.equal(result.calculatedLines[0].termProvenance.reviewStatus, "APPROVED");
   assert.equal(result.calculatedLines[0].termProvenance.reviewedByUserId, "human-reviewer");
+});
+
+
+test("#033 - contract applicability selects distinct plan/product schedule under one payer", () => {
+  const selected = resolveApplicableContract(
+    claim({
+      productType: "PPO GOLD",
+      groupNumber: "GRP-GOLD",
+      networkStatus: "IN_NETWORK",
+      providerTin: "111223333",
+      serviceLines: [{
+        id: "plan-line",
+        cptHcpcsCode: "99215",
+        placeOfService: "11",
+        units: 1,
+        verified: true
+      }]
+    }),
+    [
+      contract({
+        id: "silver",
+        productType: "PPO SILVER",
+        groupNumber: "GRP-SILVER",
+        networkStatus: "IN_NETWORK",
+        providerTin: "111223333",
+        placeOfService: "11"
+      }),
+      contract({
+        id: "gold",
+        productType: "PPO GOLD",
+        groupNumber: "GRP-GOLD",
+        networkStatus: "IN_NETWORK",
+        providerTin: "111223333",
+        placeOfService: "11"
+      })
+    ]
+  );
+
+  assert.equal(selected.status, "MATCHED");
+  assert.equal(selected.contract.id, "gold");
+});
+
+test("#033 - missing contract applicability facts fail closed", () => {
+  const selected = resolveApplicableContract(
+    claim({ productType: null }),
+    [contract({ id: "scoped", productType: "PPO GOLD" })]
+  );
+
+  assert.equal(selected.status, "UNAVAILABLE");
+  assert.equal(selected.reason, "CONTRACT_APPLICABILITY_NOT_VERIFIABLE");
+  assert.equal(selected.contract, null);
+});
+
+test("#035 - overlapping equally specific contracts are ambiguous", () => {
+  const selected = resolveApplicableContract(
+    claim({ productType: "PPO" }),
+    [
+      contract({
+        id: "overlap-a",
+        productType: "PPO",
+        effectiveFrom: "2026-01-01",
+        effectiveTo: "2026-12-31"
+      }),
+      contract({
+        id: "overlap-b",
+        productType: "PPO",
+        effectiveFrom: "2026-06-01",
+        effectiveTo: "2026-12-31"
+      })
+    ]
+  );
+
+  assert.equal(selected.status, "AMBIGUOUS");
+  assert.equal(selected.reason, "AMBIGUOUS_CONTRACT_MATCH");
+  assert.deepEqual(
+    selected.candidates.map((item) => item.contractId).sort(),
+    ["overlap-a", "overlap-b"]
+  );
+});
+
+test("#035 - equally specific approved duplicate fee lines stop automatic pricing", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [{
+        id: "duplicate-line",
+        cptHcpcsCode: "99215",
+        modifiers: [],
+        placeOfService: "11",
+        units: 1,
+        verified: true
+      }]
+    }),
+    contract({
+      feeScheduleLines: [
+        { id: "duplicate-a", cptHcpcsCode: "99215", modifier: null, placeOfService: null, unitRate: "100.00" },
+        { id: "duplicate-b", cptHcpcsCode: "99215", modifier: null, placeOfService: null, unitRate: "105.00" }
+      ]
+    })
+  );
+
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "AMBIGUOUS_FEE_SCHEDULE_MATCH");
+  assert.equal(result.unmatchedLines[0].reason, "AMBIGUOUS_FEE_SCHEDULE_MATCH");
+  assert.deepEqual(result.unmatchedLines[0].candidateFeeScheduleLineIds, ["duplicate-a", "duplicate-b"]);
 });
