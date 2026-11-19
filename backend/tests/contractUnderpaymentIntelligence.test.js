@@ -39,3 +39,15 @@ test("underpayment workspace explains contractual or fallback expected payment b
   assert.match(ui, /Remittance Expectation/);
   assert.match(ui, /PRISM did not invent a contractual amount/);
 });
+
+
+test("#031 underpayment path preserves contract allowance, patient share and payer liability", () => {
+  const recovery = read("backend/src/services/underpaymentRecovery.js");
+  const pricing = read("backend/src/services/contractReimbursement.js");
+
+  assert.match(pricing, /contractualAllowedAmount/);
+  assert.match(pricing, /patientResponsibility/);
+  assert.match(pricing, /contractualAllowedAmount - verifiedPatientResponsibility/);
+  assert.match(recovery, /contractCalculation\.expectedPayerPayment/);
+  assert.match(recovery, /calculationSnapshot: contractCalculation/);
+});
