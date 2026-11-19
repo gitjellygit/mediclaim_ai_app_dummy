@@ -25,8 +25,26 @@ function claim(overrides = {}) {
   };
 }
 
-function contract(overrides = {}) {
+function approvedFeeLine(line = {}) {
   return {
+    sourceDocumentId: "contract-doc-1",
+    sourceDocument: {
+      id: "contract-doc-1",
+      fileName: "blue-2026-schedule.pdf",
+      documentType: "SCHEDULE"
+    },
+    sourcePage: 4,
+    sourceClause: "Fee Schedule",
+    extractionMethod: "MANUAL",
+    reviewStatus: "APPROVED",
+    reviewedByUserId: "reviewer-1",
+    reviewedAt: "2026-01-15T00:00:00.000Z",
+    ...line
+  };
+}
+
+function contract(overrides = {}) {
+  const merged = {
     id: "contract-1",
     name: "Blue 2026 PPO",
     version: "2026.1",
@@ -37,6 +55,10 @@ function contract(overrides = {}) {
     effectiveTo: "2026-12-31",
     feeScheduleLines: [],
     ...overrides
+  };
+  return {
+    ...merged,
+    feeScheduleLines: (merged.feeScheduleLines || []).map(approvedFeeLine)
   };
 }
 
@@ -215,4 +237,85 @@ test("#031 - contract pricing refuses to infer zero patient share without verifi
   assert.equal(priced.reason, "PATIENT_RESPONSIBILITY_NOT_VERIFIED");
   assert.equal(priced.contractualAllowedAmount, 150);
   assert.equal(priced.components.expectedPayerPayment.amount, null);
+});
+
+
+test("#034 - unapproved extracted contract term cannot price a claim", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [{
+        id: "line-unapproved",
+        cptHcpcsCode: "99215",
+        modifiers: [],
+        placeOfService: "11",
+        units: 1,
+        verified: true
+      }]
+    }),
+    contract({
+      feeScheduleLines: [{
+        id: "pending-term",
+        cptHcpcsCode: "99215",
+        unitRate: "150.00",
+        sourceDocumentId: "doc-pending",
+        sourceDocument: {
+          id: "doc-pending",
+          fileName: "payer-amendment.pdf",
+          documentType: "AMENDMENT"
+        },
+        sourcePage: 7,
+        sourceClause: "Section 4.2",
+        extractionMethod: "OCR",
+        reviewStatus: "PENDING",
+        reviewedByUserId: null,
+        reviewedAt: null
+      }]
+    })
+  );
+
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "CONTRACT_TERM_REVIEW_REQUIRED");
+  assert.equal(result.unmatchedLines[0].reason, "CONTRACT_TERM_NOT_APPROVED");
+});
+
+test("#034 - approved term carries page/clause and reviewer provenance into pricing snapshot", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [{
+        id: "line-approved",
+        cptHcpcsCode: "99215",
+        modifiers: [],
+        placeOfService: "11",
+        units: 1,
+        verified: true
+      }]
+    }),
+    contract({
+      feeScheduleLines: [{
+        id: "approved-term",
+        cptHcpcsCode: "99215",
+        unitRate: "150.00",
+        sourceDocumentId: "doc-approved",
+        sourceDocument: {
+          id: "doc-approved",
+          fileName: "payer-amendment.pdf",
+          documentType: "AMENDMENT"
+        },
+        sourcePage: 7,
+        sourceClause: "Section 4.2",
+        extractionMethod: "AI_EXTRACTED",
+        reviewStatus: "APPROVED",
+        reviewedByUserId: "human-reviewer",
+        reviewedAt: "2026-11-01T00:00:00.000Z"
+      }]
+    })
+  );
+
+  assert.equal(result.available, true);
+  assert.equal(result.calculatedLines[0].termProvenance.sourceDocumentName, "payer-amendment.pdf");
+  assert.equal(result.calculatedLines[0].termProvenance.sourceDocumentType, "AMENDMENT");
+  assert.equal(result.calculatedLines[0].termProvenance.sourcePage, 7);
+  assert.equal(result.calculatedLines[0].termProvenance.sourceClause, "Section 4.2");
+  assert.equal(result.calculatedLines[0].termProvenance.reviewStatus, "APPROVED");
+  assert.equal(result.calculatedLines[0].termProvenance.reviewedByUserId, "human-reviewer");
 });
