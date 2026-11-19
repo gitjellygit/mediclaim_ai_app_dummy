@@ -319,3 +319,178 @@ test("#034 - approved term carries page/clause and reviewer provenance into pric
   assert.equal(result.calculatedLines[0].termProvenance.reviewStatus, "APPROVED");
   assert.equal(result.calculatedLines[0].termProvenance.reviewedByUserId, "human-reviewer");
 });
+
+
+function approvedPercentageContract(overrides = {}) {
+  return contract({
+    pricingMethod: "PERCENT_MEDICARE",
+    referencePercent: 125,
+    roundingMode: "HALF_UP",
+    pricingSourceDocumentId: "pricing-doc-1",
+    pricingSourcePage: 12,
+    pricingSourceClause: "Section 5.3",
+    pricingExtractionMethod: "AI_EXTRACTED",
+    pricingReviewStatus: "APPROVED",
+    pricingReviewedByUserId: "contract-reviewer",
+    pricingReviewedAt: "2026-01-15T00:00:00.000Z",
+    feeScheduleLines: [],
+    ...overrides
+  });
+}
+
+test("#036 - percentage-of-Medicare uses exact schedule year locality percentage and HALF_UP cents", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      dateOfService: "2026-10-10",
+      patientResponsibility: 10,
+      serviceLines: [{
+        id: "medicare-line",
+        cptHcpcsCode: "99215",
+        modifiers: [],
+        placeOfService: "11",
+        units: 1,
+        charge: 200,
+        verified: true
+      }]
+    }),
+    approvedPercentageContract({
+      medicareRateScheduleId: "medicare-2026-locality-01",
+      medicareRateSchedule: {
+        id: "medicare-2026-locality-01",
+        name: "2026 Test Medicare",
+        year: 2026,
+        locality: "LOCALITY-01",
+        source: "Synthetic CMS fixture",
+        effectiveFrom: "2026-01-01",
+        effectiveTo: "2026-12-31",
+        lines: [{
+          id: "mcr-99215",
+          cptHcpcsCode: "99215",
+          modifier: null,
+          placeOfService: "11",
+          amount: "80.03"
+        }]
+      }
+    })
+  );
+
+  assert.equal(result.available, true);
+  assert.equal(result.source, "CONTRACT_PERCENT_MEDICARE");
+  assert.equal(result.contractualAllowedAmount, 100.04);
+  assert.equal(result.patientResponsibility, 10);
+  assert.equal(result.expectedPayerPayment, 90.04);
+  assert.equal(result.calculatedLines[0].medicareScheduleYear, 2026);
+  assert.equal(result.calculatedLines[0].medicareLocality, "LOCALITY-01");
+  assert.equal(result.calculatedLines[0].referencePercent, 125);
+  assert.equal(result.calculatedLines[0].expectedAmount, 100.04);
+  assert.equal(result.pricingEvidence.roundingMode, "HALF_UP");
+});
+
+test("#036 - Medicare pricing fails closed on schedule year mismatch", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      dateOfService: "2026-10-10",
+      serviceLines: [{
+        id: "wrong-year",
+        cptHcpcsCode: "99215",
+        placeOfService: "11",
+        units: 1,
+        verified: true
+      }]
+    }),
+    approvedPercentageContract({
+      medicareRateSchedule: {
+        id: "medicare-2025-locality-01",
+        name: "2025 Test Medicare",
+        year: 2025,
+        locality: "LOCALITY-01",
+        source: "Synthetic CMS fixture",
+        effectiveFrom: "2025-01-01",
+        effectiveTo: "2026-12-31",
+        lines: [{
+          id: "mcr-2025",
+          cptHcpcsCode: "99215",
+          placeOfService: "11",
+          amount: "80.03"
+        }]
+      }
+    })
+  );
+
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "MEDICARE_SCHEDULE_YEAR_MISMATCH");
+  assert.equal(result.scheduleYear, 2025);
+  assert.equal(result.serviceYear, 2026);
+});
+
+test("#036 - percentage-of-charge prices billed line charge with explicit cent rounding", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      patientResponsibility: 8.76,
+      serviceLines: [{
+        id: "charge-line",
+        cptHcpcsCode: "99215",
+        units: 1,
+        charge: "123.45",
+        verified: true
+      }]
+    }),
+    approvedPercentageContract({
+      pricingMethod: "PERCENT_CHARGE",
+      referencePercent: 80,
+      medicareRateScheduleId: null,
+      medicareRateSchedule: null
+    })
+  );
+
+  assert.equal(result.available, true);
+  assert.equal(result.source, "CONTRACT_PERCENT_CHARGE");
+  assert.equal(result.contractualAllowedAmount, 98.76);
+  assert.equal(result.expectedPayerPayment, 90);
+  assert.equal(result.calculatedLines[0].billedCharge, 123.45);
+  assert.equal(result.calculatedLines[0].referencePercent, 80);
+});
+
+test("#036 - unapproved percentage term cannot price a claim", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [{
+        id: "unapproved-percent",
+        cptHcpcsCode: "99215",
+        units: 1,
+        charge: 100,
+        verified: true
+      }]
+    }),
+    approvedPercentageContract({
+      pricingMethod: "PERCENT_CHARGE",
+      referencePercent: 80,
+      pricingReviewStatus: "PENDING",
+      pricingReviewedByUserId: null,
+      pricingReviewedAt: null
+    })
+  );
+
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "CONTRACT_PRICING_REVIEW_REQUIRED");
+});
+
+test("#036 - Medicare pricing explicitly reports missing schedule", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [{
+        id: "missing-schedule",
+        cptHcpcsCode: "99215",
+        units: 1,
+        verified: true
+      }]
+    }),
+    approvedPercentageContract({
+      medicareRateScheduleId: "missing",
+      medicareRateSchedule: null
+    })
+  );
+
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "MEDICARE_SCHEDULE_MISSING");
+});
