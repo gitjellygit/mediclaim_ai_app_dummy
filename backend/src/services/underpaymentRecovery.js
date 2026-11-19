@@ -103,7 +103,8 @@ export async function resolveUnderpaymentExpectation(
   {
     payerExpectedPayment = null,
     actualPaidAmount = null,
-    sourceTransactionId = null
+    sourceTransactionId = null,
+    patientResponsibilityEvidence = null
   } = {}
 ) {
   const contracts = await db.payerContract.findMany({
@@ -117,7 +118,9 @@ export async function resolveUnderpaymentExpectation(
 
   const applicableContract = selectApplicableContract(claim, contracts);
   const contractCalculation = applicableContract
-    ? calculateContractExpectedPayment(claim, applicableContract)
+    ? calculateContractExpectedPayment(claim, applicableContract, {
+        patientResponsibilityEvidence
+      })
     : { available: false, reason: "NO_APPLICABLE_CONTRACT" };
 
   const paymentClaim = {
