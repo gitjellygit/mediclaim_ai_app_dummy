@@ -47,3 +47,22 @@ This batch addresses four original checklist items from the November 17 review.
 - In progress in Batch 1B: #021, #022, #061, #062
 - Still open: 94 checklist items
 - #031 remains open and is intentionally deferred to the contract/reimbursement foundation work; related patient-responsibility safeguards were added earlier but do not satisfy #031's acceptance criterion.
+
+## Batch 2A — Contract payer liability
+
+| Checklist item | Status | Acceptance |
+| --- | --- | --- |
+| #031 | Merged in PR #233; VPS verification pending | Contract allowance, verified patient responsibility, and expected payer payment are separate sourced components; $150 allowance - $30 patient share = $120 payer liability |
+
+## Batch 2C — Contract term provenance and approval
+
+| Checklist item | Status in this branch | Acceptance addressed |
+| --- | --- | --- |
+| #034 | Implemented; automated + E2E coverage added; CI pending | Contract/schedule/amendment source documents are first-class; every executable fee term carries document/page-or-clause provenance and review metadata; unapproved extracted terms cannot price claims |
+
+Safety behavior:
+- newly ingested contract terms start PENDING
+- approval requires a source document plus page or clause
+- reviewer identity and review timestamp are stored
+- pricing ignores non-approved/unprovenanced terms and returns CONTRACT_TERM_REVIEW_REQUIRED
+- calculation snapshots retain term-level source and reviewer provenance

@@ -92,10 +92,39 @@ test("payment variance - underpaid remittance automatically opens a recovery cas
       effectiveFrom: "2026-01-01",
       effectiveTo: "2026-12-31",
       sourceType: "MANUAL",
-      feeScheduleLines: [...contractLinesByCode.values()]
+      sourceDocuments: [{
+        ref: "schedule",
+        documentType: "SCHEDULE",
+        fileName: "e2e-contract-schedule.pdf",
+        storageReference: "e2e-fixture://e2e-contract-schedule.pdf"
+      }],
+      feeScheduleLines: [...contractLinesByCode.values()].map((line) => ({
+        ...line,
+        sourceDocumentRef: "schedule",
+        sourcePage: 1,
+        sourceClause: "E2E Fee Schedule",
+        extractionMethod: "MANUAL"
+      }))
     }
   });
   expect(contractResponse.status()).toBe(201);
+  const createdContract = await contractResponse.json();
+  expect(createdContract.sourceDocuments).toHaveLength(1);
+  expect(createdContract.feeScheduleLines.length).toBeGreaterThan(0);
+
+  for (const term of createdContract.feeScheduleLines) {
+    const reviewed = await apiJson(
+      await apiContext.patch(
+        `/api/payer-contracts/${createdContract.id}/terms/${term.id}/review`,
+        {
+          headers,
+          data: { reviewStatus: "APPROVED", reviewNote: "Synthetic E2E human approval" }
+        }
+      ),
+      "approve contract term"
+    );
+    expect(reviewed.reviewStatus).toBe("APPROVED");
+  }
 
   await apiJson(
     await apiContext.post(`/api/claims/${claimId}/payer-simulation/eligibility`, { headers }),

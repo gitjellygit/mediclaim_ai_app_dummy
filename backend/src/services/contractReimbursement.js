@@ -144,7 +144,27 @@ export function calculateContractExpectedPayment(
       .filter((item) => item.score >= 0)
       .sort((a, b) => b.score - a.score);
 
-    const matched = matches[0]?.fee || null;
+    const executableMatches = matches.filter(({ fee }) =>
+      fee.reviewStatus === "APPROVED" &&
+      Boolean(fee.sourceDocumentId || fee.sourceDocument?.id) &&
+      Boolean(fee.sourcePage || fee.sourceClause) &&
+      Boolean(fee.reviewedAt) &&
+      Boolean(fee.reviewedByUserId)
+    );
+
+    if (matches.length && !executableMatches.length) {
+      unmatchedLines.push({
+        serviceLineId: serviceLine.id,
+        cptHcpcsCode: serviceLine.cptHcpcsCode,
+        modifiers: serviceLine.modifiers || [],
+        placeOfService: serviceLine.placeOfService || null,
+        reason: "CONTRACT_TERM_NOT_APPROVED",
+        candidateFeeScheduleLineIds: matches.map((item) => item.fee.id)
+      });
+      continue;
+    }
+
+    const matched = executableMatches[0]?.fee || null;
     if (!matched) {
       unmatchedLines.push({
         serviceLineId: serviceLine.id,
@@ -181,14 +201,30 @@ export function calculateContractExpectedPayment(
       units,
       feeScheduleLineId: matched.id,
       unitRate: Number(rate),
-      expectedAmount: Number(moneyFromCents(lineCents))
+      expectedAmount: Number(moneyFromCents(lineCents)),
+      termProvenance: {
+        reviewStatus: matched.reviewStatus,
+        reviewedByUserId: matched.reviewedByUserId,
+        reviewedAt: matched.reviewedAt,
+        extractionMethod: matched.extractionMethod,
+        sourceDocumentId: matched.sourceDocumentId || matched.sourceDocument?.id || null,
+        sourceDocumentName: matched.sourceDocument?.fileName || null,
+        sourceDocumentType: matched.sourceDocument?.documentType || null,
+        sourcePage: matched.sourcePage || null,
+        sourceClause: matched.sourceClause || null
+      }
     });
   }
 
   if (unmatchedLines.length) {
+    const hasUnapprovedTerm = unmatchedLines.some(
+      (line) => line.reason === "CONTRACT_TERM_NOT_APPROVED"
+    );
     return {
       available: false,
-      reason: "INCOMPLETE_FEE_SCHEDULE",
+      reason: hasUnapprovedTerm
+        ? "CONTRACT_TERM_REVIEW_REQUIRED"
+        : "INCOMPLETE_FEE_SCHEDULE",
       contractId: contract.id,
       contractName: contract.name,
       contractVersion: contract.version,
