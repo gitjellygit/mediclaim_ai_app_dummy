@@ -355,6 +355,41 @@ function normalizeAdjustmentRows(rows = [], scope = "CLAIM") {
   return normalized;
 }
 
+function normalizeProviderAdjustments(transaction = {}) {
+  const rows = Array.isArray(transaction?.providerAdjustments)
+    ? transaction.providerAdjustments
+    : Array.isArray(transaction?.providerAdjustment)
+    ? transaction.providerAdjustment
+    : [];
+
+  return rows
+    .map((row) => ({
+      reasonCode:
+        row?.providerAdjustmentReasonCode ||
+        row?.adjustmentReasonCode ||
+        row?.reasonCode ||
+        null,
+      reference:
+        row?.referenceIdentification ||
+        row?.referenceId ||
+        row?.reference ||
+        null,
+      amount: moneyOrNull(
+        row?.providerAdjustmentAmount ??
+        row?.adjustmentAmount ??
+        row?.amount
+      ),
+      description:
+        row?.providerAdjustmentReason ||
+        row?.adjustmentReason ||
+        row?.description ||
+        null
+    }))
+    .filter((row) =>
+      row.reasonCode || row.reference || row.amount != null || row.description
+    );
+}
+
 function flatten835Payments(body = {}) {
   const entries = [];
   for (const transaction of body?.transactions || []) {
@@ -469,6 +504,7 @@ export function normalizeStedi835Report(
     payerName: transaction?.payer?.name || null,
     payeeNpi: transaction?.payee?.npi || null,
     memberId: payment?.patientName?.memberId || null,
+    providerAdjustments: normalizeProviderAdjustments(transaction),
     adjustments: [...claimAdjustments, ...serviceAdjustments],
     transactionType: "835",
     latencyMs,
