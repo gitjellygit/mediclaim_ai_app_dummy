@@ -1578,18 +1578,9 @@ router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTI
       });
     }
 
-    // If payer responsibility is not explicitly supplied, estimate the
-    // remaining patient responsibility as allowed - payer paid. This is an
-    // estimate only; an 835/ERA patient-responsibility value remains the source
-    // of truth when available. Claimed - paid is NOT used because contractual
-    // adjustments are not automatically patient responsibility.
-    const patientResponsibility =
-      requestedPatientResponsibility != null
-        ? requestedPatientResponsibility
-        : allowedAmount != null && paidAmount != null
-        ? Math.max(0, differenceMoney(allowedAmount, paidAmount))
-        : null;
-
+    // Patient responsibility must come from payer/remittance evidence or an
+    // explicit user-recorded value. A payer payment shortfall is not sufficient
+    // evidence to transfer the balance to the patient.
     const normalizedPaymentReference =
       typeof input.paymentReference === "string"
         ? input.paymentReference.trim() || null
@@ -1648,22 +1639,17 @@ router.patch("/:id/journey/remittance", requirePermission(PERMISSIONS.PAYER_ACTI
           verified: true
         }
       ),
-      ...systemProvenance(
-        ["patientResponsibility"],
-        requestedPatientResponsibility != null
-          ? {
+      ...(requestedPatientResponsibility != null
+        ? systemProvenance(
+            ["patientResponsibility"],
+            {
               source: "USER_RECORDED",
               label: "Recorded Remittance",
               sourceDetail: "Entered from remittance/EOB",
               verified: true
             }
-          : {
-              source: "CALCULATED_ESTIMATE",
-              label: "Calculated Estimate",
-              sourceDetail: "Allowed Amount − Paid Amount",
-              verified: false
-            }
-      ),
+          )
+        : {}),
       ...systemProvenance(
         ["approvedAmount"],
         {

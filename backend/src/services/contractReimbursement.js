@@ -34,7 +34,13 @@ function inEffectiveWindow(contract, date) {
 function payerMatchScore(contract, claim) {
   const claimEdi = normalize(claim?.payerEdiId);
   const contractEdi = normalize(contract?.payerEdiId);
-  if (claimEdi && contractEdi && claimEdi === contractEdi) return 3;
+  if (claimEdi && contractEdi) {
+    if (claimEdi === contractEdi) return 3;
+    // When both sides carry an explicit payer identifier, a mismatch is
+    // authoritative. Never fall back to a name match and risk applying the
+    // wrong contract.
+    return 0;
+  }
 
   const claimName = normalizeName(claim?.payerName);
   const connectedName = normalizeName(claim?.connectedPayerName);
@@ -119,7 +125,11 @@ export function calculateContractExpectedPayment(claim, contract) {
     }
 
     const rate = validMoney(matched.unitRate);
-    const units = Number(serviceLine.units || 1);
+    const rawUnits = serviceLine.units;
+    const units =
+      rawUnits == null || rawUnits === ""
+        ? 1
+        : Number(rawUnits);
     if (rate == null || !Number.isFinite(units) || units <= 0) {
       unmatchedLines.push({
         serviceLineId: serviceLine.id,

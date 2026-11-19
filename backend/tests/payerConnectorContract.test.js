@@ -65,7 +65,9 @@ test("U6 - LOCAL connector implements the shared payer contract", () => {
   assert.equal(remittance.status, "POSTED");
   assert.equal(remittance.allowedAmount, "800.00");
   assert.equal(remittance.paidAmount, "700.00");
-  assert.equal(remittance.patientResponsibility, 100);
+  assert.equal(remittance.patientResponsibility, null);
+  assert.equal(remittance.patientResponsibilitySource, "NOT_REPORTED");
+  assert.deepEqual(remittance.missingReferences, []);
 });
 
 test("U6 - SIMULATED connector implements the same contract", () => {
@@ -310,4 +312,51 @@ test("R3 - STEDI_PRODUCTION is separate from test mode and exposes 276/277 when 
   assert.equal(claimStatus.capabilities.includes("submitClaim"), true);
   assert.equal(claimStatus.capabilities.includes("getStatus"), true);
   assert.equal(claimStatus.capabilities.includes("getRemittance"), true);
+});
+
+
+test("Batch 1A - LOCAL remittance keeps patient responsibility explicit and flags missing payment reference", () => {
+  const connector = createPayerConnector("LOCAL");
+
+  const explicit = connector.getRemittance(baseClaim, {
+    remittanceStatus: "POSTED",
+    allowedAmount: 800,
+    paidAmount: 700,
+    patientResponsibility: 75,
+    paymentReference: "PAY-EXPLICIT"
+  });
+  assert.equal(explicit.patientResponsibility, "75.00");
+  assert.equal(explicit.patientResponsibilitySource, "PAYER_REPORTED");
+  assert.deepEqual(explicit.missingReferences, []);
+
+  const missingReference = connector.getRemittance(baseClaim, {
+    remittanceStatus: "POSTED",
+    allowedAmount: 800,
+    paidAmount: 700
+  });
+  assert.equal(missingReference.patientResponsibility, null);
+  assert.deepEqual(missingReference.missingReferences, ["paymentReference"]);
+});
+
+test("Batch 1A - LOCAL eligibility evaluates policy coverage against date of service", () => {
+  const connector = createPayerConnector("LOCAL");
+  const eligibility = connector.checkEligibility({
+    ...baseClaim,
+    dateOfService: "2026-06-15T00:00:00.000Z",
+    policyStartDate: "2026-01-01T00:00:00.000Z",
+    policyEndDate: "2026-12-31T00:00:00.000Z"
+  });
+
+  assert.equal(eligibility.status, "ACTIVE");
+  assert.equal(eligibility.coverageStatus, "UNKNOWN");
+
+  const outsideCoverage = connector.checkEligibility({
+    ...baseClaim,
+    dateOfService: "2027-01-15T00:00:00.000Z",
+    policyStartDate: "2026-01-01T00:00:00.000Z",
+    policyEndDate: "2026-12-31T00:00:00.000Z"
+  });
+
+  assert.equal(outsideCoverage.status, "INACTIVE");
+  assert.equal(outsideCoverage.coverageStatus, "INACTIVE");
 });

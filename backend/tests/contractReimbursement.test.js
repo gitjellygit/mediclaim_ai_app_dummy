@@ -95,3 +95,43 @@ test("institutional contract reimbursement fails closed rather than guessing", (
   assert.equal(result.available, false);
   assert.equal(result.reason, "INSTITUTIONAL_CONTRACT_CALCULATION_NOT_SUPPORTED");
 });
+
+
+test("contract selection does not name-match when explicit payer EDI IDs conflict", () => {
+  const selected = selectApplicableContract(claim({
+    payerName: "Blue Health",
+    payerEdiId: "12345"
+  }), [
+    contract({
+      id: "wrong-edi-same-name",
+      payerName: "Blue Health",
+      payerEdiId: "99999"
+    })
+  ]);
+
+  assert.equal(selected, null);
+});
+
+test("contract calculation rejects an explicit zero-unit service line", () => {
+  const result = calculateContractExpectedPayment(
+    claim({
+      serviceLines: [{
+        id: "zero-units",
+        cptHcpcsCode: "99215",
+        modifiers: [],
+        placeOfService: "11",
+        units: 0,
+        verified: true
+      }]
+    }),
+    contract({
+      feeScheduleLines: [
+        { id: "fee", cptHcpcsCode: "99215", modifier: null, placeOfService: null, unitRate: "100.00" }
+      ]
+    })
+  );
+
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "INCOMPLETE_FEE_SCHEDULE");
+  assert.equal(result.unmatchedLines[0].reason, "INVALID_RATE_OR_UNITS");
+});
