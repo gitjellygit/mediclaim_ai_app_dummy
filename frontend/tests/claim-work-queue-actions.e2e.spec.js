@@ -115,7 +115,7 @@ test("Claim Work Queue sorts the full filtered result set by derived risk", asyn
   await expect(page.getByRole("row").filter({ hasText: highRisk })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: lowRisk })).toBeVisible();
 
-  await page.getByRole("button", { name: /Pre-Submit Risk/i }).click();
+  await page.getByRole("button", { name: /Rules-Based Risk/i }).click();
   await expect(page.getByRole("row").filter({ hasText: highRisk })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: lowRisk })).toBeVisible();
   let rows = page.locator("tbody tr");
@@ -131,7 +131,7 @@ test("Claim Work Queue sorts the full filtered result set by derived risk", asyn
   expect(lowIndex).toBeGreaterThanOrEqual(0);
   expect(highIndex).toBeLessThan(lowIndex);
 
-  await page.getByRole("button", { name: /Pre-Submit Risk/i }).click();
+  await page.getByRole("button", { name: /Rules-Based Risk/i }).click();
   await expect(page.getByRole("row").filter({ hasText: highRisk })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: lowRisk })).toBeVisible();
   rows = page.locator("tbody tr");
