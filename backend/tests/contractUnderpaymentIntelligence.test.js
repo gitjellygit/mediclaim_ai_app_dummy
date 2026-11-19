@@ -109,3 +109,27 @@ test("#036 Medicare/charge pricing keeps schedule year locality percentage and r
   assert.match(pricing, /CONTRACT_PERCENT_CHARGE/);
   assert.match(recovery, /medicareRateSchedule: \{ include: \{ lines: true \} \}/);
 });
+
+
+test("#037 supported and unsupported contract provisions are reviewed, sourced and fail closed", () => {
+  const schema = read("backend/prisma/schema.prisma");
+  const route = read("backend/src/routes/payerContracts.js");
+  const pricing = read("backend/src/services/contractReimbursement.js");
+  const recovery = read("backend/src/services/underpaymentRecovery.js");
+
+  assert.match(schema, /model ContractProvision/);
+  assert.match(schema, /provisionType String/);
+  assert.match(schema, /parameters\s+Json/);
+  assert.match(schema, /reviewStatus\s+String/);
+  assert.match(route, /MODIFIER_PERCENT/);
+  assert.match(route, /MULTIPLE_PROCEDURE_REDUCTION/);
+  assert.match(route, /BUNDLE_EXCLUSION/);
+  assert.match(route, /LESSER_OF_CHARGE/);
+  assert.match(route, /UNSUPPORTED_CLAUSE/);
+  assert.match(route, /PAYER_CONTRACT_PROVISION_REVIEWED/);
+  assert.match(pricing, /CONTRACT_PROVISION_REVIEW_REQUIRED/);
+  assert.match(pricing, /UNSUPPORTED_CONTRACT_PROVISION/);
+  assert.match(pricing, /LESSER_OF_CHARGE_INPUT_MISSING/);
+  assert.match(pricing, /appliedProvisions/);
+  assert.match(recovery, /provisions: \{ include: \{ sourceDocument: true \}, orderBy: \{ priority: "asc" \} \}/);
+});
