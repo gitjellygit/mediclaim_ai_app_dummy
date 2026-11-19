@@ -28,3 +28,17 @@ Batch 1A is complete only after:
 3. PR is merged to `main`
 4. hosted demo is updated
 5. the four financial behaviors above are verified in the hosted environment
+
+
+## Batch 2C — Contract term provenance and approval
+
+| Checklist item | Status in this branch | Acceptance addressed |
+| --- | --- | --- |
+| #034 | Implemented; automated + E2E coverage added; CI pending | Contract/schedule/amendment source documents are first-class; every executable fee term carries document/page-or-clause provenance and review metadata; unapproved extracted terms cannot price claims |
+
+Safety behavior:
+- newly ingested contract terms start PENDING
+- approval requires a source document plus page or clause
+- reviewer identity and review timestamp are stored
+- pricing ignores non-approved/unprovenanced terms and returns CONTRACT_TERM_REVIEW_REQUIRED
+- calculation snapshots retain term-level source and reviewer provenance
