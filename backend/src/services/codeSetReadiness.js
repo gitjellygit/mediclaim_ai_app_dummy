@@ -29,11 +29,21 @@ async function authoritativeRelease(prisma, system, dos) {
 }
 
 async function validateCodes(prisma, system, codes, dos, { field, fixTarget }) {
-  const release = await authoritativeRelease(prisma, system, dos);
-  if (!release) return [];
-
   const normalized = [...new Set((codes || []).map(normalizeCode).filter(Boolean))];
   if (!normalized.length) return [];
+
+  const release = await authoritativeRelease(prisma, system, dos);
+  if (!release) {
+    return [{
+      rule: "US_CODESET_REFERENCE_UNAVAILABLE",
+      severity: "BLOCK",
+      source: "REFERENCE_DATA",
+      system,
+      message: `Authoritative ${system} reference data is unavailable for the date of service; code validity cannot be confirmed`,
+      field,
+      fixTarget
+    }];
+  }
 
   const definitions = await prisma.codeDefinition.findMany({
     where: { releaseId: release.id, code: { in: normalized } }
