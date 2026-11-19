@@ -42,3 +42,22 @@ Safety behavior:
 - reviewer identity and review timestamp are stored
 - pricing ignores non-approved/unprovenanced terms and returns CONTRACT_TERM_REVIEW_REQUIRED
 - calculation snapshots retain term-level source and reviewer provenance
+
+
+## Batch 2D — Percentage-of-Medicare and percentage-of-charge pricing
+
+| Checklist item | Status in this branch | Acceptance addressed |
+| --- | --- | --- |
+| #036 | Implemented; golden-case tests added; CI pending | Percentage-of-Medicare uses an explicit organization-owned schedule year/locality, reviewed contract percentage and HALF_UP cent rounding; percentage-of-charge uses verified billed line charge; missing schedule/year/rate/charge/review inputs fail closed |
+
+Supported in this batch:
+- PERCENT_MEDICARE
+- PERCENT_CHARGE
+- explicit schedule year, locality and effective dates
+- reviewed percentage-term provenance
+- HALF_UP cent rounding
+- explicit missing/ambiguous reference failures
+
+Not included here:
+- multiple-procedure and bundling rules (#037)
+- institutional/case-rate/per-diem/capitation methods (#038)
