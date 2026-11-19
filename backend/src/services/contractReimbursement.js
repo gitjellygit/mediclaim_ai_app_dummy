@@ -589,10 +589,38 @@ export function calculateContractExpectedPayment(
   if (!claim || !contract) {
     return { available: false, reason: "CONTRACT_NOT_AVAILABLE" };
   }
+  const pricingMethod = String(contract.pricingMethod || "FEE_SCHEDULE").toUpperCase();
+  const manualReviewMethods = new Set([
+    "CASE_RATE",
+    "PER_DIEM",
+    "CAPITATION",
+    "VALUE_BASED"
+  ]);
+
+  if (manualReviewMethods.has(pricingMethod)) {
+    return {
+      available: false,
+      reason: "PRICING_METHOD_REQUIRES_MANUAL_REVIEW",
+      pricingMethod,
+      reviewPath: "CONTRACT_REVIEW",
+      contractId: contract.id,
+      contractName: contract.name,
+      contractVersion: contract.version,
+      message: `${pricingMethod} pricing is recognized but not automatically adjudicated in this release.`
+    };
+  }
+
   if (String(claim.claimForm || "").toUpperCase() === "INSTITUTIONAL") {
     return {
       available: false,
-      reason: "INSTITUTIONAL_CONTRACT_CALCULATION_NOT_SUPPORTED"
+      reason: "INSTITUTIONAL_PRICING_METHOD_NOT_SUPPORTED",
+      pricingMethod,
+      reviewPath: "CONTRACT_REVIEW",
+      contractId: contract.id,
+      contractName: contract.name,
+      contractVersion: contract.version,
+      message:
+        "Institutional contract pricing is not automatically adjudicated for this pricing method."
     };
   }
 
@@ -602,8 +630,6 @@ export function calculateContractExpectedPayment(
   if (!serviceLines.length) {
     return { available: false, reason: "NO_VERIFIED_SERVICE_LINES" };
   }
-
-  const pricingMethod = String(contract.pricingMethod || "FEE_SCHEDULE").toUpperCase();
 
   let allowanceCalculation = null;
   if (pricingMethod === "PERCENT_CHARGE") {
