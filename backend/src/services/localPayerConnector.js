@@ -18,12 +18,24 @@ export function createLocalPayerConnector() {
       let coverageStatus = "UNKNOWN";
 
       const now = new Date();
+      const rawCoverageDate = claim.dateOfService || now;
+      const coverageDate = new Date(rawCoverageDate);
+      const coverageReferenceDate = Number.isNaN(coverageDate.getTime())
+        ? now
+        : coverageDate;
+
       if (missingFields.length > 0) {
         status = "NEEDS_REVIEW";
-      } else if (claim.policyEndDate && new Date(claim.policyEndDate) < now) {
+      } else if (
+        claim.policyEndDate &&
+        new Date(claim.policyEndDate) < coverageReferenceDate
+      ) {
         status = "INACTIVE";
         coverageStatus = "INACTIVE";
-      } else if (claim.policyStartDate && new Date(claim.policyStartDate) > now) {
+      } else if (
+        claim.policyStartDate &&
+        new Date(claim.policyStartDate) > coverageReferenceDate
+      ) {
         status = "NOT_YET_ACTIVE";
         coverageStatus = "NOT_YET_ACTIVE";
       }
@@ -102,12 +114,10 @@ export function createLocalPayerConnector() {
           ? null
           : validMoney(context.patientResponsibility);
 
-      const patientResponsibility =
-        requestedPatientResponsibility != null
-          ? requestedPatientResponsibility
-          : allowedAmount != null && paidAmount != null
-          ? Math.max(0, differenceMoney(allowedAmount, paidAmount))
-          : null;
+      // A payer shortfall is not patient responsibility. When the payer/manual
+      // remittance does not explicitly report patient responsibility, preserve
+      // it as unknown instead of deriving it from allowed - paid.
+      const patientResponsibility = requestedPatientResponsibility;
 
       return {
         transactionId: `LOCAL-ERA-${claim.id}-${Date.now()}`,
@@ -117,6 +127,13 @@ export function createLocalPayerConnector() {
         paidAmount,
         patientResponsibility,
         paymentReference: context.paymentReference || null,
+        missingReferences:
+          (context.remittanceStatus || claim.remittanceStatus || "AWAITING") === "POSTED" &&
+          !context.paymentReference
+            ? ["paymentReference"]
+            : [],
+        patientResponsibilitySource:
+          requestedPatientResponsibility != null ? "PAYER_REPORTED" : "NOT_REPORTED",
         latencyMs: 0,
         livePayerVerification: false
       };
