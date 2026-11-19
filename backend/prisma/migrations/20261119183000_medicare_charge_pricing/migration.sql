@@ -31,6 +31,13 @@ ALTER TABLE "PayerContract"
   ADD COLUMN "pricingMethod" TEXT NOT NULL DEFAULT 'FEE_SCHEDULE',
   ADD COLUMN "referencePercent" DECIMAL(8,4),
   ADD COLUMN "roundingMode" TEXT NOT NULL DEFAULT 'HALF_UP',
+  ADD COLUMN "pricingSourceDocumentId" TEXT,
+  ADD COLUMN "pricingSourcePage" INTEGER,
+  ADD COLUMN "pricingSourceClause" TEXT,
+  ADD COLUMN "pricingExtractionMethod" TEXT NOT NULL DEFAULT 'MANUAL',
+  ADD COLUMN "pricingReviewStatus" TEXT NOT NULL DEFAULT 'PENDING',
+  ADD COLUMN "pricingReviewedByUserId" TEXT,
+  ADD COLUMN "pricingReviewedAt" TIMESTAMP(3),
   ADD COLUMN "medicareRateScheduleId" TEXT;
 
 ALTER TABLE "MedicareRateSchedule"
