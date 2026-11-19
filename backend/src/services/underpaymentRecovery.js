@@ -114,6 +114,7 @@ export async function resolveUnderpaymentExpectation(
     },
     include: {
       feeScheduleLines: { include: { sourceDocument: true } },
+      provisions: { include: { sourceDocument: true }, orderBy: { priority: "asc" } },
       medicareRateSchedule: { include: { lines: true } }
     },
     orderBy: { effectiveFrom: "desc" }
