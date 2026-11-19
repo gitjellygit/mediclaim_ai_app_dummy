@@ -317,7 +317,7 @@ test("#035 - equally specific duplicate fee lines stop automatic pricing", () =>
   );
 
   assert.equal(result.available, false);
-  assert.equal(result.reason, "INCOMPLETE_FEE_SCHEDULE");
+  assert.equal(result.reason, "AMBIGUOUS_FEE_SCHEDULE_MATCH");
   assert.equal(result.unmatchedLines[0].reason, "AMBIGUOUS_FEE_SCHEDULE_MATCH");
   assert.deepEqual(result.unmatchedLines[0].candidateFeeScheduleLineIds, ["duplicate-a", "duplicate-b"]);
 });
