@@ -11,6 +11,15 @@ function claim(overrides = {}) {
     payerName: "Blue Health",
     payerEdiId: "12345",
     dateOfService: "2026-10-10",
+    patientResponsibility: 0,
+    fieldProvenance: {
+      patientResponsibility: {
+        source: "PAYER_835",
+        label: "835 ERA",
+        sourceDetail: "Test remittance",
+        verified: true
+      }
+    },
     serviceLines: [],
     ...overrides
   };
@@ -134,4 +143,76 @@ test("contract calculation rejects an explicit zero-unit service line", () => {
   assert.equal(result.available, false);
   assert.equal(result.reason, "INCOMPLETE_FEE_SCHEDULE");
   assert.equal(result.unmatchedLines[0].reason, "INVALID_RATE_OR_UNITS");
+});
+
+
+test("#031 - contract allowance subtracts verified patient share before payer variance", () => {
+  const priced = calculateContractExpectedPayment(
+    claim({
+      patientResponsibility: 30,
+      paidAmount: 120,
+      fieldProvenance: {
+        patientResponsibility: {
+          source: "PAYER_835",
+          label: "835 ERA",
+          sourceDetail: "Posted remittance",
+          verified: true
+        }
+      },
+      serviceLines: [{
+        id: "line-031",
+        cptHcpcsCode: "99215",
+        modifiers: [],
+        placeOfService: "11",
+        units: 1,
+        verified: true
+      }]
+    }),
+    contract({
+      feeScheduleLines: [
+        { id: "fee-031", cptHcpcsCode: "99215", modifier: null, placeOfService: null, unitRate: "150.00" }
+      ]
+    })
+  );
+
+  assert.equal(priced.available, true);
+  assert.equal(priced.contractualAllowedAmount, 150);
+  assert.equal(priced.patientResponsibility, 30);
+  assert.equal(priced.expectedPayerPayment, 120);
+  assert.deepEqual(priced.components.contractualAllowedAmount, {
+    amount: 150,
+    source: "CONTRACT_FEE_SCHEDULE",
+    contractId: "contract-1",
+    contractVersion: "2026.1"
+  });
+  assert.equal(priced.components.patientResponsibility.source, "PAYER_835");
+  assert.equal(priced.components.patientResponsibility.amount, 30);
+  assert.equal(priced.components.expectedPayerPayment.amount, 120);
+});
+
+test("#031 - contract pricing refuses to infer zero patient share without verified evidence", () => {
+  const priced = calculateContractExpectedPayment(
+    claim({
+      patientResponsibility: null,
+      fieldProvenance: {},
+      serviceLines: [{
+        id: "line-unverified-share",
+        cptHcpcsCode: "99215",
+        modifiers: [],
+        placeOfService: "11",
+        units: 1,
+        verified: true
+      }]
+    }),
+    contract({
+      feeScheduleLines: [
+        { id: "fee-unverified-share", cptHcpcsCode: "99215", unitRate: "150.00" }
+      ]
+    })
+  );
+
+  assert.equal(priced.available, false);
+  assert.equal(priced.reason, "PATIENT_RESPONSIBILITY_NOT_VERIFIED");
+  assert.equal(priced.contractualAllowedAmount, 150);
+  assert.equal(priced.components.expectedPayerPayment.amount, null);
 });

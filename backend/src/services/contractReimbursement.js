@@ -82,7 +82,38 @@ function feeLineScore(fee, serviceLine) {
   return score;
 }
 
-export function calculateContractExpectedPayment(claim, contract) {
+function verifiedPatientResponsibility(claim, explicitEvidence = null) {
+  if (explicitEvidence?.amount != null) {
+    const explicitAmount = validMoney(explicitEvidence.amount);
+    if (explicitAmount != null) {
+      return {
+        amount: Number(explicitAmount),
+        source: explicitEvidence.source || "PAYER_REMITTANCE",
+        label: explicitEvidence.label || "Payer-reported patient responsibility",
+        sourceDetail: explicitEvidence.sourceDetail || null
+      };
+    }
+  }
+
+  const amount = validMoney(claim?.patientResponsibility);
+  if (amount == null) return null;
+
+  const provenance = claim?.fieldProvenance?.patientResponsibility || null;
+  if (!provenance || provenance.verified !== true) return null;
+
+  return {
+    amount: Number(amount),
+    source: provenance.source || "VERIFIED_CLAIM_FIELD",
+    label: provenance.label || "Verified patient responsibility",
+    sourceDetail: provenance.sourceDetail || null
+  };
+}
+
+export function calculateContractExpectedPayment(
+  claim,
+  contract,
+  { patientResponsibilityEvidence = null } = {}
+) {
   if (!claim || !contract) {
     return { available: false, reason: "CONTRACT_NOT_AVAILABLE" };
   }
@@ -166,7 +197,59 @@ export function calculateContractExpectedPayment(claim, contract) {
     };
   }
 
-  const expectedPayerPayment = Number(moneyFromCents(expectedCents));
+  const contractualAllowedAmount = Number(moneyFromCents(expectedCents));
+  const patientShare = verifiedPatientResponsibility(
+    claim,
+    patientResponsibilityEvidence
+  );
+
+  if (!patientShare) {
+    return {
+      available: false,
+      reason: "PATIENT_RESPONSIBILITY_NOT_VERIFIED",
+      contractId: contract.id,
+      contractName: contract.name,
+      contractVersion: contract.version,
+      effectiveFrom: contract.effectiveFrom,
+      effectiveTo: contract.effectiveTo || null,
+      contractualAllowedAmount,
+      calculatedLines,
+      components: {
+        contractualAllowedAmount: {
+          amount: contractualAllowedAmount,
+          source: "CONTRACT_FEE_SCHEDULE",
+          contractId: contract.id,
+          contractVersion: contract.version
+        },
+        patientResponsibility: {
+          amount: claim?.patientResponsibility == null
+            ? null
+            : Number(claim.patientResponsibility),
+          source: "UNVERIFIED"
+        },
+        expectedPayerPayment: {
+          amount: null,
+          source: "CANNOT_VERIFY"
+        }
+      }
+    };
+  }
+
+  const expectedPayerCents = expectedCents - moneyCents(patientShare.amount);
+  if (expectedPayerCents < 0n) {
+    return {
+      available: false,
+      reason: "PATIENT_RESPONSIBILITY_EXCEEDS_CONTRACT_ALLOWANCE",
+      contractId: contract.id,
+      contractName: contract.name,
+      contractVersion: contract.version,
+      contractualAllowedAmount,
+      patientResponsibility: patientShare.amount,
+      calculatedLines
+    };
+  }
+
+  const expectedPayerPayment = Number(moneyFromCents(expectedPayerCents));
   return {
     available: true,
     source: "CONTRACT_FEE_SCHEDULE",
@@ -175,7 +258,23 @@ export function calculateContractExpectedPayment(claim, contract) {
     contractVersion: contract.version,
     effectiveFrom: contract.effectiveFrom,
     effectiveTo: contract.effectiveTo || null,
+    contractualAllowedAmount,
+    patientResponsibility: patientShare.amount,
     expectedPayerPayment,
+    components: {
+      contractualAllowedAmount: {
+        amount: contractualAllowedAmount,
+        source: "CONTRACT_FEE_SCHEDULE",
+        contractId: contract.id,
+        contractVersion: contract.version
+      },
+      patientResponsibility: patientShare,
+      expectedPayerPayment: {
+        amount: expectedPayerPayment,
+        source: "DERIVED",
+        formula: "contractualAllowedAmount - verifiedPatientResponsibility"
+      }
+    },
     calculatedLines
   };
 }
