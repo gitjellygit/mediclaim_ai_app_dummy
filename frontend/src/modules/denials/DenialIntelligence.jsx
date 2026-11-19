@@ -592,7 +592,9 @@ export default function DenialIntelligence() {
                           }
                         />
                         <Typography variant="caption" color="text.secondary">
-                          {row.aiConfidence ?? "—"}% confidence
+                          {row.aiProvider === "OPENAI"
+                            ? `Model-reported signal: ${row.aiConfidence ?? "—"}%`
+                            : "Rule-based heuristic signal"}
                         </Typography>
                       </Stack>
                     ) : (
@@ -896,7 +898,11 @@ export default function DenialIntelligence() {
                     />
                     <Chip
                       size="small"
-                      label={`${detail.aiConfidence ?? "—"}% confidence`}
+                      label={
+                        detail.aiProvider === "OPENAI"
+                          ? `Model-reported signal: ${detail.aiConfidence ?? "—"}%`
+                          : "Rule-based heuristic signal"
+                      }
                       variant="outlined"
                     />
                     <Chip
