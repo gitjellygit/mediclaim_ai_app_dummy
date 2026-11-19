@@ -28,3 +28,22 @@ Batch 1A is complete only after:
 3. PR is merged to `main`
 4. hosted demo is updated
 5. the four financial behaviors above are verified in the hosted environment
+
+
+## Batch 1B — Readiness and truthfulness
+
+This batch addresses four original checklist items from the November 17 review.
+
+| Checklist item | Status in this PR | Acceptance addressed |
+| --- | --- | --- |
+| #021 Policy/rule effective-date semantics | Implemented; automated test added; VPS verification pending | Payer/clinical configured-rule windows use service date; WORKFLOW rules remain evaluation-time based |
+| #022 Missing authoritative code reference signal | Implemented; automated test added; VPS verification pending | Required ICD/CPT reference data absence creates an explicit blocking issue instead of an empty issue list |
+| #061 Readiness/risk semantics | Implemented; UI regression added; VPS verification pending | Validation readiness and rules-based risk are labeled as distinct signals, not payer outcome probabilities |
+| #062 Heuristic confidence labels | Implemented; automated/UI regression added; VPS verification pending | Fixed document/denial heuristics are labeled heuristic/model-reported rather than measured correctness probability |
+
+### Program status after Batch 1B opens
+
+- Closed and merged: #032, #039
+- In progress in Batch 1B: #021, #022, #061, #062
+- Still open: 94 checklist items
+- #031 remains open and is intentionally deferred to the contract/reimbursement foundation work; related patient-responsibility safeguards were added earlier but do not satisfy #031's acceptance criterion.

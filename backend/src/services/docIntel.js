@@ -396,46 +396,46 @@ export function classifyDocument({ fileName, text }) {
   const name = norm(fileName);
 
   if (hasAny(name, ["discharge"]) || hasAny(text, ["discharge summary"])) {
-    return { suggestedType: "DISCHARGE_SUMMARY", confidence: 88 };
+    return { suggestedType: "DISCHARGE_SUMMARY", confidence: 88, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (
     hasAny(name, ["breakup", "itemized", "itemised"]) ||
     hasAny(text, ["itemized bill", "itemised bill", "bill breakup"])
   ) {
-    return { suggestedType: "BREAKUP_BILL", confidence: 78 };
+    return { suggestedType: "BREAKUP_BILL", confidence: 78, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (
     hasAny(name, ["final bill", "invoice", "bill"]) ||
     hasAny(text, ["final bill", "grand total", "net amount", "total amount"])
   ) {
-    return { suggestedType: "FINAL_BILL", confidence: 84 };
+    return { suggestedType: "FINAL_BILL", confidence: 84, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (
     hasAny(name, ["lab", "pathology", "report"]) ||
     hasAny(text, ["laboratory", "pathology", "sample type", "report date"])
   ) {
-    return { suggestedType: "LAB_REPORT", confidence: 76 };
+    return { suggestedType: "LAB_REPORT", confidence: 76, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (
     hasAny(name, ["xray", "ct", "mri", "radiology"]) ||
     hasAny(text, ["radiology", "impression"])
   ) {
-    return { suggestedType: "RADIOLOGY", confidence: 74 };
+    return { suggestedType: "RADIOLOGY", confidence: 74, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (hasAny(name, ["prescription", "rx"]) || hasAny(text, ["prescription", "rx"])) {
-    return { suggestedType: "PRESCRIPTION", confidence: 72 };
+    return { suggestedType: "PRESCRIPTION", confidence: 72, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (
     hasAny(name, ["drivers license", "driver license", "state id", "passport"]) ||
     hasAny(text, ["driver license", "drivers license", "state identification", "passport number"])
   ) {
-    return { suggestedType: "ID_PROOF", confidence: 80 };
+    return { suggestedType: "ID_PROOF", confidence: 80, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (
@@ -449,38 +449,38 @@ export function classifyDocument({ fileName, text }) {
       "authorization determination"
     ])
   ) {
-    return { suggestedType: "PRIOR_AUTHORIZATION", confidence: 86 };
+    return { suggestedType: "PRIOR_AUTHORIZATION", confidence: 86, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (
     hasAny(name, ["insurance card", "id card", "member card"]) ||
     hasAny(text, ["insurance card", "member identification", "policy holder", "group number"])
   ) {
-    return { suggestedType: "INSURANCE_CARD", confidence: 82 };
+    return { suggestedType: "INSURANCE_CARD", confidence: 82, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (
     hasAny(name, ["progress note", "daily note", "clinical note"]) ||
     hasAny(text, ["progress note", "daily progress", "clinical documentation"])
   ) {
-    return { suggestedType: "PROGRESS_NOTE", confidence: 76 };
+    return { suggestedType: "PROGRESS_NOTE", confidence: 76, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (
     hasAny(name, ["operative note", "op note", "surgery"]) ||
     hasAny(text, ["operative note", "procedure performed", "surgical procedure"])
   ) {
-    return { suggestedType: "OPERATIVE_NOTE", confidence: 78 };
+    return { suggestedType: "OPERATIVE_NOTE", confidence: 78, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
   if (
     hasAny(name, ["eob", "explanation of benefits"]) ||
     hasAny(text, ["explanation of benefits", "eob", "this is not a bill"])
   ) {
-    return { suggestedType: "EOB", confidence: 85 };
+    return { suggestedType: "EOB", confidence: 85, confidenceKind: "HEURISTIC_RULE_SCORE" };
   }
 
-  return { suggestedType: "OTHER", confidence: 55 };
+  return { suggestedType: "OTHER", confidence: 55, confidenceKind: "HEURISTIC_RULE_SCORE" };
 }
 
 export async function analyzeDocument({ fileName, mimeType, path: filePath }, { ocrExtractor = extractTextWithTextract, pdfExtractor = extractPdfText } = {}) {
@@ -537,6 +537,7 @@ export async function analyzeDocument({ fileName, mimeType, path: filePath }, { 
     extracted,
     rawExtractedText: rawText || "",
     extractionConfidence,
+    extractionConfidenceKind: "HEURISTIC_FIELD_COVERAGE",
     extractionSource: ocrProvider,
     ocrProvider,
     ocrStatus

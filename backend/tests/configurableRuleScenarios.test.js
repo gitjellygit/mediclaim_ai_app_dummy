@@ -322,7 +322,10 @@ test("expired rule does not apply after effective-to date", () => {
   });
   assert.equal(
     evaluateConfiguredRules(
-      claim({ memberId: null }),
+      claim({
+        memberId: null,
+        dateOfService: new Date("2026-10-16T00:00:00.000Z")
+      }),
       [expired],
       { now: new Date("2026-10-16T00:00:00.000Z") }
     ).length,
