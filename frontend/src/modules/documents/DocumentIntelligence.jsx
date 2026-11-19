@@ -535,7 +535,7 @@ export default function DocumentIntelligence() {
                     </TableCell>
                     <TableCell><TableSortLabel active={sort === "fileName"} direction={sort === "fileName" ? direction : "asc"} onClick={() => handleSort("fileName")}>File Name</TableSortLabel></TableCell>
                     <TableCell><TableSortLabel active={sort === "type"} direction={sort === "type" ? direction : "asc"} onClick={() => handleSort("type")}>Type</TableSortLabel></TableCell>
-                    <TableCell><TableSortLabel active={sort === "confidence"} direction={sort === "confidence" ? direction : "desc"} onClick={() => handleSort("confidence")}>Confidence</TableSortLabel></TableCell>
+                    <TableCell><TableSortLabel active={sort === "confidence"} direction={sort === "confidence" ? direction : "desc"} onClick={() => handleSort("confidence")}>Classification signal</TableSortLabel></TableCell>
                     <TableCell><TableSortLabel active={sort === "patientName"} direction={sort === "patientName" ? direction : "asc"} onClick={() => handleSort("patientName")}>Patient</TableSortLabel></TableCell>
                     <TableCell>Coding</TableCell>
                     <TableCell>Actions</TableCell>
@@ -556,7 +556,11 @@ export default function DocumentIntelligence() {
                       <TableCell>{doc.type}</TableCell>
 
                       <TableCell>
-                        {doc.confidence ? `${doc.confidence}%` : "-"}
+                        {doc.confidence ? (
+                          <Tooltip title="Rule-based heuristic used for document classification. This is not a measured probability of correctness." arrow>
+                            <Chip size="small" variant="outlined" label="Heuristic signal" />
+                          </Tooltip>
+                        ) : "-"}
                       </TableCell>
 
                       <TableCell>
