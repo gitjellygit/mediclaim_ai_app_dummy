@@ -76,3 +76,20 @@ Golden cases:
 - lesser-of-charge
 - unapproved provision
 - unsupported clause routed to review
+
+
+## Batch 2F — Institutional and alternative pricing scope
+
+| Checklist item | Status in this branch | Acceptance addressed |
+| --- | --- | --- |
+| #038 | Implemented; scope tests added; CI pending | Institutional fee-schedule pricing and case-rate, per-diem, capitation and value-based methods are each explicitly recognized; unsupported methods fail closed with CONTRACT_REVIEW instead of being flattened into professional fee-schedule math |
+
+Current support boundary:
+- Professional FEE_SCHEDULE: supported
+- Professional PERCENT_MEDICARE: supported
+- Professional PERCENT_CHARGE: supported
+- Institutional FEE_SCHEDULE: manual review required
+- CASE_RATE: manual review required
+- PER_DIEM: manual review required
+- CAPITATION: manual review required
+- VALUE_BASED: manual review required
