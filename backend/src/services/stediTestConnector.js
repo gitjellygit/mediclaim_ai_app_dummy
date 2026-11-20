@@ -333,6 +333,15 @@ function subtractMoneyFloorZero(a, b) {
   }
 }
 
+function adjustmentResponsibility(groupCode) {
+  return {
+    PR: "PATIENT",
+    CO: "PROVIDER_CONTRACTUAL",
+    PI: "PAYER_INITIATED",
+    OA: "OTHER_ADJUSTMENT"
+  }[String(groupCode || "").toUpperCase()] || "UNKNOWN";
+}
+
 function normalizeAdjustmentRows(rows = [], scope = "CLAIM") {
   const normalized = [];
   for (const row of rows || []) {
@@ -348,7 +357,19 @@ function normalizeAdjustmentRows(rows = [], scope = "CLAIM") {
         groupDescription: row?.claimAdjustmentGroupCodeValue || null,
         reasonCode: code || null,
         reason: description,
-        amount
+        amount,
+        payerStatedResponsibility: adjustmentResponsibility(groupCode),
+        payerStatedReason: {
+          groupCode,
+          groupDescription: row?.claimAdjustmentGroupCodeValue || null,
+          reasonCode: code || null,
+          description
+        },
+        contractInterpretation: {
+          status: "NOT_EVALUATED",
+          explanation: null
+        },
+        discrepancyStatus: "UNRESOLVED"
       });
     }
   }
@@ -376,6 +397,104 @@ function serviceAllowedAmount(payment = {}) {
     .map((line) => moneyOrNull(line?.serviceSupplementalAmounts?.allowedActual))
     .filter((value) => value != null);
   return values.length ? sumMoney(values) : null;
+}
+
+function normalizedEraServiceLine(line = {}) {
+  const payment = line?.servicePaymentInformation || {};
+  return {
+    lineItemControlNumber: line?.lineItemControlNumber || null,
+    procedureCode: payment?.adjudicatedProcedureCode || null,
+    billedAmount: moneyOrNull(payment?.lineItemChargeAmount),
+    paidAmount: moneyOrNull(payment?.lineItemProviderPaymentAmount),
+    allowedAmount: moneyOrNull(line?.serviceSupplementalAmounts?.allowedActual),
+    adjustments: normalizeAdjustmentRows(
+      line?.serviceAdjustments || [],
+      "SERVICE"
+    ).map((item) => ({
+      ...item,
+      lineItemControlNumber: line?.lineItemControlNumber || null,
+      procedureCode: payment?.adjudicatedProcedureCode || null
+    }))
+  };
+}
+
+export function reconcileEraServiceLines(serviceLines = [], eraLines = []) {
+  const submitted = (serviceLines || []).map((line) => ({
+    id: String(line?.id || ""),
+    procedureCode: String(line?.cptHcpcsCode || "").toUpperCase()
+  }));
+  const byId = new Map(submitted.filter((line) => line.id).map((line) => [line.id, line]));
+  const matched = [];
+  const unmatched = [];
+
+  for (const eraLine of eraLines || []) {
+    const control = String(eraLine?.lineItemControlNumber || "");
+    let target = control ? byId.get(control) || null : null;
+    let matchMethod = target ? "ORIGINAL_LINE_IDENTIFIER" : null;
+
+    if (!target && eraLine?.procedureCode) {
+      const code = String(eraLine.procedureCode).toUpperCase();
+      const candidates = submitted.filter((line) => line.procedureCode === code);
+      if (candidates.length === 1) {
+        target = candidates[0];
+        matchMethod = "UNIQUE_PROCEDURE_CODE";
+      }
+    }
+
+    if (!target) {
+      unmatched.push({
+        ...eraLine,
+        reason: control
+          ? "ORIGINAL_LINE_IDENTIFIER_NOT_FOUND"
+          : "SERVICE_LINE_MATCH_AMBIGUOUS_OR_MISSING"
+      });
+      continue;
+    }
+
+    matched.push({
+      serviceLineId: target.id,
+      originalLineIdentifier: target.id,
+      matchMethod,
+      eraLine: eraLine
+    });
+  }
+
+  const grouped = new Map();
+  for (const item of matched) {
+    const existing = grouped.get(item.serviceLineId) || {
+      serviceLineId: item.serviceLineId,
+      originalLineIdentifier: item.originalLineIdentifier,
+      matchMethods: [],
+      eraLineCount: 0,
+      billedAmount: 0,
+      allowedAmount: 0,
+      paidAmount: 0,
+      adjustments: []
+    };
+    existing.matchMethods.push(item.matchMethod);
+    existing.eraLineCount += 1;
+    for (const field of ["billedAmount", "allowedAmount", "paidAmount"]) {
+      if (item.eraLine?.[field] != null) {
+        existing[field] = Number(
+          moneyFromCents(
+            moneyCents(existing[field] || 0, { allowNegative: true }) +
+            moneyCents(item.eraLine[field], { allowNegative: true })
+          )
+        );
+      }
+    }
+    existing.adjustments.push(...(item.eraLine?.adjustments || []));
+    grouped.set(item.serviceLineId, existing);
+  }
+
+  return {
+    status: unmatched.length ? "REVIEW_REQUIRED" : "RECONCILED",
+    matchedLines: [...grouped.values()],
+    unmatchedLines: unmatched,
+    splitLineGroups: [...grouped.values()]
+      .filter((item) => item.eraLineCount > 1)
+      .map((item) => item.serviceLineId)
+  };
 }
 
 export function normalizeStedi835Report(
@@ -424,13 +543,11 @@ export function normalizeStedi835Report(
     payment?.claimAdjustments || [],
     "CLAIM"
   );
-  const serviceAdjustments = (payment?.serviceLines || []).flatMap((line) =>
-    normalizeAdjustmentRows(line?.serviceAdjustments || [], "SERVICE").map((item) => ({
-      ...item,
-      lineItemControlNumber: line?.lineItemControlNumber || null,
-      procedureCode:
-        line?.servicePaymentInformation?.adjudicatedProcedureCode || null
-    }))
+  const serviceLineAdjudications = (payment?.serviceLines || []).map(
+    normalizedEraServiceLine
+  );
+  const serviceAdjustments = serviceLineAdjudications.flatMap(
+    (line) => line.adjustments || []
   );
   const allowedAmount = serviceAllowedAmount(payment);
   const paidAmount = moneyOrNull(claimPayment.claimPaymentAmount);
@@ -470,6 +587,7 @@ export function normalizeStedi835Report(
     payeeNpi: transaction?.payee?.npi || null,
     memberId: payment?.patientName?.memberId || null,
     adjustments: [...claimAdjustments, ...serviceAdjustments],
+    serviceLineAdjudications,
     transactionType: "835",
     latencyMs,
     testMode: String(body?.meta?.applicationMode || "").toLowerCase() === "test",
@@ -1336,14 +1454,23 @@ export function createStediTestConnector({
           fetchImpl,
           signal: connectorSignal(context.signal)
         });
-        return normalizeStedi835Report(body, {
+        const normalized = normalizeStedi835Report(body, {
           expectedPatientControlNumber,
           transactionId: context.transactionId,
           latencyMs
         });
+        return normalized.status === "POSTED"
+          ? {
+              ...normalized,
+              serviceLineReconciliation: reconcileEraServiceLines(
+                claim?.serviceLines || [],
+                normalized.serviceLineAdjudications || []
+              )
+            }
+          : normalized;
       }
 
-      return discoverStedi835({
+      const discovered = await discoverStedi835({
         expectedPatientControlNumber,
         startDateTime:
           context.startDateTime ||
@@ -1355,6 +1482,15 @@ export function createStediTestConnector({
         fetchImpl,
         signal: connectorSignal(context.signal)
       });
+      return discovered.status === "POSTED"
+        ? {
+            ...discovered,
+            serviceLineReconciliation: reconcileEraServiceLines(
+              claim?.serviceLines || [],
+              discovered.serviceLineAdjudications || []
+            )
+          }
+        : discovered;
     }
   });
 }
@@ -1573,11 +1709,20 @@ export function createStediProductionConnector({
           fetchImpl,
           signal: connectorSignal(context.signal)
         });
-        return normalizeStedi835Report(body, {
+        const normalized = normalizeStedi835Report(body, {
           expectedPatientControlNumber,
           transactionId: context.transactionId,
           latencyMs
         });
+        return normalized.status === "POSTED"
+          ? {
+              ...normalized,
+              serviceLineReconciliation: reconcileEraServiceLines(
+                claim?.serviceLines || [],
+                normalized.serviceLineAdjudications || []
+              )
+            }
+          : normalized;
       }
 
       const result = await discoverStedi835({
@@ -1594,6 +1739,14 @@ export function createStediProductionConnector({
       });
       return {
         ...result,
+        ...(result.status === "POSTED"
+          ? {
+              serviceLineReconciliation: reconcileEraServiceLines(
+                claim?.serviceLines || [],
+                result.serviceLineAdjudications || []
+              )
+            }
+          : {}),
         testMode: false
       };
     }

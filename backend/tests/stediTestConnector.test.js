@@ -11,6 +11,7 @@ import {
   normalizeStediClaimStatusResponse,
   normalizeStediEligibilityResponse,
   normalizeStedi835Report,
+  reconcileEraServiceLines,
   searchStediPayers
 } from "../src/services/stediTestConnector.js";
 
@@ -708,6 +709,18 @@ test("R4 - normalizes matched 835 ERA financials and adjustments", () => {
   assert.equal(result.paymentReference, "EFT-10001");
   assert.equal(result.adjustments[0].groupCode, "CO");
   assert.equal(result.adjustments[0].reasonCode, "45");
+  assert.equal(result.adjustments[0].payerStatedResponsibility, "PROVIDER_CONTRACTUAL");
+  assert.deepEqual(result.adjustments[0].contractInterpretation, {
+    status: "NOT_EVALUATED",
+    explanation: null
+  });
+  assert.equal(result.adjustments[0].discrepancyStatus, "UNRESOLVED");
+  assert.equal(result.serviceLineAdjudications.length, 1);
+  assert.equal(result.serviceLineAdjudications[0].lineItemControlNumber, "LINE-1");
+  assert.equal(result.serviceLineAdjudications[0].procedureCode, "99213");
+  assert.equal(result.serviceLineAdjudications[0].billedAmount, 1000);
+  assert.equal(result.serviceLineAdjudications[0].allowedAmount, 800);
+  assert.equal(result.serviceLineAdjudications[0].paidAmount, 650);
   assert.equal(result.testMode, true);
 });
 
@@ -1139,4 +1152,141 @@ test("Submission safety - unchanged Stedi claim retries reuse payload hash and i
     captured[1].options.headers["Idempotency-Key"]
   );
   assert.equal(captured[0].options.body, captured[1].options.body);
+});
+
+
+test("#041 - ERA line reconciliation preserves original submitted line identifiers", () => {
+  const result = reconcileEraServiceLines(
+    [
+      { id: "LINE-1", cptHcpcsCode: "99213" },
+      { id: "LINE-2", cptHcpcsCode: "93000" }
+    ],
+    [
+      {
+        lineItemControlNumber: "LINE-1",
+        procedureCode: "99213",
+        billedAmount: 100,
+        allowedAmount: 80,
+        paidAmount: 70,
+        adjustments: []
+      },
+      {
+        lineItemControlNumber: "LINE-2",
+        procedureCode: "93000",
+        billedAmount: 50,
+        allowedAmount: 40,
+        paidAmount: 35,
+        adjustments: []
+      }
+    ]
+  );
+
+  assert.equal(result.status, "RECONCILED");
+  assert.equal(result.unmatchedLines.length, 0);
+  assert.deepEqual(
+    result.matchedLines.map((line) => line.originalLineIdentifier).sort(),
+    ["LINE-1", "LINE-2"]
+  );
+  assert.ok(result.matchedLines.every((line) =>
+    line.matchMethods.includes("ORIGINAL_LINE_IDENTIFIER")
+  ));
+});
+
+test("#041 - split ERA lines aggregate against one submitted service line", () => {
+  const result = reconcileEraServiceLines(
+    [{ id: "LINE-SPLIT", cptHcpcsCode: "97110" }],
+    [
+      {
+        lineItemControlNumber: "LINE-SPLIT",
+        procedureCode: "97110",
+        billedAmount: 60,
+        allowedAmount: 40,
+        paidAmount: 30,
+        adjustments: []
+      },
+      {
+        lineItemControlNumber: "LINE-SPLIT",
+        procedureCode: "97110",
+        billedAmount: 40,
+        allowedAmount: 30,
+        paidAmount: 25,
+        adjustments: []
+      }
+    ]
+  );
+
+  assert.equal(result.status, "RECONCILED");
+  assert.deepEqual(result.splitLineGroups, ["LINE-SPLIT"]);
+  assert.equal(result.matchedLines[0].eraLineCount, 2);
+  assert.equal(result.matchedLines[0].billedAmount, 100);
+  assert.equal(result.matchedLines[0].allowedAmount, 70);
+  assert.equal(result.matchedLines[0].paidAmount, 55);
+});
+
+test("#041 - combined or ambiguous ERA line enters unmatched review instead of guessing", () => {
+  const result = reconcileEraServiceLines(
+    [
+      { id: "LINE-A", cptHcpcsCode: "99213" },
+      { id: "LINE-B", cptHcpcsCode: "99213" }
+    ],
+    [{
+      lineItemControlNumber: null,
+      procedureCode: "99213",
+      billedAmount: 200,
+      allowedAmount: 150,
+      paidAmount: 120,
+      adjustments: []
+    }]
+  );
+
+  assert.equal(result.status, "REVIEW_REQUIRED");
+  assert.equal(result.matchedLines.length, 0);
+  assert.equal(result.unmatchedLines.length, 1);
+  assert.equal(
+    result.unmatchedLines[0].reason,
+    "SERVICE_LINE_MATCH_AMBIGUOUS_OR_MISSING"
+  );
+});
+
+test("#042 - payer adjustment evidence stays separate from contract interpretation", () => {
+  const result = normalizeStedi835Report({
+    transactions: [{
+      detailInfo: [{
+        paymentInfo: [{
+          claimPaymentInfo: {
+            patientControlNumber: "PCN-42",
+            totalClaimChargeAmount: "100",
+            claimPaymentAmount: "60",
+            patientResponsibilityAmount: "10"
+          },
+          claimAdjustments: [{
+            claimAdjustmentGroupCode: "PR",
+            claimAdjustmentGroupCodeValue: "Patient Responsibility",
+            adjustmentReasonCode1: "1",
+            adjustmentReason1: "Deductible Amount",
+            adjustmentAmount1: "10.00"
+          }],
+          serviceLines: [{
+            lineItemControlNumber: "LINE-42",
+            servicePaymentInformation: {
+              adjudicatedProcedureCode: "99213",
+              lineItemChargeAmount: "100",
+              lineItemProviderPaymentAmount: "60"
+            },
+            serviceSupplementalAmounts: { allowedActual: "70" }
+          }]
+        }]
+      }]
+    }]
+  }, { expectedPatientControlNumber: "PCN-42" });
+
+  const adjustment = result.adjustments[0];
+  assert.equal(adjustment.groupCode, "PR");
+  assert.equal(adjustment.reasonCode, "1");
+  assert.equal(adjustment.amount, 10);
+  assert.equal(adjustment.payerStatedResponsibility, "PATIENT");
+  assert.equal(adjustment.payerStatedReason.description, "Deductible Amount");
+  assert.equal(adjustment.contractInterpretation.status, "NOT_EVALUATED");
+  assert.equal(adjustment.contractInterpretation.explanation, null);
+  assert.equal(adjustment.discrepancyStatus, "UNRESOLVED");
 });
