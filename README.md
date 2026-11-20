@@ -3,6 +3,24 @@
 > Development/demo application. Do not use real PHI or describe this build as
 > production-ready until the deferred security/HIPAA gate is completed.
 
+## Project handoff and continuity
+
+PRISM does not rely on one long chat or one developer's local context as the
+project memory. Before starting substantial work, read:
+
+1. [PRISM master context](docs/PRISM_MASTER_CONTEXT.md)
+2. [PRISM current state](docs/PRISM_CURRENT_STATE.md)
+3. [PRISM 100-item remediation tracker](docs/PRISM_100_ITEM_REMEDIATION.md)
+4. [PRISM architecture decisions](docs/PRISM_ARCHITECTURE_DECISIONS.md)
+5. [PRISM chat/handoff protocol](docs/PRISM_CHAT_HANDOFF_PROTOCOL.md)
+
+Then verify current `main`, open PRs, CI, and affected files live in GitHub.
+GitHub is authoritative when a handoff snapshot is stale.
+
+The current-state file is intentionally compact and should be refreshed after
+meaningful merges, deployment changes, architecture decisions, or a change in
+the active remediation batch.
+
 ## Fresh local setup
 
 ### 1. Start PostgreSQL
