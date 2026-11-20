@@ -58,7 +58,7 @@ This batch addresses four original checklist items from the November 17 review.
 
 | Checklist item | Status in this branch | Acceptance addressed |
 | --- | --- | --- |
-| #034 | Implemented; automated + E2E coverage added; CI pending | Contract/schedule/amendment source documents are first-class; every executable fee term carries document/page-or-clause provenance and review metadata; unapproved extracted terms cannot price claims |
+| #034 | Merged in PR #235; automated + E2E coverage passed; VPS verification pending | Contract/schedule/amendment source documents are first-class; every executable fee term carries document/page-or-clause provenance and review metadata; unapproved extracted terms cannot price claims |
 
 Safety behavior:
 - newly ingested contract terms start PENDING
@@ -67,16 +67,32 @@ Safety behavior:
 - pricing ignores non-approved/unprovenanced terms and returns CONTRACT_TERM_REVIEW_REQUIRED
 - calculation snapshots retain term-level source and reviewer provenance
 
-## Batch 3A — ERA line adjudication and payer-stated adjustments
 
-| Checklist item | Status in this branch | Acceptance addressed |
-| --- | --- | --- |
-| #041 | Implemented; automated tests added; CI pending | ERA service lines preserve line control identifiers, reconcile to submitted service-line IDs, aggregate split lines, and route ambiguous combined lines to review |
-| #042 | Implemented; automated tests added; CI pending | Adjustment group/CARC/amount and payer-stated responsibility remain distinct from contract interpretation; unresolved discrepancies are labeled unresolved |
+## Program status snapshot — 2026-11-20
 
-Reconciliation principles:
-- original 837 service-line identifier is the primary match key
-- unique procedure-code fallback is allowed only when unambiguous
-- multiple ERA fragments may aggregate to one submitted line
-- ambiguous/missing mappings are never guessed
-- payer-stated reasons are evidence, not automatically verified contract conclusions
+### Fully merged implementation — 10 / 100
+
+- #021 — policy/rule effective-date semantics
+- #022 — unavailable authoritative code-reference signal
+- #031 — contract allowance vs verified patient share vs expected payer liability
+- #032 — strict payer/contract identity behavior
+- #034 — source provenance + human approval for executable contract terms
+- #039 — explicit zero-unit handling
+- #041 — ERA service-line reconciliation to original submitted line identity
+- #042 — payer-stated adjustment evidence kept separate from contract interpretation
+- #061 — truthful readiness/risk semantics
+- #062 — truthful heuristic/model signal labels
+
+### Engineered but not merged
+
+The following retained branches contain prior implementation work that must be reconciled with current `main` before being counted as done:
+
+- #033, #035, #040 — contract applicability / ambiguity / truthful expected-payment basis
+- #036 — percentage-of-Medicare / percentage-of-charge pricing
+- #037 — reviewed modifier / multiple-procedure / bundling / lesser-of provisions
+- #038 — institutional and alternative pricing support boundary
+- #043, #044 — provider-level adjustments and append-only financial ledger
+
+### Next recommended implementation
+
+Rebuild #043/#044 from current `main` now that #041/#042 are merged, preserving the new ERA service-line reconciliation behavior.
